@@ -2852,6 +2852,9 @@ Some community distills claim a teacher model that cannot be checked.
   (channel markup), the Apertus mix, INTELLECT-3 re-mixes, Cascade-2 XML tool calls,
   CoT-Collection, roleplay in the Zephyr template, PersonaChat, RAG-Instruct, MOSS-002, and
   the LlamaFactory reasoning tool-use set (blocks keyed by `value`).
+  Since then the Nemotron-RL pivot sets, ToolBench (ToolLLaMA), smolagents tool-calling,
+  Cascade-2 XML tool calls and the LlamaFactory tool-use sets are read; see "Agentic chat at
+  full volume".
 - **Prompt-only or reward-model sets**, benchmarks and preference pairs whose rejected side is
   the only answer.
 - **Withheld problem text**: Post-Training v1 code, OpenCodeReasoning (1 and 2) and
@@ -2904,6 +2907,343 @@ What this means:
 - Recovery and clarification data.
 - Non-English agent and tool-use traces beyond the Chinese and translated sets.
 - The readers listed under "Need another reader first".
+
+## Agentic chat at full volume
+
+This section covers assistants that use tools or act in an environment without writing code
+as the main task: function calling, MCP servers, web search and deep research, customer-service
+agents in the style of tau-bench, text-only web and app agents, planning, and multilingual tool
+dialogues. A sweep of the Hub for such sets added 169 open sources
+(`configs/data/sources.agentic-chat.json`) and 5 that need a click on the Hub
+(`configs/data/sources.agentic-chat-gated.json`). Every source is pinned to a full revision and
+read at full volume. Any licence is accepted and recorded in `terms` (`approved: true`,
+reviewed by Gabriel Pickard on 2026-10-22); where a card gives no licence the entry says so.
+Licence flags worth knowing: the MiroVerse set and two Taiwanese sets (simon-tw-finance, twi)
+are non-commercial on the card, the Simia sets are non-commercial in their README only, the
+thirteen `dfm13-tooldialogue-*` sets say "no blanket licence grant", and 42 sets have no
+licence on the card.
+
+Coding trajectories were left to the coding sweep. The sets that contain both were split by
+file, subset or a row filter.
+
+### New row shapes
+
+Each shape below is a profile in `src/megatoken/data/adapters.py` with its reading code in
+`src/megatoken/data/dialects.py`; all have tests in `tests/test_agentic_adapters.py`.
+
+| Profile | Shape it reads |
+| --- | --- |
+| `harmony`, `harmony_tools` | gpt-oss "harmony" channel turns with tool recipients (the rl-rag and Nemotron-RL families) |
+| `tool_dict`, `responses`, `call_list` | calls stored as one dictionary per call, OpenAI Responses items, and lists of calls answered by lists of results (BUTTON) |
+| `device_calls` | tau2 style device calls where the final answer is a separate field and thinking is folded into `<think>` |
+| `environment_roles`, `react_function_agent` | ToolLLaMA style replies from a `function` role |
+| `tag_trace` | search, crawl and Python calls written between tags in one assistant output, with result tags (Tool-Star, AFM) |
+| `hermes_user_results` | Hermes calls whose results come back in a user turn (Simia tau) |
+| `glaive_messages`, `reasoning_roles` | Glaive calls inside messages, and reasoning-role traces |
+| hermes dialect | XML `<function=NAME><parameter=KEY>` bodies, several results in one tool message, packed JSON lists of results, `PythonInterpreter` code bodies, calls quoted inside thinking ignored |
+| Python-call dialect | fenced call blocks, non-JSON values such as `datetime(...)` kept as text |
+| call-role dialect | roles spelled `tool call` or `function-call`, a list of calls in one message, LlamaFactory `<think>..<tool_call>` text, and arguments written as a single-quoted JSON string |
+| chat reader | JSON-string messages decoded, empty user turns dropped when asked, tool parameters stored as a JSON string, xLAM flat parameter maps wrapped into a JSON Schema object |
+
+Two fixes outside the readers: a heading is never attached across the next heading in the text
+parser (long OpenClaw system prompts were held out before; ClawGym went from 0 of 32 to 32 of
+32 accepted), and the engine's seam diagnostics no longer reject valid rows. In the existing
+manifests, `api-bank-train` now takes its family from the `input` column (5 of 400 became 400
+of 400), `pythonic-function-calling` uses the Python-call reader (0 of 200 multi-turn rows
+became 189), the Nemotron Post-Training tool-calling entry reads all 13 tool files (about
+310k rows instead of one file) and `ultradata-agent-tool-use` filters out its copy of ToolMind.
+
+### How the sources were checked
+
+For every source a sample of up to 400 rows was read from the pinned revision and run through
+the real `megatoken prepare` with the manifest's adapter, field map and options. Outcomes per
+sample row are: accepted; rejected (the adapter could not read the row); filtered (the
+manifest's own row filter dropped it on purpose); duplicate or quarantined (the preparation
+step dropped a repeat of an earlier row, or capped many rows that share one first user prompt);
+and held out (the parser sent the episode to the review queue instead of writing it).
+Across the 169 sources, 44,374 sample rows gave 40,740 accepted episodes, 1,075 filtered rows,
+830 duplicates, 1,662 capped or quarantined, 26 held out and 41 rejected. Of the 43,299 rows
+not removed by a manifest filter, 41 (0.09%) were rejected, and 5 of those are rows the sample
+download cut off (aman-rlvr rows are 38 KB each and the sample limit truncated half of them).
+No source is above 5% except that truncated one. Before the last fixes four were: a Taiwanese
+and a Portuguese set whose tools use the xLAM flat parameter spelling (8.5% each), a Korean
+Glaive translation (6.8%) and a Vietnamese one (7.3%) (both with single-quoted arguments).
+
+The ds4-agentic-tool-calls source needs a caution: its roughly 5,000 rows have only 8 distinct
+task prompts, so the per-prompt cap keeps a small share (5 of 300 in the sample). The
+secai cybersecurity set starts with a cluster of repeated prompts; a sample spread across the
+whole file was accepted 300 of 300.
+
+### Sources
+
+Rows and text are estimates at full volume. Rows come from the Parquet footers, or from the
+stored file size divided by the size of a sample row; text is rows times the mean serialized row
+size, which is larger than the stored (compressed) size. Expected accepted is that count times
+the sample's accepted share (accepted divided by the rows the manifest's filter keeps).
+"Sample" columns are accepted, rejected and held-out counts out of the sample rows.
+Because samples are the first rows of a file, shares for sources with repeated prompts
+at the top are conservative.
+
+| Source id | Hub dataset | Licence | Rows | Text | Sample: accepted / rejected / held out (of sample rows) | Expected accepted rows | Expected accepted text |
+| --- | --- | --- | --- | --- | --- | --- | --- |
+| `nex-agent-sft-tool-calling` | `nex-agi/agent-sft` | odc-by | 57k | 448.9 MB | 400 / 0 / 0 of 400 | 57k | 448.9 MB |
+| `nex-agent-sft-deep-research` | `nex-agi/agent-sft` | odc-by | 14k | 2.7 GB | 21 / 0 / 0 of 21 | 14k | 2.7 GB |
+| `nex-agent-sft-agent` | `nex-agi/agent-sft` | odc-by | 10k | 1.6 GB | 24 / 0 / 1 of 25 | 9k | 1.6 GB |
+| `miroverse-v01-sft` | `miromind-ai/MiroVerse-v0.1` | cc-by-nc-4.0 | 150k | 8.3 GB | 73 / 0 / 0 of 73 | 150k | 8.3 GB |
+| `nexus-agents-toolcalling` | `NexusProjectsAI/Nexus-Agents-ToolCalling` | apache-2.0 | 600k | 6.2 GB | 387 / 0 / 0 of 390 | 596k | 6.1 GB |
+| `midtool-native-agent-traj` | `RedMod/MidTool-Mix-shuffled` | midtool-mix-license | 425k | 18.2 GB | 13 / 0 / 0 of 94 | 59k | 2.5 GB |
+| `r0b0tlab-multiteacher-sft-tools` | `r0b0tlab/qwen3.8-max-glm5.2-kimi-k3-distillation` | other | 5k | 46.7 MB | 384 / 16 / 0 of 400 | 5k | 44.8 MB |
+| `ds4-agentic-tool-calls` | `r0b0tlab/deepseek-v4-pro-0813-agentic` | other | 5k | 29.7 MB | 5 / 0 / 0 of 300 | 83 | 494.2 KB |
+| `ds4-agentic-dialogue-planning` | `r0b0tlab/deepseek-v4-pro-0813-agentic` | other | 3k | 17.3 MB | 241 / 0 / 0 of 400 | 3k | 17.3 MB |
+| `zhangdw-tau-train` | `zhangdw/to-tool-call-datasets` | apache-2.0 | 7k | 116.6 MB | 137 / 0 / 0 of 224 | 4k | 71.3 MB |
+| `zhangdw-looptool-23k` | `zhangdw/to-tool-call-datasets` | apache-2.0 | 24k | 443.3 MB | 217 / 0 / 4 of 221 | 24k | 435.3 MB |
+| `zhangdw-hardgen-bfcl` | `zhangdw/to-tool-call-datasets` | apache-2.0 | 8k | 199.6 MB | 105 / 0 / 0 of 152 | 5k | 137.9 MB |
+| `zhangdw-buttoninstruct` | `zhangdw/to-tool-call-datasets` | apache-2.0 | 18k | 117.6 MB | 397 / 0 / 0 of 400 | 18k | 116.7 MB |
+| `deep-research-sft-qwen35` | `1stprinciple/deep-research-sft-qwen35` | none on card | 80k | 4.5 GB | 45 / 0 / 0 of 72 | 50k | 2.8 GB |
+| `huggingenvs-data-agent-sft` | `HuggingEnvs/data-agent-sft` | mit | 5k | 35.7 MB | 400 / 0 / 0 of 400 | 5k | 35.7 MB |
+| `clawgym-trajectory` | `RUC-AIBOX/ClawGym-Trajectory` | none on card | 24k | 2.3 GB | 43 / 0 / 0 of 43 | 24k | 2.3 GB |
+| `davinci-tooldata` | `SII-Enigma/Davinci-ToolData` | other | 15k | 626.5 MB | 93 / 0 / 0 of 93 | 15k | 626.5 MB |
+| `agent-reflex-sft-54k` | `dongguanting/Agent-Reflex-SFT-54K` | mit | 55k | 2.8 GB | 81 / 0 / 0 of 81 | 55k | 2.8 GB |
+| `agent-world-sft-44k` | `dongguanting/Agent-World-SFT-44K` | none on card | 29k | 2.0 GB | 61 / 0 / 0 of 61 | 29k | 2.0 GB |
+| `stindardlogic-tool-calling-english-100k` | `stindardlogic/tool-calling-english-100k` | apache-2.0 | 98k | 178.9 MB | 88 / 0 / 0 of 400 | 22k | 39.4 MB |
+| `qwen36plus-toolscale-agent` | `zake7749/Qwen-3.6-plus-agent-tool-calling-trajectory` | none on card | 4k | 149.5 MB | 24 / 0 / 0 of 106 | 894 | 33.9 MB |
+| `deepseekv4pro-toolscale-agent` | `zake7749/deepseek-v4-pro-agent-tool-calling-trajectory` | none on card | 3k | 84.3 MB | 23 / 0 / 0 of 120 | 481 | 16.2 MB |
+| `secai-agentic-rag-cyber` | `DuyTa/secai-agentic-rag-sft-v1` | other | 122k | 504.7 MB | 300 / 0 / 0 of 300 | 122k | 504.7 MB |
+| `rag-ecommerce-tool-use-sft` | `lazos/frontend-agent-sft` | other | 26k | 118.4 MB | 390 / 0 / 0 of 400 | 25k | 115.5 MB |
+| `sme-docdata-tool-use` | `hotdogs/sme-sft-docdata-qwen38` | apache-2.0 | 9k | 42.2 MB | 387 / 0 / 0 of 400 | 9k | 40.8 MB |
+| `agent-society-minecraft-distill` | `SebastianAldrin/agent-society-distill-v1` | mit | 1k | 15.8 MB | 358 / 0 / 0 of 359 | 1k | 15.8 MB |
+| `cascade2-conversational-agent` | `nvidia/Nemotron-Cascade-2-SFT-Data` | nvidia-open-model-license | 841k | 17.5 GB | 193 / 0 / 0 of 193 | 841k | 17.5 GB |
+| `mobile-actions` | `google/mobile-actions` | cc-by-4.0 | 10k | 25.8 MB | 400 / 0 / 0 of 400 | 10k | 25.8 MB |
+| `smolagents-toolcalling-planning` | `smolagents/toolcalling` | none on card | 7k | 331.6 MB | 89 / 0 / 0 of 89 | 7k | 331.6 MB |
+| `funcdex-mt` | `prem-research/Funcdex-MT-Function-Calling` | mit | 1k | 35.5 MB | 168 / 0 / 0 of 168 | 1k | 35.5 MB |
+| `kona-ka-93k` | `tbilisi-ai-lab/kona-sft-function-calling-ka-93k` | odc-by | 76k | 280.5 MB | 400 / 0 / 0 of 400 | 76k | 280.5 MB |
+| `simon-kubectl-mcp` | `Simon-Liu/kubectl-mcp-server-tool-call-reasoning-6k` | apache-2.0 | 5k | 81.2 MB | 249 / 0 / 0 of 249 | 5k | 81.2 MB |
+| `simon-tw-finance` | `Simon-Liu/tw-finance-function-call-reasoning` | cc-by-nc-4.0 | 1k | 6.7 MB | 400 / 0 / 0 of 400 | 1k | 6.7 MB |
+| `twinkle-tw-fc-reasoning` | `twinkle-ai/tw-function-call-reasoning-10k` | cc-by-4.0 | 10k | 52.0 MB | 399 / 0 / 1 of 400 | 10k | 51.8 MB |
+| `zake-qwen36-tool-calling` | `zake7749/Qwen3.6-35B-A3B-Tool-Calling` | none on card | 36k | 0 B | 275 / 0 / 2 of 300 | 33k | 0 B |
+| `toolbench-llama-g123-dfs` | `Adorg/ToolBench` | apache-2.0 | 26k | 259.4 MB | 399 / 0 / 1 of 400 | 26k | 258.7 MB |
+| `bitagent-tool-calling` | `BitAgent/tool_calling` | none on card | 551k | 552.9 MB | 151 / 0 / 0 of 400 | 208k | 208.7 MB |
+| `pawa-swahili-xlam` | `sartifyllc/pawa-function-calling-60k` | none on card | 60k | 121.1 MB | 400 / 0 / 0 of 400 | 60k | 121.1 MB |
+| `button-mt-function-calling` | `casey-martin/BUTTON-MT-function-calling` | none-on-card | 8k | 74.0 MB | 400 / 0 / 0 of 400 | 8k | 74.0 MB |
+| `tau2-bench-trajectories` | `AgentSuite/tau2-bench-trajectories` | none-on-card | 7k | 292.3 MB | 36 / 0 / 0 of 94 | 3k | 111.9 MB |
+| `dfm13-tooldialogue-sk` | `schneiderkamplab/dfm13-multilingual-tool-dialogue-sk` | not stated | 4k | 26.1 MB | 398 / 0 / 0 of 400 | 4k | 26.0 MB |
+| `dfm13-tooldialogue-sr` | `schneiderkamplab/dfm13-multilingual-tool-dialogue-sr` | not stated | 4k | 27.2 MB | 393 / 0 / 0 of 400 | 4k | 26.7 MB |
+| `dfm13-tooldialogue-lb` | `schneiderkamplab/dfm13-multilingual-tool-dialogue-lb` | not stated | 11k | 67.9 MB | 399 / 0 / 0 of 400 | 11k | 67.7 MB |
+| `dfm13-tooldialogue-sl` | `schneiderkamplab/dfm13-multilingual-tool-dialogue-sl` | not stated | 4k | 27.4 MB | 393 / 0 / 0 of 400 | 4k | 26.9 MB |
+| `dfm13-tooldialogue-hu` | `schneiderkamplab/dfm13-multilingual-tool-dialogue-hu` | not stated | 4k | 27.0 MB | 395 / 0 / 0 of 400 | 4k | 26.7 MB |
+| `dfm13-tooldialogue-fa` | `schneiderkamplab/dfm13-multilingual-tool-dialogue-fa` | not stated | 4k | 27.1 MB | 397 / 0 / 0 of 400 | 4k | 26.9 MB |
+| `dfm13-tooldialogue-bs` | `schneiderkamplab/dfm13-multilingual-tool-dialogue-bs` | not stated | 4k | 26.5 MB | 399 / 0 / 0 of 400 | 4k | 26.4 MB |
+| `dfm13-tooldialogue-hr` | `schneiderkamplab/dfm13-multilingual-tool-dialogue-hr` | not stated | 4k | 26.8 MB | 397 / 0 / 0 of 400 | 4k | 26.6 MB |
+| `dfm13-tooldialogue-sq` | `schneiderkamplab/dfm13-multilingual-tool-dialogue-sq` | not stated | 4k | 27.7 MB | 380 / 0 / 0 of 400 | 4k | 26.4 MB |
+| `dfm13-tooldialogue-bg` | `schneiderkamplab/dfm13-multilingual-tool-dialogue-bg` | not stated | 4k | 26.1 MB | 399 / 0 / 0 of 400 | 4k | 26.1 MB |
+| `dfm13-tooldialogue-be` | `schneiderkamplab/dfm13-multilingual-tool-dialogue-be` | not stated | 4k | 26.1 MB | 388 / 0 / 0 of 400 | 4k | 25.3 MB |
+| `dfm13-tooldialogue-lv` | `schneiderkamplab/dfm13-multilingual-tool-dialogue-lv` | not stated | 4k | 26.6 MB | 396 / 0 / 0 of 400 | 4k | 26.4 MB |
+| `dfm13-tooldialogue-lt` | `schneiderkamplab/dfm13-multilingual-tool-dialogue-lt` | not stated | 4k | 26.5 MB | 400 / 0 / 0 of 400 | 4k | 26.5 MB |
+| `dfm14-tooldialogue-zh` | `schneiderkamplab/dfm14-zh-synthetic-tool-dialogue-r1` | other | 2k | 15.6 MB | 400 / 0 / 0 of 400 | 2k | 15.6 MB |
+| `dfm14-tooldialogue-id` | `schneiderkamplab/dfm14-id-synthetic-tool-dialogue-r1` | other | 2k | 15.8 MB | 397 / 0 / 0 of 400 | 2k | 15.7 MB |
+| `dfm14-tooldialogue-vi` | `schneiderkamplab/dfm14-vi-synthetic-tool-dialogue-r1` | other | 2k | 15.7 MB | 400 / 0 / 0 of 400 | 2k | 15.7 MB |
+| `dfm14-tooldialogue-ru` | `schneiderkamplab/dfm14-ru-synthetic-tool-dialogue-r1` | other | 2k | 15.1 MB | 400 / 0 / 0 of 400 | 2k | 15.1 MB |
+| `dfm14-tooldialogue-mk` | `schneiderkamplab/dfm14-mk-synthetic-tool-dialogue-r1` | other | 4k | 31.6 MB | 400 / 0 / 0 of 400 | 4k | 31.6 MB |
+| `dfm14-tooldialogue-tr` | `schneiderkamplab/dfm14-tr-synthetic-tool-dialogue-r1` | other | 2k | 15.5 MB | 400 / 0 / 0 of 400 | 2k | 15.5 MB |
+| `dfm14-tooldialogue-ar` | `schneiderkamplab/dfm14-ar-synthetic-tool-dialogue-r1` | other | 2k | 15.7 MB | 399 / 0 / 0 of 400 | 2k | 15.7 MB |
+| `dfm14-tooldialogue-ga` | `schneiderkamplab/dfm14-ga-synthetic-tool-dialogue-r1` | other | 4k | 30.7 MB | 396 / 0 / 0 of 400 | 4k | 30.4 MB |
+| `dfm14-tooldialogue-hi` | `schneiderkamplab/dfm14-hi-synthetic-tool-dialogue-r1` | other | 2k | 15.2 MB | 400 / 0 / 0 of 400 | 2k | 15.2 MB |
+| `dfm14-tooldialogue-gl` | `schneiderkamplab/dfm14-gl-synthetic-tool-dialogue-r1` | other | 4k | 31.6 MB | 400 / 0 / 0 of 400 | 4k | 31.6 MB |
+| `dfm14-tooldialogue-ko` | `schneiderkamplab/dfm14-ko-synthetic-tool-dialogue-r1` | other | 2k | 15.0 MB | 397 / 0 / 0 of 400 | 2k | 14.9 MB |
+| `dfm14-tooldialogue-ja` | `schneiderkamplab/dfm14-ja-synthetic-tool-dialogue-r1` | other | 2k | 15.3 MB | 400 / 0 / 0 of 400 | 2k | 15.3 MB |
+| `dfm14-tooldialogue-mt` | `schneiderkamplab/dfm14-mt-synthetic-tool-dialogue-r1` | other | 4k | 27.9 MB | 400 / 0 / 0 of 400 | 4k | 27.9 MB |
+| `dfm14-tooldialogue-cy` | `schneiderkamplab/dfm14-cy-synthetic-tool-dialogue-r1` | other | 4k | 30.1 MB | 400 / 0 / 0 of 400 | 4k | 30.1 MB |
+| `dfm14-tooldialogue-eu` | `schneiderkamplab/dfm14-eu-synthetic-tool-dialogue-r1` | other | 4k | 30.9 MB | 400 / 0 / 0 of 400 | 4k | 30.9 MB |
+| `dfm14-tooldialogue-he` | `schneiderkamplab/dfm14-he-synthetic-tool-dialogue-r1` | other | 2k | 15.2 MB | 399 / 0 / 0 of 400 | 2k | 15.2 MB |
+| `danish-tooldialogues-v9` | `jensjepsen/danish-tool-dialogues-v9` | apache-2.0 | 34k | 52.9 MB | 304 / 0 / 0 of 400 | 26k | 40.2 MB |
+| `danish-tooldialogues-v9-abstention` | `jensjepsen/danish-tool-dialogues-v9` | apache-2.0 | 902 | 2.4 MB | 400 / 0 / 0 of 400 | 902 | 2.4 MB |
+| `fcptpt-toolace` | `jgalego/function-calling-pt-pt` | apache-2.0 | 10k | 38.4 MB | 400 / 0 / 0 of 400 | 10k | 38.4 MB |
+| `fcptpt-when2call` | `jgalego/function-calling-pt-pt` | cc-by-4.0 | 15k | 30.1 MB | 400 / 0 / 0 of 400 | 15k | 30.1 MB |
+| `fcptpt-xlam` | `jgalego/function-calling-pt-pt` | cc-by-4.0 | 59k | 130.0 MB | 400 / 0 / 0 of 400 | 59k | 130.0 MB |
+| `glaive-v2-ru-korotkov` | `korotkov/glaive-function-calling-v2-ru-parsed` | not stated | 102k | 348.5 MB | 329 / 0 / 0 of 400 | 84k | 286.6 MB |
+| `glaive-v2-ko-refined` | `tryumanshow/glaive-function-calling-v2-ko-refined` | not stated | 12k | 44.3 MB | 393 / 2 / 0 of 400 | 12k | 43.6 MB |
+| `glaive-v2-ja-nappa` | `nappa0326/glaive-function-calling-v2-sharegpt-japanese` | mit | 113k | 379.3 MB | 354 / 0 / 0 of 400 | 100k | 335.7 MB |
+| `toolace-ja-nntsuzu` | `nntsuzu/ToolACE-Japanese` | apache-2.0 | 5k | 26.1 MB | 398 / 2 / 0 of 400 | 5k | 26.0 MB |
+| `twi-translation-toolcalling` | `ghananlpcommunity/twi-translation-tool-calling` | cc-by-nc-4.0 | 16k | 307.4 MB | 209 / 0 / 0 of 209 | 16k | 307.4 MB |
+| `oddadmix-ar` | `oddadmix/tool-calling-ar-augmented` | none-on-card | 547k | 1.8 GB | 151 / 0 / 0 of 400 | 207k | 670.0 MB |
+| `heegyu-glaive-ko` | `heegyu/glaive-function-calling-v2-ko` | apache-2.0 | 15k | 50.4 MB | 355 / 0 / 0 of 400 | 13k | 44.8 MB |
+| `vi-locutusque` | `5CD-AI/Vietnamese-Locutusque-function-calling-chatml-gg-translated` | none-on-card | 255k | 0 B | 142 / 0 / 0 of 150 | 242k | 0 B |
+| `dp-ja` | `DataPilot/Function-Calling-Japanese-Dataset` | odc-by | 7k | 14.7 MB | 336 / 1 / 0 of 400 | 6k | 12.3 MB |
+| `giux78-ita` | `giux78/functioncalling-ita` | none-on-card | 113k | 256.5 MB | 348 / 0 / 0 of 400 | 98k | 223.2 MB |
+| `aman-rlvr` | `AmanPriyanshu/tool-reasoning-sft-RESEARCH-rlvr-env-retrieval-source` | apache-2.0 | 112k | 4.3 GB | 5 / 0 / 0 of 5 (5 more cut off) | 112k | 4.3 GB |
+| `ipf-deepresearch-traj` | `IPF/DeepResearch-traj` | mit | 99k | 27.6 GB | 8 / 0 / 0 of 15 | 53k | 14.7 GB |
+| `rlrag-browsecomp-gptoss-v2` | `rl-rag/browsecomp-gpt-oss-120b-v2` | none on card | 1k | 287.4 MB | 18 / 0 / 0 of 18 | 1k | 287.4 MB |
+| `rlrag-browsecomp-high-effort-full` | `rl-rag/browsecomp-high-effort-full-gpt-oss-120b` | none on card | 1k | 267.3 MB | 19 / 0 / 0 of 19 | 1k | 267.3 MB |
+| `rlrag-browsecomp-oss-env-high-effort` | `rl-rag/browsecomp-oss-env-high-effort-gpt-oss-120b` | none on card | 1k | 246.4 MB | 21 / 0 / 0 of 21 | 1k | 246.4 MB |
+| `rlrag-drtulu-step35-websearch` | `rl-rag/drtulu_v2_step_35_sft_web_search` | none on card | 999 | 174.3 MB | 24 / 0 / 0 of 24 | 999 | 174.3 MB |
+| `rlrag-webshaper-gptoss` | `rl-rag/webshaper-gpt-oss-120b-260222` | none on card | 2k | 225.2 MB | 36 / 0 / 0 of 36 | 2k | 225.2 MB |
+| `rlrag-bc-synthetic-gptoss` | `rl-rag/bc-synthetic-gpt-oss-120b-260222` | none on card | 10k | 1.0 GB | 39 / 0 / 0 of 39 | 10k | 1.0 GB |
+| `rlrag-monaco-gptoss` | `rl-rag/monaco-gpt-oss-120b-260222` | none on card | 5k | 607.4 MB | 36 / 0 / 0 of 36 | 5k | 607.4 MB |
+| `rlrag-personalfinance-gptoss` | `rl-rag/personalfinance-gpt-oss-120b` | none on card | 19k | 2.3 GB | 34 / 0 / 0 of 34 | 19k | 2.3 GB |
+| `rlrag-open-scholar-gptoss` | `rl-rag/open-scholar-gpt-oss-120b` | none on card | 12k | 1.4 GB | 35 / 0 / 0 of 35 | 12k | 1.4 GB |
+| `rlrag-nemotron-mcqa-gptoss` | `rl-rag/nemotron-mcqa-gpt-oss-120b-260222` | none on card | 8k | 631.5 MB | 50 / 0 / 0 of 50 | 8k | 631.5 MB |
+| `rlrag-search-arena-gptoss` | `rl-rag/search-arena-gpt-oss-120b` | none on card | 2k | 157.7 MB | 55 / 0 / 1 of 56 | 2k | 154.9 MB |
+| `rlrag-arena-expert-gptoss` | `rl-rag/arena-expert-gpt-oss-120b` | none on card | 3k | 285.1 MB | 41 / 0 / 0 of 41 | 3k | 285.1 MB |
+| `rlrag-bc-synthetic-extra-hard-gptoss` | `rl-rag/bc-synthetic-extra-hard-gpt-oss-120b` | none on card | 820 | 0 B | 38 / 0 / 0 of 38 | 820 | 0 B |
+| `rlrag-bc-synthetic-test-gptoss` | `rl-rag/bc-synthetic-test-gpt-oss-120b` | none on card | 844 | 0 B | 44 / 0 / 0 of 44 | 844 | 0 B |
+| `openseeker-v1` | `OpenSeeker/OpenSeeker-v1-Data` | mit | 0 | 0 B | 20 / 0 / 0 of 27 | 0 | 0 B |
+| `s1-deepresearch-15k` | `ScienceOne-AI/S1-DeepResearch-15k` | apache-2.0 | 0 | 0 B | 43 / 2 / 9 of 54 | 0 | 0 B |
+| `browseragent-data` | `TIGER-Lab/BrowserAgent-Data` | none on card | 0 | 0 B | 400 / 0 / 0 of 400 | 0 | 0 B |
+| `carr-deepdive-sft` | `THU-KEG/CaRR-DeepDive` | none on card | 0 | 0 B | 23 / 0 / 0 of 23 | 0 | 0 B |
+| `zai-deepdive-trajectories` | `zai-org/DeepDive` | apache-2.0 | 858 | 0 B | 51 / 0 / 1 of 52 | 842 | 0 B |
+| `acm-bcp-rollouts-epoch2` | `lixiaochuan2020/acm-browsecompplus-train-rollouts-qwen3.5-9b-epoch2` | none on card | 0 | 0 B | 6 / 0 / 0 of 8 | 0 | 0 B |
+| `acm-bcp-rollouts-epoch1` | `lixiaochuan2020/acm-browsecompplus-train-rollouts-qwen3.5-9b-epoch1` | none on card | 0 | 0 B | 6 / 0 / 0 of 8 | 0 | 0 B |
+| `bcp-search-agent-trajectories` | `liuqi6777/bcp_search_agent_trajectory` | apache-2.0 | 0 | 0 B | 12 / 0 / 1 of 13 | 0 | 0 B |
+| `rlrag-drtulu-unified` | `rl-rag/dr-tulu-sft-unified` | odc-by | 0 | 0 B | 107 / 3 / 0 of 110 | 0 | 0 B |
+| `rlrag2-oss-high-drtulu-v5` | `rl-rag-2/oss-high-drtulu-v5-0422-8rollouts` | mit | 0 | 0 B | 19 / 0 / 0 of 22 | 0 | 0 B |
+| `searchr1-sft-qwen25` | `ThornZ/Search-R1-SFT` | none on card | 0 | 0 B | 400 / 0 / 0 of 400 | 0 | 0 B |
+| `tau-bench-agentsuite` | `AgentSuite/tau-bench-trajectories` | none-on-card | 0 | 0 B | 98 / 2 / 0 of 165 | 0 | 0 B |
+| `areal-tau2-sft` | `inclusionAI/AReaL-tau2-data` | apache-2.0 | 0 | 0 B | 103 / 0 / 2 of 147 | 0 | 0 B |
+| `tau-retail-distill-teacher` | `teacher57/tau-retail-distillation` | apache-2.0 | 0 | 0 B | 107 / 0 / 0 of 107 | 0 | 0 B |
+| `tau-retail-distill-rollouts` | `teacher57/tau-retail-distillation` | apache-2.0 | 0 | 0 B | 64 / 0 / 0 of 64 | 0 | 0 B |
+| `tunekv-taubench-retail30` | `Zhongzhu/tunekv-taubench-data` | none-on-card | 0 | 0 B | 140 / 0 / 0 of 194 | 0 | 0 B |
+| `tunekv-taubench-retail27` | `Zhongzhu/tunekv-taubench-data` | none-on-card | 0 | 0 B | 160 / 0 / 0 of 238 | 0 | 0 B |
+| `tunekv-taubench-airline30` | `Zhongzhu/tunekv-taubench-data` | none-on-card | 0 | 0 B | 35 / 0 / 0 of 40 | 0 | 0 B |
+| `tau-bench-synthetic-glm5` | `fuvty/tau-bench-synthetic` | apache-2.0 | 1k | 0 B | 82 / 0 / 0 of 131 | 916 | 0 B |
+| `mcp-universe-finance-sft` | `Shuibai12138/mcp-universe-finance-sft` | none-on-card | 0 | 0 B | 222 / 0 / 0 of 222 | 0 | 0 B |
+| `amap-mcp-tc130` | `TC130/amap_mcp` | none-on-card | 0 | 0 B | 397 / 0 / 0 of 397 | 0 | 0 B |
+| `sato-mcp-messages` | `SatoHub/sato-mcp-tool-calling` | cc-by-4.0 | 0 | 0 B | 396 / 0 / 0 of 400 | 0 | 0 B |
+| `retail-bank-servicing-sft` | `spkc83/retail-bank-servicing-alignment-sft` | mit | 0 | 0 B | 370 / 0 / 0 of 400 | 0 | 0 B |
+| `adcampaign-agent-sft` | `SamWang0405/AdCampaignAgent-SFT` | mit | 0 | 0 B | 353 / 0 / 0 of 400 | 0 | 0 B |
+| `home-assistant-acon96-v2` | `acon96/Home-Assistant-Requests-V2` | mit | 0 | 0 B | 323 / 0 / 0 of 323 | 0 | 0 B |
+| `science-tool-use-shellsim` | `open-athena/science-tool-use-conversations` | other (OpenMDW) | 11k | 0 B | 212 / 0 / 0 of 212 | 11k | 0 B |
+| `soc-agent-traces-100k` | `alirezaaminzadeh/soc-agent-traces-100k` | apache-2.0 | 90k | 0 B | 269 / 0 / 0 of 327 | 74k | 0 B |
+| `soc-agentic-trajectories-miyad316` | `miyad316/cybersecurity-soc-agentic-trajectories` | cc-by-nc-4.0 | 0 | 0 B | 400 / 0 / 0 of 400 | 0 | 0 B |
+| `phishing-email-soc-agent` | `Ellbendls/phishing-email-soc-agent` | apache-2.0 | 455 | 3.1 MB | 385 / 0 / 0 of 400 | 438 | 3.0 MB |
+| `tau2-telecom-agent-sft` | `cy-330/tau2-telecom-agent-sft` | mit | 728 | 28.8 MB | 102 / 0 / 0 of 102 | 728 | 28.8 MB |
+| `tau2-airline-code-agents` | `snorkelai/Tau2-Bench-Airline-With-Code-Agents` | apache-2.0 | 500 | 17.1 MB | 117 / 0 / 0 of 117 | 500 | 17.1 MB |
+| `playwright-mcp-toolcalling` | `jdaddyalbs/playwright-mcp-toolcalling` | mit | 5k | 127.2 MB | 157 / 0 / 1 of 158 | 5k | 126.4 MB |
+| `lumos-unified-plan-iterative` | `ai2lumos/lumos_unified_plan_iterative` | apache-2.0 | 53k | 72.6 MB | 390 / 0 / 0 of 400 | 52k | 70.8 MB |
+| `lumos-unified-ground-iterative` | `ai2lumos/lumos_unified_ground_iterative` | apache-2.0 | 54k | 105.6 MB | 400 / 0 / 0 of 400 | 54k | 105.6 MB |
+| `agentbench-sft-v3-plana` | `sabia0080/agentbench-sft-trajectories-v3-planA` | mit | 5k | 18.9 MB | 400 / 0 / 0 of 400 | 5k | 18.9 MB |
+| `dbbench-spider-3500` | `mark-22/dbbench-spider-3500` | apache-2.0 | 2k | 8.9 MB | 400 / 0 / 0 of 400 | 2k | 8.9 MB |
+| `hermes-agent-traces-kimi` | `lambda/hermes-agent-reasoning-traces` | apache-2.0 | 8k | 0 B | 8 / 0 / 0 of 37 | 2k | 0 B |
+| `hermes-agent-traces-glm` | `lambda/hermes-agent-reasoning-traces` | apache-2.0 | 7k | 647.2 MB | 10 / 0 / 0 of 45 | 2k | 143.8 MB |
+| `hermes-tool-calls-single-reasoning` | `interstellarninja/tool-calls-single-reasoning` | apache-2.0 | 16k | 113.9 MB | 398 / 2 / 0 of 400 | 16k | 113.3 MB |
+| `hermes-tool-use-relevance-reasoning` | `interstellarninja/tool-use-relevance-reasoning` | apache-2.0 | 15k | 112.6 MB | 400 / 0 / 0 of 400 | 15k | 112.6 MB |
+| `hermes-toolace-sequential-reasoning` | `interstellarninja/toolace_sequential_tool_use_reasoning` | apache-2.0 | 5k | 41.2 MB | 210 / 0 / 0 of 400 | 3k | 21.6 MB |
+| `hermes-salesforce-hermes-tools` | `interstellarninja/salesforce_hermes_tools` | none-on-card | 3k | 225.6 MB | 45 / 0 / 0 of 45 | 3k | 225.6 MB |
+| `simia-officebench-sft` | `Simia-Agent/Simia-OfficeBench-SFT-30k` | cc-by-nc-4.0 | 30k | 356.7 MB | 327 / 5 / 0 of 332 | 29k | 351.3 MB |
+| `simia-agentbench-sft` | `Simia-Agent/Simia-AgentBench-SFT-15k` | cc-by-nc-4.0 | 15k | 59.9 MB | 190 / 1 / 0 of 400 | 7k | 28.4 MB |
+| `simia-tau-sft-hermes` | `Simia-Agent/Simia-Tau-SFT-90k-Hermes` | cc-by-nc-4.0 | 92k | 3.6 GB | 103 / 0 / 0 of 103 | 92k | 3.6 GB |
+| `smol-toolcalling-default` | `smolagents/toolcalling` | none-on-card | 9k | 322.0 MB | 115 / 0 / 0 of 115 | 9k | 322.0 MB |
+| `agentbank-alfred` | `Solaris99/AgentBank` | apache-2.0 | 623 | 9.1 MB | 275 / 0 / 0 of 275 | 623 | 9.1 MB |
+| `agentbank-iqa` | `Solaris99/AgentBank` | apache-2.0 | 2k | 12.3 MB | 400 / 0 / 0 of 400 | 2k | 12.3 MB |
+| `agentbank-rearrange` | `Solaris99/AgentBank` | apache-2.0 | 299 | 3.2 MB | 290 / 0 / 0 of 299 | 290 | 3.1 MB |
+| `agentbank-strategyqa` | `Solaris99/AgentBank` | apache-2.0 | 1k | 1.7 MB | 400 / 0 / 0 of 400 | 1k | 1.7 MB |
+| `agentbank-triviaqa` | `Solaris99/AgentBank` | apache-2.0 | 4k | 4.0 MB | 400 / 0 / 0 of 400 | 4k | 4.0 MB |
+| `agentbank-mathqa` | `Solaris99/AgentBank` | apache-2.0 | 4k | 4.2 MB | 400 / 0 / 0 of 400 | 4k | 4.2 MB |
+| `agentbank-gsm8k` | `Solaris99/AgentBank` | apache-2.0 | 7k | 7.3 MB | 400 / 0 / 0 of 400 | 7k | 7.3 MB |
+| `agentbank-math` | `Solaris99/AgentBank` | apache-2.0 | 2k | 2.9 MB | 400 / 0 / 0 of 400 | 2k | 2.9 MB |
+| `agent-flan-agent-instruct-tflan` | `internlm/Agent-FLAN` | apache-2.0 | 2k | 8.5 MB | 275 / 0 / 0 of 400 | 1k | 5.8 MB |
+| `agent-flan-toolbench-instruct-j1s1-3k` | `internlm/Agent-FLAN` | apache-2.0 | 7k | 17.6 MB | 400 / 0 / 0 of 400 | 7k | 17.6 MB |
+| `agent-flan-toolbench-negative` | `internlm/Agent-FLAN` | apache-2.0 | 1k | 925.8 KB | 399 / 0 / 0 of 400 | 1k | 923.5 KB |
+| `agent-flan-toolbench-react-10p` | `internlm/Agent-FLAN` | apache-2.0 | 2k | 18.3 MB | 400 / 0 / 0 of 400 | 2k | 18.3 MB |
+| `agent-flan-toolbench-tflan-cot-30p` | `internlm/Agent-FLAN` | apache-2.0 | 7k | 47.6 MB | 400 / 0 / 0 of 400 | 7k | 47.6 MB |
+| `openresearcher` | `OpenResearcher/OpenResearcher-Dataset` | mit | 6k | 1.8 GB | 15 / 0 / 0 of 15 | 6k | 1.8 GB |
+| `redsearcher-sft` | `Zchu/REDSearcher_SFT_10K` | mit | 10k | 2.2 GB | 19 / 0 / 0 of 19 | 10k | 2.2 GB |
+| `literesearcher-sft` | `simplex-ai-inc/LiteResearcher-SFT-Data` | apache-2.0 | 84k | 2.2 GB | 155 / 0 / 0 of 155 | 84k | 2.2 GB |
+| `rlrag-browsecomp-gptoss-260222` | `rl-rag/browsecomp-gpt-oss-120b-260222` | none on card | 5k | 676.0 MB | 31 / 0 / 0 of 31 | 5k | 676.0 MB |
+| `nemotron-rl-conv-tool-use-pivot` | `nvidia/Nemotron-RL-Agentic-Conversational-Tool-Use-Pivot-v1` | cc-by-4.0 | 97k | 1.8 GB | 77 / 0 / 0 of 221 | 34k | 612.2 MB |
+| `nemotron-rl-function-calling-pivot` | `nvidia/Nemotron-RL-Agentic-Function-Calling-Pivot-v1` | cc-by-4.0 | 10k | 281.6 MB | 67 / 0 / 2 of 148 | 5k | 127.5 MB |
+| `tool-star-sft-54k` | `dongguanting/Tool-Star-SFT-54K` | mit | 44k | 292.7 MB | 400 / 0 / 0 of 400 | 44k | 292.7 MB |
+| `afm-webagent` | `PersonalAILab/AFM-WebAgent-SFT-Dataset` | apache-2.0 | 9k | 222.5 MB | 170 / 0 / 0 of 170 | 9k | 222.5 MB |
+| `afm-mhqa` | `PersonalAILab/AFM-MHQA-Agent-SFT-Dataset` | apache-2.0 | 6k | 99.9 MB | 223 / 0 / 0 of 223 | 6k | 99.9 MB |
+| `tau2-airline-verified-code-agents` | `snorkelai/Tau2-Bench-Verified-Airline-With-Code-Agents` | apache-2.0 | 996 | 22.5 MB | 169 / 0 / 0 of 177 | 951 | 21.5 MB |
+
+### Volume before and after
+
+Text bytes here are serialized rows before tokenizing; "before" is the tool-use and agent
+sources in the earlier manifests, read at full volume.
+
+| | Sources | Rows | Text |
+| --- | --- | --- | --- |
+| Before: 40 sources of the main agentic manifest (measured; Nemotron Post-Training tool calling counted with all 13 files) | 40 | 3.44M | 56.4 GB |
+| Before: 33 tool-use and agent sources of the second sweep (estimated from the notes; 4 bytes per token) | 33 | 0.18M | 31.4 GB |
+| **Before, total** | 73 | 3.62M | 87.9 GB |
+| New, read in full (before dropping unreadable and repeated rows) | 169 | 5.86M | 130.4 GB |
+| New, expected to be accepted | 169 | 4.45M | 95.9 GB |
+| By stream, expected accepted | tool_use 4.08M rows / 82.6 GB; environment_trajectories 0.24M / 13.1 GB; chat 0.11M / 0.19 GB; recovery_clarification 0.016M / 0.11 GB | | |
+| **After (expected), total** | 242 | 8.07M | 183.8 GB |
+
+Agentic chat text roughly doubles. The five biggest new sources by text are
+ipf-deepresearch-traj (27.6 GB; only about 8 of 15 sample rows were kept), midtool-native-agent-traj
+(18.2 GB before its row filter, 2.5 GB after), cascade2-conversational-agent (17.5 GB),
+miroverse-v01-sft (8.3 GB) and nexus-agents-toolcalling (6.2 GB).
+
+### Sources that need a click on the Hub
+
+`sources.agentic-chat-gated.json` holds five sources. The account could not read them, so each
+reader was chosen from the publisher's description and has not been run on real rows. Open each
+page while signed in and press Agree:
+
+| Page to open | What it is |
+| --- | --- |
+| https://huggingface.co/datasets/minyichen/APIGen-MT-46k | 46k multi-turn APIGen-MT trajectories (tau-bench style) |
+| https://huggingface.co/datasets/ReDiX/xlam-function-calling-60k-ita | Italian xLAM translation |
+| https://huggingface.co/datasets/ura-hcmut/vi_glaive-function-calling | Vietnamese Glaive v1 |
+| https://huggingface.co/datasets/ura-hcmut/vi_glaive-function-calling-v2 | Vietnamese Glaive v2 |
+| https://huggingface.co/datasets/ENERZAiKR/agentic-think-v2-react-hybrid | ReAct and thinking hybrid traces |
+
+### Preparing these sources
+
+`files.agentic-chat.json` lists every file of every Hub source (about 101.6 GB stored) at the
+pinned revisions, built like the other listings. `configs/cloud/prepare-full-agentic-chat.json`
+prepares the manifest in 8 sandboxes with 28 shards each and 14 processes per sandbox, reviewing
+parser holds with `parser-review.agentic.json`. Nothing launches by itself; see "Preparing at
+full volume". The largest stored file is the 17.5 GB cascade-2 file; single large files are the first
+thing to check if a shard dies (see the memory note in the second sweep's section).
+
+### Not added, and what is left
+
+- Shapes no reader handles yet: WebLINX; WebArena-Lite-SFT (10k step rows that need the prompt
+  composed from several fields); markov-ai/computer-use; AgentNet; DEBATE;
+  scientific-agent-protocol-traces; cogym-real; HybridAgent-HybridSFT-v2 (a `rounds` list);
+  smolagents code-action traces; NextSearch-1-Trajectories (messages and target split);
+  Exgentic and agent-llm-traces-v2 (span format of benchmark runs); sammshen/taubench-sonnet-traces
+  (raw HTTP records); ToolGym (ReAct inside JSON); MCPMark (one messages file per task);
+  YWZBrandon/browsecomp-trajectories (rollouts cut off); the acm-browsecompplus base rollouts
+  (5,440 single-object files); the Tool-Reasoning siblings of the mem_agent and
+  browsecomp-plus-runs sets; vericava (the target column is the final message).
+- Large sets with no tool results: jaeyong2 `*-functioncall` (about 2M rows of calls only).
+- Column-name variants of xLAM (5CD, atasoglu) and translations with nonstandard markup
+  (ituperceptron Turkish, iknow-lab Korean Hermes with literal `\n`, Tuguberk Turkish Hermes,
+  ReDiX function-calling-ita with 41% rejects).
+- Benchmarks and evaluation sets, left out to avoid training on them: tau-bench BFCL
+  trajectories, MCP-Atlas, WildClaw, MCPMark tasks, Toolathlon.
+- Image-based sets: Omnimodal-Agent-SFT-2K, CollovLabs/mm-toolsandbox-traces.
+- Not opened or unknown shape: https://huggingface.co/datasets/dipta007/APIGen-MT-5k-with-cot-v1-deepseek_deepseek and
+  https://huggingface.co/datasets/KKACHI-HUB/glaive-function-calling-ko.
+- Partly read: UltraData General_Agent Claw and Office subsets (Office rows are rejected with
+  "Unlinked observation" in 23% of cases).
+
+### Changes the trajectory-linking code would need
+
+These were found while converting and are not made here, because that code serves the coding
+trajectories as well:
+
+1. **Explicit call ids that repeat.** Vikhr's tool-plannings numbers every call in a turn
+   `call_1`, `call_2`, ... again each turn; the builder reports "Tool call ID reused". When a
+   source sets `positional_call_ids` the builder should let position override an explicit id.
+2. **One result for several parallel calls.** Dolci tool-use and Hermes function-calling
+   sometimes answer two or three calls with one tool message; the builder rejects those rows
+   ("Cannot split a tool result into N results", "N tool result(s) for N pending call(s)").
+   Splitting by call order, as the packed-result reader already does for Hermes, would keep them.
+3. **Unlinked observations.** UltraData's Office rows and a few Glaive translations have a tool
+   result with no preceding call; the builder says "Unlinked observation; call IDs may be
+   inferred only for exactly one pending call". Allowing an observation to attach to the
+   previous call when exactly one call was made in its turn would keep most of them.
+4. **Tool turns that end the episode on a call.** Several search agents stop on an action whose
+   result is missing ("Trace ends with an action whose observation is missing"). The option
+   `allow_pending_final_action` already handles it per source; making it the default for chat
+   streams would remove an option.
+
+tau2 sets did not need builder changes: the device-call profile pairs their calls and results.
 
 ## Later-stage streams (M1, M2, LC, S, and two P1 streams)
 

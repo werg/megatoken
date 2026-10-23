@@ -1178,7 +1178,7 @@
       "max_rows": 3000,
       "files": [
         {
-          "path": "data/tool-00000-of-00013.parquet"
+          "path": "data/tool-*.parquet"
         }
       ],
       "terms": {
@@ -1190,7 +1190,8 @@
         "notes": "Card: CC BY 4.0."
       },
       "field_map": {
-        "family": "uuid"
+        "family": "uuid",
+        "tools": "metadata.tools"
       },
       "options": {
         "allow_pending_final_action": true,

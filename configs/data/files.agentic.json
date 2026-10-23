@@ -1619,6 +1619,54 @@
   [
    "hf://datasets/nvidia/Nemotron-Post-Training-Dataset-v1@74e23eb6f830fef4a9e96a92f6f6262214cbb9a8/data/tool-00000-of-00013.parquet",
    212135247
+  ],
+  [
+   "hf://datasets/nvidia/Nemotron-Post-Training-Dataset-v1@74e23eb6f830fef4a9e96a92f6f6262214cbb9a8/data/tool-00001-of-00013.parquet",
+   209370068
+  ],
+  [
+   "hf://datasets/nvidia/Nemotron-Post-Training-Dataset-v1@74e23eb6f830fef4a9e96a92f6f6262214cbb9a8/data/tool-00002-of-00013.parquet",
+   212270950
+  ],
+  [
+   "hf://datasets/nvidia/Nemotron-Post-Training-Dataset-v1@74e23eb6f830fef4a9e96a92f6f6262214cbb9a8/data/tool-00003-of-00013.parquet",
+   209031598
+  ],
+  [
+   "hf://datasets/nvidia/Nemotron-Post-Training-Dataset-v1@74e23eb6f830fef4a9e96a92f6f6262214cbb9a8/data/tool-00004-of-00013.parquet",
+   212193974
+  ],
+  [
+   "hf://datasets/nvidia/Nemotron-Post-Training-Dataset-v1@74e23eb6f830fef4a9e96a92f6f6262214cbb9a8/data/tool-00005-of-00013.parquet",
+   211014592
+  ],
+  [
+   "hf://datasets/nvidia/Nemotron-Post-Training-Dataset-v1@74e23eb6f830fef4a9e96a92f6f6262214cbb9a8/data/tool-00006-of-00013.parquet",
+   210869205
+  ],
+  [
+   "hf://datasets/nvidia/Nemotron-Post-Training-Dataset-v1@74e23eb6f830fef4a9e96a92f6f6262214cbb9a8/data/tool-00007-of-00013.parquet",
+   211905617
+  ],
+  [
+   "hf://datasets/nvidia/Nemotron-Post-Training-Dataset-v1@74e23eb6f830fef4a9e96a92f6f6262214cbb9a8/data/tool-00008-of-00013.parquet",
+   209847513
+  ],
+  [
+   "hf://datasets/nvidia/Nemotron-Post-Training-Dataset-v1@74e23eb6f830fef4a9e96a92f6f6262214cbb9a8/data/tool-00009-of-00013.parquet",
+   211444926
+  ],
+  [
+   "hf://datasets/nvidia/Nemotron-Post-Training-Dataset-v1@74e23eb6f830fef4a9e96a92f6f6262214cbb9a8/data/tool-00010-of-00013.parquet",
+   211383857
+  ],
+  [
+   "hf://datasets/nvidia/Nemotron-Post-Training-Dataset-v1@74e23eb6f830fef4a9e96a92f6f6262214cbb9a8/data/tool-00011-of-00013.parquet",
+   211584689
+  ],
+  [
+   "hf://datasets/nvidia/Nemotron-Post-Training-Dataset-v1@74e23eb6f830fef4a9e96a92f6f6262214cbb9a8/data/tool-00012-of-00013.parquet",
+   211529235
   ]
  ],
  "nemotron-swe-v1-r2e": [

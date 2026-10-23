@@ -95,6 +95,24 @@ def test_hermes_result_count_must_match_the_calls():
         adapt(row, "hermes_tools")
 
 
+def test_results_sent_one_tool_message_each_answer_parallel_calls_in_turn():
+    calls = "".join(
+        f'<tool_call>{{"name": "f", "arguments": {{"a": {i}}}}}</tool_call>' for i in range(2)
+    )
+    row = hermes_row(calls)
+    row["conversations"] += [
+        {"from": "tool", "value": "<tool_response>1</tool_response>"},
+        {"from": "tool", "value": "<tool_response>2</tool_response>"},
+        {"from": "gpt", "value": "both"},
+    ]
+    episode = adapt(row, "hermes_tools")
+    assert [r.payload for r in episode.records if r.result_of] == [b"1", b"2"]
+    assert linked(episode)
+    row["conversations"].pop(-2)  # the second result never arrives
+    with pytest.raises(SchemaError, match="partly answered"):
+        adapt(row, "hermes_tools")
+
+
 def test_python_call_syntax_in_content_and_in_a_field_with_one_result_per_call():
     toolace = {
         "system": "You compose functions.",
@@ -690,4 +708,486 @@ def test_glaive_first_release_keeps_system_prompt_and_chat_in_one_string():
     )
     episode = adapt_mapped({"sample": sample}, "glaive_tools", "tool_use", {"messages": "sample"})
     assert any(r.action_id for r in episode.records)
+    assert linked(episode)
+
+
+def test_python_calls_with_odd_tool_names_json_literals_and_keyword_parameters():
+    # Shapes seen in ToolACE and Dolci: parentheses and ampersands in tool names, a parameter
+    # called ``from``, ``true``/``null`` inside Python call syntax, and a ``"null"`` call field.
+    toolace = {
+        "conversations": [
+            {"from": "user", "value": "q"},
+            {
+                "from": "assistant",
+                "value": '[User Feed (Video Posts) V2(username="a"), '
+                'Q&A Notifications(from="2025-01-01", n=3)]',
+            },
+            {"from": "tool", "value": json.dumps([{"results": 1}, {"results": 2}])},
+            {"from": "assistant", "value": "done"},
+        ]
+    }
+    episode = adapt(toolace, "python_call_tools")
+    assert [a.tool_name for a in episode.actions] == [
+        "User Feed (Video Posts) V2",
+        "Q&A Notifications",
+    ]
+    assert json.loads(episode.actions[1].arguments_json) == {"from": "2025-01-01", "n": 3}
+    dolci = {
+        "messages": [
+            {"role": "user", "content": "q", "function_calls": "null"},
+            {
+                "role": "assistant",
+                "content": None,
+                "function_calls": 'api.v1_search(keyword=null, strict=true, code="3000")',
+            },
+            {"role": "environment", "content": '{"r": 1}'},
+            {"role": "assistant", "content": "ok", "function_calls": "null"},
+        ]
+    }
+    episode = adapt(dolci, "python_call_tools")
+    assert json.loads(episode.actions[0].arguments_json) == {
+        "keyword": None,
+        "strict": True,
+        "code": "3000",
+    }
+    assert linked(episode)
+    # Bracketed prose that is not a call is still prose.
+    prose = {
+        "conversations": [
+            {"from": "user", "value": "q"},
+            {"from": "assistant", "value": "[Tip & trick (see docs)]"},
+        ]
+    }
+    assert not adapt(prose, "python_call_tools").actions
+
+
+def test_qwen_style_search_traces_put_results_in_user_turns_and_the_prompt_in_a_column():
+    call = '{"name": "search", "arguments": {"query": "x"}}'
+    row = {
+        "system_prompt": "You are a deep search assistant.",
+        "messages": [
+            {"role": "user", "content": "Question?"},
+            {
+                "role": "assistant",
+                "content": f"<think>hm</think>\n\n<tool_call>\n{call}\n</tool_call>",
+            },
+            {"role": "user", "content": "<tool_response>\nresult text\n</tool_response>"},
+            {"role": "assistant", "content": "<think>ok</think>\n\n<answer>42</answer>"},
+        ],
+    }
+    episode = adapt(row, "hermes_tools", observation_provenance="executed")
+    assert [a.tool_name for a in episode.actions] == ["search"] and linked(episode)
+    assert episode.records[0].role == "system"
+    assert [r.provenance for r in episode.records if r.result_of] == ["executed"]
+    # A user turn that merely mentions the tag is not a result.
+    chatty = {"messages": [{"role": "user", "content": "what is <tool_response> for?"}]}
+    assert not adapt(chatty, "hermes_tools").actions
+
+
+def test_harmony_traces_pair_parallel_calls_in_order_and_drop_empty_system_configuration():
+    def message(role, text, **rest):
+        return {
+            "role": role,
+            "content": [{"text": text}],
+            "channel": None,
+            "recipient": None,
+        } | rest
+
+    schema = {"type": "object", "properties": {"query": {"type": "string"}, "cursor": None}}
+    tools = {"browser": {"tools": [{"name": "search", "description": "d", "parameters": schema}]}}
+    row = {
+        "messages": [
+            {"role": "system", "content": [{"text": None, "tools": tools}]},
+            message("developer", "You are a research agent."),
+            message("user", "Question"),
+            message("assistant", "thinking", channel="analysis"),
+            message("assistant", '{"query": "a"}', channel="analysis", recipient="browser.search"),
+            message("assistant", '{"query": "b"}', channel="analysis", recipient="browser.search"),
+            message("tool", "result a", name="browser.search", recipient="assistant"),
+            message("tool", "result b", name="browser.search", recipient="assistant"),
+            message("assistant", "Answer", channel="final"),
+        ]
+    }
+    episode = adapt(row, "harmony_tools")
+    assert [a.tool_name for a in episode.actions] == ["browser.search", "browser.search"]
+    assert [json.loads(a.arguments_json)["query"] for a in episode.actions] == ["a", "b"]
+    assert [r.payload for r in episode.records if r.result_of] == [b"result a", b"result b"]
+    assert linked(episode) and json.loads(episode.tools_json)[0]["name"] == "browser.search"
+    broken = {"messages": row["messages"][:3] + [message("tool", "stray", name="browser.open")]}
+    with pytest.raises(SchemaError, match="no pending call"):
+        adapt(broken, "harmony_tools")
+
+
+def test_response_items_become_turns_and_the_next_step_closes_the_trace():
+    tool = {"type": "function", "name": "lookup", "parameters": {"type": "object"}}
+    row = {
+        "responses_create_params": {
+            "tools": [tool],
+            "input": [
+                {"role": "system", "content": "Help."},
+                {"role": "user", "content": "Where is it?"},
+                {
+                    "type": "reasoning",
+                    "id": "r",
+                    "summary": [{"type": "summary_text", "text": "look"}],
+                },
+                {
+                    "role": "assistant",
+                    "type": "message",
+                    "content": [{"type": "output_text", "text": "One sec."}],
+                },
+                {
+                    "type": "function_call",
+                    "call_id": "c1",
+                    "name": "lookup",
+                    "arguments": '{"q": "it"}',
+                },
+                {"type": "function_call_output", "call_id": "c1", "output": "Paris"},
+            ],
+        },
+        "expected_action": {"type": "message", "content": "It is in Paris."},
+    }
+    episode = adapt(row, "responses_tools")
+    assert [(r.role, r.policy_mask) for r in episode.records][-1] == ("assistant", True)
+    (action,) = episode.actions
+    assert action.tool_name == "lookup" and json.loads(action.arguments_json) == {"q": "it"}
+    assert json.loads(episode.tools_json)[0]["name"] == "lookup"
+    assert [r.payload for r in episode.records if r.result_of] == [b"Paris"]
+    assert linked(episode)
+
+
+def test_call_lists_pair_one_result_entry_per_call_and_tools_come_from_the_prompt():
+    system = (
+        'Tools:\n<tool>[{"name": "a", "description": "d", "parameters": '
+        '{"x": {"type": "string"}}, "required": ["x"]}]</tool>\nAnswer in <final></final>.'
+    )
+    calls = '[{"name": "a", "arguments": {"x": "1"}}, {"name": "a", "arguments": {"x": "2"}}]'
+    results = json.dumps(
+        [{"name": "a", "arguments": {"x": "1"}, "results": 1}, {"name": "a", "results": {"y": 2}}]
+    )
+    row = {
+        "messages": [
+            {"role": "system", "content": system},
+            {"role": "user", "content": "go"},
+            {"role": "assistant", "content": f"Plan.\n<call>{calls}</call>"},
+            {"role": "tool", "content": results},
+            {"role": "assistant", "content": "<final>Done</final>"},
+        ]
+    }
+    episode = adapt(row, "call_list_tools")
+    assert [json.loads(a.arguments_json)["x"] for a in episode.actions] == ["1", "2"]
+    assert [r.payload for r in episode.records if r.result_of] == [b"1", b'{"y": 2}']
+    tool = json.loads(episode.tools_json)[0]
+    assert tool["parameters"]["properties"]["x"] == {"type": "string"}
+    assert tool["parameters"]["required"] == ["x"] and linked(episode)
+
+
+def test_the_customers_own_tool_calls_stay_customer_text():
+    row = {
+        "messages": [
+            {"role": "system", "content": "Policy."},
+            {"role": "user", "content": "Help"},
+            {
+                "role": "assistant",
+                "content": "",
+                "tool_calls": [
+                    {"id": "c", "name": "lookup", "arguments": {}, "requestor": "assistant"}
+                ],
+            },
+            {"role": "tool", "content": "found"},
+            {
+                "role": "user",
+                "content": "Checking my phone.",
+                "tool_calls": [{"id": "d", "name": "status", "arguments": {}, "requestor": "user"}],
+            },
+            {"role": "tool", "content": "Airplane Mode: ON"},
+            {"role": "assistant", "content": "Turn it off."},
+        ]
+    }
+    episode = adapt(row, "device_call_tools")
+    assert [a.tool_name for a in episode.actions] == ["lookup"]
+    texts = [r.payload for r in episode.records if r.role == "user"]
+    assert any(b"Airplane Mode: ON" in text for text in texts) and linked(episode)
+
+
+def test_a_dialogue_prefix_with_its_next_step_trains_only_the_next_step():
+    row = {
+        "messages": [
+            {"role": "system", "content": "Policy."},
+            {"role": "user", "content": "Help"},
+            {"role": "assistant", "content": "Sure."},
+            {"role": "user", "content": "Thanks"},
+        ],
+        "answer": {
+            "role": "assistant",
+            "content": "",
+            "thinking": "plan",
+            "tool_calls": [
+                {"id": "c", "type": "function", "function": {"name": "f", "arguments": "{}"}}
+            ],
+        },
+    }
+    episode = adapt(row, "device_call_tools", allow_pending_final_action=True)
+    scored = [r for r in episode.records if r.policy_mask]
+    assert len(scored) == 2 and all(r.role == "assistant" for r in scored)
+    assert [a.tool_name for a in episode.actions] == ["f"]
+    assert b"<think>" in scored[0].payload
+
+
+def test_blank_user_turns_json_message_strings_and_empty_call_fields():
+    blank = {
+        "messages": [
+            {"role": "user", "content": ""},
+            {"role": "user", "content": "Real question"},
+            {"role": "assistant", "content": "Answer", "tool_calls": ""},
+        ]
+    }
+    with pytest.raises(SchemaError, match="no content"):
+        adapt(blank, "chat")
+    episode = adapt(blank, "chat", drop_empty_user_turns=True)
+    assert [r.role for r in episode.records] == ["user", "assistant"]
+    strings = {"messages": [json.dumps(m) for m in blank["messages"][1:]]}
+    assert len(adapt(strings, "chat").records) == 2
+
+
+def test_function_role_replies_in_react_logs_are_the_environment_turn():
+    row = {
+        "conversations": [
+            {"from": "system", "value": "You are AutoGPT."},
+            {"from": "user", "value": "Find a meme."},
+            {"from": "assistant", "value": "Thought: search\nAction: memes\nAction Input: {}"},
+            {"from": "function", "value": '{"error": "", "response": "ok"}'},
+            {"from": "assistant", "value": "Thought: done\nAction: Finish\nAction Input: {}"},
+        ]
+    }
+    episode = adapt(row, "react_function_agent", stream="environment_trajectories")
+    assert [r.role for r in episode.records].count("environment") == 1
+
+
+def test_call_roles_spelled_with_a_space_and_calls_listed_in_one_message():
+    row = {
+        "messages": [
+            {"role": "user", "content": "go"},
+            {
+                "role": "tool call",
+                "content": [{"name": "a", "arguments": {"x": 1}}, {"name": "b", "arguments": {}}],
+            },
+            {"role": "tool_response", "content": "1"},
+            {"role": "tool_response", "content": "2"},
+            {"role": "assistant", "content": "done"},
+        ]
+    }
+    episode = adapt(row, "simulated_tool_roles")
+    assert [a.tool_name for a in episode.actions] == ["a", "b"] and linked(episode)
+
+
+def test_a_call_message_with_single_quoted_arguments_text_is_read_like_a_glaive_call():
+    body = '{"name": "make", "arguments": \'{\n  "title": "x"\n}\'}'
+    row = {
+        "messages": [
+            {"role": "user", "content": "go"},
+            {"role": "function-call", "content": body},
+            {"role": "function-response", "content": '{"ok": true}'},
+            {"role": "assistant", "content": "done"},
+        ]
+    }
+    episode = adapt(row, "simulated_tool_roles")
+    assert [a.tool_name for a in episode.actions] == ["make"] and linked(episode)
+
+
+def test_tools_listed_as_a_flat_parameter_map_become_an_object_schema():
+    flat = {
+        "name": "trending",
+        "description": "d",
+        "parameters": {
+            "type": {"description": "category", "type": "str, optional", "default": "gaming"},
+            "country": {"description": "code", "type": "str"},
+        },
+    }
+    row = {
+        "tools": [flat],
+        "messages": [
+            {"role": "user", "content": "go"},
+            {"role": "assistant", "content": "ok"},
+        ],
+    }
+    episode = adapt(row, "chat")
+    schema = json.loads(episode.tools_json)[0]["parameters"]
+    assert schema["type"] == "object" and schema["required"] == ["country"]
+    assert schema["properties"]["type"]["type"] == "string"
+
+
+def test_a_reply_that_is_one_fenced_block_of_calls_is_a_call_and_other_code_is_text():
+    code = "```python\nbook(when=datetime(2023, 5, 12, 14, 0), note=...)\n```"
+    row = {
+        "messages": [
+            {"role": "user", "content": "go"},
+            {"role": "assistant", "content": code},
+            {"role": "tool", "content": "ok"},
+            {"role": "assistant", "content": "```python\nx = 1\nprint(x)\n```"},
+        ]
+    }
+    episode = adapt(row, "python_call_tools")
+    (action,) = episode.actions
+    assert json.loads(action.arguments_json) == {
+        "when": "datetime(2023, 5, 12, 14, 0)",
+        "note": "...",
+    }
+    assert linked(episode)
+
+
+def test_llamafactory_calls_keep_their_thinking_and_results_lose_their_tags():
+    row = {
+        "system": "You are an agent.",
+        "tools": json.dumps(
+            [
+                {
+                    "type": "function",
+                    "function": {"name": "f", "parameters": json.dumps({"type": "object"})},
+                }
+            ]
+        ),
+        "conversations": [
+            {"from": "human", "value": "go"},
+            {
+                "from": "function_call",
+                "value": '<think>\nplan\n</think>\n<tool_call>\n{"name": "f", "arguments": {}}\n</tool_call>',
+            },
+            {"from": "observation", "value": "<tool_response>\nok\n</tool_response>"},
+            {"from": "gpt", "value": "done"},
+        ],
+    }
+    episode = adapt(row, "simulated_tool_roles")
+    assert [r.payload for r in episode.records if r.result_of] == [b"ok"]
+    assert any(b"plan" in r.payload for r in episode.records if r.policy_mask and not r.action_id)
+    assert json.loads(episode.tools_json)[0]["function"]["parameters"] == {"type": "object"}
+    assert linked(episode)
+
+
+def test_one_response_holding_every_parallel_result_is_split_per_call():
+    calls = "".join(
+        f'<tool_call>{{"name": "f", "arguments": {{"a": {i}}}}}</tool_call>' for i in range(2)
+    )
+    packed = json.dumps([{"name": "f", "results": {"v": 1}}, {"name": "f", "results": "two"}])
+    episode = adapt(hermes_row(calls, f"<tool_response>{packed}</tool_response>"), "hermes_tools")
+    assert [r.payload for r in episode.records if r.result_of] == [b'{"v": 1}', b'"two"']
+
+
+def test_tool_calls_written_inside_one_assistant_output_are_split_out_with_their_results():
+    row = {
+        "instruction": "Think, search and answer.",
+        "input": "Who wrote it?",
+        "output": (
+            "<think> look it up </think><search>who wrote it</search>\n\n"
+            "<result>Ann wrote it.</result> <think>done</think><answer>Ann</answer>"
+        ),
+    }
+    episode = adapt(row, "tag_trace_tools")
+    (action,) = episode.actions
+    assert action.tool_name == "search" and json.loads(action.arguments_json) == {
+        "query": "who wrote it"
+    }
+    assert [r.payload for r in episode.records if r.result_of] == [b"Ann wrote it."]
+    assert episode.records[-1].role == "assistant" and episode.records[-1].policy_mask
+    assert linked(episode)
+
+
+def test_a_call_quoted_while_thinking_is_not_a_call_and_bare_user_results_can_be_read():
+    thinking = '<think>I could write <tool_call>{"name": "x"}</tool_call> but first</think>\n'
+    call = thinking + '<tool_call>{"name": "f", "arguments": {}}</tool_call>'
+    row = {
+        "conversations": [
+            {"from": "human", "value": "go"},
+            {"from": "gpt", "value": call},
+            {"from": "human", "value": '{"v": 1}'},
+            {"from": "gpt", "value": "done"},
+        ]
+    }
+    episode = adapt(row, "hermes_user_result_tools")
+    assert [a.tool_name for a in episode.actions] == ["f"]
+    assert [r.payload for r in episode.records if r.result_of] == [b'{"v": 1}']
+    # The ordinary reader sees a call that was never answered.
+    with pytest.raises(SchemaError, match="observation is missing"):
+        adapt(row, "hermes_tools")
+
+
+def test_glaive_calls_inside_messages_and_reasoning_roles():
+    glaive = {
+        "messages": [
+            {"role": "system", "content": "You can call functions."},
+            {"role": "user", "content": "weather?"},
+            {
+                "role": "assistant",
+                "content": '<<functioncall>> {"name": "w", "arguments": \'{"c": "Rome"}\'}',
+            },
+            {"role": "function-response", "content": '{"t": 20}'},
+            {"role": "assistant", "content": "20 degrees"},
+        ]
+    }
+    episode = adapt(glaive, "glaive_message_tools")
+    assert [json.loads(a.arguments_json) for a in episode.actions] == [{"c": "Rome"}]
+    assert linked(episode)
+    steps = {
+        "messages": json.dumps(
+            [
+                {"role": "system", "content": "Research."},
+                {"role": "user", "content": "Q?"},
+                {"role": "reasoning", "content": "<think>search</think>"},
+                {
+                    "role": "tool_call",
+                    "content": '<tool_call>\n{"name": "s", "arguments": {"q": 1}}\n</tool_call>',
+                },
+                {"role": "tool_output", "content": "<tool_response>\nfound\n</tool_response>"},
+                {"role": "reasoning", "content": "<think>enough</think>"},
+                {"role": "answer", "content": "<answer>A</answer>"},
+            ]
+        )
+    }
+    episode = adapt(steps, "reasoning_role_tools")
+    assert [r.payload for r in episode.records if r.result_of] == [b"found"]
+    assert episode.records[-1].policy_mask and b"enough" in episode.records[-1].payload
+    assert linked(episode)
+
+
+def test_python_interpreter_code_after_the_json_is_its_argument_and_mislabelled_tool_headers_drop():
+    call = '<tool_call>{"name": "PythonInterpreter", "arguments": {}}<code>\nprint(1)\n</code></tool_call>'
+    episode = adapt(hermes_row(call, "<tool_response>1</tool_response>"), "hermes_tools")
+    assert json.loads(episode.actions[0].arguments_json) == {"code": "print(1)"}
+
+    def message(role, text, **rest):
+        return {
+            "role": role,
+            "content": [{"text": text}],
+            "channel": None,
+            "recipient": None,
+        } | rest
+
+    row = {
+        "messages": [
+            message("user", "Q"),
+            message("assistant", '{"query": "a"}', recipient="browser.search"),
+            message("tool", '{"query": "b"}', name="assistant", recipient="code"),
+            message("tool", "result", name="browser.search", recipient="assistant"),
+            message("assistant", "Answer", channel="final"),
+        ]
+    }
+    episode = adapt(row, "harmony_tools")
+    assert [r.payload for r in episode.records if r.result_of] == [b"result"]
+
+
+def test_xml_function_calls_keep_parameter_types():
+    call = (
+        "<tool_call>\n<function=book>\n<parameter=city>\nParis\n</parameter>\n"
+        "<parameter=nights>\n3\n</parameter>\n<parameter=rooms>\n[1, 2]\n</parameter>\n"
+        "<parameter=pets>\nfalse\n</parameter>\n</function>\n</tool_call>"
+    )
+    episode = adapt(hermes_row(call, "<tool_response>\nok\n</tool_response>"), "hermes_tools")
+    (action,) = episode.actions
+    assert action.tool_name == "book"
+    assert json.loads(action.arguments_json) == {
+        "city": "Paris",
+        "nights": 3,
+        "rooms": [1, 2],
+        "pets": False,
+    }
     assert linked(episode)

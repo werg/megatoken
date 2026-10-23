@@ -8,9 +8,9 @@ import pytest
 
 from megatoken.data.parsing import registry
 from megatoken.data.parsing.documents import scan_markdown, scan_markup_fallback
-from megatoken.data.parsing.engine import SourceView, parse_content
-from megatoken.data.parsing.syntax import scan_syntax
-from megatoken.data.parsing.types import ParseLimits
+from megatoken.data.parsing.engine import SourceView, _Engine, parse_content
+from megatoken.data.parsing.syntax import Scan, scan_syntax
+from megatoken.data.parsing.types import Diagnostic, ParseLimits, ParseResult
 
 LIMITS = ParseLimits(isolate_native=False)
 
@@ -234,6 +234,16 @@ def test_headers_and_function_signatures_are_attached_to_first_body():
     assert attachment.path == function.path
 
 
+def test_a_heading_is_never_attached_across_the_next_heading():
+    # "## file" followed at once by "# Title" has no body of its own. Attaching it to the
+    # title's paragraph made it overlap the next section, and a long run of such files in one
+    # prompt (an agent's workspace files) could not be cut anywhere.
+    markdown = b"## notes/USER.md\n# User\n\nAbout the user.\n"
+    result = parse(markdown, language="markdown")
+    attachments = [r for r in result.regions if r.kind == "heading_attachment"]
+    assert [markdown[r.start : r.end] for r in attachments] == [b"# User\n\nAbout the user.\n"]
+
+
 def test_recovered_syntax_remains_useful_and_unknown_grammar_is_honest():
     broken = b'def broken(:\n    return "Hello. World!"\n\ndef good():\n    return 2\n'
     result = parse(broken, language="python")
@@ -335,6 +345,20 @@ def test_source_views_compose_without_decoding_or_dropping_original_coordinates(
     assert child.position(7, end=True) == 12
     with pytest.raises(ValueError, match="sorted, disjoint"):
         view.subview(((2, 5), (1, 3)))
+
+
+def test_an_empty_diagnostic_at_a_seam_between_source_ranges_stays_inside_the_source():
+    # A grammar's inserted missing token in JavaScript inside quoted HTML sits exactly at the seam
+    # between two ranges; it used to map to a start after its end and reject the whole tool result.
+    payload = b"> abc\r\n> def\r\n"
+    view = SourceView.original(payload).subview(((2, 7), (9, 14)))
+    engine = _Engine(payload, LIMITS, "fallback", None, False, None)
+    scan = Scan(
+        ParseResult(diagnostics=[Diagnostic("missing_syntax", 5, 5, "tree_sitter:javascript", ";")])
+    )
+    engine.merge(scan, view, 0)
+    engine.result.validate(len(payload))
+    assert [(d.start, d.end) for d in engine.result.diagnostics] == [(7, 7)]
 
 
 def test_commonmark_fallback_maps_cr_only_fences_and_recovers_unclosed_blocks():

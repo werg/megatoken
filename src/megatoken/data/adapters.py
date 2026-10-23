@@ -194,9 +194,42 @@ PROFILES: dict[str, AdapterProfile] = {
     ),
     # Plain ReAct text (Thought/Action turns, environment replies): no structured calls exist.
     "react_agent": AdapterProfile(observation_provenance="executed", environment_turns=True),
+    "react_function_agent": AdapterProfile(
+        observation_provenance="executed", environment_turns=True, dialect="environment_roles"
+    ),
     # Tool dialogues with an LLM-simulated tool backend.
     "hermes_tools": AdapterProfile(observation_provenance="simulated", dialect="hermes"),
+    # Calls in hermes syntax whose results arrive as the next, untagged user turn.
+    "hermes_user_result_tools": AdapterProfile(
+        observation_provenance="simulated", dialect="hermes_user_results"
+    ),
     "python_call_tools": AdapterProfile(observation_provenance="simulated", dialect="python_calls"),
+    # gpt-oss traces of a browsing agent whose search and page tools really ran.
+    "harmony_tools": AdapterProfile(observation_provenance="executed", dialect="harmony"),
+    # Tool-Star: search and Python calls with their results inside one assistant output.
+    "tag_trace_tools": AdapterProfile(observation_provenance="executed", dialect="tag_trace"),
+    "call_list_tools": AdapterProfile(observation_provenance="simulated", dialect="call_list"),
+    # tau2 logs: the customer also calls tools of its own, which stay on the customer's side.
+    "device_call_tools": AdapterProfile(observation_provenance="executed", dialect="device_calls"),
+    # NeMo-Gym RL trajectories: Responses-API items plus the step that comes next.
+    "responses_tools": AdapterProfile(
+        observation_provenance="simulated",
+        dialect="responses",
+        fields=_fields(messages="responses_create_params.input"),
+    ),
+    "tool_dict_tools": AdapterProfile(
+        observation_provenance="executed",
+        dialect="tool_dict",
+        fields=_fields(messages="conversation"),
+    ),
+    # Glaive rows stored as messages, with the call written as <functioncall> text.
+    "glaive_message_tools": AdapterProfile(
+        observation_provenance="simulated", dialect="glaive_messages"
+    ),
+    # One role per step (reasoning, tool_call, tool_output, answer).
+    "reasoning_role_tools": AdapterProfile(
+        observation_provenance="simulated", dialect="reasoning_roles"
+    ),
     "glaive_tools": AdapterProfile(
         observation_provenance="simulated",
         dialect="glaive",
@@ -245,6 +278,7 @@ _PROFILE_OPTIONS: dict[str, frozenset[str]] = {
         "positional_call_ids",
         "admit_unknown_outcome",
         "path_dependencies",
+        "drop_empty_user_turns",
     },
     "serialized_chat": _HINT_OPTIONS | {"allow_incomplete_serialized"},
     "document": _HINT_OPTIONS | {"allow_incomplete_serialized"},
@@ -548,6 +582,45 @@ def _clean_schema(value: Any) -> Any:
     return value
 
 
+def _decoded_parameters(schema: dict[str, Any]) -> dict[str, Any]:
+    """A tool schema whose parameters are stored as a JSON string, with the string decoded."""
+    wrapped = isinstance(schema.get("function"), dict)
+    inner = schema["function"] if wrapped else schema
+    if not isinstance(inner.get("parameters"), str):
+        return schema
+    inner = {**inner, "parameters": _object(inner["parameters"], "tool parameters")}
+    return {**schema, "function": inner} if wrapped else inner
+
+
+def _flat_parameters(schema: dict[str, Any]) -> dict[str, Any]:
+    """A tool whose parameters are listed as ``{name: {type: "str", ...}}`` as a JSON Schema object.
+
+    The xLAM spelling has no ``properties`` wrapper, so a parameter may even be called ``type``.
+    A parameter counts as required unless it has a default or its type says ``optional``.
+    """
+    wrapped = isinstance(schema.get("function"), dict)
+    inner = schema["function"] if wrapped else schema
+    flat = inner.get("parameters")
+    if (
+        not isinstance(flat, dict)
+        or not flat
+        or "properties" in flat
+        or not all(isinstance(item, dict) for item in flat.values())
+        or isinstance(flat.get("type"), str)
+    ):
+        return schema
+    required = [
+        name
+        for name, spec in flat.items()
+        if "default" not in spec and "optional" not in str(spec.get("type", "")).lower()
+    ]
+    inner = {
+        **inner,
+        "parameters": {"type": "object", "properties": flat, "required": required},
+    }
+    return {**schema, "function": inner} if wrapped else inner
+
+
 def _tools(value: Any) -> str:
     schemas = _object(value, "tools") if value is not None else []
     if not isinstance(schemas, list):
@@ -555,7 +628,11 @@ def _tools(value: Any) -> str:
     schemas = [_object(item, "tool schema") for item in schemas]
     if any(not isinstance(item, dict) for item in schemas):
         raise SchemaError("Every tool schema must be an object")
-    return canonical_json(_clean_schema([_function_tool(item) for item in schemas]))
+    return canonical_json(
+        _clean_schema(
+            [_function_tool(_flat_parameters(_decoded_parameters(item))) for item in schemas]
+        )
+    )
 
 
 def _function_tool(tool: dict[str, Any]) -> dict[str, Any]:
@@ -948,7 +1025,10 @@ def _chat(reader: _Reader, builder: _EpisodeBuilder) -> None:
             )
     from .dialects import role_of
 
+    drop_empty_users = bool(reader.context.options.get("drop_empty_user_turns", False))
     for turn, message in enumerate(messages):
+        if isinstance(message, str):
+            message = _object(message, "A message")  # some sets store one JSON string per message
         if not isinstance(message, Mapping):
             raise SchemaError("Every message must be an object")
         role = role_of(message)
@@ -991,7 +1071,9 @@ def _chat(reader: _Reader, builder: _EpisodeBuilder) -> None:
         if structured_result:
             # A JSON result object is delivered as its canonical serialization.
             content = canonical_json(content)
-        calls = _object(message.get("tool_calls"), "tool_calls") or []
+        calls = (
+            _object(message.get("tool_calls"), "tool_calls") if message.get("tool_calls") else []
+        )
         if not isinstance(calls, list):
             raise SchemaError("tool_calls must be a list")
         if message.get("function_call"):
@@ -1000,9 +1082,10 @@ def _chat(reader: _Reader, builder: _EpisodeBuilder) -> None:
             calls = [{"id": f"{builder.episode_id}:{turn}", "function": message["function_call"]}]
         if calls and role != "assistant":
             raise SchemaError("Only assistant messages can issue tools")
-        if (content is None and not calls) or (
-            role == "user" and isinstance(content, str) and not content.strip()
-        ):
+        blank_user = role == "user" and isinstance(content, str) and not content.strip()
+        if blank_user and drop_empty_users and not calls:
+            continue  # the publisher blanked a turn (a withheld device action), not the prompt
+        if (content is None and not calls) or blank_user:
             raise SchemaError(
                 f"Message {turn} has no content; a source that withholds prompts must be restored first"
             )

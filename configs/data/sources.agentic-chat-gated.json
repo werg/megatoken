@@ -1,0 +1,177 @@
+{
+  "schema_version": 1,
+  "metadata_checked_at": "2026-10-22",
+  "sources": [
+    {
+      "source_id": "apigen-mt-46k",
+      "uri": "hf://datasets/minyichen/APIGen-MT-46k",
+      "format": "hf",
+      "adapter": "simulated_tool_roles",
+      "stream": "tool_use",
+      "revision": "fd4de1da4431e273e3d75aa5c2d42c06bf01ab85",
+      "subset": null,
+      "split": "train",
+      "max_rows": 100000000,
+      "files": [
+        {
+          "path": "data/train-*.parquet"
+        }
+      ],
+      "terms": {
+        "approved": true,
+        "license": "none-on-card",
+        "license_url": "https://huggingface.co/datasets/minyichen/APIGen-MT-46k",
+        "reviewed_by": "Gabriel Pickard",
+        "reviewed_at": "2026-10-22",
+        "notes": "Gated (manual approval): click Agree on the dataset page first. The account could not read the files, so the reader was chosen from the publisher's description and the sibling release and has not been run on real rows. Larger relative of Salesforce/APIGen-MT-5k (21 MB of parquet, so possibly the 5k set re-formatted)."
+      },
+      "field_map": {},
+      "options": {
+        "allow_pending_final_action": true,
+        "quality": {
+          "min_scored_positions": 4
+        }
+      },
+      "publisher_card": "https://huggingface.co/datasets/minyichen/APIGen-MT-46k",
+      "metadata_checked_at": "2026-10-22",
+      "notes": ""
+    },
+    {
+      "source_id": "xlam-60k-ita",
+      "uri": "hf://datasets/ReDiX/xlam-function-calling-60k-ita",
+      "format": "hf",
+      "adapter": "xlam_calls",
+      "stream": "tool_use",
+      "revision": "220a856a49d569383b6d52fe28e5636d9992322b",
+      "subset": null,
+      "split": "train",
+      "max_rows": 100000000,
+      "files": [
+        {
+          "path": "dataset-function-calling.jsonl"
+        }
+      ],
+      "terms": {
+        "approved": true,
+        "license": "cc-by-4.0",
+        "license_url": "https://huggingface.co/datasets/ReDiX/xlam-function-calling-60k-ita",
+        "reviewed_by": "Gabriel Pickard",
+        "reviewed_at": "2026-10-22",
+        "notes": "Gated (manual approval): click Agree on the dataset page first. The account could not read the files, so the reader was chosen from the publisher's description and the sibling release and has not been run on real rows. Italian translation of xlam-function-calling-60k (about 202 MB)."
+      },
+      "field_map": {},
+      "options": {
+        "allow_pending_final_action": true,
+        "quality": {
+          "min_scored_positions": 4
+        }
+      },
+      "publisher_card": "https://huggingface.co/datasets/ReDiX/xlam-function-calling-60k-ita",
+      "metadata_checked_at": "2026-10-22",
+      "notes": ""
+    },
+    {
+      "source_id": "glaive-v1-vi-ura",
+      "uri": "hf://datasets/ura-hcmut/vi_glaive-function-calling",
+      "format": "hf",
+      "adapter": "glaive_tools",
+      "stream": "tool_use",
+      "revision": "39fb291f67771272f4bec587d79ad87997ce7652",
+      "subset": null,
+      "split": "train",
+      "max_rows": 100000000,
+      "files": [
+        {
+          "path": "glaive-function-calling.json"
+        }
+      ],
+      "terms": {
+        "approved": true,
+        "license": "mit",
+        "license_url": "https://huggingface.co/datasets/ura-hcmut/vi_glaive-function-calling",
+        "reviewed_by": "Gabriel Pickard",
+        "reviewed_at": "2026-10-22",
+        "notes": "Gated (manual approval): click Agree on the dataset page first. The account could not read the files, so the reader was chosen from the publisher's description and the sibling release and has not been run on real rows. Vietnamese translation of the first Glaive function-calling release (about 181 MB)."
+      },
+      "field_map": {},
+      "options": {
+        "allow_pending_final_action": true,
+        "quality": {
+          "min_scored_positions": 4
+        }
+      },
+      "publisher_card": "https://huggingface.co/datasets/ura-hcmut/vi_glaive-function-calling",
+      "metadata_checked_at": "2026-10-22",
+      "notes": ""
+    },
+    {
+      "source_id": "glaive-v2-vi-ura",
+      "uri": "hf://datasets/ura-hcmut/vi_glaive-function-calling-v2",
+      "format": "hf",
+      "adapter": "glaive_tools",
+      "stream": "tool_use",
+      "revision": "ecb2233033ae6f375909b7d06ee574337d0a571c",
+      "subset": null,
+      "split": "train",
+      "max_rows": 100000000,
+      "files": [
+        {
+          "path": "glaive-function-calling-v2.json"
+        }
+      ],
+      "terms": {
+        "approved": true,
+        "license": "mit",
+        "license_url": "https://huggingface.co/datasets/ura-hcmut/vi_glaive-function-calling-v2",
+        "reviewed_by": "Gabriel Pickard",
+        "reviewed_at": "2026-10-22",
+        "notes": "Gated (manual approval): click Agree on the dataset page first. The account could not read the files, so the reader was chosen from the publisher's description and the sibling release and has not been run on real rows. Vietnamese translation of Glaive function calling v2 (about 452 MB)."
+      },
+      "field_map": {},
+      "options": {
+        "allow_pending_final_action": true,
+        "quality": {
+          "min_scored_positions": 4
+        }
+      },
+      "publisher_card": "https://huggingface.co/datasets/ura-hcmut/vi_glaive-function-calling-v2",
+      "metadata_checked_at": "2026-10-22",
+      "notes": ""
+    },
+    {
+      "source_id": "agentic-think-v2-react-hybrid",
+      "uri": "hf://datasets/ENERZAiKR/agentic-think-v2-react-hybrid",
+      "format": "hf",
+      "adapter": "chat",
+      "stream": "tool_use",
+      "revision": "58f65fe693f6bcaf165a218b95a8c035f5b011b5",
+      "subset": null,
+      "split": "train",
+      "max_rows": 100000000,
+      "files": [
+        {
+          "path": "data/*.jsonl"
+        }
+      ],
+      "terms": {
+        "approved": true,
+        "license": "cc-by-4.0",
+        "license_url": "https://huggingface.co/datasets/ENERZAiKR/agentic-think-v2-react-hybrid",
+        "reviewed_by": "Gabriel Pickard",
+        "reviewed_at": "2026-10-22",
+        "notes": "Gated (manual approval): click Agree on the dataset page first. The account could not read the files, so the reader was chosen from the publisher's description and the sibling release and has not been run on real rows. 212k tool-calling conversations (4.6 GB) re-derived from Nemotron tool calling, APIGen-MT, Glaive and Hermes with regenerated reasoning, so much of it repeats sources already read."
+      },
+      "field_map": {},
+      "options": {
+        "allow_pending_final_action": true,
+        "positional_call_ids": true,
+        "quality": {
+          "min_scored_positions": 4
+        }
+      },
+      "publisher_card": "https://huggingface.co/datasets/ENERZAiKR/agentic-think-v2-react-hybrid",
+      "metadata_checked_at": "2026-10-22",
+      "notes": ""
+    }
+  ]
+}

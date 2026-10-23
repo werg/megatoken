@@ -230,6 +230,7 @@ def _attach_headings(
     limits: ParseLimits,
 ) -> None:
     ordered = sorted(set(blocks))
+    heading_starts = sorted(start for start, _, _ in headings)
     for start, end, depth in headings:
         first = next(
             (
@@ -239,7 +240,10 @@ def _attach_headings(
             ),
             None,
         )
-        if first:
+        # A heading is attached to the body that follows it, never across another heading:
+        # an attachment reaching into the next section would overlap that section's own span.
+        following = next((other for other in heading_starts if other >= end), None)
+        if first and (following is None or first[0] < following):
             _region(
                 scan, start, first[1], "heading_attachment", language, source, limits, depth=depth
             )
