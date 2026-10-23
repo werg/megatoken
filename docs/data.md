@@ -951,8 +951,7 @@ publisher states it on the dataset card; 206 sources state none, and each is app
 
 The sources moved here from `sources.agentic.json` and `sources.agentic-more.json` (30 and 18
 entries), so no source is prepared by two manifests. Those two manifests keep their smoke-run row
-caps; this one has none. `sources.agentic-coding-gated.json` lists the one set that needs a click
-on the Hub (below).
+caps; this one has none.
 
 ### Volume
 
@@ -1030,11 +1029,9 @@ cast), and `explode` turns a row that holds several runs into one row per run.
 
 ### Needs a click on the Hub
 
-`sources.agentic-coding-gated.json` holds `GAIR/OpenSWE` (about 13,000 trajectories, a 4.9 GB
-file; the project token gets HTTP 403). Open
-<https://huggingface.co/datasets/GAIR/OpenSWE>, sign in and press the agree button, then build its
-listing (`scripts/shard_sources.py ... --listing`) and prepare it like the others. Nothing else
-here is gated: `GAIR/daVinci-Dev` is a gated set whose terms the project account has accepted.
+Nothing is left to click. `GAIR/OpenSWE` (about 13,000 trajectories in one 4.9 GB file) was
+accepted on 2026-10-23 and is `openswe-trajectories` in the main manifest; its first 15 rows
+prepared with none rejected. Also gated but accepted: `GAIR/daVinci-Dev` is a gated set whose terms the project account has accepted.
 
 ### Layouts still without a reader
 
@@ -3363,8 +3360,8 @@ These sources are code data that stays in this manifest: the 28 code-instruction
 `ultradata-agent-general` and `ultradata-agent-search`. The coding-agent, terminal-agent and
 code-execution sources of this sweep, and `davinci-dev-env-native`, moved to
 `sources.agentic-coding.json`; `adp2-swe-chat` was dropped there in favour of the raw SWE-chat
-sessions it was made from. `openswe-trajectories` is listed in
-`sources.agentic-coding-gated.json`.
+sessions it was made from. `openswe-trajectories` is in
+`sources.agentic-coding.json`.
 
 ### Sources that need a click on the Hub
 

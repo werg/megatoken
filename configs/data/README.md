@@ -61,8 +61,7 @@ source needs a token that has accepted its terms). The runs that use them are
 [`docs/data.md`](../../docs/data.md).
 
 `sources.agentic-coding.json` holds the agentic coding data (software-engineering, terminal,
-code-execution and coding-assistant session logs) with no row caps, and
-`sources.agentic-coding-gated.json` the coding sets that need a click on the Hub.
+code-execution and coding-assistant session logs) with no row caps.
 `files.agentic-coding.json` is its file listing and `configs/cloud/prepare-full-agentic-coding.json`
 the full-volume run (20 sandboxes, 280 shards; `prepare-agentic-coding-mix.json` is its capped smoke run). These sources moved out of `sources.agentic.json`
 and `sources.agentic-more.json`, so no source is read by two manifests. See "Agentic coding

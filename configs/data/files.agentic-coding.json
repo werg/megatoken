@@ -48263,6 +48263,12 @@
    161352
   ]
  ],
+ "openswe-trajectories": [
+  [
+   "hf://datasets/GAIR/OpenSWE@a8db93af5335df2c8baac0cd1ff367e4d475d3d7/openswe_traj.jsonl",
+   4868162699
+  ]
+ ],
  "openthoughts-agent-v1-sft": [
   [
    "hf://datasets/open-thoughts/OpenThoughts-Agent-v1-SFT@c5dc896981f4e3b7c5382669b1d1be0bc4b6a1a6/data/train-00000-of-00001.parquet",

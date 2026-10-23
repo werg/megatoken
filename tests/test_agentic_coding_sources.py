@@ -12,10 +12,7 @@ from megatoken.data.sources import load_source_manifest
 ROOT = Path(__file__).parents[1]
 CONFIGS = ROOT / "configs/data"
 CODING = {s.source_id: s for s in load_source_manifest(CONFIGS / "sources.agentic-coding.json")}
-GATED = {
-    s.source_id: s for s in load_source_manifest(CONFIGS / "sources.agentic-coding-gated.json")
-}
-EVERY = {**CODING, **GATED}
+EVERY = CODING
 OTHERS = [
     load_source_manifest(CONFIGS / f"sources.{name}.json")
     for name in (
@@ -100,11 +97,11 @@ def test_the_streams_the_sources_feed_are_in_the_stage_plan():
     assert {"executed_trajectories", "verified_trajectories"} <= planned
 
 
-def test_the_gated_manifest_names_what_to_click_on_the_hub():
-    assert set(GATED) == {"openswe-trajectories"}
-    source = GATED["openswe-trajectories"]
+def test_openswe_reads_its_trajectory_file_grouped_by_instance():
+    source = CODING["openswe-trajectories"]
     assert source.uri == "hf://datasets/GAIR/OpenSWE"
-    assert "agree" in source.terms.notes.lower() or "gated" in source.terms.notes.lower()
+    assert [f.path.rsplit("/", 1)[-1] for f in source.files] == ["openswe_traj.jsonl"]
+    assert source.field_map["family"] == "sample_name"
 
 
 def test_evaluation_sets_are_not_training_sources():

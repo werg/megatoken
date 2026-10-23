@@ -30,7 +30,6 @@ EARLIER = {
         "agentic",
         "agentic-gated",
         "agentic-coding",
-        "agentic-coding-gated",
         "open",
         "v13",
     )
