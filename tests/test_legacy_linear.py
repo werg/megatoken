@@ -131,3 +131,17 @@ def test_corrupt_original_prepared_index_is_rejected_before_publication(tmp_path
     with pytest.raises(ValueError, match="checksum"):
         convert_prepared(source, output, codec)
     assert not (output / "manifest.json").exists()
+
+
+@pytest.mark.parametrize("scope", ["*", "split:validation"])
+def test_inconsistent_original_counts_cannot_publish_a_conversion(tmp_path, scope):
+    source = tmp_path / "original"
+    codec, _ = prepared_legacy(source)
+    manifest = json.loads((source / "manifest.json").read_text())
+    manifest["counts"][scope] += 1
+    manifest["fingerprint"] = content_hash({k: v for k, v in manifest.items() if k != "fingerprint"})
+    (source / "manifest.json").write_text(json.dumps(manifest))
+    output = tmp_path / "converted"
+    with pytest.raises(ValueError, match="count"):
+        convert_prepared(source, output, codec)
+    assert not (output / "manifest.json").exists()
