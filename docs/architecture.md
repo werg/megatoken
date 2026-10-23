@@ -368,9 +368,9 @@ See [generation.md](generation.md) for tape and decoder details.
 | Attention queries | `4 x 128 = 512` | `4 x 64 = 256` |
 | Keys, separately values | `2 x 128 = 256` | `2 x 64 = 128` |
 | Concatenated P row width | 1,024 | 512 |
-| P experts / pair FFN hidden width | `64 / 2048` | `64 / 1024` |
-| U experts / facet FFN hidden width | `32 / 1024` | `32 / 512` |
-| Other linear-pool / router experts / router width | `8 / 8 / 64` | `8 / 8 / 64` |
+| P experts / pair FFN hidden width | `68 / 2048` | `68 / 1024` |
+| U experts / facet FFN hidden width | `40 / 1024` | `40 / 512` |
+| Projection-pool / router experts / router width | `10 / 10 / 64` | `10 / 10 / 64` |
 | Historical slots per retained input, at every age | 32 | 32 |
 | Maximum cached chunks | 1,024 | 1,024 |
 | Maximum BF16 projected KV per episode | 32 MiB | 16 MiB |
@@ -383,6 +383,25 @@ interface. Every retained input has all 32 slots for every C/P historical read,
 with separate stage-owned query/output projections. There is no alternate
 fewer-slot geometry. Additional width and KV heads remain configurable
 experiments; their quality benefit is not established by parameter counts.
+
+New production defaults use 68 experts in the paired P FFN pool, 40 in the
+facet U FFN pool, and 10 in each projection and router pool. With the current
+157,184-token vocabulary, the default full generator has 661,811,934 parameters,
+up from 607,168,094 (+54,643,840, about 9%). This count includes expert-specific
+adapter factors and selector parameters, and excludes optional external media
+packs; it is a parameter count, not FLOPs or a claim about training quality. The
+increase is distributed broadly: U and the smaller projection/router pools grow
+25%, while the dominant paired P FFN pool grows 6.25%. The top-eight candidate
+palette, one selected expert per routed row, and top-two adapter selection stay
+unchanged, as does cached routing cadence. Selector candidate scoring grows
+slightly, and the additional experts increase parameter and optimizer-state
+memory; no speedup is implied.
+
+These are defaults for newly built production configurations. A saved full
+version-11 configuration retains its recorded pool counts when loaded; weights
+are not automatically expanded. Resuming pre-expansion training therefore
+requires its exact saved configuration, and existing resume validation rejects
+a configuration mismatch.
 
 At production width, every full-resolution record uses 32,768 bytes of
 **rotated-final-only** BF16 KV. All 1,024 retained records keep their full
