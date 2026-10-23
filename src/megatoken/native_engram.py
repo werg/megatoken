@@ -6,6 +6,7 @@ import hashlib
 import math
 import os
 import random
+import shutil
 import tempfile
 from collections import Counter
 from collections.abc import Sequence
@@ -18,7 +19,7 @@ from tokenizers import Tokenizer
 
 from megatoken.io import atomic_binary_writer, fsync_directory, sha256_file, write_json
 from megatoken.loading import load_model_config
-from megatoken.safetensors_ranges import SafetensorsRangeReader
+from megatoken.safetensors_ranges import LocalSafetensorsRowReader, SafetensorsRangeReader
 
 
 def extract_native_engram(
@@ -32,6 +33,8 @@ def extract_native_engram(
     seed: int,
     split: str = "train",
     cache_dir: str | Path | None = None,
+    source_mode: str = "ranges",
+    disk_reserve_bytes: int = 4 << 30,
     batch_contexts: int = 256,
     max_gap_rows: int = 0,
 ) -> dict[str, Any]:
@@ -45,6 +48,10 @@ def extract_native_engram(
     """
     if max_contexts < 1 or batch_contexts < 1 or max_gap_rows < 0:
         raise ValueError("Context, batch and range-gap limits must be positive")
+    if source_mode not in {"ranges", "local"}:
+        raise ValueError("Native table source mode must be ranges or local")
+    if disk_reserve_bytes < 0:
+        raise ValueError("Native shard disk reserve cannot be negative")
     if not corpus_roots:
         raise ValueError("Native donor extraction requires prepared corpus roots")
     from megatoken.data import PreparedCorpus
@@ -127,6 +134,16 @@ def extract_native_engram(
         addressor.profile.profile.revision,
         shards,
     )
+    local_shards: dict[str, Path] = {}
+    local_download_bytes = 0
+    if source_mode == "local":
+        local_shards, local_download_bytes = _download_native_shards(
+            addressor.profile.profile.repository,
+            addressor.profile.profile.revision,
+            shards,
+            cache_root / "hf-shards",
+            disk_reserve_bytes=disk_reserve_bytes,
+        )
     projection_seed = seed ^ int.from_bytes(
         hashlib.sha256(donor_profile.encode("utf-8")).digest()[:8], "little"
     )
@@ -167,17 +184,18 @@ def extract_native_engram(
                     f"https://huggingface.co/{addressor.profile.profile.repository}/resolve/"
                     f"{addressor.profile.profile.revision}/{shard}"
                 )
-                token = os.environ.get("HF_TOKEN") or os.environ.get("HUGGINGFACE_HUB_TOKEN")
-                headers = {"Authorization": f"Bearer {token}"} if token else None
-                reader = SafetensorsRangeReader(
-                    url,
-                    tensor_name,
-                    file_size=shard_size,
-                    expected_sha256=shard_hash,
-                    headers=headers,
-                    row_cache=str(cache_root / f"{shard_hash}.sqlite"),
-                    max_gap_rows=max_gap_rows,
-                )
+                if source_mode == "local":
+                    reader = LocalSafetensorsRowReader(str(local_shards[shard]), tensor_name)
+                else:
+                    reader = SafetensorsRangeReader(
+                        url,
+                        tensor_name,
+                        file_size=shard_size,
+                        expected_sha256=shard_hash,
+                        headers=None,
+                        row_cache=str(cache_root / f"{shard_hash}.sqlite"),
+                        max_gap_rows=max_gap_rows,
+                    )
                 reader_cache[key] = reader
             fetched[key] = reader.read_rows(sorted(rows))
 
@@ -268,6 +286,7 @@ def extract_native_engram(
             "descriptor_sha256": sha256_file(temporary / "descriptors.npz"),
             "donor_profile": donor_profile,
             "donor_native_memory": addressor.native_memory,
+            "source_mode": source_mode,
             "donor_metadata": profile_metadata,
             "donor_license_sha256": hashlib.sha256(license_bytes).hexdigest(),
             "donor_tokenizer_fingerprint": addressor.profile.vocabulary.fingerprint,
@@ -317,6 +336,9 @@ def extract_native_engram(
             "range_bytes_received": sum(reader.bytes_received for reader in reader_cache.values()),
             "range_cache": "pinned-shard-and-tensor keyed SQLite rows",
             "range_max_gap_rows": max_gap_rows,
+            "local_shard_count": len(local_shards),
+            "local_download_bytes": local_download_bytes,
+            "local_disk_reserve_bytes": disk_reserve_bytes,
         }
         write_json(temporary / "engram.json", metadata)
         fsync_directory(temporary)
@@ -386,7 +408,7 @@ def _verify_remote_shards(repository: str, revision: str, shards: dict[str, tupl
     """Bind expected byte ranges to Hugging Face LFS metadata without fetching weights."""
     from huggingface_hub import HfApi
 
-    items = HfApi().get_paths_info(
+    items = HfApi(token=False).get_paths_info(
         repository,
         list(sorted(shards)),
         revision=revision,
@@ -403,6 +425,66 @@ def _verify_remote_shards(repository: str, revision: str, shards: dict[str, tupl
             or getattr(found[name], "size", None) != expected_size
         ):
             raise ValueError(f"Native donor shard pin differs from official metadata: {name}")
+
+
+def _download_native_shards(
+    repository: str,
+    revision: str,
+    shards: dict[str, tuple[str, int]],
+    cache_dir: str | Path,
+    *,
+    disk_reserve_bytes: int,
+) -> tuple[dict[str, Path], int]:
+    """Download only the referenced pinned table shards in cloud-local HF cache."""
+    from huggingface_hub import hf_hub_download, try_to_load_from_cache
+
+    destination = Path(cache_dir)
+    destination.mkdir(parents=True, exist_ok=True)
+    cached: dict[str, Path] = {}
+    missing_bytes = 0
+    for shard, (_, size) in shards.items():
+        existing = try_to_load_from_cache(
+            repo_id=repository,
+            filename=shard,
+            revision=revision,
+            repo_type="model",
+            cache_dir=str(destination),
+        )
+        if isinstance(existing, str) and Path(existing).is_file():
+            if Path(existing).stat().st_size == size:
+                cached[shard] = Path(existing)
+                continue
+        missing_bytes += size
+    free_bytes = shutil.disk_usage(destination).free
+    required = missing_bytes + disk_reserve_bytes
+    if free_bytes < required:
+        raise ValueError(
+            "Insufficient cloud cache space for selected native donor shards: "
+            f"need {required} bytes ({missing_bytes} shard bytes plus "
+            f"{disk_reserve_bytes} reserve), have {free_bytes}"
+        )
+
+    downloaded_bytes = 0
+    for shard, (expected_sha, expected_size) in shards.items():
+        path = cached.get(shard)
+        if path is None:
+            path = Path(
+                hf_hub_download(
+                    repo_id=repository,
+                    filename=shard,
+                    revision=revision,
+                    repo_type="model",
+                    cache_dir=str(destination),
+                    token=False,
+                )
+            )
+            downloaded_bytes += expected_size
+        if not path.is_file() or path.stat().st_size != expected_size:
+            raise ValueError(f"Downloaded native donor shard has the wrong size: {shard}")
+        if sha256_file(path) != expected_sha:
+            raise ValueError(f"Downloaded native donor shard SHA256 mismatch: {shard}")
+        cached[shard] = path
+    return cached, downloaded_bytes
 
 
 def _reference(name: str) -> str:

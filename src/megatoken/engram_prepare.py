@@ -1,7 +1,8 @@
 """Prepare both selected native n-gram donors beside verified cloud training data.
 
-Only the donor metadata is downloaded in full. The native extractor reads the
-selected table rows by byte range and writes self-contained training assets.
+Production preparation caches the selected native table shards in the cloud
+and reads their selected rows through memory mapping. Bounded HTTP ranges are
+available for small targeted checks. Both modes write self-contained assets.
 Run this module inside a preparation sandbox, never on the workstation.
 """
 
@@ -27,6 +28,7 @@ def prepare_donors(
     model: str,
     max_contexts: int,
     seed: int,
+    source_mode: str = "local",
 ) -> dict:
     """Restore one pinned corpus and produce an ordered pair of native assets."""
     if max_contexts < 1:
@@ -63,6 +65,7 @@ def prepare_donors(
                 revision=profile.revision,
                 filename=filename,
                 local_dir=metadata,
+                token=False,
             )
         destination = output / name
         if destination.exists():
@@ -99,6 +102,7 @@ def prepare_donors(
                 seed=seed,
                 split="train",
                 cache_dir=work / "native-row-cache",
+                source_mode=source_mode,
             )
         (destination / "DONOR-LICENSE").write_bytes((metadata / "LICENSE").read_bytes())
         assets.append({"donor": name, "path": str(destination), "extraction": report})
@@ -109,6 +113,7 @@ def prepare_donors(
         "model": model,
         "max_contexts_per_donor": max_contexts,
         "seed": seed,
+        "source_mode": source_mode,
         "assets": assets,
         "engram_imports": [item["path"] for item in assets],
     }
@@ -124,6 +129,7 @@ def main() -> None:
     parser.add_argument("--model", default="32x512")
     parser.add_argument("--max-contexts", type=int, required=True)
     parser.add_argument("--seed", type=int, default=17)
+    parser.add_argument("--source-mode", choices=("local", "ranges"), default="local")
     args = parser.parse_args()
     if secrets := os.environ.get("MEGATOKEN_CW_SECRETS"):
         token = Path(secrets) / "hf-token"
@@ -138,6 +144,7 @@ def main() -> None:
                 model=args.model,
                 max_contexts=args.max_contexts,
                 seed=args.seed,
+                source_mode=args.source_mode,
             )
         )
     )

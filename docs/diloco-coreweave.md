@@ -83,7 +83,7 @@ file (`megatoken.cloud-diloco/1`, JSON):
   "lifetime_hours": 24,
   "pip": ["pyarrow"],
   "workers": 4,
-  "config": "configs/train/diloco-coreweave.example.yaml",
+  "config": "configs/train/diloco-engram-import.example.yaml",
   "data": {"peer": "<sandbox id>", "prefixes": ["out/corpus/datasets/rc-train"]},
   "coordinator": {"resources": {"cpu": "8", "memory": "32Gi"}, "args": ["--quorum", "3"]},
   "learners": {"resources": {"cpu": "8", "memory": "32Gi", "gpu": 1}}
@@ -95,20 +95,25 @@ DeepSeek-V4.1-Flash-1017 and Qwen3.8-Flash-Next. Prepare their small training as
 cloud CPU sandbox with the pinned data receipt, for example by running
 `python -m megatoken.engram_prepare --pin /work/in/data-pin.json --output
 /work/out/engram --work /work/engram-preparation --model 32x512 --max-contexts 65536
---seed 17`. This downloads only the pinned tokenizer, model configuration, tensor index
-and license files. It selects actual text contexts from the prepared training corpus and
-uses bounded HTTP byte ranges to query only the corresponding rows in each donor's
-large native table. The transfer is approximate because the two models hash token contexts
+--seed 17`. Production preparation selects actual text contexts from the prepared training
+corpus, checks cloud disk capacity, then caches the required pinned native table shards in
+that sandbox and reads the selected rows through memory mapping. This avoids millions of
+small network requests. The two donors together require roughly 310 GB of cloud disk for
+these source shards; the extractor checks their actual pinned sizes plus reserve before
+downloading. `--source-mode ranges` instead retrieves only selected rows through bounded
+HTTP byte ranges and is useful for small correctness checks. The transfer is approximate because the two models hash token contexts
 while Megatoken hashes byte contexts; donor row numbers are never copied directly. The
-context limit and seed are recorded in each asset. Use
-[`configs/train/diloco-engram-import.example.yaml`](../configs/train/diloco-engram-import.example.yaml)
-The output contains one directory per donor, including a copy of its license. Collect
+context limit and seed are recorded in each asset. The sandbox job is provided in
+[`configs/cloud/prepare-engram-donors.example.json`](../configs/cloud/prepare-engram-donors.example.json).
+Supply `in/data-pin.json` as a verified input and the Hub token and cache key as sandbox
+secrets named `hf-token` and `cache-key`. The output contains one directory per donor,
+including a copy of its license. Collect
 only those small descriptor files, then deliver each directory's `engram.json`,
 `descriptors.npz` and `DONOR-LICENSE` to both coordinator and learners using verified
 `assets.inputs` entries. Set the example's two `engram_imports` paths to those sandbox
 locations. Deliver the matching media pack lock and referenced assets under
 `/work/assets/packs/`, as the example requires for its media datasets. The donor table
-shards stay in cloud storage and are never copied to the workstation. The preparation
+shards stay in the cloud sandbox's working cache and are never copied to the workstation. The preparation
 report records the pinned dataset revision, model revisions, selected context count and
 range bytes read. After the phase, bake its DiLoCo export before creating a served bundle;
 baking keeps the global FP32 masters needed to seed the next phase while removing the
@@ -118,8 +123,8 @@ temporary maps and all donor dependencies.
   Its `coordinator_url` is filled in inside each sandbox
   (`python -m megatoken.cloud_diloco derive`), and `decoupled.workers` **must
   equal** `workers` or the sandbox fails. Use
-  [configs/train/diloco-coreweave.example.yaml](../configs/train/diloco-coreweave.example.yaml)
-  as the template; its paths (datasets, codec) must point at where the
+  [configs/train/diloco-engram-import.example.yaml](../configs/train/diloco-engram-import.example.yaml)
+  as the production template; its paths (datasets, codec, donor assets and media packs) must point at where the
   data lands under `/work`.
 - `workers` is 1..64. Learner resources must request one GPU.
 - `coordinator.args` are passed to `megatoken diloco init`: `--quorum`,

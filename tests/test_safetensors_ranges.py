@@ -1,5 +1,6 @@
 import json
 import struct
+from datetime import UTC
 
 import pytest
 import torch
@@ -61,6 +62,23 @@ def test_safetensors_range_reader_decodes_bfloat16_rows():
     loaded = reader.read_rows([0, 1])
     assert torch.equal(loaded[0], values[0])
     assert torch.equal(loaded[1], values[1])
+
+
+def test_local_safetensors_reader_selects_rows_without_loading_entire_table(tmp_path):
+    from safetensors.torch import save_file
+
+    from megatoken.safetensors_ranges import LocalSafetensorsRowReader
+
+    path = tmp_path / "table.safetensors"
+    values = torch.arange(40, dtype=torch.float32).reshape(10, 4)
+    save_file({"table": values}, str(path))
+    reader = LocalSafetensorsRowReader(str(path), "table")
+    selected = reader.read_rows([9, 2, 2])
+    assert sorted(selected) == [2, 9]
+    assert torch.equal(selected[2], values[2])
+    assert torch.equal(selected[9], values[9])
+    assert reader.bytes_received == 2 * 4 * 4
+    reader.close()
 
 
 def test_safetensors_range_reader_rejects_invalid_shape_metadata():
@@ -171,4 +189,76 @@ def test_http_reader_caches_signed_cdn_url_and_refreshes_without_auth_leak():
     assert client.calls[2][2].get("Authorization") is None
     assert client.calls[3][2]["Authorization"] == "Bearer private-token"
     assert client.calls[4][2].get("Authorization") is None
+    reader.close()
+
+
+def test_retry_after_accepts_seconds_and_http_dates(monkeypatch):
+    from datetime import datetime
+
+    from megatoken import safetensors_ranges
+
+    monkeypatch.setattr(safetensors_ranges.random, "uniform", lambda low, high: high / 2)
+    current = datetime(2026, 10, 23, 12, 0, 0, tzinfo=UTC)
+    assert safetensors_ranges.retry_wait_seconds({"Retry-After": "12"}, 0, 60, now=current) == 14
+    assert (
+        safetensors_ranges.retry_wait_seconds(
+            {"Retry-After": "Fri, 23 Oct 2026 12:00:10 GMT"}, 0, 60, now=current
+        )
+        == 11.75
+    )
+    assert safetensors_ranges.retry_wait_seconds({"Retry-After": "100"}, 0, 15, now=current) == 15
+
+
+def test_rate_limit_waits_until_one_hour_budget_instead_of_quick_attempt_cap(monkeypatch, caplog):
+    from megatoken import safetensors_ranges
+
+    shard = make_shard()
+    reader = SafetensorsRangeReader(
+        "https://huggingface.co/model/resolve/revision/table.safetensors",
+        "table",
+        file_size=len(shard),
+        expected_sha256="f" * 64,
+        fetch=lambda start, end: shard[start : end + 1],
+        max_wait_seconds=10,
+    )
+
+    clock = [0.0]
+    sleeps = []
+    monkeypatch.setattr(safetensors_ranges.time, "monotonic", lambda: clock[0])
+
+    def sleep(seconds):
+        sleeps.append(seconds)
+        clock[0] += seconds
+
+    monkeypatch.setattr(safetensors_ranges.time, "sleep", sleep)
+    monkeypatch.setattr(safetensors_ranges.random, "uniform", lambda low, high: 0.0)
+
+    class Response:
+        def __init__(self):
+            self.status_code = 429
+            self.headers = {"Retry-After": "4"}
+            self.url = reader.url
+            self.history = ()
+
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *args):
+            pass
+
+        def iter_bytes(self):
+            raise AssertionError("429 response body is not consumed")
+
+    class Client:
+        def stream(self, *args, **kwargs):
+            return Response()
+
+        def close(self):
+            pass
+
+    reader._client = Client()
+    with pytest.raises(ValueError, match="HTTP 429 after waiting 10s"):
+        reader._http_range(10, 11)
+    assert sleeps == [4, 4, 2]
+    assert "retrying in" in caplog.text and "waited 8.0s of 10s" in caplog.text
     reader.close()

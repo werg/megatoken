@@ -13,6 +13,7 @@
     "--output", "/work/out/engram",
     "--model", "32x512",
     "--max-contexts", "65536",
-    "--seed", "17"
+    "--seed", "17",
+    "--source-mode", "local"
   ]
 }

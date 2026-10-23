@@ -515,6 +515,23 @@ def _engram_bake(args):
     return bake_checkpoint(args.checkpoint, args.output, codec_path=args.codec, packs=args.packs)
 
 
+def _engram_native_extract(args):
+    from megatoken.native_engram import extract_native_engram
+
+    return extract_native_engram(
+        args.donor_profile,
+        args.donor_root,
+        args.corpus,
+        args.output,
+        model=args.model,
+        max_contexts=args.max_contexts,
+        seed=args.seed,
+        split=args.split,
+        cache_dir=args.cache_dir,
+        source_mode=args.source_mode,
+    )
+
+
 def _serving_arguments(item):
     item.add_argument("--model", required=True, help="Exported served bundle")
     item.add_argument("--packs", help="Locked realizer pack manifest the model was trained with")
@@ -766,7 +783,7 @@ def parser() -> argparse.ArgumentParser:
     inspecting.add_argument("base")
     inspecting.set_defaults(func=_kb_inspect)
     item = commands.add_parser(
-        "engram", help="Optional offline native-table initialization and exact baking"
+        "engram", help="Offline donor memory import, token-embedding baseline, and exact baking"
     )
     sub = item.add_subparsers(dest="engram_command", required=True)
     extract = sub.add_parser("extract")
@@ -784,6 +801,20 @@ def parser() -> argparse.ArgumentParser:
     extract.add_argument("--model", default="32x512")
     extract.add_argument("--seed", type=int, default=17)
     extract.set_defaults(func=_engram_extract)
+    native = sub.add_parser("extract-native", help="Import a selected donor's n-gram memory")
+    native.add_argument(
+        "--donor-profile", choices=("deepseek-v4.1-flash-1017", "qwen3.8-flash-next"), required=True
+    )
+    native.add_argument("--donor-root", required=True)
+    native.add_argument("--corpus", action="append", required=True)
+    native.add_argument("--output", required=True)
+    native.add_argument("--model", default="32x512")
+    native.add_argument("--max-contexts", type=int, required=True)
+    native.add_argument("--seed", type=int, default=17)
+    native.add_argument("--split", default="train")
+    native.add_argument("--cache-dir")
+    native.add_argument("--source-mode", choices=("local", "ranges"), default="local")
+    native.set_defaults(func=_engram_native_extract)
     bake = sub.add_parser("bake")
     bake.add_argument("--checkpoint", required=True)
     bake.add_argument("--output", required=True)

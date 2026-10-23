@@ -39,7 +39,8 @@ def test_dual_native_preparation_binds_corpus_and_preserves_donor_order(tmp_path
     monkeypatch.setattr("megatoken.data.PreparedCorpus", Corpus)
     downloads = []
 
-    def download(*, repo_id, revision, filename, local_dir):
+    def download(*, repo_id, revision, filename, local_dir, token):
+        assert token is False
         downloads.append((repo_id, revision, filename))
         local_dir.mkdir(parents=True, exist_ok=True)
         (local_dir / filename).write_text(f"{repo_id}: {filename}")
@@ -89,6 +90,7 @@ def test_dual_native_preparation_binds_corpus_and_preserves_donor_order(tmp_path
             "seed": 19,
             "split": "train",
             "cache_dir": tmp_path / "work" / "native-row-cache",
+            "source_mode": "local",
         }
         for _, args in extracted
     )

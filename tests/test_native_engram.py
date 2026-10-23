@@ -1,6 +1,8 @@
+import hashlib
 import json
 from types import SimpleNamespace
 
+import pytest
 import torch
 
 from megatoken import native_engram
@@ -8,10 +10,13 @@ from megatoken.donors import DonorByteVocabulary, DonorProfile
 from megatoken.io import sha256_file
 from megatoken.loading import load_model_config
 from megatoken.native_donor_hash import NativeRowRef
-from megatoken.native_engram import _original_text_contexts
+from megatoken.native_engram import _download_native_shards, _original_text_contexts
 
 
-def test_native_extraction_uses_real_context_and_emits_hashed_asset(tmp_path, monkeypatch):
+@pytest.mark.parametrize("source_mode", ["ranges", "local"])
+def test_native_extraction_uses_real_context_and_emits_hashed_asset(
+    tmp_path, monkeypatch, source_mode
+):
     vocab = DonorByteVocabulary((b"a", b"b", b"c"), "vocab-fingerprint")
     profile = DonorProfile(
         "synthetic",
@@ -42,6 +47,11 @@ def test_native_extraction_uses_real_context_and_emits_hashed_asset(tmp_path, mo
     )
     monkeypatch.setattr(native_engram, "_load_addressor", lambda *_: addressor)
     monkeypatch.setattr(native_engram, "_verify_remote_shards", lambda *args: None)
+    monkeypatch.setattr(
+        native_engram,
+        "_download_native_shards",
+        lambda *args, **kwargs: ({"table.safetensors": tmp_path / "table.safetensors"}, 12),
+    )
     monkeypatch.setattr(native_engram, "load_model_config", lambda _: load_model_config("tiny"))
     (tmp_path / "tokenizer.json").write_text("{}")
     (tmp_path / "LICENSE").write_text("synthetic source license")
@@ -82,9 +92,13 @@ def test_native_extraction_uses_real_context_and_emits_hashed_asset(tmp_path, mo
         requests = 0
         bytes_received = 0
 
-        def __init__(self, url, tensor_name, **kwargs):
-            assert "/pinned-revision/" in url
+        def __init__(self, source, tensor_name, **kwargs):
             assert tensor_name == "table"
+            if source_mode == "ranges":
+                assert "/pinned-revision/" in source
+                assert kwargs["headers"] is None
+            else:
+                assert source == str(tmp_path / "table.safetensors")
 
         def read_rows(self, rows):
             return {row: torch.tensor([float(row), float(row + 1)]) for row in rows}
@@ -93,6 +107,7 @@ def test_native_extraction_uses_real_context_and_emits_hashed_asset(tmp_path, mo
             pass
 
     monkeypatch.setattr(native_engram, "SafetensorsRangeReader", FakeReader)
+    monkeypatch.setattr(native_engram, "LocalSafetensorsRowReader", FakeReader)
     output = tmp_path / "asset"
     report = native_engram.extract_native_engram(
         "deepseek-v4.1-flash-1017",
@@ -102,10 +117,12 @@ def test_native_extraction_uses_real_context_and_emits_hashed_asset(tmp_path, mo
         model="tiny",
         max_contexts=4,
         seed=9,
+        source_mode=source_mode,
     )
     assert report["selected_contexts"] == 1
     assert report["corpus_fingerprint"] == "corpus-fingerprint"
     assert report["row_space"] == "native_hashed"
+    assert report["source_mode"] == source_mode
     metadata = json.loads((output / "engram.json").read_text())
     assert metadata["descriptor_sha256"] == sha256_file(output / "descriptors.npz")
     import numpy as np
@@ -157,3 +174,59 @@ def test_native_contexts_use_original_utf8_offsets_and_skip_partial_characters()
         )
     )
     assert byte_fallback[1] == ((3, 4, 5), b"abc")
+
+
+def test_local_native_source_preflights_shard_space_and_verifies_hashes(tmp_path, monkeypatch):
+    import huggingface_hub
+
+    from megatoken import native_engram
+
+    shard_bytes = b"pinned shard bytes"
+    digest = hashlib.sha256(shard_bytes).hexdigest()
+    shards = {"table.safetensors": (digest, len(shard_bytes))}
+    calls = []
+    monkeypatch.setattr(huggingface_hub, "try_to_load_from_cache", lambda **_: None)
+    monkeypatch.setattr(
+        huggingface_hub,
+        "hf_hub_download",
+        lambda **kwargs: _write_pinned_shard(kwargs, tmp_path, shard_bytes, calls),
+    )
+    monkeypatch.setattr(
+        native_engram.shutil,
+        "disk_usage",
+        lambda _: SimpleNamespace(free=len(shard_bytes) + 100 - 1),
+    )
+    with pytest.raises(ValueError, match="Insufficient cloud cache space"):
+        _download_native_shards(
+            "example/model",
+            "revision",
+            shards,
+            tmp_path / "cache",
+            disk_reserve_bytes=100,
+        )
+    assert calls == []
+
+    monkeypatch.setattr(
+        native_engram.shutil,
+        "disk_usage",
+        lambda _: SimpleNamespace(free=len(shard_bytes) + 100),
+    )
+    paths, downloaded = _download_native_shards(
+        "example/model",
+        "revision",
+        shards,
+        tmp_path / "cache",
+        disk_reserve_bytes=100,
+    )
+    assert paths["table.safetensors"].read_bytes() == shard_bytes
+    assert downloaded == len(shard_bytes)
+    assert calls == [("example/model", "revision", "table.safetensors", False)]
+
+
+def _write_pinned_shard(kwargs, root, data, calls):
+    assert kwargs["token"] is False
+    calls.append((kwargs["repo_id"], kwargs["revision"], kwargs["filename"], kwargs["token"]))
+    path = root / kwargs["filename"]
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_bytes(data)
+    return str(path)
