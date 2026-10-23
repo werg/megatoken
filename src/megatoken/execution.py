@@ -127,7 +127,7 @@ class SessionExecutor:
                 ),
             )
         revision = runtime.schedule_ready(session, effort=effort)
-        if revision is None and not outputs and not self.runner.pending:
+        if revision is None and not outputs:
             if self.root is None:
                 description = session.tracks.tracks.get(MAIN_TRACK)
                 if description is None:

@@ -21,6 +21,64 @@ from megatoken.multitrack_runtime import ConcurrentToolRunner
 from megatoken.retrieval.collection import SourceCollection, text_item_id
 from megatoken.retrieval.index import unit
 from megatoken.teacher import PINNED_TEACHER
+from megatoken.tool_schema import compile_tool_spec
+
+
+def test_execution_keeps_deciding_while_an_unrelated_actual_read_is_blocked():
+    _, runtime = _runtime()
+    session = runtime.open(effort=1)
+    entered, unblock = Event(), Event()
+    environment = SnapshotEnvironment()
+    initial = environment.reset(
+        {"initial_files": {"left.txt": "42"}, "expected_files": {"left.txt": "42"}}
+    )
+    adapter = SnapshotToolAdapter(environment, initial.state_id)
+    runner = ConcurrentToolRunner(max_workers=1)
+    executor = SessionExecutor(runtime, session, max_selections=2, runner=runner)
+    schema = {
+        "name": "read",
+        "parameters": {
+            "type": "object",
+            "const": {"path": "left.txt"},
+            "properties": {"path": {"type": "string", "enum": ["left.txt"]}},
+            "required": ["path"],
+            "additionalProperties": False,
+        },
+    }
+
+    class BlockedRead:
+        def execute_selected(self, **kwargs):
+            entered.set()
+            if not unblock.wait(10):
+                raise TimeoutError("Read was not released")
+            return adapter.execute_selected(**kwargs)
+
+    try:
+        selected = runtime.generate(
+            session,
+            tracks=("reader",),
+            event_ids=("slow-io",),
+            specs=(compile_tool_spec(json.dumps([schema]), max_tokens=128),),
+            controls=(build_control_payload(tools_json=json.dumps([schema])),),
+            effort=1,
+        )
+        assert all(selected.tape.valid)
+        runtime.dispatch_tools(
+            session,
+            selected,
+            runner,
+            {"read": BlockedRead()},
+            schemas={"read": schema["parameters"]},
+        )
+        assert entered.wait(5)
+        result = executor.tick(effort=1, seed=13)
+        assert result["status"] == "selected"
+        assert runner.pending and not next(iter(runner.pending.values())).done()
+        assert "result:0:slow-io" not in session.completed_events
+    finally:
+        unblock.set()
+        executor.close()
+        runtime.close()
 
 
 def test_execution_keeps_deciding_while_an_unrelated_voice_render_is_blocked():

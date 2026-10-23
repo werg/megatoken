@@ -58,6 +58,11 @@ class VideoTimeline:
         return indices
 
 
+def container_ticks(tick: int, ticks_per_second: int, time_base: Fraction) -> int:
+    """A tick on a declared clock, in the container's own time base (nearest tick)."""
+    return round(Fraction(tick, ticks_per_second) / time_base)
+
+
 def video_timeline(path: str | Path) -> VideoTimeline:
     result = subprocess.run(
         [

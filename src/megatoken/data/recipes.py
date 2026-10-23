@@ -16,6 +16,11 @@ STREAM_PRODUCERS = {
     "duplex_execution": "megatoken.data.execution_traces:prepare_traces",
     "timed_conversation": "megatoken.data.timed_media:prepare_rows",
     "streaming_translation": "megatoken.data.timed_media:prepare_rows",
+    "av_understanding": "megatoken.data.concordance:compile_task",
+    "endpoints": "megatoken.data.concordance:compile_task",
+    "endpoint_conditioned_video": "megatoken.data.concordance:compile_task",
+    "speech_counterfactual": "megatoken.data.concordance:compile_task",
+    "cross_track_evidence": "megatoken.data.concordance:compile_task",
 }
 
 

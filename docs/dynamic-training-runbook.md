@@ -69,11 +69,11 @@ and `--terms-json` records the reviewed source terms before preparation begins.
 
 ## 3. Collect actual execution
 
-The frozen student used by `megatoken data collect` now accepts grouped output
+The frozen student used by `megatoken collect` now accepts grouped output
 requests, preserves same-track peers, and saves whole selections even when some
 renderings are empty or fail. Supply `--student-bundle` for the model under test,
 and `--student-packs` plus `--student-media-root` for generated media. The pack
-identities must match the served model. Run `megatoken data collect --help` for the
+identities must match the served model. Run `megatoken collect --help` for the
 task, teacher, environment, budget, and recovery arguments. Task rows may provide
 `outputs` or serialized `outputs_json` requests. Each collected selection gets
 session-specific event addresses so repeated request labels cannot collide.
@@ -132,7 +132,14 @@ Structural and verified outcome-only decisions count toward the whole-decision
 progress measure, including a failed last selection with no following record.
 The existing shared loss ledger handles reduction, accumulation, restart, and
 distributed denominators. Verified outcome supervision is integrated with this
-training path; a separate fully frozen-decoder latent-only RL stage is not delivered.
+training path. The student stage additionally supports `trainable: latent_policy`:
+it updates only prediction-local parameters, modality decisions, and the Gaussian
+while freezing encoding, memory, shared expert banks and all realization weights.
+This keeps a recorded latent action's meaning fixed during outcome improvement.
+Joint supervised correction can still use `trainable: all`; its historical latent
+outcome term is an auxiliary credit signal, not a policy-improvement guarantee
+while the realization mapping changes. These are explicit modes of the existing
+optimizer, rather than a second training engine.
 
 ## 5. Evaluate the trained result
 
@@ -158,3 +165,212 @@ rendering, actual snapshot tool reads, publication of a searchable source, inter
 late completion, and a later reference to admitted evidence. It verifies protocol
 behavior with a test decoder. Retain that gate while adding real recorded sessions
 and real-weight held-out evaluations.
+
+## 6. Reproduce bounded real-weight acceptance and inventory evidence
+
+Use the same frozen source copy for the actor's preparation, training, collection,
+restart and exported evaluation. A concurrent checkout edit can change parameter
+ownership or preparation identities while a long-running Python process retains
+its earlier imports. Preserve a complete source archive and its checksums with
+the run; copying only its task generator does not identify the training software.
+
+```bash
+python scripts/accept_prepared_media.py \
+  --data /absolute/prepared-recordings --packs /absolute/packs/lock.json \
+  --codec /absolute/codec --root /absolute/new/media-acceptance --device cuda
+
+python scripts/accept_student_outcomes.py \
+  --bundle /absolute/actor/served --packs /absolute/packs/lock.json \
+  --root /absolute/new/student-outcomes --device cuda
+
+python scripts/accept_duplex_runtime.py \
+  --bundle /absolute/media-acceptance/served --packs /absolute/packs/lock.json \
+  --recording-data /absolute/prepared-recordings \
+  --root /absolute/new/combined-protocol --device cuda
+```
+
+The outcome command expects the actor's training recipe and checkpoint beside its
+export. It collects without teacher intervention, verifies each resulting task
+state, then runs the ordinary optimizer, restart and export. Failed attempts are
+retained. Arbitrary byte output is preserved exactly in physical records; the
+teacher's textual transport labels any non-UTF-8 content explicitly as base64.
+Teacher-repaired success never supplies positive outcome credit to earlier
+student actions. This command uses the restricted latent-policy mode and checks
+restart under that same freezing contract.
+
+The combined command requires independently recorded, overlapping speaker channels.
+It uses the real speech decoder and actually selected read calls, immutable read
+snapshots, out-of-order completions, atomic document publication, listening during
+pending rendering, cancellation and partial delivery acknowledgements. It prepares
+a native training episode with exact action/result bindings, the cancelled
+selection, media assets and verified read-outcome supervision. Both the arrival
+schedule and the public read requests are host-controlled; this is a protocol
+experiment, not evidence that the model learned delegation, free-form tool
+arguments, intelligible speech, or an appropriate conversational answer. Playback
+acknowledgements describe host-reported sample delivery, not a physical loudspeaker
+measurement. Small-history models re-read admitted evidence before referring to it
+after its earlier attention entries have been evicted.
+
+Freeze the complete catalog and measured supply report:
+
+```bash
+python scripts/audit_training_inventory.py \
+  --prepared /absolute/prepared-recordings \
+  --checkpoint-metadata /absolute/run/checkpoints/STEP/metadata.json \
+  --access-receipts /absolute/source-access-receipts.json \
+  --output /absolute/run/source-inventory.json
+```
+
+The default catalog includes every checked-in source manifest. Unknown access stays
+unknown; a public card does not prove recording access. A downloaded receipt needs
+locally verified original-file checksums. Prepared supply requires checking the
+shards and all referenced tensors. Preparation counts remain separate by root and
+split, so copies cannot be added together as new original families. Checkpoint
+reports count actually returned, non-padding training windows per source across
+ranks; virtual mixture charges and context-only padding do not count. These counts
+survive restart. Older checkpoints without this evidence are explicitly unmeasured,
+and counts from successive checkpoints must not be summed as separate exposure.
+
+Required training streams, held-out behavior coverage, and declared decoder packs
+are checked before loading model and donor weights or allocating optimizer state.
+The real decoder objects are then checked again before optimizer ownership is
+enumerated. The production recipe remains incomplete until representative supply
+and generated held-out quality satisfy the earlier gates.
+
+### Local evidence and remaining release gates
+
+The 23 October local experiments retained these results under
+`/home/werg/megatoken-runs/`:
+
+| Experiment | What was actually checked |
+| --- | --- |
+| `dynamic-acceptance-local-11` | The larger text model trained for four optimizer updates, resumed for one more in a fresh process, exported, and generated through the public service. Its declared experiment geometry bounds history and n-gram storage; this is not a production training run. |
+| `dynamic-ami-acceptance-02` | Eighteen updates including restart on one original meeting family, followed by export and generation of three speech chunks using the real speech decoder. Evaluation used training material. |
+| `dynamic-translation-acceptance-01` | Preparation of four real recordings with human translations, sampled training, restart and export across speech reconstruction, transcription and speech-to-text translation. |
+| `dynamic-duplex-runtime-04`, `dynamic-duplex-training-01`, `dynamic-duplex-runtime-06` | Controlled real-decoder conversation/tool/source/interruption execution; native preparation and three further optimizer updates including restart; export; then successful repetition of the controlled protocol with the updated served weights. |
+| `dynamic-student-outcomes-08` | Four student-only tasks, all independently verified failures, retaining eight selected decisions. Restricted latent-policy optimization, restart and export completed; this establishes failure-credit integration, not task success. |
+
+The broad CPU regression selection, excluding concurrently developed experimental
+probes, passed 2,489 cases and skipped 25 optional or
+accelerator cases. Two distributed tests exposed timing assumptions on the busy
+shared machine: a five-second spawned-server startup assumption and a live-lease
+assertion after deliberately stopping heartbeats. The readiness bound now covers
+native-runtime startup and reports child failure; lease recovery checks the actual
+renewal and accepted upload. Both affected tests passed their subsequent run.
+A separate accelerator regression selection passed 66 cases, including actual
+CUDA snapshot and kernel checks. Subsequent focused checks cover the restricted
+policy update, unchanged realized bytes, private checkpoint mappings, binary
+student output, and process-isolated restart. These overlapping runs must not be
+summed as independent test coverage. Source archives and experiment receipts retain
+which source copy each run used.
+
+This is not complete production acceptance. Still required are representative
+training and validation families for every mandatory behavior, a sustained learned
+wait/emit translation sequence, quality-matched learned delegation comparisons,
+independent decoded speech/translation/audiovisual checks with shifted and
+mismatched negative examples, human-reviewed outputs, and the resulting calibrated
+production mixture and training run. The controlled protocol must not stand in for
+learned scheduling or natural assistant conversation. No coherent speech,
+translation quality, or audiovisual synchronization result is claimed here.
+
+
+### Further held-out runs and failure analysis (23 October)
+
+The later experiments below use frozen source copies and retain failed attempts.
+They extend the earlier evidence; they do not establish production acceptance.
+All paths are under `/home/werg/megatoken-runs/`.
+
+| Experiment | What the evidence establishes | What it does not establish |
+| --- | --- | --- |
+| `dynamic-streaming-prepared-01`, `dynamic-streaming-acceptance-01` | Forty prepared task views from twenty original French speakers with human English translations; sixteen speakers for training and four for validation. Source arrivals, waiting and continuation remain in one causal history. GPU optimization, fresh-process restart, export and held-out generation completed. | Generated lifecycle calls and translation text were not reliable. Recorded source-arrival replay is not autonomous scheduling. |
+| `dynamic-paired-translation-prepared-03`, `dynamic-paired-translation-acceptance-02` | Forty task views from ten French/English sentence families, eight training and two validation. Joint speech/text and actual committed-text-then-speech variants survive duplicate filtering. Both source and translated speech retain their own clock. | Speaker identities were unavailable; no speaker-disjoint claim. Two validation families do not establish broad translation competence. |
+| `dynamic-ami-disjoint-prepared-01`, `dynamic-ami-disjoint-acceptance-01`, `dynamic-duplex-runtime-07` | Original overlapping headset channels and publisher word times from separate training and validation meetings with different speakers. Six task views, real optimization/restart/export and a controlled speech/tool/source/interruption protocol completed. | Natural human overlap does not supply natural assistant decision timing. Host-controlled requests do not prove learned full-duplex behavior. |
+| `dynamic-delegation-comparison-03` | Actual execution of serial and delegated read/write programs on thirty-two original task families under slow-independent, cheap-independent and dependent conditions. Ninety-six matched comparisons verify identical task results and measure actual execution time. | The programs are scripted. Their speed differences are not a learned model benefit. |
+| `dynamic-autonomous-trained-01` | Student-only generated execution on held-out tasks, with actual tools and no substituted teacher responses or prerecorded results. | None of twelve attempts passed the independent task verifier. Autonomous delegation remains failed. |
+| `dynamic-visual-bridge-acceptance-02`, `dynamic-visual-joint-acceptance-01` | Ten task views from two meeting families. Restricted media-connection training, joint training, restart, export and actual image/video decoding completed. Generated first/last images were compared with the generated video's endpoints. | Endpoint pixel differences are diagnostics, not established semantic consistency; the generated caption was invalid UTF-8. No audio/video synchronization claim. |
+| `dynamic-paired-independent-quality-01`, `dynamic-translation-path-independent-quality-02` | Independent recognition of the exact sampled speech, human-reference comparisons, deliberately unrelated caption controls, and archived sampled bytes. The recognizer separated all four unrelated captions from their matching publisher recordings in the English calibration sample. | Generated captions were invalid UTF-8 and generated translation speech had poor agreement with the human references. Human review and useful translation quality remain unestablished. |
+| `dynamic-translation-path-comparison-02` | Same served weights and held-out sentence families compared direct joint generation with actual committed-text-then-speech generation, including first-output and completion times. | Both paths failed text quality. There is no quality-matched latency winner. |
+
+The first duplicate-filter implementation discarded sequential translation views
+because their transcript bytes matched a joint view. Admission now keeps different
+causal training contracts while still linking their original families for split
+safety. Merely renaming a track or changing physical chunk cuts does not manufacture
+a new contract. All forty paired-translation views are retained in the third
+preparation above, with no quarantined rows or discarded duplicates.
+
+Two further training/serving mismatches were found while investigating failed tool
+use. Tool targets had forced tool mode during training, so they did not teach the
+choice between ordinary text and a tool call. Imported alternate tool envelopes
+also shifted canonical tools' positions relative to serving. New supervised runs
+use `format_supervision_version: 2`: both text and tool targets learn the public
+format choice, and every canonical tool retains its serving index before alternate
+envelopes. Legal choices depend only on preceding public information. Saved native
+policy draws retain their original probability contract. Version 1 remains an
+explicit legacy objective; an ordinary checkpoint restart cannot silently change
+it to version 2. Six focused tests verify the actual cross-entropy, nonzero choice
+gradients, exact denominator counts, impossible wire exclusion, checkpoint
+compatibility and canonical tool positions.
+
+The bounded learned scheduling experiment is reproducible with:
+
+```bash
+python scripts/accept_delegation_choice.py --root /absolute/new/scheduling-run \
+  --families 64 --steps 64
+```
+
+This application asks the model to choose between two fixed, actually executed
+procedures. It constrains output to those two tools and tests held-out original
+input families. It reports the fraction whose chosen procedure both verifies and
+has lower measured execution cost; higher is better. Always-serial and
+always-delegate baselines must accompany that result. This is a test of bounded
+cost choice, not free-form worker creation, arithmetic or general scheduling.
+The training budget and source archive are part of the experiment receipt.
+
+The source inventory records listed, accessible, downloaded, prepared and sampled
+supply separately. The newer local inventory is `dynamic-source-inventory-02.json`
+with supporting `dynamic-source-access-receipts-02.json`. It includes locally
+checked original CoVoST, FLEURS and separate-meeting AMI assets. The held-out video
+acquisition is explicitly only the first eight MiB of its original container, not
+a complete original-video download. Inventory entries and task-view counts must
+not be added together as if they were independent original recordings.
+
+Completion still requires representative supply for every mandatory behavior,
+successful learned wait/emit and autonomous tool execution, quality-matched neural
+delegation benefits, adequate decoded speech/translation/audiovisual agreement,
+and human-reviewed outputs. A substantive production run must satisfy those gates;
+none of these short diagnostic runs substitutes for it.
+
+
+### Latest learned-choice result and timing correction
+
+`dynamic-learned-delegation-choice-03` completed sixty-four GPU optimizer updates,
+two more updates after a fresh-process restart, export, and student-only evaluation
+on twelve held-out tasks from four original input families. The model selected a
+verified, lower-cost procedure in eight attempts. Always choosing the serial
+procedure also succeeds on this cost-choice criterion in eight attempts. Thus the
+bounded learning acceptance check fails. All twelve selected fixed inner programs
+returned independently verified task results; those fixed programs perform the
+arithmetic and file operations, so this is not evidence of neural arithmetic or
+free-form tool competence.
+
+The original execution helper now uses a deterministic logical clock for recorded
+causal schedules. Its `elapsed_seconds` annotation must not be interpreted as
+wall-clock performance. `dynamic-delegation-comparison-03` and the learned run's
+`evaluation-wall-clock-01` explicitly measure elapsed time with a monotonic clock
+and retain the simulated schedule values separately. These replace older reports
+that did not distinguish the two clocks.
+
+On those twelve small tasks, actual model choice plus selected-program execution
+averaged approximately 0.671 seconds; the predefined serial procedure alone
+averaged approximately 0.039 seconds. Both measurements exclude the private
+counterfactual reference probes; the serial baseline requires no neural procedure
+selection. Lower time is better at verified task results. This experiment provides
+no net latency benefit. Exact per-attempt measurements and the calculation are in
+`dynamic-learned-delegation-choice-03/net-completion-time.json`.
+
+The final local evidence index is `dynamic-wider-completion-evidence-02.json`.
+It checksums the reports and frozen sources, retains the explicit measurement
+correction, and leaves `whole_plan_complete` and `production_quality_established`
+false. Passing software tests, prepared task views, decoded buffers and finished
+optimizer runs must not turn either flag true without the remaining generated
+behavior and quality evidence.

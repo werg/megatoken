@@ -129,8 +129,9 @@ class FixtureEnvironment:
             }
         )
 
-    def reset(self, task: Mapping[str, Any]) -> EnvironmentResult:
-        self.session = uuid.uuid4().hex
+    def reset(self, task: Mapping[str, Any], *, session: str | None = None) -> EnvironmentResult:
+        # Unguessable by default; a generator of reproducible episodes names its own session.
+        self.session = session or uuid.uuid4().hex
         self.sequence = 0
         self.done = False
         self._responses.clear()
@@ -339,9 +340,9 @@ class SnapshotEnvironment(FixtureEnvironment):
         self._snapshots = {}
         self._resource_versions = {}
 
-    def reset(self, task):
+    def reset(self, task, *, session: str | None = None):
         with self._lock:
-            result = super().reset(task)
+            result = super().reset(task, session=session)
             self._resource_versions = {key: 0 for key in self.files}
             self._snapshots = {self.state_id: (dict(self.files), dict(self._resource_versions))}
             return result

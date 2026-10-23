@@ -35,6 +35,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import sqlite3
 from collections import Counter
 from dataclasses import asdict
 from pathlib import Path
@@ -44,6 +45,7 @@ from megatoken.data.fetch import FETCH_STATS
 from megatoken.data.media_prepare import MediaPreparer
 from megatoken.data.open_media import SOURCES, CachingPreparer, source_episodes
 from megatoken.data.storage import export_prepared
+from megatoken.io import content_hash, sha256_file
 from megatoken.loading import load_codec
 
 PILOT_COUNTS = {
@@ -57,6 +59,43 @@ PILOT_COUNTS = {
 PILOT_PROCEDURAL = {"librispeech_asr": 600, "rekadaily_processed": 600}
 PILOT_OPTIONS = {"fleurs": {"languages": ["de_de", "fr_fr", "es_419", "it_it"]}}
 FULL = 1 << 62  # a shard reads every clip of its files
+
+
+def preparation_identity(args, sources, codec):
+    code_root = Path(__file__).resolve().parents[1] / "src/megatoken/data"
+    receipt = {
+        "name": "open_media",
+        "format": "open-media-preparation/v3",
+        "sources": {key: asdict(value) for key, value in sources.items()},
+        "codec_fingerprint": codec.fingerprint,
+        "packs_manifest_sha256": sha256_file(args.packs),
+        "implementation_sha256": {
+            name: sha256_file(code_root / name)
+            for name in (
+                "open_media.py",
+                "concordance.py",
+                "streaming_translation.py",
+                "media_prepare.py",
+                "media_assets.py",
+                "dedup.py",
+                "causal_identity.py",
+                "supply.py",
+            )
+        },
+        "task_selection": {
+            key: getattr(args, key)
+            for key in (
+                "count",
+                "procedural",
+                "option",
+                "scale",
+                "shard_slice",
+                "validation_fraction",
+            )
+        },
+        "shard_spec_sha256": None if args.shard_spec is None else sha256_file(args.shard_spec),
+    }
+    return receipt, content_hash(receipt)
 
 
 def _pairs(values: list[str], parser: argparse.ArgumentParser, flag: str) -> dict[str, str]:
@@ -139,14 +178,26 @@ def main() -> None:
         source.terms.require_approval()
     if args.decisions is None and (args.packs is None or args.work is None):
         parser.error("--packs and --work are required to read the sources")
+    codec = load_codec(args.codec)
+    if args.decisions is None:
+        source_receipt, pipeline_identity = preparation_identity(args, sources, codec)
     if args.ingest_only:
         if (args.root / "digest.sqlite").exists():
+            with sqlite3.connect(
+                f"file:{args.root / 'preparation.sqlite'}?mode=ro", uri=True
+            ) as previous:
+                saved = previous.execute(
+                    "SELECT value FROM meta WHERE key='pipeline_fingerprint'"
+                ).fetchone()
+            if saved is None or saved[0] != pipeline_identity:
+                raise ValueError(
+                    "Ingested digest belongs to different preparation settings or code; choose a new immutable root"
+                )
             print(json.dumps({"digest": "already written"}))
             return
         # A retry starts the shard over: its assets are content addressed and kept.
         for suffix in ("", "-wal", "-shm", "-journal"):
             (args.root / f"preparation.sqlite{suffix}").unlink(missing_ok=True)
-    codec = load_codec(args.codec)
     dedup = DedupStore(
         args.root / "preparation.sqlite",
         DedupConfig(
@@ -193,24 +244,32 @@ def main() -> None:
                         (args.root / "fetch-report.json").write_text(
                             json.dumps({k: dict(v) for k, v in FETCH_STATS.items()}, indent=1)
                         )
+            source_receipt["counts"] = dict(tally)
+            with dedup.transaction():
+                dedup.set_meta(
+                    "open_media_source_receipt", json.dumps(source_receipt, sort_keys=True)
+                )
+                dedup.set_meta("pipeline_fingerprint", pipeline_identity)
             if args.ingest_only:
                 print(json.dumps({"digest": dedup.write_digest(args.root / "digest.sqlite")}))
                 return
             dedup.freeze()
         else:
+            saved_receipt = dedup.get_meta("open_media_source_receipt")
+            pipeline_identity = dedup.get_meta("pipeline_fingerprint")
+            if saved_receipt is None or pipeline_identity is None:
+                raise ValueError(
+                    "Ingested media lacks its original preparation identity; reingest with the current preparer"
+                )
+            source_receipt = json.loads(saved_receipt)
+            tally.update(source_receipt["counts"])
             dedup.apply_decisions(args.decisions)
         export_prepared(
             dedup,
             args.root,
             codec=codec,
-            source_receipts=[
-                {
-                    "name": "open_media",
-                    "sources": {key: asdict(value) for key, value in sources.items()},
-                    "counts": dict(tally),
-                }
-            ],
-            pipeline_fingerprint="open-media-v2",
+            source_receipts=[source_receipt],
+            pipeline_fingerprint=pipeline_identity,
         )
     finally:
         dedup.close()

@@ -95,6 +95,53 @@ def test_exact_causal_policy_context_and_verified_policy_gradient():
         OutcomeCredit(1, 0, 2, "simulation_judge")
 
 
+def test_latent_outcome_update_preserves_the_exact_rendered_action_map():
+    from megatoken.training.optimizer import MasterAdamW
+    from megatoken.training.outcome import latent_policy_parameter_ids
+
+    _, model, multi = _system()
+    multi.tracks.record_policy_context = True
+    state = multi.tracks.initial_state(1)
+    selected = multi.select_group(
+        state,
+        tracks=("reply",),
+        effort=1,
+        specs=(ActionSpec(text_kind="ascii", min_tokens=2, max_tokens=2),),
+    )
+    before = multi.render_selected(selected)
+    optimizer = MasterAdamW(model, lr=0.001)
+    policy = latent_policy_parameter_ids(model)
+    assert policy.isdisjoint(id(p) for p in model.core.shared_parameters())
+    assert policy.isdisjoint(id(p) for p in model.decoder.parameters())
+    assert policy.isdisjoint(id(p) for p in model.media_realizers.parameters())
+    optimizer.freeze(
+        [name for name, p in optimizer.model_parameters.items() if id(p) not in policy]
+    )
+    frozen = {
+        name: p.detach().clone() for name, p in model.named_parameters() if not p.requires_grad
+    }
+    learned = {name: p.detach().clone() for name, p in model.named_parameters() if p.requires_grad}
+    try:
+        terms, _ = policy_outcome(
+            multi, before.tape, OutcomeCredit(1, 0.5, 1, "local_assertions"), device=state.device
+        )
+        terms["policy_outcome"][0].backward()
+        optimizer.step()
+        assert any(
+            not torch.equal(p, learned[name])
+            for name, p in model.named_parameters()
+            if name in learned
+        )
+        assert all(
+            torch.equal(p, frozen[name]) for name, p in model.named_parameters() if name in frozen
+        )
+        after = multi.render_selected(selected)
+        assert after.tape.payloads == before.tape.payloads
+        assert after.tape.emitted_ids == before.tape.emitted_ids
+    finally:
+        optimizer.close()
+
+
 def test_native_same_track_peers_have_explicit_bindings_and_one_parent():
     _, model, multi = _system()
     state = multi.tracks.initial_state(1)

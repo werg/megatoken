@@ -212,3 +212,16 @@ def test_finishing_needs_this_shards_verdicts_and_matching_dedup_settings(tmp_pa
             dedup=CONFIG,
             decisions=tmp_path / "alone" / "decisions-0000.sqlite",
         )
+
+
+def test_a_shard_finished_from_shared_verdicts_answers_split_of(tmp_path):
+    from megatoken.data.dedup import DedupStore
+
+    _, roots, _ = prepare_shards(tmp_path, shard_episodes())
+    kept = accepted(roots[0])
+    store = DedupStore(roots[0] / "preparation.sqlite", CONFIG)
+    try:
+        assert store.split_of("family:a") == kept["a-original"]
+        assert store.split_of("family:b") == kept["a-unique"]
+    finally:
+        store.close()

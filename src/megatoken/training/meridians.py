@@ -162,15 +162,28 @@ def _target_plan(
         raise ValueError("Grouped target exceeds generated_capacity")
     terminal = record.part_index + 1 == record.part_count
     tape = native.paired_tape(index)
-    if item.episode.tools_json != "[]" and record.action_id and record.part_count == 1:
+    spec = None
+    if item.episode.tools_json != "[]":
         spec = compile_tool_spec(
             item.episode.tools_json,
             config.generated_capacity,
             wire_formats=("canonical", "openai", "anthropic"),
         )
+        if getattr(config, "format_supervision_version", 1) >= 2 and tape is None:
+            # Serving's canonical-only choices must retain these same indices.
+            # Extra imported wire envelopes follow the complete canonical prefix.
+            order = {"canonical": 0, "openai": 1, "anthropic": 2}
+            spec = dataclasses.replace(
+                spec,
+                allow_text=True,
+                schemas=tuple(
+                    sorted(spec.schemas, key=lambda schema: order[schema.name.rsplit(":", 1)[1]])
+                ),
+            )
         # Only records preceding the *whole meridian* can be public copies.
         earlier = [record.payload for record in item.episode.records[:beginning]]
         spec = dataclasses.replace(spec, copy_sources=recent_copy_sources(earlier))
+    if spec is not None and record.action_id and record.part_count == 1:
         schema_index = matching_schema(spec, record.payload)
         if schema_index is not None:
             bindings = supervised_bindings(spec, schema_index, record.payload)
@@ -193,6 +206,13 @@ def _target_plan(
                         if tape is not None
                         else candidate
                     )
+    mode_spec = (
+        spec
+        if spec is not None
+        and getattr(config, "format_supervision_version", 1) >= 2
+        and tape is None
+        else None
+    )
     return model.prepare_target(
         [entry.token_ids],
         free_mask=[entry.free_mask],
@@ -200,6 +220,7 @@ def _target_plan(
         role_ids=[ROLE_TO_ID[record.role]],
         representation_mode=config.representation_training,
         native_tapes=[tape],
+        mode_specs=[mode_spec],
     )
 
 

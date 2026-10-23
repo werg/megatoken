@@ -143,6 +143,18 @@ class WindowStream:
                 "packing_contract": "meridian-atomic-context-windows-v4",
             }
         )
+        # v3 already used the same atomic packing and cursor positions. The v4
+        # label accompanies model context-window controls, whose values are
+        # restored from checkpoint geometry rather than this data cursor.
+        # Do not accept pre-atomic cursor contracts or relax any input identity.
+        self.compatible_v3_fingerprint = content_hash(
+            {
+                "dataset": dataset.identity,
+                "scope": dataset.scope,
+                "window": asdict(config),
+                "packing_contract": "meridian-atomic-decisions-tail-v3",
+            }
+        )
 
     def _episode_index(self) -> int:
         size = len(self.dataset)
@@ -250,6 +262,8 @@ class WindowStream:
             ("codec_fingerprint", self.codec.fingerprint),
         ):
             actual = value.get(key)
+            if key == "dataset_fingerprint" and actual == self.compatible_v3_fingerprint:
+                continue
             if actual != expected or isinstance(expected, int) and type(actual) is not int:
                 raise ValueError(
                     f"Data cursor mismatch for {key}; exact resume requires the same inputs/topology"

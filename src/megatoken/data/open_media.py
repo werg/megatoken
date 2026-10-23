@@ -38,7 +38,7 @@ import subprocess
 import tarfile
 import tempfile
 import zipfile
-from collections import Counter
+from collections import Counter, OrderedDict
 from collections.abc import Callable, Iterable, Iterator, Mapping, Sequence
 from contextlib import ExitStack, contextmanager
 from dataclasses import dataclass, field
@@ -114,6 +114,8 @@ class OpenSource:
             if self.task == "transcription" and self.options.get("verbalize")
             else set()
         )
+        if self.options.get("sustained_translation"):
+            extra.add("streaming_translation")
         return tuple(
             sorted(
                 task.streams
@@ -169,6 +171,7 @@ STREAMS = frozenset(
         "transcription",
         "verbalization",
         "speech_translation",
+        "streaming_translation",
         "image_description",
         "image_creation",
         "audio_description",
@@ -190,14 +193,43 @@ class Preparer(Protocol):
 class CachingPreparer:
     """Prepare each file once even when several bundles (or a voice reference) name it."""
 
-    def __init__(self, inner: Preparer):
+    def __init__(self, inner: Preparer, *, max_entries: int = 128):
+        if type(max_entries) is not int or max_entries < 1:
+            raise ValueError("Preparation caches need a positive entry bound")
         self.inner = inner
-        self._records: dict[tuple[str, str, bool], MediaRecord] = {}
+        self.max_entries = max_entries
+        self._records = OrderedDict()
+        self._intervals = OrderedDict()
+
+    def _digest(self, path):
+        with Path(path).open("rb") as handle:
+            return hashlib.file_digest(handle, "sha256").hexdigest()
+
+    def _remember(self, cache, key, value):
+        cache[key] = value
+        cache.move_to_end(key)
+        while len(cache) > self.max_entries:
+            cache.popitem(last=False)
+        return value
+
+    def audio_interval(self, path, *, start_sample, end_sample, channel, target=True):
+        key = (self._digest(path), start_sample, end_sample, channel, target)
+        if key not in self._intervals:
+            return self._remember(self._intervals, key, self.inner.audio_interval(
+                path,
+                start_sample=start_sample,
+                end_sample=end_sample,
+                channel=channel,
+                target=target,
+            ))
+        self._intervals.move_to_end(key)
+        return self._intervals[key]
 
     def media(self, modality: str, path: str | Path, *, target: bool = True) -> MediaRecord:
-        key = (modality, str(path), target)
+        key = (modality, self._digest(path), target)
         if key not in self._records:
-            self._records[key] = self.inner.media(modality, path, target=target)
+            return self._remember(self._records, key, self.inner.media(modality, path, target=target))
+        self._records.move_to_end(key)
         return self._records[key]
 
 
@@ -406,7 +438,7 @@ def translation_pair_episodes(
 ) -> list[Episode]:
     """A sentence read in a source language and in English -> direct speech translation."""
     key = f"{pair['language']}:{pair['id']}"
-    return compile_bundle(
+    episodes = compile_bundle(
         source,
         f"{source.source_id}:{key}",
         pair["family"],
@@ -418,6 +450,21 @@ def translation_pair_episodes(
         ),
         preprocessing=f"{source.source_id}-pair-v1",
     )
+    if source.options.get("sustained_translation"):
+        from .streaming_translation import compile_open_translation
+
+        episodes.append(
+            compile_open_translation(
+                media,
+                source,
+                pair,
+                language={
+                    "source": pair["language"],
+                    "target": source.options.get("target", "en_us"),
+                },
+            )
+        )
+    return episodes
 
 
 def translation_text_episodes(
@@ -436,6 +483,10 @@ def translation_text_episodes(
         ),
         preprocessing=f"{source.source_id}-translation-v1",
     )
+    if source.options.get("sustained_translation"):
+        from .streaming_translation import compile_open_translation
+
+        episodes.append(compile_open_translation(media, source, clip, language=clip["language"]))
     return [*episodes, identity_episode(speech.media, clip["family"])]
 
 
@@ -1914,6 +1965,14 @@ def translation_clips(
         "text": text,
         "translation": translation,
     }
+    if source.options.get("sustained_translation"):
+        partition = record.get("__key__", "").split("/", 1)[0]
+        language = source.options.get("language_pairs", {}).get(partition)
+        if not language:
+            raise ValueError(
+                f"{source.source_id}: streaming source language is not declared for {partition!r}"
+            )
+        clip["language"] = language
     return [clip] if audio else []
 
 

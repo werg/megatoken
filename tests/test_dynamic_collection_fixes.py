@@ -198,3 +198,18 @@ def test_grouped_student_reuses_track_labels_without_reusing_event_ids():
             )
         records.append(PhysicalRecord(f"result-{index}", "tool", b"done", turn_index=len(records)))
     assert len({ids[0] for ids in event_ids}) == 3
+
+
+def test_generated_execution_episodes_are_reproducible_and_keep_the_overlap_on_record():
+    from megatoken.data.dynamic_execution import execution_episode
+
+    first = execution_episode(3, read_delay_seconds=0.01)
+    second = execution_episode(3, read_delay_seconds=0.01)
+    assert first.to_dict() == second.to_dict()  # no wall-clock values in the bytes
+    import json
+
+    annotations = json.loads(first.supervision.annotations_json)
+    reads = annotations["execution_intervals"]
+    assert len(reads) == 2
+    # The two delegated reads started together and ended together: a recorded overlap.
+    assert reads[0]["started_at_ns"] == reads[1]["started_at_ns"] < reads[0]["completed_at_ns"]

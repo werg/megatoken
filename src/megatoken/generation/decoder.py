@@ -204,10 +204,46 @@ class DeterministicDecoder(nn.Module):
         with core.expert_pools.routing_epoch_if_absent(context.facets.mean(1), role="R", stage=0):
             return self._teacher_raw_impl(core, context, plan)
 
+    def _public_support(self, spec):
+        limit = min(spec.max_tokens, self.config.max_capacity)
+        schema_fields = {
+            index: planned_fields(self.codec, schema.fields)
+            for index, schema in enumerate(spec.schemas)
+        }
+        # The model's field lengths are not the wire length. A tool may
+        # require more tokens for its fixed JSON envelope than for all its
+        # semantic values combined. Require a schema-valid complete wire
+        # witness at this limit before making it a candidate.
+        # Field lengths live in the model's workspace, but a complete tool
+        # action must also fit its literal wire syntax (keys, separators, quotes).
+        # Reserve those fixed tokens before deciding which schemas or value
+        # lengths the model may choose.
+        costs = [_wire_costs(schema, self.codec) for schema in spec.schemas]
+        schema_limits = {index: limit - overhead for index, (overhead, _) in enumerate(costs)}
+        feasible = []
+        for index, fields in schema_fields.items():
+            if fields is None or (
+                sum(value.minimum for value in fields.values()) > schema_limits[index]
+            ):
+                continue
+            # No constructible minimal valid example means no proof that the schema fits.
+            witness = costs[index][1]
+            if witness is None or witness > limit:
+                continue
+            feasible.append(index)
+        modes = ([0] if spec.allow_text and spec.min_tokens <= limit else []) + (
+            [1] if feasible else []
+        )
+        if not modes:
+            raise ValueError("no public output mode fits the configured capacity")
+
+        return schema_fields, schema_limits, feasible, modes
+
     def _teacher_raw_impl(self, core, context, plan: PreparedTargets):
         """Vectorized independent examples; only the sparse CE positions are gathered."""
         batch = len(plan.ids)
-        header = self.condition(self.header(context), self.mode_codes, 0)
+        public_header = self.header(context)
+        header = self.condition(public_header, self.mode_codes, 0)
         zero = header.float().sum() * 0
         losses = {name: (zero, 0) for name in DECODER_LOSSES}
         lengths = torch.tensor([len(row) for row in plan.ids], device=header.device)
@@ -217,6 +253,23 @@ class DeterministicDecoder(nn.Module):
             ),
             batch,
         )
+        # Score the format against the same public alternatives as serving.
+        # The target never decides which alternatives are legal.
+        for index, spec in enumerate(plan.mode_specs):
+            if spec is None:
+                continue
+            modes = self._public_support(spec)[3]
+            if 0 not in modes:
+                raise ValueError("Text target is outside its public output support")
+            support = torch.tensor(modes, device=header.device, dtype=torch.long)
+            logits = self.logits(public_header[index : index + 1], self.mode_codes)
+            loss = F.cross_entropy(
+                logits.float().index_select(1, support),
+                torch.tensor([modes.index(0)], device=header.device),
+                reduction="sum",
+            )
+            previous, count = losses["structure"]
+            losses["structure"] = previous + loss, count + 1
         header = self.condition(header, self.length_codes, lengths)
         terminals = torch.tensor(plan.terminals, device=header.device, dtype=torch.long)
         losses["terminal"] = (
@@ -278,36 +331,7 @@ class DeterministicDecoder(nn.Module):
         header = self.header(context)
         program = _Program(header, teacher)
         limit = min(spec.max_tokens, self.config.max_capacity)
-        schema_fields = {
-            index: planned_fields(self.codec, schema.fields)
-            for index, schema in enumerate(spec.schemas)
-        }
-        # The model's field lengths are not the wire length. A tool may
-        # require more tokens for its fixed JSON envelope than for all its
-        # semantic values combined. Require a schema-valid complete wire
-        # witness at this limit before making it a candidate.
-        # Field lengths live in the model's workspace, but a complete tool
-        # action must also fit its literal wire syntax (keys, separators, quotes).
-        # Reserve those fixed tokens before deciding which schemas or value
-        # lengths the model may choose.
-        costs = [_wire_costs(schema, self.codec) for schema in spec.schemas]
-        schema_limits = {index: limit - overhead for index, (overhead, _) in enumerate(costs)}
-        feasible = []
-        for index, fields in schema_fields.items():
-            if fields is None or (
-                sum(value.minimum for value in fields.values()) > schema_limits[index]
-            ):
-                continue
-            # No constructible minimal valid example means no proof that the schema fits.
-            witness = costs[index][1]
-            if witness is None or witness > limit:
-                continue
-            feasible.append(index)
-        modes = ([0] if spec.allow_text and spec.min_tokens <= limit else []) + (
-            [1] if feasible else []
-        )
-        if not modes:
-            raise ValueError("no public output mode fits the configured capacity")
+        schema_fields, schema_limits, feasible, modes = self._public_support(spec)
 
         def choose(name, codes, allowed, forced=None, key="structure"):
             nonlocal header

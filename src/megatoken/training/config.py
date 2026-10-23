@@ -86,6 +86,8 @@ class DecoupledConfig:
 
 @dataclass(frozen=True)
 class TrainConfig:
+    # Recorded experiment scope; full production readiness is checked separately.
+    purpose: str = "production"
     phase: str = "B0"
     model: str = "32x512"
     # Prepared roots read as one corpus (data.storage.PreparedCorpus); each
@@ -120,6 +122,7 @@ class TrainConfig:
     compile_mode: str = "default"
     expert_backend: str = "auto"
     representation_mode: str = "auto"
+    format_supervision_version: int = 2
     # Optimizer-step accumulation target for a stage metered in G (events).
     accumulate_events: int = 32
     # Locked pack manifest (omni/loader.py): the Pocket/Sana/Sana-Video realizers
@@ -151,6 +154,8 @@ class TrainConfig:
     engram_imports: list[str] | None = None
 
     def __post_init__(self) -> None:
+        if self.purpose not in {"production", "diagnostic"}:
+            raise ValueError("purpose must be production or diagnostic")
         if isinstance(self.decoupled, dict):
             object.__setattr__(self, "decoupled", DecoupledConfig.from_dict(self.decoupled))
         if self.decoupled is not None and not isinstance(self.decoupled, DecoupledConfig):
@@ -178,11 +183,16 @@ class TrainConfig:
             raise ValueError("effort must be one of 1, 2, 3, 6")
         if self.expert_backend not in {"auto", "torch", "triton"}:
             raise ValueError("expert_backend must be auto, torch, or triton")
+        if self.format_supervision_version not in {1, 2}:
+            raise ValueError("format_supervision_version must be 1 or 2")
         if self.representation_mode not in {"auto", "bootstrap", "recurrent"}:
             raise ValueError("representation_mode must be auto, bootstrap, or recurrent")
-        if self.trainable not in {"all", "media_bridge"}:
-            raise ValueError("trainable is all or media_bridge")
-        if self.trainable != stage_recipe(self.phase).constraints.get("trainable", "all"):
+        if self.trainable not in {"all", "media_bridge", "latent_policy"}:
+            raise ValueError("trainable is all, media_bridge, or latent_policy")
+        policy_only = self.trainable == "latent_policy" and self.phase == "D"
+        if not policy_only and self.trainable != stage_recipe(self.phase).constraints.get(
+            "trainable", "all"
+        ):
             raise ValueError(f"Stage {self.phase} trains {self.trainable!r} parameters only")
         if self.trainable == "media_bridge" and self.packs is None:
             raise ValueError("Media bridge training needs the realizer packs")

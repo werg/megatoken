@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import math
 from collections import Counter, defaultdict
 from fractions import Fraction
 
@@ -50,6 +51,40 @@ def behaviors(episode) -> set[str]:
                     else "context_unavailable"
                 )
     events = [e for group in episode.meridians for e in group.events]
+    # Recognize an actual wait -> requested audio arrival -> continuation ->
+    # translated output sequence. A stream label or prefix-only example is not
+    # evidence that the policy learned to wait across arrivals.
+    positions = {e.record_id: i for i, g in enumerate(episode.meridians) for e in g.events}
+    event_by_id = {e.record_id: e for e in events}
+    continued_outputs = {
+        d.writer_id: d.reader_id for d in episode.dependencies if d.kind == "translation_continued"
+    }
+    for wait in actions.values():
+        if wait.tool_name != "track_wait":
+            continue
+        args = json.loads(wait.arguments_json)
+        wait_position = max(positions[r] for r in wait.record_ids)
+        for prerequisite in args.get("prerequisites", ()):
+            source = event_by_id.get(prerequisite)
+            if source is None or source.modality != "audio" or source.role != "user":
+                continue
+            if positions[prerequisite] <= wait_position:
+                continue
+            for continuation in actions.values():
+                if continuation.tool_name != "track_continue":
+                    continue
+                if json.loads(continuation.arguments_json).get("address") != args.get("address"):
+                    continue
+                call_position = min(positions[r] for r in continuation.record_ids)
+                if call_position <= positions[prerequisite]:
+                    continue
+                receipts = [r for r in records.values() if r.result_of == continuation.action_id]
+                if any(
+                    receipt.record_id in continued_outputs
+                    and positions[continued_outputs[receipt.record_id]] > call_position
+                    for receipt in receipts
+                ):
+                    result.add("streaming_wait_emit")
     for group in episode.meridians:
         calls = {records[e.record_id].action_id for e in group.events}
         # This behavior measures verified calls chosen together. It does not
@@ -71,18 +106,27 @@ def behaviors(episode) -> set[str]:
     ]
     if audio:
         result.add("speaker_preserving_audio")
+    spans = [
+        (
+            Fraction(e.media_span.start_tick, e.media_span.ticks_per_second),
+            Fraction(e.media_span.end_tick, e.media_span.ticks_per_second),
+        )
+        for e in audio
+    ]
     for i, left in enumerate(audio):
-        for right in audio[i + 1 :]:
-            a, b = left.media_span, right.media_span
-            if left.speaker == right.speaker or a.clock_id != b.clock_id:
-                continue
-            if Fraction(a.start_tick, a.ticks_per_second) < Fraction(
-                b.end_tick, b.ticks_per_second
-            ) and Fraction(b.start_tick, b.ticks_per_second) < Fraction(
-                a.end_tick, a.ticks_per_second
+        if "natural_speaker_overlap" in result:
+            break
+        for j in range(i + 1, len(audio)):
+            right = audio[j]
+            if (
+                left.speaker == right.speaker
+                or left.media_span.clock_id != right.media_span.clock_id
             ):
+                continue
+            if spans[i][0] < spans[j][1] and spans[j][0] < spans[i][1]:
                 if all(records[e.record_id].provenance == "natural" for e in (left, right)):
                     result.add("natural_speaker_overlap")
+                    break
     timed = {
         e.modality
         for e in events
@@ -125,6 +169,26 @@ def behaviors(episode) -> set[str]:
             if any(a_start < b_end and b_start < a_end for b_start, b_end in measured[index + 1 :]):
                 result.add("executed_overlapping_calls")
                 break
+    delay = annotations.get("controlled_read_delay_seconds")
+    overhead = annotations.get("controlled_worker_creation_delay_seconds")
+    if all(type(x) in (int, float) and math.isfinite(x) and x >= 0 for x in (delay, overhead)):
+        created = "lifecycle_create" in result
+        if not created and delay < 2 * overhead and not annotations.get("dependent_reads"):
+            result.add("cheap_work_kept_serial")
+        if created and delay > 2 * overhead and "executed_overlapping_calls" in result:
+            result.add("slow_independent_work_delegated")
+        if annotations.get("dependent_reads") and not created:
+            reads = [a for a in actions.values() if a.tool_name == "read"]
+            if len(reads) >= 2:
+                earlier, later = sorted(reads, key=lambda a: positions[a.record_ids[0]])[:2]
+                producers = {
+                    r.record_id for r in records.values() if r.result_of == earlier.action_id
+                }
+                if any(
+                    d.writer_id in producers and d.reader_id in later.record_ids
+                    for d in episode.dependencies
+                ):
+                    result.add("dependent_work_kept_serial")
     for entry in annotations.get("native_action_tapes", ()):
         tape = entry["tape"]
         if any(sum(mask) > 1 for mask in tape["modality_masks"]):
@@ -181,8 +245,6 @@ def require_coverage(corpus, requirements, streams, *, split="train"):
     if any(type(value) is not int or value < 0 for value in requirements.values()):
         raise ValueError("Behavior family requirements must be nonnegative integers")
     available_ids = defaultdict(set)
-    legacy_counts = Counter()
-    legacy_parts = Counter()
     requested_streams = set(streams)
     for part in corpus.parts:
         report = part.manifest.get("behavior_coverage", {})
@@ -194,28 +256,15 @@ def require_coverage(corpus, requirements, streams, *, split="train"):
             if part_split != split or stream not in requested_streams:
                 continue
             ids = family_ids.get(key)
-            if ids is None:
-                legacy_counts[behavior] += count
-                legacy_parts[behavior] += 1
-            else:
-                if (
-                    not isinstance(ids, list)
-                    or len(ids) != count
-                    or any(not isinstance(identity, str) or not identity for identity in ids)
-                    or len(set(ids)) != len(ids)
-                ):
-                    raise ValueError(f"Malformed original family identities for {key}")
-                available_ids[behavior].update(ids)
+            if (
+                not isinstance(ids, list)
+                or len(ids) != count
+                or any(not isinstance(identity, str) or not identity for identity in ids)
+                or len(set(ids)) != len(ids)
+            ):
+                raise ValueError(f"Malformed original family identities for {key}")
+            available_ids[behavior].update(ids)
     available = Counter({name: len(ids) for name, ids in available_ids.items()})
-    for behavior, count in legacy_counts.items():
-        # Old manifests carry only counts. They are safe as one source, but
-        # cannot be deduplicated against another root's families.
-        if legacy_parts[behavior] > 1 or available[behavior]:
-            raise ValueError(
-                f"Cannot verify unique original families for {behavior!r} across corpus roots; "
-                "reprepare manifests with family identities"
-            )
-        available[behavior] += count
     missing = {name: count for name, count in requirements.items() if available[name] < count}
     if missing:
         raise ValueError(

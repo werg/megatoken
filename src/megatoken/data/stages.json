@@ -42,7 +42,7 @@
         "synthetic_code_dialogue": 0.076,
         "synthetic_reasoning": 0.095,
         "chat": 0.076,
-        "executed_trajectories": 0.1615,
+        "executed_trajectories": 0.1605,
         "verified_trajectories": 0.0475,
         "tool_use": 0.056999999999999995,
         "environment_trajectories": 0.00095,
@@ -50,13 +50,13 @@
         "audio_description": 0.00475,
         "image_identity": 0.014249999999999999,
         "video_identity": 0.014249999999999999,
-        "video_description": 0.00475,
+        "video_description": 0.004275,
         "transcription": 0.014249999999999999,
-        "verbalization": 0.0095,
+        "verbalization": 0.00855,
         "speech_translation": 0.014249999999999999,
         "image_description": 0.014249999999999999,
         "image_creation": 0.0095,
-        "av_creation": 0.0095,
+        "av_creation": 0.0076950000000000005,
         "image_edit": 0.00665,
         "edit_judging": 0.001425,
         "edit_plan": 0.001425,
@@ -68,7 +68,12 @@
         "dynamic_execution": 0.02,
         "duplex_execution": 0.01,
         "timed_conversation": 0.01,
-        "streaming_translation": 0.01
+        "streaming_translation": 0.01,
+        "av_understanding": 0.000475,
+        "endpoints": 0.00095,
+        "endpoint_conditioned_video": 0.0008550000000000001,
+        "speech_counterfactual": 0.00095,
+        "cross_track_evidence": 0.001
       },
       "effort_mix": {
         "6": 0.8,
@@ -84,7 +89,12 @@
           "lifecycle_create": 1,
           "executed_parallel_calls": 1,
           "speaker_preserving_audio": 1,
-          "versioned_source_arrival": 1
+          "versioned_source_arrival": 1,
+          "streaming_wait_emit": 1,
+          "executed_overlapping_calls": 1,
+          "cheap_work_kept_serial": 1,
+          "slow_independent_work_delegated": 1,
+          "dependent_work_kept_serial": 1
         }
       }
     },
@@ -92,7 +102,7 @@
       "meter": "D",
       "limit": 60000000000,
       "mixture": {
-        "issue_pr_sequences": 0.270218,
+        "issue_pr_sequences": 0.269218,
         "connected_repositories": 0.1235,
         "executed_trajectories": 0.19949999999999998,
         "verified_trajectories": 0.076,
@@ -101,15 +111,15 @@
         "code_evolution": 0.026505,
         "build_logs": 0.010601999999999999,
         "base_replay": 0.06175,
-        "long_context": 0.044175,
+        "long_context": 0.043175,
         "audio_identity": 0.007124999999999999,
         "audio_description": 0.002375,
         "image_identity": 0.0095,
         "video_identity": 0.007124999999999999,
-        "video_description": 0.002375,
+        "video_description": 0.0021375,
         "transcription": 0.00475,
         "image_description": 0.00475,
-        "av_creation": 0.00475,
+        "av_creation": 0.0038475000000000002,
         "image_edit": 0.0038,
         "edit_judging": 0.000475,
         "edit_plan": 0.000475,
@@ -119,7 +129,12 @@
         "dynamic_execution": 0.02,
         "duplex_execution": 0.01,
         "timed_conversation": 0.01,
-        "streaming_translation": 0.01
+        "streaming_translation": 0.01,
+        "av_understanding": 0.0002375,
+        "endpoints": 0.000475,
+        "endpoint_conditioned_video": 0.00042750000000000004,
+        "speech_counterfactual": 0.001,
+        "cross_track_evidence": 0.001
       },
       "effort_mix": {
         "6": 0.8,
@@ -135,7 +150,12 @@
           "lifecycle_create": 1,
           "executed_parallel_calls": 1,
           "speaker_preserving_audio": 1,
-          "versioned_source_arrival": 1
+          "versioned_source_arrival": 1,
+          "streaming_wait_emit": 1,
+          "executed_overlapping_calls": 1,
+          "cheap_work_kept_serial": 1,
+          "slow_independent_work_delegated": 1,
+          "dependent_work_kept_serial": 1
         }
       }
     },
@@ -143,7 +163,7 @@
       "meter": "D",
       "limit": 40000000000,
       "mixture": {
-        "verified_trajectories": 0.46549999999999997,
+        "verified_trajectories": 0.46349999999999997,
         "executed_trajectories": 0.076,
         "tool_use": 0.0665,
         "chat": 0.019,
@@ -155,10 +175,10 @@
         "audio_description": 0.002375,
         "image_identity": 0.0095,
         "video_identity": 0.007124999999999999,
-        "video_description": 0.002375,
+        "video_description": 0.0021375,
         "transcription": 0.00475,
         "image_description": 0.00475,
-        "av_creation": 0.00475,
+        "av_creation": 0.0038475000000000002,
         "image_edit": 0.0038,
         "edit_judging": 0.000475,
         "edit_plan": 0.000475,
@@ -168,7 +188,12 @@
         "dynamic_execution": 0.02,
         "duplex_execution": 0.01,
         "timed_conversation": 0.01,
-        "streaming_translation": 0.01
+        "streaming_translation": 0.01,
+        "av_understanding": 0.0002375,
+        "endpoints": 0.000475,
+        "endpoint_conditioned_video": 0.00042750000000000004,
+        "speech_counterfactual": 0.001,
+        "cross_track_evidence": 0.001
       },
       "effort_mix": {
         "6": 0.8,
@@ -184,7 +209,12 @@
           "lifecycle_create": 1,
           "executed_parallel_calls": 1,
           "speaker_preserving_audio": 1,
-          "versioned_source_arrival": 1
+          "versioned_source_arrival": 1,
+          "streaming_wait_emit": 1,
+          "executed_overlapping_calls": 1,
+          "cheap_work_kept_serial": 1,
+          "slow_independent_work_delegated": 1,
+          "dependent_work_kept_serial": 1
         }
       }
     },
@@ -203,8 +233,13 @@
         "collection_reading": 0.0095,
         "dynamic_execution": 0.02,
         "duplex_execution": 0.01,
-        "timed_conversation": 0.01,
-        "streaming_translation": 0.01
+        "timed_conversation": 0.005904900000000001,
+        "streaming_translation": 0.01,
+        "av_understanding": 0.001,
+        "endpoints": 0.0009000000000000002,
+        "endpoint_conditioned_video": 0.0008100000000000002,
+        "speech_counterfactual": 0.0007290000000000002,
+        "cross_track_evidence": 0.0006561000000000002
       },
       "effort_mix": {
         "6": 0.8,
@@ -220,7 +255,12 @@
           "lifecycle_create": 1,
           "executed_parallel_calls": 1,
           "speaker_preserving_audio": 1,
-          "versioned_source_arrival": 1
+          "versioned_source_arrival": 1,
+          "streaming_wait_emit": 1,
+          "executed_overlapping_calls": 1,
+          "cheap_work_kept_serial": 1,
+          "slow_independent_work_delegated": 1,
+          "dependent_work_kept_serial": 1
         }
       }
     },
@@ -228,7 +268,7 @@
       "meter": "P",
       "limit": 2000000000,
       "mixture": {
-        "verified_successful_multiturn": 0.41400000000000003,
+        "verified_successful_multiturn": 0.40900000000000003,
         "recovery_clarification": 0.12600000000000003,
         "tested_artifacts": 0.07200000000000001,
         "typed_exact_instructions": 0.12600000000000003,
@@ -242,7 +282,12 @@
         "dynamic_execution": 0.04,
         "duplex_execution": 0.02,
         "timed_conversation": 0.02,
-        "streaming_translation": 0.02
+        "streaming_translation": 0.02,
+        "av_understanding": 0.001,
+        "endpoints": 0.001,
+        "endpoint_conditioned_video": 0.001,
+        "speech_counterfactual": 0.001,
+        "cross_track_evidence": 0.001
       },
       "effort_mix": {
         "6": 0.6,
@@ -258,7 +303,12 @@
           "lifecycle_create": 1,
           "executed_parallel_calls": 1,
           "speaker_preserving_audio": 1,
-          "versioned_source_arrival": 1
+          "versioned_source_arrival": 1,
+          "streaming_wait_emit": 1,
+          "executed_overlapping_calls": 1,
+          "cheap_work_kept_serial": 1,
+          "slow_independent_work_delegated": 1,
+          "dependent_work_kept_serial": 1
         }
       }
     },

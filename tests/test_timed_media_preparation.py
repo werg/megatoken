@@ -150,7 +150,9 @@ class FakeMediaPreparer:
             ),
         )
 
-    def video_interval(self, path, *, start_tick, end_tick, fps, target=True):
+    def video_interval(
+        self, path, *, start_tick, end_tick, fps, target=True, ticks_per_second=None
+    ):
         family = file_sha256(path)
         source = self.store.put(
             np.ones((1, 512), np.float32),
@@ -187,6 +189,91 @@ class FakeMediaPreparer:
             embedding=embedding,
             transform_json=json.dumps({"start": start_tick, "end": end_tick}),
         )
+
+
+def test_sustained_translation_waits_and_retains_earlier_emissions(tmp_path):
+    from megatoken.controls import resolve_event_control
+    from megatoken.data import PreparedDataset, WindowConfig, iter_windows
+
+    with wave.open(str(tmp_path / "a.wav"), "wb") as wav:
+        wav.setnchannels(1)
+        wav.setsampwidth(2)
+        wav.setframerate(16000)
+        wav.writeframes(np.zeros(4800, dtype="<i2").tobytes())
+    value = row(
+        channels=1,
+        streaming_translation={
+            "policy": "aligned_prefix",
+            "language": {"source": "en", "target": "fr"},
+        },
+        chunks=[
+            {"start_sample": 0, "end_sample": 1600, "wait_for_more": True},
+            {"start_sample": 1600, "end_sample": 3200, "translation": "bonjour"},
+            {"start_sample": 3200, "end_sample": 4800, "translation": "monde"},
+        ],
+    )
+    root = tmp_path / "prepared"
+    codec = ByteCodec.byte_fallback()
+    prepare_rows(
+        write(tmp_path, [value]),
+        media=FakeMediaPreparer(root),
+        output=root,
+        source_terms=TERMS,
+        codec=codec,
+    )
+    with PreparedDataset(root, split="train", stream="streaming_translation") as data:
+        assert len(data) == 1
+        episode = data[0]
+        assert Episode.from_dict(episode.to_dict()) == episode
+        waits = [a for a in episode.actions if a.tool_name == "track_wait"]
+        assert len(waits) == 2
+        positions = {r.record_id: i for i, r in enumerate(episode.records)}
+        events = {e.record_id: e for g in episode.meridians for e in g.events}
+        for action in waits:
+            for source_id in json.loads(action.arguments_json)["prerequisites"]:
+                assert positions[action.record_ids[0]] < positions[source_id]
+                assert events[source_id].modality == "audio"
+        control = resolve_event_control(episode, events[waits[0].record_ids[0]])
+        assert b"bonjour" not in control and b"monde" not in control
+        last = next(r for r in episode.records if r.payload == b"monde")
+        window = next(
+            w
+            for w in iter_windows(episode, codec, WindowConfig(max_records=2))
+            if any(r.record.record_id == last.record_id for r in w.records)
+        )
+        assert any(r.record.payload == b"bonjour" for r in window.prefix)
+        assert "lifecycle_wait" in behaviors(episode)
+        assert "streaming_wait_emit" in behaviors(episode)
+
+
+def test_streaming_segment_labels_cannot_cover_unarrived_audio(tmp_path):
+    value = row(
+        channels=1,
+        streaming_translation={
+            "policy": "segment_end",
+            "language": {"source": "en", "target": "fr"},
+        },
+        chunks=[
+            {"start_sample": 0, "end_sample": 1600, "wait_for_more": True},
+            {
+                "start_sample": 1600,
+                "end_sample": 3200,
+                "translation": "bonjour",
+                "translation_span": {"start_sample": 0, "end_sample": 4800},
+            },
+        ],
+    )
+    with pytest.raises(ValueError, match="already available"):
+        read_manifest(write(tmp_path, [value]))
+    value["chunks"][1]["translation_span"]["end_sample"] = 3200
+    assert read_manifest(write(tmp_path, [value]))
+    value["chunks"][1]["start_sample"] = 1800
+    with pytest.raises(ValueError, match="without gaps"):
+        read_manifest(write(tmp_path, [value]))
+    value["chunks"][1]["start_sample"] = 1600
+    value["chunks"][0]["translation"] = "future target"
+    with pytest.raises(ValueError, match="both wait and emit"):
+        read_manifest(write(tmp_path, [value]))
 
 
 def test_real_dedup_export_publishes_readable_prepared_dataset(tmp_path, monkeypatch):
@@ -456,3 +543,15 @@ def test_joint_timed_audiovisual_generation_uses_shared_annotation_clock(tmp_pat
     audio_event, video_event, caption_event = generated_av.meridians[-1].events
     assert audio_event.media_span == video_event.media_span == caption_event.media_span
     assert "timed_audiovisual" in behaviors(generated_av)
+
+
+def test_manifest_ticks_are_converted_to_the_containers_time_base():
+    from fractions import Fraction
+
+    from megatoken.data.media_timing import container_ticks
+
+    # The shipped example declares ticks 0..24 at 24 per second for a Matroska file, whose
+    # clock is 1/1000 s: that is the first second (1000 container ticks), not 24 milliseconds.
+    assert container_ticks(24, 24, Fraction(1, 1000)) == 1000
+    assert container_ticks(0, 24, Fraction(1, 1000)) == 0
+    assert container_ticks(3, 24, Fraction(1, 90000)) == 11250  # a 90 kHz transport clock
