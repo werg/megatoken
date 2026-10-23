@@ -21,11 +21,11 @@ from collections.abc import Mapping, Sequence
 from pathlib import Path
 from typing import Any
 
-from .open_media import SOURCES, TASKS, OpenSource
+from .open_media import SOURCES, TASKS, OpenSource, is_web
 from .sharding import SPLIT_ABOVE, Unit, assign
 
 # Readers whose sources divide by file (a linked source by its archives, unless one stream).
-FILE_READERS = ("parquet", "webdataset", "archive", "linked")
+FILE_READERS = ("parquet", "webdataset", "archive", "linked", "table", "folders")
 
 # Estimated GPU seconds per clip by task: the teacher reads each media event once and the codec
 # encodes it once, whatever the number of episodes built from it. Images 20 a second, speech 40
@@ -36,6 +36,8 @@ CLIP_SECONDS = {
     "image_questions": 0.05,
     "image_edit": 0.1,
     "image_edit_chain": 0.05,  # per image: a session holds its original and each result
+    "image_edit_plan": 0.1,
+    "edit_judging": 0.05,  # per image: the original and every candidate
     "transcription": 0.025,
     "translation_text": 0.025,
     "translation_pair": 0.05,
@@ -58,6 +60,8 @@ def clip_seconds(source: OpenSource) -> float:
     seconds = source.options.get(
         "clip_seconds", CLIP_SECONDS.get(source.task, DEFAULT_CLIP_SECONDS)
     )
+    if source.task == "edit_judging":
+        seconds *= 1 + source.inventory.get("candidates", 2)
     if source.task.endswith("_chain"):
         items = source.inventory.get("items") or 1
         seconds *= 1 + source.inventory.get("turns", items) / items
@@ -72,6 +76,11 @@ def source_items(source: OpenSource) -> float:
 def list_files(source: OpenSource) -> list[tuple[str, int]]:
     """``(file, stored bytes)`` for the files the source's ``include`` patterns match at its
     pinned revision (Hub metadata only)."""
+    if is_web(source):
+        from .fetch import content_length
+
+        base = source.repository.rstrip("/")
+        return sorted((name, content_length(f"{base}/{name}")) for name in source.include)
     from huggingface_hub import HfFileSystem
 
     filesystem = HfFileSystem()

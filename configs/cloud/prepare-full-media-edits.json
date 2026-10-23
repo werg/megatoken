@@ -31,7 +31,20 @@
   "imgedit_content_understanding",
   "imgedit_version_backtracking",
   "taesiri_image_editing_request",
-  "editworld_reasoning"
+  "editworld_reasoning",
+  "editreward_judging",
+  "editscore_judging",
+  "pico_banana_preference",
+  "pico_banana_multi_turn",
+  "pico_banana_single",
+  "escher_human_edit_plan",
+  "escher_vismin_plan",
+  "escher_aurora_kubric_plan",
+  "escher_aurora_ag_plan",
+  "escher_ss2_plan",
+  "escher_magicbrush_plan",
+  "editworld_reasoning_plan",
+  "jarvisart_plan"
  ],
  "listing": "configs/data/files.media.json",
  "pip": [

@@ -81,9 +81,11 @@ tested code, clarification and recovery, code rewrites, environment episodes). T
 `configs/cloud/prepare-later-stages.json` prepares it in eight shards, scaled with
 `LATER_ROW_SCALE`. See "Later-stage streams" at the end of [`docs/data.md`](../../docs/data.md).
 
-`sources.media.json`, `sources.media-more.json` and `sources.media-more-gated.json` list the public
-media sources (images, speech, sound, music, video and their edits; any licence, each recorded; the
-last file needs a click on the Hub). The pilot jobs `configs/cloud/prepare-media-*.json` build a
+`sources.media.json`, `sources.media-more.json`, `sources.media-more-gated.json` and
+`sources.media-agentic.json` list the public media sources (images, speech, sound, music, video and
+their edits; any licence, each recorded; the third file needs a click on the Hub, the last holds the
+sources that teach judging and planning edits, some of which are fetched from a publisher's web
+site). The pilot jobs `configs/cloud/prepare-media-*.json` build a
 slice of each source; `files.media.json` lists every file of the file-based media sources and the
 runs `configs/cloud/prepare-full-media-*.json` build all of them across GPU sandboxes
 (`python -m megatoken.cloud_prepare plan|launch`; `scripts/media_volume.py` computes sizes, costs

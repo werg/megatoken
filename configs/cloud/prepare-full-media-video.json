@@ -63,5 +63,20 @@
   "ingest": 26,
   "reconcile": 4,
   "finish": 3
+ },
+ "procedural_every": {
+  "rekadaily_processed": 40,
+  "vggsound": 40,
+  "openvid_1m": 40,
+  "videoufo_clips": 40,
+  "vidgen_1m": 40,
+  "vript_short": 40,
+  "vript_long": 40,
+  "openhumanvid_hq": 40,
+  "llava_video_0_30_s_academic": 40,
+  "llava_video_0_30_s_youtube": 40,
+  "llava_video_30_60_s_academic": 40,
+  "llava_video_30_60_s_youtube": 40,
+  "panda70m_test": 40
  }
 }

@@ -13,6 +13,7 @@ labelled files into aligned bundles and compiles them into the stage plan's own 
   image_identity, image_description,
   image_creation                           captioned photos and synthetic images
   image_edit                               instructed image edits
+  edit_judging, edit_plan                  verdicts on candidate edits; plans and tool calls written before the edit
   video_identity, av_creation              captioned clips (with sound for av_creation)
 
 ``--count SOURCE=N`` draws N source clips from a source (FLEURS: N pairs across its languages);
@@ -39,6 +40,7 @@ from dataclasses import asdict
 from pathlib import Path
 
 from megatoken.data import DedupConfig, DedupStore
+from megatoken.data.fetch import FETCH_STATS
 from megatoken.data.media_prepare import MediaPreparer
 from megatoken.data.open_media import SOURCES, CachingPreparer, source_episodes
 from megatoken.data.storage import export_prepared
@@ -180,6 +182,17 @@ def main() -> None:
                         json.dumps({"finished": source_id, "streams": tally}, sort_keys=True),
                         flush=True,
                     )
+                    if source_id in FETCH_STATS:
+                        print(
+                            json.dumps(
+                                {"fetched": source_id, "links": FETCH_STATS[source_id]},
+                                sort_keys=True,
+                            ),
+                            flush=True,
+                        )
+                        (args.root / "fetch-report.json").write_text(
+                            json.dumps({k: dict(v) for k, v in FETCH_STATS.items()}, indent=1)
+                        )
             if args.ingest_only:
                 print(json.dumps({"digest": dedup.write_digest(args.root / "digest.sqlite")}))
                 return

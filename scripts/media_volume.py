@@ -49,6 +49,8 @@ TEXT_TOKENS = {
     "speech_edit": 10.0,
     "av_creation": 54.5,
     "av_edit": 5.1,
+    "edit_judging": 70.0,  # the verdict with its scores (estimate)
+    "edit_plan": 120.0,  # a plan or tool call (estimate)
 }
 EDIT_TASKS = ("image_edit", "image_edit_chain", "video_edit", "video_edit_chain")
 QUESTION_TURN_TOKENS = 60.0  # one question and its answer (estimate)
@@ -120,8 +122,10 @@ def events(source: OpenSource) -> list[tuple[str, float]]:
         return [("audio", audio), ("audio", audio)]
     if task in ("captioned_image", "picture", "image_questions"):
         return [("image", seconds)]
-    if task == "image_edit":
+    if task in ("image_edit", "image_edit_plan"):
         return [("image", seconds)] * 2
+    if task == "edit_judging":
+        return [("image", seconds)] * round(1 + source.inventory.get("candidates", 2))
     if task == "image_edit_chain":
         return [("image", seconds)] * round(1 + turns)
     if task in ("av_caption", "av_scenes"):
@@ -152,6 +156,8 @@ def episode_tokens(source: OpenSource) -> dict[str, tuple[float, float]]:
     for stream in source.streams:
         if stream.endswith("_identity"):
             result[stream] = (1.0, first + text[stream])
+        elif stream in ("edit_judging", "edit_plan"):
+            result[stream] = (1.0, sum(media) + text[stream])
         elif stream in ("image_edit", "av_edit", "speech_edit"):
             # Real edit sets prepare both versions (all of a chain); a procedural edit of a
             # clip prepares the clip and its edited copy.
@@ -212,6 +218,8 @@ SUMMARY_ROWS = (
     ("Image edits", ("image_edit", "image_edit_chain")),
     ("Video", ("av_caption", "av_scenes", "video", "captioned_video", "video_questions")),
     ("Video edits", ("video_edit", "video_edit_chain")),
+    ("Edit judging", ("edit_judging",)),
+    ("Edit plans", ("image_edit_plan", "video_edit_plan")),
 )
 
 
@@ -315,7 +323,7 @@ def gap_table(only: set[str] | None = None, sources: dict[str, OpenSource] | Non
         name
         for name in mixture
         if name.endswith(("_identity", "_creation", "_edit", "_translation", "_description"))
-        or name in {"transcription", "verbalization"}
+        or name in {"transcription", "verbalization", "edit_judging", "edit_plan"}
     )
     lines = [
         "| Stream | Sources | Episodes available | D tokens per episode | P1 share (tokens) "

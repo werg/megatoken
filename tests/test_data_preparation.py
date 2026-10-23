@@ -276,6 +276,8 @@ def test_stage_plan_leans_on_agentic_and_chat_data_over_raw_text():
             "image_creation",
             "av_creation",
             "image_edit",
+            "edit_judging",
+            "edit_plan",
             "speech_edit",
             "av_edit",
         }
