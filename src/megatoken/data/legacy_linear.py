@@ -216,6 +216,11 @@ def convert_prepared(source: Path, output: Path, codec):
                         )
                     count += 1
                     splits[row["split"]] = splits.get(row["split"], 0) + 1
+            if manifest["counts"].get("*", 0) != count:
+                raise ValueError("Original manifest count differs from its indexed episodes")
+            for split, expected in splits.items():
+                if manifest["counts"].get(f"split:{split}", 0) != expected:
+                    raise ValueError("Original manifest split count differs from its index")
             store.freeze()
             identity = {
                 "conversion": "legacy-linear-prepared-v1",
@@ -231,12 +236,12 @@ def convert_prepared(source: Path, output: Path, codec):
                 pipeline_fingerprint=content_hash(identity),
                 chunking=ChunkingConfig(**manifest.get("chunking", {}).get("config", {})),
             )
-    if manifest["counts"].get("*", 0) != count:
-        raise ValueError("Original manifest count differs from its indexed episodes")
     if exported["counts"].get("*", 0) != count:
+        (output / "manifest.json").unlink()
         raise ValueError("Conversion did not retain every indexed episode")
     for split, expected in splits.items():
         if exported["counts"].get(f"split:{split}", 0) != expected:
+            (output / "manifest.json").unlink()
             raise ValueError("Conversion changed an original train/evaluation split")
     receipt = {
         **identity,
