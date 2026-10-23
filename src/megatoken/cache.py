@@ -213,7 +213,13 @@ def encrypt_stream(
 
     if not 0 < segment <= MAX_SEGMENT_BYTES:
         raise CacheError("Unsupported segment size")
-    salt = os.urandom(SALT_BYTES) if salt is None else salt
+    if salt is None:
+        salt = os.urandom(SALT_BYTES)
+    else:
+        # A repeatable salt must still differ when the same plaintext is sealed with another
+        # segment size or label: the same key and nonce would then protect different bytes.
+        framing = segment.to_bytes(4, "big") + len(aad).to_bytes(8, "big") + aad
+        salt = hashlib.sha256(salt + framing).digest()[:SALT_BYTES]
     header = MAGIC + segment.to_bytes(4, "big") + salt
     aead = AESGCM(keys.file_key(salt))
     digest = hashlib.sha256(header)

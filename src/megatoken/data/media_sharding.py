@@ -21,6 +21,8 @@ from collections.abc import Mapping, Sequence
 from pathlib import Path
 from typing import Any
 
+from megatoken.io import write_text_atomic
+
 from .open_media import SOURCES, TASKS, OpenSource, is_web
 from .sharding import SPLIT_ABOVE, Unit, assign
 
@@ -119,7 +121,7 @@ def read_listing(
                 f"{json.dumps(key)}: {json.dumps(stored[key], separators=(',', ':'))}"
                 for key in sorted(stored)
             )
-            Path(path).write_text("{\n" + ",\n".join(lines) + "\n}\n")
+            write_text_atomic(path, "{\n" + ",\n".join(lines) + "\n}\n")
     return stored
 
 

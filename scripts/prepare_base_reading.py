@@ -140,26 +140,13 @@ def episodes(args: argparse.Namespace, root: Path) -> Iterator[Episode]:
         for task in documents:
             yield document_episode(task, compressor)
     if args.docci or args.librispeech:
-        from megatoken.data.media_prepare import MediaPreparer
-        from megatoken.data.open_media import CachingPreparer, read_docci, read_librispeech
-
-        media = CachingPreparer(MediaPreparer(args.packs, root, device=args.device))
-        inputs, work = args.inputs, args.work
-        if args.docci:
-            for clip in read_docci(
-                inputs / "docci/docci_descriptions.jsonlines",
-                inputs / "docci/docci_images.tar.gz",
-                work / "docci",
-                args.docci,
-            ):
-                yield image_episode(media, clip)
-        if args.librispeech:
-            for clip in read_librispeech(
-                sorted((inputs / "librispeech").glob("*.parquet")),
-                work / "librispeech",
-                args.librispeech,
-            ):
-                yield speech_episode(media, clip)
+        # The readers this branch called (read_librispeech, and read_docci with its old
+        # signature) were replaced by the source/shard readers of data/open_media.py, which
+        # this script does not construct. Say so instead of failing on an import.
+        raise SystemExit(
+            "--docci and --librispeech are not wired to the current open-media readers; "
+            "prepare those clips with scripts/prepare_open_media.py"
+        )
 
 
 def main() -> None:

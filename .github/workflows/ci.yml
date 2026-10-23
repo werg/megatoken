@@ -51,7 +51,7 @@ jobs:
         run: |
           python -m ruff check src tests scripts
           python -m ruff format --check src tests scripts
-          bash -n scripts/launch.sh scripts/slurm.sh
+          bash -n src/megatoken/cloud_bootstrap.sh
       - name: Build and install the distribution under test
         run: |
           python -m build

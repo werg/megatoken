@@ -25,11 +25,15 @@ def export_served(
     checkpoint: str | Path,
     output: str | Path,
     *,
-    codec_path: str = "byte",
+    codec_path: str | None = None,
     packs: str | Path | None = None,
 ) -> dict[str, Any]:
-    """Served bundle of a checkpoint; realizer packs stay external, bound by fingerprint."""
+    """Served bundle of a checkpoint; realizer packs stay external, bound by fingerprint.
+
+    The codec is the checkpoint's own unless ``codec_path`` relocates it.
+    """
     trained = load_trained(checkpoint, codec_path=codec_path, packs=packs)
+    codec_path = str(codec_path or trained.payload["train_config"].get("codec", "byte"))
     model, codec, payload, metadata = (
         trained.model,
         trained.codec,

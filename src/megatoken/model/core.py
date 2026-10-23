@@ -539,8 +539,11 @@ class FacetedCore(nn.Module):
         if batch_size < 1:
             raise ValueError("batch_size must be positive")
         device = torch.device(device or self.initial_facets.device)
-        if device != self.initial_facets.device:
+        home = self.initial_facets.device
+        # "cuda" names the model's own "cuda:0": an unindexed device is the same device.
+        if device != home and not (device.index is None and device.type == home.type):
             raise ValueError("Initial state and model must be on the same device")
+        device = home
         version = self.model_version if model_version is None else model_version
         if episode_ids is None:
             episode_ids = torch.zeros(batch_size, device=device, dtype=torch.long)

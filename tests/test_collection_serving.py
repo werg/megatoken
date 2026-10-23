@@ -166,7 +166,7 @@ def test_the_jsonl_service_mounts_collections_reports_originals_and_adds_files(t
                     "op": "add_files",
                     "id": 0,
                     "collection": "main",
-                    "paths": [str(tmp_path / "new.txt")],
+                    "paths": ["new.txt"],
                 }
             )
             + "\n"
@@ -174,7 +174,7 @@ def test_the_jsonl_service_mounts_collections_reports_originals_and_adds_files(t
         yield json.dumps({"op": "open", "id": 1, "effort": 1, "max_sources": 3}) + "\n"
 
     results = io.StringIO()
-    serve_multitrack_jsonl(runtime, requests(results), results)
+    serve_multitrack_jsonl(runtime, requests(results), results, kb_root=tmp_path)
     added, opened = [json.loads(line) for line in results.getvalue().splitlines()]
     assert added["ok"] and added["collection"] == {"name": "main", "added": 1}
     assert opened["ok"] and len(opened["retrieved"]) == 3

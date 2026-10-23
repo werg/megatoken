@@ -12,6 +12,7 @@ import datetime
 import hashlib
 import json
 import math
+import re
 from collections.abc import Iterable, Mapping, Sequence
 from dataclasses import asdict, dataclass, field, replace
 from functools import lru_cache
@@ -98,6 +99,19 @@ class SourceSpan:
         ByteSpan(self.start, self.end)
 
 
+def _repository_key(repository: str) -> str:
+    """One spelling for a repository: "o/r", "o/r.git/", "https://www.github.com/o/r",
+    "git@github.com:o/r.git" and "ssh://git@github.com/o/r" all give "o/r"."""
+    repo = repository.strip().casefold()
+    repo = re.sub(r"^[a-z][a-z0-9+.-]*://", "", repo)  # scheme
+    repo = re.sub(r"^[^@/]+@", "", repo)  # "git@"
+    if re.match(r"^[^/:]+:[^/0-9]", repo):  # scp-style "host:owner/name"
+        repo = repo.replace(":", "/", 1)
+    repo = repo.strip("/").removesuffix(".git").strip("/")
+    repo = repo.removeprefix("www.")
+    return repo.removeprefix("github.com/")
+
+
 @dataclass(frozen=True, slots=True)
 class Lineage:
     source_id: str
@@ -125,10 +139,7 @@ class Lineage:
     def family_keys(self) -> tuple[str, ...]:
         keys = [self.family_id, *self.ancestor_ids]
         if self.repository:
-            repo = self.repository.removesuffix(".git").strip("/").casefold()
-            # Sources spell the same repository "o/r", "github.com/o/r" or a full URL.
-            repo = repo.removeprefix("https://").removeprefix("http://").removeprefix("github.com/")
-            keys.append(f"repository:{repo}")
+            keys.append(f"repository:{_repository_key(self.repository)}")
         if self.task_id:
             # Task IDs shared by released collections must share this namespace.
             keys.append(f"task:{self.task_id}")
@@ -691,6 +702,9 @@ class Episode:
                     if self.records[record_index].role != event.role:
                         raise ValueError("Event role differs from its physical record")
                 prior_events.update(event.record_id for event in meridian.events)
+            # Before any lookup by record id: a gap must be a ValueError, not a KeyError.
+            if self.meridians and event_ids != set(ids):
+                raise ValueError("Every physical record requires a meridian event")
             groups = (
                 {e.record_id: m.meridian_id for m in self.meridians for e in m.events}
                 if self.meridians
@@ -715,8 +729,6 @@ class Episode:
                 ):
                     raise ValueError("Successive stream chunks require earlier meridians")
                 logical_groups[logical] = groups[record.record_id]
-            if self.meridians and event_ids != set(ids):
-                raise ValueError("Every physical record requires a meridian event")
 
     @property
     def content_sha256(self) -> str:

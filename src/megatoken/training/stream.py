@@ -319,9 +319,12 @@ class IndependentWindowStream(WindowStream):
         episode, assets = self.dataset.fetch(self._episode_index())
         plan = _WindowPlan(episode, self.codec, self.config)
         length = len(plan)
-        if length <= 0 or self.block_length not in (0, length) or self.slot >= length:
-            raise ValueError("Invalid independent episode cursor or empty episode")
-        self.block_length = self.local_length = length
+        # An episode with no scored window is one idle slot (as in the synchronized stream),
+        # not an error: raising here would crash-loop a restarted learner on the same cursor.
+        block = max(1, length)
+        if self.block_length not in (0, block) or self.slot >= block:
+            raise ValueError("Invalid independent episode cursor")
+        self.block_length, self.local_length = block, length
         self._episode, self._assets, self._plan = episode, assets, plan
         self._opened = True
 

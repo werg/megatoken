@@ -92,7 +92,11 @@ def _float_tensor(
     data = _bytes(payload)
     if len(data) != size * 4:
         raise ValueError("FP32 media payload does not match declared shape")
-    return torch.from_numpy(np.frombuffer(data, dtype="<f4").copy()).to(device).reshape(shape)
+    values = np.frombuffer(data, dtype="<f4").copy()
+    if not np.isfinite(values).all():
+        # A NaN or infinity committed into a session's state would corrupt it for good.
+        raise ValueError("FP32 media payload contains non-finite values")
+    return torch.from_numpy(values).to(device).reshape(shape)
 
 
 def _terminal(value: Mapping[str, object], default: bool | None) -> bool | None:
@@ -298,6 +302,15 @@ def _output_response(group, specs):
     return outputs
 
 
+def _flag(value: object, name: str) -> bool:
+    """A JSON boolean; ``bool("false")`` would be true."""
+    if value is None:
+        return False
+    if not isinstance(value, bool):
+        raise ValueError(f"{name} must be a JSON boolean")
+    return value
+
+
 def _inside(root: Path | None, name: object) -> Path:
     """A path the client names, which must lie inside the knowledge base root."""
     if root is None:
@@ -320,7 +333,9 @@ def _knowledge_op(runtime: MultiTrackRuntime, root: Path | None, op: str, reques
         raise ValueError("Knowledge base operations need a name")
     if op == "kb_open":
         base = memory.open_base(
-            name, _inside(root, request.get("path")), writable=bool(request.get("writable"))
+            name,
+            _inside(root, request.get("path")),
+            writable=_flag(request.get("writable"), "writable"),
         )
     elif op == "kb_create":
         base = memory.create_base(name)
@@ -372,8 +387,9 @@ def _add_files(runtime: MultiTrackRuntime, root: Path | None, request: Mapping):
     targets = {key: request.get(key) for key in ("collection", "base") if key in request}
     if not targets or not all(isinstance(v, str) for v in targets.values()):
         raise ValueError("add_files needs a collection name, a base name, or both")
-    # With a knowledge base root every file must lie inside it.
-    files = paths if root is None else [_inside(root, path) for path in paths]
+    # A client names files the server then reads and files into the model's memory, so
+    # every one must lie inside the operator's knowledge base root (none: refused).
+    files = [_inside(root, path) for path in paths]
     added = runtime.add_files(files, metadata=metadata, **targets)
     answer: dict[str, object] = {}
     if "collection" in targets:
@@ -382,6 +398,25 @@ def _add_files(runtime: MultiTrackRuntime, root: Path | None, request: Mapping):
         summary = runtime.memory.bases[targets["base"]].summary()
         answer["base"] = {"added": len(added.base), **summary}
     return answer
+
+
+def _request_lines(stream: Any):
+    """Request lines; ``None`` stands for a line over the bound (its remainder is dropped)."""
+    readline = getattr(stream, "readline", None)
+    if readline is None:  # any iterable of lines
+        yield from stream
+        return
+    while line := readline(MAX_REQUEST_CHARS + 1):
+        if len(line) > MAX_REQUEST_CHARS and not line.endswith("\n"):
+            while (rest := readline(1 << 20)) and not rest.endswith("\n"):
+                pass
+            yield None
+        else:
+            yield line
+
+
+# One request per line: a media observation is at most 8M floats, about 43 MB as base64.
+MAX_REQUEST_CHARS = 64 * 1024 * 1024
 
 
 class MultiTrackService:
@@ -425,8 +460,10 @@ class MultiTrackService:
         reconfigure = getattr(input_stream, "reconfigure", None)
         if reconfigure is not None:
             reconfigure(errors="replace")
-        for line in input_stream:
+        for line in _request_lines(input_stream):
             try:
+                if line is None or len(line) > MAX_REQUEST_CHARS:
+                    raise ValueError(f"Request line exceeds {MAX_REQUEST_CHARS} characters")
                 response = self.handle(strict_json_loads(line))
             except Exception as exc:
                 response = {"ok": False, "error": f"{type(exc).__name__}: {exc}"}
@@ -810,6 +847,8 @@ class MultiTrackService:
             "session": session_id,
             "revision": session.revision,
             "provisional": speculative,
+            # The key `release_generation` frees; a committed answer is retained until then.
+            **({} if speculative else {"selection_revision": session.revision}),
             "log_prob": float(group.log_prob),
             "outputs": _output_response(group, specs),
             "tape": json.loads(group.tape.to_json()),

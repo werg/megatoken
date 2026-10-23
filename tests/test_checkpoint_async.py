@@ -77,6 +77,14 @@ def test_writer_overlaps_the_caller_and_publishes_atomically(tmp_path):
         payload, metadata = load_checkpoint(root)
         assert payload["model"]["w"].tolist() == [1.0, 1.0, 1.0]
         assert metadata["global_step"] == 1
+        state_path = resolve_checkpoint(root) / "state.pt"
+        checksum = sha256_file(state_path)
+        # Optimizer restores may update a CPU tensor loaded from the private
+        # mapping. That must never mutate the committed checkpoint itself.
+        payload["model"]["w"].add_(7)
+        restored, _ = load_checkpoint(root)
+        assert restored["model"]["w"].tolist() == [1.0, 1.0, 1.0]
+        assert sha256_file(state_path) == checksum
         assert (resolve_checkpoint(root) / "transducer.pt").read_bytes() == b"bank"
         assert not list(root.glob(".checkpoint-*"))
     finally:

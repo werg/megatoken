@@ -234,6 +234,7 @@ class DecoupledWorker:
         )
         self.heartbeats_seen = 0
         self.heartbeat_error = ""
+        self.validation_error = ""
         self.local_steps = 0
         self.local_tokens = 0
         self.global_tokens = 0
@@ -305,8 +306,10 @@ class DecoupledWorker:
                 self._update_status(status)
                 self.heartbeat_error = ""
                 self.heartbeats += 1
-            except (OSError, TimeoutError, ValueError, RemoteError) as exc:
-                self.heartbeat_error = str(exc)
+            except Exception as exc:
+                # Any failure (a malformed status included) must not end the thread: a dead
+                # heartbeat lets the lease lapse while the learner is still training.
+                self.heartbeat_error = f"{type(exc).__name__}: {exc}"
 
     def _update_status(self, value: dict) -> None:
         self.global_tokens = int(value["global_tokens"])
@@ -473,7 +476,7 @@ class DecoupledWorker:
 
     def report_transducer_validation(self, step: int, loss: float) -> None:
         """Worker 0's bank-only validation loss, for the coordinator's switch rule."""
-        self.control_io.submit(
+        future = self.control_io.submit(
             self._with_lease,
             lambda: self.transport.json(
                 "POST",
@@ -481,6 +484,12 @@ class DecoupledWorker:
                 {"worker": self.worker, "session": self.session, "step": step, "loss": loss},
             ),
         )
+
+        def settled(done) -> None:
+            if done.exception() is not None:  # kept visible instead of discarded with the future
+                self.validation_error = f"{type(done.exception()).__name__}: {done.exception()}"
+
+        future.add_done_callback(settled)
 
     def _settle_transducer_upload(self) -> int:
         """Collect a finished round upload (or resend a failed one); returns its error count."""
@@ -656,6 +665,19 @@ class DecoupledWorker:
                 # Stale proposals are invalidated; the next pull overwrites
                 # this fragment and reestablishes a legitimate baseline.
                 if exc.status == 409 and "Stale" in str(exc):
+                    Path(entry["filename"]).unlink(missing_ok=True)
+                    del self.pending[index]
+                    self.downloads[index] = self.io.submit(self._fetch, index, -1)
+                elif (
+                    400 <= exc.status < 500
+                    and exc.status not in (408, 409, 425, 429)
+                    and entry.get("attempts", 0) >= 3
+                ):
+                    # The coordinator keeps refusing this proposal for a reason retrying
+                    # cannot change: drop it and rebase on the global fragment, instead of
+                    # blocking this fragment's uploads forever.
+                    errors += 1
+                    self.last_progress_error = str(exc)
                     Path(entry["filename"]).unlink(missing_ok=True)
                     del self.pending[index]
                     self.downloads[index] = self.io.submit(self._fetch, index, -1)

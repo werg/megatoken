@@ -1183,14 +1183,27 @@ def question_chain_view(
 
 def manifest_fingerprint(bundle: AlignedBundle, views: tuple[TaskView, ...]) -> str:
     """Stable manifest digest binds exact task family, source split and versions."""
-    # Bundle may contain bytes; encode without a lossy implicit string conversion.
-    h = hashlib.sha256(COMPILER_VERSION.encode())
-    h.update(bundle.bundle_id.encode())
-    h.update(bundle.lineage.family_id.encode())
-    h.update(bundle.lineage.frozen_split.encode())
+    h = hashlib.sha256()
+
+    def field(text: str) -> None:
+        # Length-prefixed, so adjacent fields cannot trade characters across a boundary.
+        data = text.encode()
+        h.update(len(data).to_bytes(8, "big"))
+        h.update(data)
+
+    for text in (
+        COMPILER_VERSION,
+        bundle.bundle_id,
+        bundle.lineage.family_id,
+        bundle.lineage.frozen_split,
+    ):
+        field(text)
     for view in views:
         episode = compile_task(bundle, view)
-        h.update(episode.episode_id.encode())
-        h.update(episode.content_sha256.encode())
-        h.update(episode.supervision.annotations_json.encode())
+        for text in (
+            episode.episode_id,
+            episode.content_sha256,
+            episode.supervision.annotations_json,
+        ):
+            field(text)
     return h.hexdigest()

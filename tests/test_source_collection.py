@@ -195,3 +195,23 @@ def test_collections_rank_together_with_ties_to_the_earlier_mount(tmp_path):
         ("a", b"passage 3"),
         ("b", b"other 3"),
     ]
+
+
+def test_a_collection_that_has_doubled_asks_to_be_reindexed(tmp_path):
+    keys = clustered_keys(12, seed=3)
+    collection = SourceCollection.create(tmp_path / "grow", name="grow", teacher=PINNED_TEACHER)
+    try:
+        assert not collection.needs_reindex  # empty: nothing to index
+        for number, key in enumerate(keys[:4]):
+            collection.add_text(f"passage {number}".encode(), key, origin=f"doc-{number}.txt")
+        assert collection.needs_reindex  # never indexed
+        collection.reindex()
+        assert not collection.needs_reindex
+        for number, key in enumerate(keys[4:7], start=4):
+            collection.add_text(f"passage {number}".encode(), key, origin=f"doc-{number}.txt")
+        assert not collection.needs_reindex  # 7 <= 2 * 4
+        collection.add_text(b"passage 9", keys[9], origin="doc-9.txt")
+        collection.add_text(b"passage 10", keys[10], origin="doc-10.txt")
+        assert collection.needs_reindex  # 9 > 2 * 4
+    finally:
+        collection.close()

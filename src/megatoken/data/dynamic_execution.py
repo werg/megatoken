@@ -299,10 +299,13 @@ def execution_episode(
         workers = [root, root]
     snapshot = env.state_id
 
-    def execute(item, state, start):
-        time.sleep(read_delay_seconds)
+    def take_step(item, state, start):
         observed = env.step(item[0][3], action_id=item[0][4], expected_state_id=state)
         return observed, start, start + read_delay_ns
+
+    def execute(item, state, start):
+        time.sleep(read_delay_seconds)
+        return take_step(item, state, start)
 
     def completed(item, value, state):
         observed, start, end = value
@@ -327,8 +330,11 @@ def execution_episode(
         )
         with ThreadPoolExecutor(max_workers=2) as executor:
             dispatched = clock[0]  # both reads start together: that is the overlap on record
+            # The reads really run side by side (each waits out its delay in its own thread);
+            # the environment records them below in selection order, so its execution
+            # numbers never depend on which thread woke first.
             pending = {
-                executor.submit(execute, item, snapshot, dispatched): item for item in selected
+                executor.submit(time.sleep, read_delay_seconds): item for item in selected
             }
             if index % 3 == 0:
                 group(
@@ -352,7 +358,8 @@ def execution_episode(
                 )
             # In the order the actions were selected, not the order threads happened to finish.
             for future, item in pending.items():
-                completed(item, future.result(), snapshot)
+                future.result()
+                completed(item, take_step(item, snapshot, dispatched), snapshot)
         if index % 3 == 0:
             group(
                 [

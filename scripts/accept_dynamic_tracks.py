@@ -9,8 +9,10 @@ are retained for inspection. The ordinary training engine owns optimization.
 from __future__ import annotations
 
 import argparse
-import gc
+import json
+import os
 import shutil
+import sys
 from dataclasses import asdict, replace
 from pathlib import Path
 
@@ -29,6 +31,27 @@ from megatoken.training.config import TrainConfig
 from megatoken.training.engine import train
 
 
+def _next_process(args, stage):
+    # Replacing this process releases CUDA contexts, allocator reservations,
+    # optimizer state and mapped checkpoints before the next acceptance step.
+    # A new process is also a stronger restart test than a second train() call.
+    os.execv(
+        sys.executable,
+        [
+            sys.executable,
+            str(Path(__file__).resolve()),
+            "--root",
+            str(args.root),
+            "--device",
+            args.device,
+            "--codec",
+            args.codec,
+            "--_stage",
+            stage,
+        ],
+    )
+
+
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--root", type=Path, required=True)
@@ -38,7 +61,24 @@ def main():
     parser.add_argument("--model", default="tiny", choices=("tiny", "32x256", "32x512"))
     parser.add_argument("--precision", default="fp32", choices=("fp32", "bf16"))
     parser.add_argument("--codec", default="byte")
+    parser.add_argument(
+        "--_stage", choices=("restart", "export", "generate"), help=argparse.SUPPRESS
+    )
     args = parser.parse_args()
+    checkpoint = args.root / "training/checkpoints/latest.json"
+    if args._stage is not None:
+        config = TrainConfig.load(args.root / "train-config.json")
+        if args._stage == "restart":
+            restarted = train(replace(config, max_steps=1), resume=str(checkpoint))
+            write_json(args.root / "restart.json", restarted)
+            _next_process(args, "export")
+        elif args._stage == "export":
+            exported = export_served(checkpoint, args.root / "served", codec_path=args.codec)
+            write_json(args.root / "export.json", exported)
+            _next_process(args, "generate")
+        else:
+            _generate(args)
+            return
     if args.root.exists():
         raise FileExistsError("Acceptance outputs are immutable; choose a fresh root")
     args.root.mkdir(parents=True)
@@ -59,7 +99,7 @@ def main():
                 with store.transaction():
                     store.add(episode, codec)
         store.freeze()
-        prepared = export_prepared(
+        export_prepared(
             store,
             args.root / "data",
             codec=codec,
@@ -110,10 +150,11 @@ def main():
     )
     write_json(args.root / "train-config.json", asdict(config))
     first = train(config)
-    gc.collect()
-    checkpoint = args.root / "training/checkpoints/latest.json"
-    resumed = train(replace(config, max_steps=2), resume=str(checkpoint))
-    exported = export_served(checkpoint, args.root / "served", codec_path=args.codec)
+    write_json(args.root / "first-run.json", first)
+    _next_process(args, "restart")
+
+
+def _generate(args):
     bundle = ServedBundle(args.root / "served", device=args.device)
     runtime = MultiTrackRuntime(MultiTrackGenerator(bundle.model), chunking=bundle.chunking)
     try:
@@ -159,10 +200,11 @@ def main():
         args.root / "acceptance.json",
         {
             "source": SOURCE_VERSION,
-            "prepared": prepared,
-            "first_run": first,
-            "restart": resumed,
-            "export": exported,
+            "prepared": json.loads((args.root / "data/manifest.json").read_text()),
+            "first_run": json.loads((args.root / "first-run.json").read_text()),
+            "restart": json.loads((args.root / "restart.json").read_text()),
+            "export": json.loads((args.root / "export.json").read_text()),
+            "fresh_process_boundaries": True,
             "generated_protocol_ok": True,
             "quality_established": False,
         },

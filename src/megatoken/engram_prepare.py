@@ -45,7 +45,9 @@ def prepare_donors(
     work.mkdir(parents=True, exist_ok=True)
     pin = publish.load_pin(Path(pin_path))
     restored = work / "prepared"
-    publish.fetch(api=hub.api(), keys=cache.load_keys(), pin=pin, dest=restored)
+    # A pin of public files alone needs no key; fetch says so if the pin has encrypted ones.
+    keys = cache.load_keys() if Path(cache.key_path()).expanduser().is_file() else None
+    publish.fetch(api=hub.api(), keys=keys, pin=pin, dest=restored)
     roots = sorted(path for path in restored.iterdir() if (path / "manifest.json").is_file())
     with PreparedCorpus(roots, split="train") as corpus:
         corpus_identity = corpus.identity

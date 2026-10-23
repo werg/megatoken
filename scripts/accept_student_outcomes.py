@@ -70,6 +70,9 @@ def main():
         attempts_per_task=1,
         max_requests_per_attempt=args.requests,
         max_output_per_request=128,
+        chunking=student.runtime.chunking,
+        max_record_tokens=student.runtime.chunking.hard_max_tokens,
+        max_record_bytes=student.runtime.chunking.max_bytes,
         seed_mix=(("terminal", 1.0),),
     )
     outcomes, decisions = [], 0

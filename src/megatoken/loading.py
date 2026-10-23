@@ -122,7 +122,9 @@ def load_trained(
     payload, metadata = load_checkpoint(checkpoint)
     config = ModelConfig.from_dict(payload["model_config"])
     train_config = payload["train_config"]
-    codec = load_codec(codec_path or train_config["codec"], vocab_size=config.vocab_size)
+    codec = load_codec(
+        codec_path or train_config.get("codec", "byte"), vocab_size=config.vocab_size
+    )
     if codec.fingerprint != payload["codec_fingerprint"]:
         raise ValueError("Codec does not match the trained checkpoint")
     packs = packs or train_config["packs"]

@@ -175,7 +175,12 @@ class Coordinator:
         self.manifest["fingerprint"] = identity
         self.fragments = tuple(Fragment.from_dict(x) for x in self.manifest["fragments"])
         self.progress = strict_json_loads((self.root / "progress.json").read_bytes())
+        # ``lock`` serializes merges and file work, which can take a long time.
+        # ``progress_lock`` guards only the lease and progress records, so a learner's
+        # heartbeat is never stuck behind a merge (its lease would lapse meanwhile).
         self.lock = threading.RLock()
+        self.progress_lock = threading.RLock()
+        self.published: dict = {"versions": [], "transducer_version": None}
         self.quorum_since: dict[int, float] = {}
         self.transducer = TransducerHost(
             self.root,
@@ -185,6 +190,7 @@ class Coordinator:
             grace_seconds=self.manifest["grace_seconds"],
         )
         self._sync_public()
+        self._refresh_published()
         # A queued quorum surviving a restart gets an immediate opportunity to merge.
         self.tick()
 
@@ -219,17 +225,25 @@ class Coordinator:
     def _write_progress(self) -> None:
         write_json(self.root / "progress.json", self.progress)
 
+    def _refresh_published(self) -> None:
+        """Remember the versions heartbeats report; call with ``lock`` held after a merge."""
+        self.published = {
+            "versions": [self._version(f.index) for f in self.fragments],
+            "transducer_version": self.transducer.version(),
+        }
+
     def _lease_valid(self, worker: int, session: str) -> None:
-        lease = self.progress["leases"].get(str(worker))
+        with self.progress_lock:
+            lease = self.progress["leases"].get(str(worker))
         if lease is None or lease["session"] != session or lease["expires"] < time.time():
             raise Conflict("Worker lease expired or belongs to a different session", lease=True)
 
     def lease(self, worker: int, session: str) -> dict:
-        with self.lock:
-            if not 0 <= worker < self.manifest["workers"] or not re.fullmatch(
-                r"[a-f0-9-]{36}", session
-            ):
-                raise ValueError("Invalid worker ID or session UUID")
+        if not 0 <= worker < self.manifest["workers"] or not re.fullmatch(
+            r"[a-f0-9-]{36}", session
+        ):
+            raise ValueError("Invalid worker ID or session UUID")
+        with self.progress_lock:
             previous = self.progress["leases"].get(str(worker))
             if previous and previous["expires"] > time.time() and previous["session"] != session:
                 raise Conflict("Worker ID already leased by a live session")
@@ -238,6 +252,7 @@ class Coordinator:
                 "expires": time.time() + self.manifest["lease_seconds"],
             }
             self._write_progress()
+        with self.lock:
             return {**self.status(), "sequences": self._sequences(worker)}
 
     def _sequences(self, worker: int) -> dict:
@@ -258,7 +273,7 @@ class Coordinator:
         return {"fragments": fragments, "transducer": self.transducer.sequence(worker)}
 
     def heartbeat(self, worker: int, session: str, steps: int, tokens: int) -> dict:
-        with self.lock:
+        with self.progress_lock:
             self._lease_valid(worker, session)
             if type(steps) is not int or type(tokens) is not int or steps < 0 or tokens < 0:
                 raise ValueError("Progress counters must be nonnegative integers")
@@ -273,10 +288,11 @@ class Coordinator:
                 time.time() + self.manifest["lease_seconds"]
             )
             self._write_progress()
-            return self.status()
+            return self._progress_status()
 
-    def status(self) -> dict:
-        with self.lock:
+    def _progress_status(self) -> dict:
+        """The status that needs only the progress records and the last published versions."""
+        with self.progress_lock:
             global_tokens = sum(x["tokens"] for x in self.progress["workers"].values())
             return {
                 "run_id": self.manifest["run_id"],
@@ -286,13 +302,20 @@ class Coordinator:
                     self.manifest["token_budget"] and global_tokens >= self.manifest["token_budget"]
                 ),
                 "merges": self.progress["merges"],
-                "versions": [self._version(f.index) for f in self.fragments],
-                "transducer_version": self.transducer.version(),
-                "transducer_skipped_merges": self.transducer.skipped_merges,
+                "versions": list(self.published["versions"]),
+                "transducer_version": self.published["transducer_version"],
                 "live_workers": sum(
                     x["expires"] >= time.time() for x in self.progress["leases"].values()
                 ),
-                "worker_progress": self.progress["workers"],
+                "worker_progress": {k: dict(v) for k, v in self.progress["workers"].items()},
+            }
+
+    def status(self) -> dict:
+        with self.lock:
+            self._refresh_published()
+            return {
+                **self._progress_status(),
+                "transducer_skipped_merges": self.transducer.skipped_merges,
                 "pending": {
                     str(f.index): len(list(self._pending_dir(f.index).glob("*.safetensors")))
                     for f in self.fragments
@@ -424,8 +447,9 @@ class Coordinator:
         )
         for file, _, _ in proposals:
             file.unlink(missing_ok=True)
-        self.progress["merges"] += 1
-        self._write_progress()
+        with self.progress_lock:
+            self.progress["merges"] += 1
+            self._write_progress()
 
     def submit_transducer(
         self, worker: int, session: str, sequence: int, base_version: int, incoming: Path
@@ -445,10 +469,25 @@ class Coordinator:
             return self.transducer.record_validation(step, loss)
 
     def tick(self) -> None:
+        """Merge every fragment and the bank that has a quorum.
+
+        One failing merge must not starve the others (its proposal stays queued and fails
+        again each second): every merge is attempted, then the first error is raised.
+        """
+        errors: list[Exception] = []
         with self.lock:
             for fragment in self.fragments:
-                self._try_merge(fragment.index)
-            self.transducer.try_merge()
+                try:
+                    self._try_merge(fragment.index)
+                except Exception as error:
+                    errors.append(error)
+            try:
+                self.transducer.try_merge()
+            except Exception as error:
+                errors.append(error)
+            self._refresh_published()
+        if errors:
+            raise errors[0]
 
     def close(self) -> None:
         """Merge what learners sent last, however few, and leave the bank current on disk.
@@ -457,11 +496,22 @@ class Coordinator:
         moments; it must reach the exported model even without a full quorum.
         """
         with self.lock:
+            errors: list[Exception] = []
             for fragment in self.fragments:
-                self._try_merge(fragment.index, final=True)
-            if self.transducer.coordinator.pending:
-                self.transducer.merge_or_skip()
+                try:
+                    self._try_merge(fragment.index, final=True)
+                except Exception as error:
+                    errors.append(error)
+            try:
+                if self.transducer.coordinator.pending:
+                    self.transducer.merge_or_skip()
+            except Exception as error:
+                errors.append(error)
+            # The bank must reach disk even if a merge above failed.
             self.transducer.persist()
+            self._refresh_published()
+            if errors:
+                raise errors[0]
 
 
 def serve_coordinator(root: str | Path, host: str, port: int, token: str) -> None:

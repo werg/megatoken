@@ -35,8 +35,9 @@ STREAMS = {
         "code_evolution",
         "build_logs",
         "long_context",
+        "base_replay",
     ),
-    "M2": ("grounded_artifacts", "issue_pr_diffs", "long_context_fim"),
+    "M2": ("grounded_artifacts", "issue_pr_diffs", "long_context_fim", "base_replay"),
     "LC": ("long_verified_dependencies", "long_natural_code_replay", "mixed_quality_episodes"),
     "S": (
         "recovery_clarification",
@@ -478,6 +479,15 @@ ROWS["ldep-coderforge"] = {
 }
 ROWS["opencode-agent-skills-question-tool"] = ROWS["opencode-question-tool"]
 ROWS["repository-v2-long-replay"] = ROWS["repository-v2-long"]
+ROWS["base-replay-fineweb-edu"] = {
+    "text": "Photosynthesis lets plants make food from light.",
+    "id": "<urn:uuid:1>",
+    "url": "http://example.org/photosynthesis",
+}
+ROWS["base-replay-stackv2-edu"] = {
+    "text": "def f():\n    return 1\n",
+    "metadata": {"repo_name": "owner/repo", "path": "/pkg/mod.py", "language": "Python"},
+}
 
 
 def context(source):
