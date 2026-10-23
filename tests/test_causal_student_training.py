@@ -172,3 +172,73 @@ def test_frozen_memory_cannot_accumulate_or_apply_sparse_updates():
             assert left == right
 
     equal(before, after)
+
+
+def test_causal_training_prediction_matches_actual_serving(monkeypatch, tmp_path):
+    import megatoken.training.meridians as training
+    from megatoken.contracts import MAIN_TRACK
+    from megatoken.controls import resolve_event_control
+    from megatoken.model.transducer import metadata_payload
+    from megatoken.multitrack_runtime import MultiTrackRuntime
+    from megatoken.tool_schema import compile_tool_spec, recent_copy_sources
+
+    torch.set_num_threads(1)
+    torch.manual_seed(51)
+    codec = ByteCodec.byte_fallback()
+    model = build_model(ModelConfig.tiny(max_capacity=512), codec).eval()
+    multi = MultiTrackGenerator.of(model)
+    sample = task("serial_reads")
+    config = replace(tiny_train_config(tmp_path, phase="P1"), generated_capacity=128)
+    (window,) = list(
+        iter_windows(
+            sample, codec, WindowConfig(max_records=8, max_decisions=4, max_window_tokens=4096)
+        )
+    )
+    (batch,) = prepare_batches(model, [EpisodeWindow(sample, window, TEXT_ONLY_ASSETS)], config)
+    monkeypatch.setattr(training, "_metadata", lambda *_: metadata_payload({}))
+    original = multi.tracks.predict_group
+    predictions = []
+
+    def capture(*args, **kwargs):
+        result = original(*args, **kwargs)
+        if kwargs.get("event_ids") == ("choice",):
+            predictions.append(result.detach().clone())
+        return result
+
+    monkeypatch.setattr(multi.tracks, "predict_group", capture)
+    with torch.no_grad():
+        forward_meridian_batch(
+            model,
+            batch,
+            LossLedger(batch.counts, batch.counts, DEFAULT_LOSS_WEIGHTS),
+            config,
+            torch.device("cpu"),
+            model.core.model_version,
+            transducer=TransducerTrainer(model.transducer),
+            differentiate=False,
+        )
+    assert len(predictions) == 1
+    trained = predictions.pop()
+    runtime = MultiTrackRuntime(multi)
+    try:
+        session = runtime.open(metadata={}, effort=1, memory_writes=False)
+        for record in sample.records[:2]:
+            runtime.observe_text(session, MAIN_TRACK, record.payload, role=record.role, effort=1)
+        spec = replace(
+            compile_tool_spec(sample.tools_json, 128),
+            allow_text=True,
+            copy_sources=recent_copy_sources([r.payload for r in sample.records[:2]]),
+        )
+        runtime.generate(
+            session,
+            tracks=(MAIN_TRACK,),
+            event_ids=("choice",),
+            specs=(spec,),
+            controls=(resolve_event_control(sample, sample.meridians[2].events[0]),),
+            effort=1,
+            generator=torch.Generator().manual_seed(17),
+        )
+        assert len(predictions) == 1
+        torch.testing.assert_close(predictions[0], trained, rtol=0, atol=0)
+    finally:
+        runtime.close()
