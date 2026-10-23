@@ -124,3 +124,41 @@ GPU request `ef290158-a13f-440c-8b66-809cafa39879` was accepted at 13:14:11 UTC.
 At 13:26:41 UTC it remained in startup, without evidence that the workload ran;
 this is not yet GPU validation. The controller owns its 15-minute startup timeout
 and cleanup. See external `gpu-readiness/startup-wait.json` and subsequent logs.
+
+## Monitoring and donor completion, 13:35 UTC
+
+Both production donor extractions completed successfully and were collected:
+`production-donors/controller.json` has stage `complete`, collection status 0,
+eight output files totaling 35,557,705 bytes. Each donor used the requested 65,536
+selected contexts from the verified trial corpus. DeepSeek produced 41,317 covered
+byte-memory rows; Qwen produced 33,146. These are populated destination rows, not
+counts of all memories in either donor model. Descriptor shapes, checksums,
+licenses, expected row-space settings, and finite floating values were checked
+locally. Verification record:
+`/home/werg/megatoken-runs/cloud/production-donors/verified-assets.json`.
+The GPU readiness job still uses the earlier small real-donor assets; do not imply
+that this pending check validates training with the newly extracted larger assets.
+
+Read-only progress monitoring is running every five minutes for up to 36 hours:
+`/home/werg/megatoken-runs/cloud/progress-monitor/monitor.py`.
+Its current PID is stored in `progress-monitor/process.json`; check the command
+line before signalling. It uses the committed integration worktree for cloud
+client imports; do not remove that worktree while monitoring is active.
+Each sandbox inspection runs in a separate process with a 75-second timeout and at
+most four concurrent inspections. It checks actual source cursor/database activity,
+cloud disk space, repair outcomes, donor output, GPU state, and controller liveness.
+Episode counts are sampled every third check. Counts remain candidates before
+cross-shard global deduplication. Latest snapshot, history, and alerts are
+`progress-monitor/latest.json`, `history.jsonl`, and `events.jsonl`.
+Monitoring does not alter cloud jobs or send external messages. Recovery, collection,
+and GPU retry controllers retain ownership of their jobs and cleanup.
+
+At 13:32 UTC, the chat shards contained 3,727,381 candidate episodes, and all eight
+chat machines had recent database activity. At 13:34 UTC the data repairs were still
+running. GPU request `ef290158-a13f-440c-8b66-809cafa39879` timed out before startup
+and was stopped; replacement `988dd7d8-b445-4a53-93b8-2095d50551c1` was accepted at
+13:30:48 UTC and remains in startup. No GPU training result exists yet.
+
+Recovery monitor PIDs changed once more after the safety checks were finalized:
+chat 4109862, coding pilot 4110870. Prefer the current external
+`recovery/controller-pids.json` over any historical PID in this document.
