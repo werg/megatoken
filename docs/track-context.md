@@ -15,10 +15,13 @@ Cache status distinguishes window expiration from global-budget pressure.
 Track identity describes continuing work, independently of a message's role. Put
 the user's messages and the assistant's replies on the same main conversation
 track when they should share its long window; delegated workers get separate
-tracks. The existing linear importer still assigns tracks by role. Migrating that
-convention through preparation, student collection, and the default conversation
-profile remains a required follow-up before production training. A short foreign
-window should not accidentally shorten the main conversation's user history.
+tracks. Linear preparation, local student collection, one-shot generation, and the
+automatic coordinator now use this convention. Tool results from explicitly
+delegated calls return to their requesting worker tracks. Session opening reports
+the main conversation address for clients. Custom protocol clients still choose
+their own addresses and should use this address for the continuing conversation.
+Reprepare old role-based corpora and use a fresh collection identity for the new
+profile; roles and explicitly declared task groups retain their original meaning.
 
 The policy covers observation processing, content and modality prediction, and
 explicit evidence-reference reads. Current prediction queries still interact within

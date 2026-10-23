@@ -72,7 +72,9 @@ class TrackRegistry:
             self.tracks[parent].capabilities
         ):
             raise ValueError("Child work cannot acquire capabilities its parent does not have")
-        address = f"{self.address_prefix}:{self.sequence}"
+        address = options.pop("address", None) or f"{self.address_prefix}:{self.sequence}"
+        if not isinstance(address, str) or not address or address in self.tracks:
+            raise ValueError("Track creation requires a fresh address")
         description = TrackDescription(address, purpose, **options)
         self.sequence += 1
         self.tracks[address] = description

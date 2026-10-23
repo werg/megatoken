@@ -483,7 +483,7 @@ def test_cli_generation_shares_tool_and_raw_control_inputs_with_python(
     # raw control-file bytes are independent model inputs, including non-UTF8.
     _, runtime = served(directory)
     session = runtime.open(effort=1)
-    runtime.observe_text(session, "user", b"choose", effort=1)
+    runtime.observe_text(session, "assistant", b"choose", effort=1)
     expected = runtime.generate(
         session,
         tracks=("assistant",),

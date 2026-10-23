@@ -227,7 +227,7 @@ def test_frozen_student_preserves_native_action_and_does_not_reingest_it(tmp_pat
 
         def observe(self, session, events, *, effort):
             (event,) = events
-            self.observed.append((event.track, event.payload))
+            self.observed.append((event.track, event.payload, event.role_id))
 
         def generate(self, session, **kwargs):
             assert session.facet_advances == self.draws
@@ -246,8 +246,9 @@ def test_frozen_student_preserves_native_action_and_does_not_reingest_it(tmp_pat
                 )
             else:
                 assert tuple(self.observed[:-1]) == self.initial_observations
-                assert self.observed[-1][0] == "tool"
-                assert all(track != "assistant" for track, _ in self.observed)
+                assert self.observed[-1][0] == "assistant"
+                assert self.observed[-1][2] == 3  # Tool role, main conversation context.
+                assert all(track == "assistant" for track, _, _ in self.observed)
                 payload = b'{"name":"read","arguments":{"path":"answer.txt"}}'
             tape = group_tape(codec, payload, valid=valid_draw > 0, facets=(float(self.draws),))
             return SimpleNamespace(tape=replace(tape, policy_context=()))

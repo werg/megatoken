@@ -514,7 +514,7 @@ def _generate(args):
     call(
         op="observe_text",
         session=session,
-        track="user",
+        track="assistant",
         role="user",
         payload_b64=base64.b64encode(payload).decode(),
         effort=args.effort,

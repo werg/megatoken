@@ -12,6 +12,7 @@ from dataclasses import dataclass, field, replace
 
 import torch
 
+from megatoken.contracts import MAIN_TRACK, MAIN_TRACK_PURPOSE
 from megatoken.controls import build_control_payload
 from megatoken.generation.structure import ActionSpec
 from megatoken.multitrack_runtime import ConcurrentToolRunner
@@ -128,14 +129,17 @@ class SessionExecutor:
         revision = runtime.schedule_ready(session, effort=effort)
         if revision is None and not outputs and not self.runner.pending:
             if self.root is None:
-                description = runtime.track_action(
-                    session,
-                    "create",
-                    purpose="Decide and coordinate the next useful action for the user",
-                    completion="The user's request has been answered or explicitly deferred",
-                    capabilities=tuple(dict.fromkeys((*runtime.output_specs, *self.adapters))),
-                    budget=self.max_selections,
-                )
+                description = session.tracks.tracks.get(MAIN_TRACK)
+                if description is None:
+                    description = runtime.track_action(
+                        session,
+                        "create",
+                        address=MAIN_TRACK,
+                        purpose=MAIN_TRACK_PURPOSE,
+                        completion="The user's request has been answered or explicitly deferred",
+                        capabilities=tuple(dict.fromkeys((*runtime.output_specs, *self.adapters))),
+                        budget=self.max_selections,
+                    )
                 self.root = description.address
             root = session.tracks.tracks[self.root]
             if root.status == "active" and root.budget:

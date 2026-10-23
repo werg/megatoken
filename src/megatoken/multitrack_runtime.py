@@ -2,7 +2,7 @@
 
 Every way of running a model goes through it: the ``generate`` and ``serve``
 commands, the JSON-lines service, and the frozen student that collects rollouts for
-training. A text conversation is a session with one track per role.
+training. An ordinary conversation shares a task track across message roles.
 
 A session owns its committed multitrack state and its transducer agenda: every
 committed ordinary meridian may make a bank lookup due, served before the
@@ -26,7 +26,7 @@ from threading import BoundedSemaphore, RLock
 import torch
 
 from megatoken.context_archive import ContextArchive
-from megatoken.contracts import ROLE_TO_ID
+from megatoken.contracts import MAIN_TRACK, MAIN_TRACK_PURPOSE, ROLE_TO_ID
 from megatoken.data.chunking import ChunkingConfig, segment_bytes
 from megatoken.data.knowledge import FilePreparer
 from megatoken.generation.structure import ActionSpec
@@ -255,7 +255,7 @@ class MultiTrackRuntime:
         the original file it came from.
         """
         options = {} if max_sources is None else {"max_sources": max_sources}
-        return TrackSession(
+        session = TrackSession(
             self.memory.new_session(
                 metadata or {},
                 bases=bases,
@@ -274,6 +274,10 @@ class MultiTrackRuntime:
                 max_bytes=self.context_archive_bytes, max_events=self.context_archive_events
             ),
         )
+        session.memory.state = self.generator.tracks.describe_track(
+            session.state, MAIN_TRACK, MAIN_TRACK_PURPOSE
+        )
+        return session
 
     @_commit_owner
     def configure_context(
@@ -905,7 +909,19 @@ class MultiTrackRuntime:
         """Release physical payloads after the caller archived the returned tape."""
         if revision in session.rendering:
             work = self.poll_generation(session, revision)
-            if work.status not in {"delivered", "cancelled", "failed"} or not work.future.done():
+            no_undelivered_content = work.result is not None and not any(
+                valid and payload and event_id not in work.delivered_events
+                for event_id, valid, payload in zip(
+                    work.result.tape.event_ids,
+                    work.result.tape.valid,
+                    work.result.tape.payloads,
+                    strict=True,
+                )
+            )
+            if (
+                work.status not in {"delivered", "cancelled", "failed"}
+                and not (work.status == "rendered" and no_undelivered_content)
+            ) or not work.future.done():
                 raise ValueError("Finish or stop delivery before releasing rendering memory")
             del session.rendering[revision]
         session.selected_groups.pop(revision, None)
@@ -927,11 +943,15 @@ class MultiTrackRuntime:
         snapshot = (dict(registry.tracks), registry.sequence, list(registry.transitions))
         try:
             if operation == "create":
+                if address is not None and address != MAIN_TRACK:
+                    raise ValueError("Only the main conversation may adopt its existing address")
                 while (
                     f"{registry.address_prefix}:{registry.sequence}" in session.state.track_registry
                 ):
                     registry.sequence += 1
-                description = registry.create(**values)
+                description = registry.create(
+                    **values, **({"address": address} if address is not None else {})
+                )
             else:
                 if address is None:
                     raise ValueError("Lifecycle action needs its returned track address")

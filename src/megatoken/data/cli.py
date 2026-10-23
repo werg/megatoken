@@ -13,6 +13,7 @@ from dataclasses import asdict, replace
 from pathlib import Path
 from typing import Any
 
+from megatoken.contracts import CONVERSATION_PROFILE_VERSION
 from megatoken.environments import environment_factory
 from megatoken.io import content_hash, read_mapping, sha256_file, write_json
 
@@ -390,6 +391,7 @@ def _collect(args: argparse.Namespace) -> dict[str, Any]:
                 "teacher_model": args.teacher_model,
                 "environment": args.environment,
                 "student_manifest_sha256": student_manifest,
+                "conversation_profile_version": CONVERSATION_PROFILE_VERSION,
                 "student_packs_sha256": sha256_file(args.student_packs)
                 if args.student_packs
                 else None,

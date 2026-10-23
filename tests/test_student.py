@@ -59,7 +59,7 @@ def test_a_student_rollout_is_exactly_a_served_session(bundle):
     )
     session = runtime.open(effort=1)
     event = ObservedEvent(
-        "user",
+        "assistant",
         "text",
         PROMPT.payload,
         ROLE_TO_ID["user"],
@@ -81,10 +81,11 @@ def test_a_student_rollout_is_exactly_a_served_session(bundle):
     # It behaved as served does: the lookups at the metadata and after the finished question.
     assert student._session.memory.agenda.lookups >= 2
     assert student._session.state.track_registry[-1] == "assistant"
-    assert set(student._session.state.track_registry) >= {"user", "assistant"}
+    assert "assistant" in student._session.state.track_registry
+    assert "user" not in student._session.state.track_registry
 
 
-def test_each_record_is_read_once_on_the_track_of_its_role_and_the_draw_is_not_reread(bundle):
+def test_each_record_is_read_once_on_the_main_track_and_the_draw_is_not_reread(bundle):
     student = ModelTeacher(bundle, effort=1, seed=2)
     first = student.respond(request_for([PROMPT]))
     answer = GroupActionTape.from_json(first.native_tape_json)
@@ -105,8 +106,8 @@ def test_each_record_is_read_once_on_the_track_of_its_role_and_the_draw_is_not_r
     records.append(PhysicalRecord("result", "tool", b'{"ok":true}', turn_index=2))
     student.respond(request_for(records, 1))
     seen = [tracks for _, tracks in student._session.events]
-    assert seen.count(("user",)) == 1 and seen.count(("tool",)) == 1
-    assert seen.count(("assistant",)) == 2  # the two draws, and no re-read of the first
+    assert seen.count(("assistant",)) == 4  # user input, two draws, one tool result
+    assert seen.count(("user",)) == seen.count(("tool",)) == 0
 
 
 def _nonempty_rollout(bundle):

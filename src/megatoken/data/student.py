@@ -10,14 +10,14 @@ from dataclasses import replace
 from pathlib import Path
 from typing import Any
 
-from megatoken.contracts import ROLE_TO_ID
+from megatoken.contracts import CONVERSATION_PROFILE_VERSION, MAIN_TRACK, ROLE_TO_ID
 
 from .collection import TeacherCall, TeacherEvent, TeacherRequest, TeacherResponse
 from .schema import canonical_json
 
-# The student speaks on one track; what it reads arrives on the track of each record's role,
-# exactly as ``sequential_meridians`` groups a collected episode for training.
-STUDENT_TRACK = "assistant"
+# Match ordinary preparation: roles share the continuing conversation's context.
+# Explicit grouped outputs retain their own worker addresses.
+STUDENT_TRACK = MAIN_TRACK
 
 
 def _group_event_ids(
@@ -82,7 +82,7 @@ class ModelTeacher:
         self.device = bundle.model.core.initial_facets.device
         self.codec = bundle.codec
         self.snapshot = "sha256:" + bundle.manifest["model_sha256"]
-        self.model = "frozen-student:" + self.snapshot
+        self.model = f"frozen-student:conversation-{CONVERSATION_PROFILE_VERSION}:" + self.snapshot
         self.effort, self.seed = effort, seed
         self.open_options = dict(open_options or {})
         self._session_id: str | None = None
@@ -91,6 +91,8 @@ class ModelTeacher:
         self._pending: tuple[tuple[bytes, tuple[int, ...] | None], ...] | None = None
         self._pending_revision: int | None = None
         self._pending_event_ids: tuple[str, ...] = ()
+        self._pending_tracks: tuple[str, ...] = ()
+        self._action_tracks: dict[str, str] = {}
 
     def respond(self, request: TeacherRequest) -> TeacherResponse:
         import torch
@@ -109,12 +111,13 @@ class ModelTeacher:
             self._session = self.runtime.open(effort=self.effort, **self.open_options)
             self._record_ids, self._pending = (), None
             self._pending_revision, self._pending_event_ids = None, ()
+            self._pending_tracks, self._action_tracks = (), {}
         observed_ids = tuple(record.record_id for record in request.records)
         consumed = len(self._record_ids)
         if observed_ids[:consumed] != self._record_ids:
             raise ValueError("Student history was reordered, replaced, or shortened")
         if self._pending is not None:
-            for payload, emitted_ids in self._pending:
+            for index, (payload, emitted_ids) in enumerate(self._pending):
                 if consumed >= len(request.records):
                     raise ValueError("The student's executed action is missing from actual history")
                 record = request.records[consumed]
@@ -125,6 +128,10 @@ class ModelTeacher:
                     or record.emitted_ids != emitted_ids
                 ):
                     raise ValueError("A sampled student action was changed before execution")
+                if record.action_id:
+                    self._action_tracks[record.action_id] = (
+                        self._pending_tracks[index] if self._pending_tracks else MAIN_TRACK
+                    )
                 consumed += 1
             # The selected bytes are now in immutable collection records. The
             # runtime can discard its retained rendering/tape snapshot.
@@ -139,8 +146,11 @@ class ModelTeacher:
                     self.runtime.release_generation(self._session, revision)
             self._pending_revision, self._pending_event_ids = None, ()
             self._pending = None
+            self._pending_tracks = ()
         for record in request.records[consumed:]:
             from .media_assets import MEDIA_RECORD_TYPE, MediaRecord
+
+            track = self._action_tracks.get(record.result_of, MAIN_TRACK)
 
             if record.media_type == MEDIA_RECORD_TYPE:
                 if self.media_preparer is None:
@@ -153,7 +163,7 @@ class ModelTeacher:
                 )[None]
                 modality = reference.modality if reference.modality != "text" else "compressed_text"
                 event = ObservedEvent(
-                    record.role,
+                    track,
                     modality,
                     source,
                     ROLE_TO_ID[record.role],
@@ -163,7 +173,7 @@ class ModelTeacher:
                 )
             else:
                 event = ObservedEvent(
-                    record.role,
+                    track,
                     "text",
                     record.payload,
                     ROLE_TO_ID[record.role],
@@ -171,6 +181,8 @@ class ModelTeacher:
                     event_id=record.record_id,
                 )
             self.runtime.observe(self._session, (event,), effort=self.effort)
+            if record.result_of and record.part_index + 1 == record.part_count:
+                self._action_tracks.pop(record.result_of, None)
         self._record_ids = observed_ids
         if request.outputs:
             return self._respond_group(request)
@@ -200,6 +212,7 @@ class ModelTeacher:
         payload, emitted_ids, valid = tape.payloads[0], tape.emitted_ids[0], tape.valid[0]
         tape_json = tape.to_json()
         self._pending = ((payload, emitted_ids),) if valid and payload else None
+        self._pending_tracks = (MAIN_TRACK,) if self._pending is not None else ()
         # The exact tape has been serialized into the response; selected groups
         # otherwise remain resident for the life of a long collection session.
         revisions = tuple(getattr(self._session, "selected_groups", ()))
@@ -332,8 +345,11 @@ class ModelTeacher:
             if valid and physical:
                 pending.append((physical, emitted))
         self._pending = tuple(pending) or None
+        self._pending_tracks = tuple(event.track for event in events if event.payload)
         self._pending_revision = revision if pending else None
-        self._pending_event_ids = tuple(tape.event_ids)
+        self._pending_event_ids = tuple(
+            event_id for event_id, valid in zip(tape.event_ids, tape.valid, strict=True) if valid
+        )
         if not pending:
             self.runtime.delivered(self._session, revision, self._pending_event_ids)
             self.runtime.release_generation(self._session, revision)

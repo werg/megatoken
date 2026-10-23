@@ -57,7 +57,7 @@ from typing import Any, TextIO
 import numpy as np
 import torch
 
-from megatoken.contracts import ROLE_TO_ID
+from megatoken.contracts import CONVERSATION_PROFILE_VERSION, MAIN_TRACK, ROLE_TO_ID
 from megatoken.controls import build_control_payload
 from megatoken.generation.structure import ActionSpec
 from megatoken.io import strict_json_loads
@@ -709,6 +709,8 @@ class MultiTrackService:
         return {
             "session": session_id,
             "architecture_version": self.model.config.architecture_version,
+            "conversation_track": MAIN_TRACK,
+            "conversation_profile_version": CONVERSATION_PROFILE_VERSION,
             "memory_writes": session.memory.writes is not None,
             "overlay": None if session.memory.writes is None else session.memory.writes.base.name,
         }

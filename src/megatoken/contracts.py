@@ -5,6 +5,10 @@ from types import MappingProxyType
 ROLE_TO_ID = MappingProxyType(
     {"system": 0, "user": 1, "assistant": 2, "tool": 3, "document": 4, "environment": 5}
 )
+# A continuing conversation owns context; message roles remain separate metadata.
+MAIN_TRACK = "assistant"
+MAIN_TRACK_PURPOSE = "Continue the user's task using its messages, evidence, and tool results."
+CONVERSATION_PROFILE_VERSION = 1
 # One loss vocabulary and default weighting, shared by preparation and training.
 DEFAULT_LOSS_WEIGHTS = {
     "lexical": 1.0,

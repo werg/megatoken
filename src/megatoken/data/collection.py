@@ -1239,10 +1239,14 @@ class Collector:
 
 def _attach_selected_groups(episode: Episode, selections) -> Episode:
     """Use actual selected membership, never infer independence from roles."""
+    from megatoken.contracts import MAIN_TRACK, MAIN_TRACK_PURPOSE
+
+    from .media_assets import MEDIA_RECORD_TYPE, MediaRecord
     from .schema import Meridian, TrackEvent, TrackSpec
 
     by_first = {ids[0]: (ids, tape, indices) for ids, tape, indices in selections}
     tracks, groups = {}, []
+    action_tracks = {}
     cursor = 0
     while cursor < len(episode.records):
         record = episode.records[cursor]
@@ -1257,13 +1261,25 @@ def _attach_selected_groups(episode: Episode, selections) -> Episode:
         for offset, record_id in enumerate(ids):
             physical = episode.records[cursor + offset]
             if tape is None:
-                track, modality = physical.role, "text"
+                track, modality = action_tracks.get(physical.result_of, MAIN_TRACK), "text"
+                if physical.media_type == MEDIA_RECORD_TYPE:
+                    media = MediaRecord.from_bytes(physical.payload)
+                    modality = media.modality if media.modality != "text" else "compressed_text"
             else:
                 # Bind by the explicit collection record map; identical peers
                 # stay distinct because their physical order is retained.
                 bound = indices[offset]
                 track, modality = tape.tracks[bound], tape.modalities[bound]
-            tracks.setdefault(track, TrackSpec(track, physical.role))
+            if physical.action_id:
+                action_tracks[physical.action_id] = track
+            tracks.setdefault(
+                track,
+                TrackSpec(
+                    track,
+                    "assistant" if track == MAIN_TRACK else physical.role,
+                    description=MAIN_TRACK_PURPOSE if track == MAIN_TRACK else "",
+                ),
+            )
             members.append(TrackEvent(record_id, track, modality, len(groups), physical.role))
         groups.append(Meridian(len(groups), tuple(members)))
         cursor += len(ids)

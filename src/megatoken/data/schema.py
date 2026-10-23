@@ -1062,30 +1062,29 @@ def apply_recovery_policy(episode: Episode) -> Episode:
 def sequential_meridians(episode: Episode) -> Episode:
     """Group an imported linear episode for meridian training.
 
-    Every physical record is its own meridian, in record order, on one track
-    per role. A canonical feature descriptor becomes a feature event of its
+    Every physical record is its own meridian, in record order, on the continuing
+    main conversation track. Roles do not allocate private contexts. A feature descriptor becomes a feature event of its
     kind (text descriptors are ``compressed_text``); everything else is text.
     """
+    from megatoken.contracts import MAIN_TRACK, MAIN_TRACK_PURPOSE
+
     from .media_assets import MEDIA_RECORD_TYPE, MediaRecord
 
     if episode.tracks or episode.meridians:
         raise ValueError("Episode already declares its own causal groups")
-    roles: list[str] = []
     meridians = []
     for index, record in enumerate(episode.records):
-        if record.role not in roles:
-            roles.append(record.role)
         modality, asset = "text", None
         if record.media_type == MEDIA_RECORD_TYPE:
             descriptor = MediaRecord.from_bytes(record.payload)
             modality = "compressed_text" if descriptor.modality == "text" else descriptor.modality
             asset = descriptor.source.sha256
         event = TrackEvent(
-            record.record_id, record.role, modality, index, record.role, asset_sha256=asset
+            record.record_id, MAIN_TRACK, modality, index, record.role, asset_sha256=asset
         )
         meridians.append(Meridian(index, (event,)))
     return replace(
         episode,
-        tracks=tuple(TrackSpec(role, role) for role in roles),
+        tracks=(TrackSpec(MAIN_TRACK, "assistant", description=MAIN_TRACK_PURPOSE),),
         meridians=tuple(meridians),
     )
