@@ -157,7 +157,10 @@ def hindsight_sequence(step: int, shape):
     ]
     from megatoken.model.transducer import HindsightValues
 
-    targets = SimpleNamespace(identity="fixed-targets", manifest={"encoding_identity": "fixed", "memory_policy": "teacher-text-only-v1"})
+    targets = SimpleNamespace(
+        identity="fixed-targets",
+        manifest={"encoding_identity": "fixed", "memory_policy": "teacher-text-only-v1"},
+    )
     trainer = TransducerTrainer(model.transducer, teacher_targets=targets)
     sequence = trainer.sequence(meridians, step=step, generator=torch.Generator().manual_seed(0))
     groups = sequence.groups()
@@ -314,7 +317,12 @@ def test_a_window_that_mounts_a_base_learns_nothing_into_the_trained_bank(tmp_pa
     assert all(ids.numel() == 0 for ids, _ in submitted.deltas.values())
     assert submitted.write_ids.numel() == 0 and not submitted.deltas.get("value")
     assert set(trainer.state_dict()) == {
-        "bank", "optimizer", "growth", "sequences", "switch", "supervision"
+        "bank",
+        "optimizer",
+        "growth",
+        "sequences",
+        "switch",
+        "supervision",
     }
     assert trainer.state_dict()["supervision"]["teacher"] is None
     assert trainer.state_dict()["bank"]["rows"]["ids"].numel() == 0
@@ -341,8 +349,9 @@ def test_compressed_windows_use_causal_retrieval_without_substitute_targets(tmp_
     model.core.set_model_version(0)
     (batch, *_) = prepare_batches(model, [window_of(episode, store)], config)
     ledger = LossLedger(batch.counts, batch.counts, config.loss_weights)
-    trainer = TransducerTrainer(model.transducer, teacher_targets=SimpleNamespace(
-        load=lambda *args, **kwargs: (None, None)))
+    trainer = TransducerTrainer(
+        model.transducer, teacher_targets=SimpleNamespace(load=lambda *args, **kwargs: (None, None))
+    )
     metrics = forward_meridian_batch(
         model,
         batch,

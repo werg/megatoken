@@ -10,11 +10,15 @@ from __future__ import annotations
 import json
 from dataclasses import asdict, dataclass, replace
 
+# Provisional operating defaults, shared by new models and the data curriculum.
+DEFAULT_LOCAL_EVENTS = 256
+DEFAULT_CROSS_EVENTS = 16
+
 
 @dataclass(frozen=True)
 class ContextPolicy:
-    local_events: int = 256
-    cross_events: int = 16
+    local_events: int = DEFAULT_LOCAL_EVENTS
+    cross_events: int = DEFAULT_CROSS_EVENTS
     # Overrides also allow retirement: (track, 0, 0) stops retaining its local KV.
     windows: tuple[tuple[str, int, int], ...] = ()
     pins: tuple[tuple[str, str], ...] = ()  # (reader track, retained event address)

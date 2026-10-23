@@ -297,7 +297,9 @@ def test_trainer_writes_out_helpful_hindsight_and_steps_the_bank():
     from megatoken.model.transducer import HindsightValues
 
     trainer.teacher_targets = SimpleNamespace(
-        identity="fixed-targets", manifest={"encoding_identity": "fixed-encoding", "memory_policy": "teacher-text-only-v1"})
+        identity="fixed-targets",
+        manifest={"encoding_identity": "fixed-encoding", "memory_policy": "teacher-text-only-v1"},
+    )
     multi = MultiTrackGenerator(model)
     meridians = [Meridian((f"t{i % 2}",), (1,), ("text",), i % 3 == 2) for i in range(8)]
     payloads = [f"event {i}".encode() for i in range(8)]

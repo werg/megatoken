@@ -458,7 +458,9 @@ def test_preparation_preserves_validation_without_teacher_targets(tmp_path):
 
     targets = HindsightTargets(output)
     assert all(
-        targets._index.execute("SELECT 1 FROM windows WHERE key=?",
-                               (window_key(fresh, w.start, w.end),)).fetchone() is None
+        targets._index.execute(
+            "SELECT 1 FROM windows WHERE key=?", (window_key(fresh, w.start, w.end),)
+        ).fetchone()
+        is None
         for w in _WindowPlan(fresh, ByteCodec.byte_fallback(), window_config(config))
     )

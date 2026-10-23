@@ -94,7 +94,8 @@ def training_identity(config: Any) -> str:
 
     targets = getattr(config, "hindsight_targets", None)
     identity["hindsight_targets"] = (
-        sha256_file(Path(targets) / "manifest.json") if targets else None)
+        sha256_file(Path(targets) / "manifest.json") if targets else None
+    )
     assets = (
         [config.engram_import]
         if getattr(config, "engram_import", None)

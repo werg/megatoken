@@ -1,8 +1,8 @@
 """Pinned codec assets and offline native-table warm starts.
 
 The shared curriculum selects the production donors. Diagnostic extraction can read a
-selected donor embedding tensor, builds fixed 128D byte-key descriptors, and never
-introduces a donor tokenizer or backbone into the served graph. Multiple selected
+selected donor embedding tensor and build fixed 128D byte-key descriptors without
+introducing a donor tokenizer or backbone into the served graph. Multiple selected
 donors retain separate maps and coverage rather than mixing descriptor spaces.
 """
 

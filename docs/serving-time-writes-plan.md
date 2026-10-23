@@ -164,7 +164,7 @@ These are issues the code review found that matter here.
    10% of surprise on at least 80% of trials. (Guess; adjust once seen.)
 2. **A written memory is retrievable.** Write one memory with each rule, then ask a question that
    needs it after the original text has left the retained history. Healthy: the edge is among the
-   selected pairs and the answer improves versus no write. Needs a trained tiny model; the
+   selected pairs and the answer improves versus no write. This needs a trained tiny model.
    Build these conversations through the maintained data preparation and shared trainer.
    The older teacher-free memory experiment scripts have been deleted.
 3. **Retrospective lag.** With the hindsight head, vary the lag L (0, 1, 2, 4 groups) and measure

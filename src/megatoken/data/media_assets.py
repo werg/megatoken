@@ -111,9 +111,16 @@ class TensorAsset:
             ):
                 raise ValueError("Teacher features are unpadded, unnormalized and clock-free")
         elif self.kind == "hindsight":
-            if (self.modality != "text" or len(self.shape) != 1
-                or not self.extractor.startswith("hindsight:") or self.valid_count
-                or self.normalization or self.sample_rate or self.fps_num or self.fps_den != 1):
+            if (
+                self.modality != "text"
+                or len(self.shape) != 1
+                or not self.extractor.startswith("hindsight:")
+                or self.valid_count
+                or self.normalization
+                or self.sample_rate
+                or self.fps_num
+                or self.fps_den != 1
+            ):
                 raise ValueError("Hindsight assets require one packed vector and a pinned identity")
         elif self.kind == "codec_latents":
             if (
@@ -331,11 +338,19 @@ class TensorAssetStore:
 
         values = torch.as_tensor(value).detach().float().cpu().reshape(1, -1)
         packed = pack_fp4(values)
-        data = (packed.codes.numpy().tobytes()
-                + packed.group_scales.view(torch.uint8).numpy().tobytes()
-                + packed.row_scales.numpy().astype("<f4").tobytes())
-        asset = TensorAsset("text", "hindsight", hashlib.sha256(data).hexdigest(),
-                            (values.shape[1],), extractor, source_family)
+        data = (
+            packed.codes.numpy().tobytes()
+            + packed.group_scales.view(torch.uint8).numpy().tobytes()
+            + packed.row_scales.numpy().astype("<f4").tobytes()
+        )
+        asset = TensorAsset(
+            "text",
+            "hindsight",
+            hashlib.sha256(data).hexdigest(),
+            (values.shape[1],),
+            extractor,
+            source_family,
+        )
         path = self.root / asset.relative_path
         if path.exists():
             self.load(asset)
@@ -419,8 +434,9 @@ class TensorAssetStore:
             codes_end = (dim + 1) // 2
             groups_end = codes_end + (dim + 15) // 16
             codes = torch.from_numpy(np.frombuffer(data[:codes_end], dtype=np.uint8).copy())[None]
-            scales = torch.from_numpy(np.frombuffer(data[codes_end:groups_end],
-                                      dtype=np.uint8).copy()).view(torch.float8_e4m3fn)[None]
+            scales = torch.from_numpy(
+                np.frombuffer(data[codes_end:groups_end], dtype=np.uint8).copy()
+            ).view(torch.float8_e4m3fn)[None]
             row = torch.from_numpy(np.frombuffer(data[groups_end:], dtype="<f4").copy())
             result = FP4Rows(codes, scales, row).decode(dim)[0].numpy()
             return result.copy() if np.isfinite(result).all() else None

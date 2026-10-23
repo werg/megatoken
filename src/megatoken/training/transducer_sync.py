@@ -70,8 +70,9 @@ def load_transducer_state(checkpoint: str | Path) -> dict:
     )
 
 
-def resume_transducer(trainer: Any, rank_rounds: Any, checkpoint: str | Path,
-                      *, allow_target_transition: bool = False) -> None:
+def resume_transducer(
+    trainer: Any, rank_rounds: Any, checkpoint: str | Path, *, allow_target_transition: bool = False
+) -> None:
     """Restore a run's transducer from a checkpoint, however many ranks wrote or read it."""
     saved = load_transducer_state(checkpoint)
     trainer.validate_supervision(saved, allow_target_transition=allow_target_transition)
@@ -195,9 +196,10 @@ class TransducerHost(CanonicalBank):
     def seed(self, state: dict) -> None:
         prior = state.get("supervision") or {}
         current = self.supervision or {}
-        if (state["bank"]["rows"]["ids"].numel()
-            and prior.get("teacher") != current.get("teacher")):
-            raise ValueError("Coordinator seed teacher value identity changed; explicit handover required")
+        if state["bank"]["rows"]["ids"].numel() and prior.get("teacher") != current.get("teacher"):
+            raise ValueError(
+                "Coordinator seed teacher value identity changed; explicit handover required"
+            )
         super().seed(state)
 
     def persist(self) -> None:
@@ -374,7 +376,8 @@ class RankRounds:
         self.canonical: CanonicalBank | None = None
         if context.is_primary:
             self.canonical = CanonicalBank(
-                trainer.bank.geometry, evidence_from=trainer.schedule.warmup_steps,
+                trainer.bank.geometry,
+                evidence_from=trainer.schedule.warmup_steps,
                 frozen=not trainer.bank_trainable,
             )
             self.canonical.bank.load_snapshot(trainer.bank.state_snapshot())

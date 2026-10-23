@@ -102,8 +102,6 @@ class HindsightSchedule:
         return 1.0 if sequence % self.hindsight_only_every == 0 else 0.0
 
 
-
-
 @dataclass(frozen=True)
 class Meridian:
     """What the boundary planner and hindsight pass need from one ordinary meridian."""
@@ -254,7 +252,9 @@ class TransducerTrainer:
             self,
             lookups,
             step,
-            alpha=self.schedule.overlay(step, sequence) if self.teacher_targets is not None else 0.0,
+            alpha=self.schedule.overlay(step, sequence)
+            if self.teacher_targets is not None
+            else 0.0,
             generator=generator,
             mounted=mounted,
             sources=sources,
@@ -328,9 +328,13 @@ class TransducerTrainer:
         if self.records:
             raise RuntimeError("Collect backward evidence before the sparse step")
         if not self.bank_trainable:
-            return {"transducer_updated_fields": 0, "transducer_written_values": 0,
-                    "transducer_writeouts": 0, "transducer_edges": self.bank.edge_count,
-                    "transducer_frozen": 1}
+            return {
+                "transducer_updated_fields": 0,
+                "transducer_written_values": 0,
+                "transducer_writeouts": 0,
+                "transducer_edges": self.bank.edge_count,
+                "transducer_frozen": 1,
+            }
         result = self.optimizer.step(step)
         added = self.growth.write_out(self.candidates, step=step)
         self.candidates.clear()
@@ -382,23 +386,28 @@ class TransducerTrainer:
 
     def supervision_identity(self):
         targets = self.teacher_targets
-        return {"teacher": None if targets is None else targets.manifest["encoding_identity"],
-                "targets": None if targets is None else targets.identity,
-                "memory_policy": ("causal-only-v1" if targets is None else
-                                  targets.manifest["memory_policy"]),
-                "bank_trainable": self.bank_trainable,
-                "teacher_weight": self.teacher_weight, "navigation_weight": self.navigation_weight,
-                "navigation_examples": self.navigation_examples,
-                "navigation_negatives": self.navigation_negatives}
+        return {
+            "teacher": None if targets is None else targets.manifest["encoding_identity"],
+            "targets": None if targets is None else targets.identity,
+            "memory_policy": (
+                "causal-only-v1" if targets is None else targets.manifest["memory_policy"]
+            ),
+            "bank_trainable": self.bank_trainable,
+            "teacher_weight": self.teacher_weight,
+            "navigation_weight": self.navigation_weight,
+            "navigation_examples": self.navigation_examples,
+            "navigation_negatives": self.navigation_negatives,
+        }
 
     def validate_supervision(self, state, *, allow_target_transition=False):
         prior = state.get("supervision", {})
         current = self.supervision_identity()
         if prior.get("teacher") != current["teacher"]:
             if state["bank"]["rows"]["ids"].numel():
-                raise ValueError("Checkpoint teacher value identity changed; explicit handover required")
-        if (not allow_target_transition and prior.get("targets") != current["targets"]
-            and prior):
+                raise ValueError(
+                    "Checkpoint teacher value identity changed; explicit handover required"
+                )
+        if not allow_target_transition and prior.get("targets") != current["targets"] and prior:
             raise ValueError("Checkpoint teacher target identity changed during resume")
 
     def load_state_dict(self, state: dict, *, allow_target_transition=False) -> None:
@@ -508,7 +517,9 @@ class TransducerSequence:
         if not torch.is_grad_enabled():
             return
         modalities = [m for meridian in meridians for m in meridian.modalities]
-        items = [k for k, modality in enumerate(modalities) if modality in (*FEATURE_MODALITIES, "text")]
+        items = [
+            k for k, modality in enumerate(modalities) if modality in (*FEATURE_MODALITIES, "text")
+        ]
         owners = events.groups[0].tolist()
         matches = []
         for t, group in enumerate(reads):

@@ -330,7 +330,7 @@ class NativeNGramTable(nn.Module):
         while len(self.import_branches) < len(branch_indices):
             self.import_branches.append(_NGramImport(self))
         if len(self.import_branches) > len(branch_indices):
-            self.import_branches = self.import_branches[:len(branch_indices)]
+            self.import_branches = self.import_branches[: len(branch_indices)]
         for name in ("import_rows", "descriptors", "import_weights"):
             key = prefix + name
             if key in state_dict:

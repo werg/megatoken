@@ -73,8 +73,9 @@ def declared_knowledge(
     """The items an episode declares for a base (see ``knowledge_episode``)."""
     return [
         KnowledgeItem(
-            row["text"].encode("utf-8") if "text" in row else
-            MediaRecord.from_bytes(row["descriptor"].encode("utf-8")),
+            row["text"].encode("utf-8")
+            if "text" in row
+            else MediaRecord.from_bytes(row["descriptor"].encode("utf-8")),
             assets,
             metadata,
             f"{episode.episode_id}:{row['source']}",
@@ -95,7 +96,8 @@ def episode_items(
     """
     observed = [
         KnowledgeItem(
-            MediaRecord.from_bytes(record.payload) if record.media_type == MEDIA_RECORD_TYPE
+            MediaRecord.from_bytes(record.payload)
+            if record.media_type == MEDIA_RECORD_TYPE
             else record.payload,
             assets,
             metadata,
@@ -104,8 +106,11 @@ def episode_items(
             record.part_index,
         )
         for record in episode.records
-        if not record.policy_mask and (record.media_type == MEDIA_RECORD_TYPE
-            or (record.role == "document" and record.media_type.startswith("text/")))
+        if not record.policy_mask
+        and (
+            record.media_type == MEDIA_RECORD_TYPE
+            or (record.role == "document" and record.media_type.startswith("text/"))
+        )
     ]
     return observed + declared_knowledge(episode, assets, metadata)
 
@@ -116,8 +121,11 @@ def knowledge_annotation(items: Sequence[tuple[MediaRecord | bytes, str, int, st
         {
             "knowledge_items": [
                 {
-                    **({"text": record.decode("utf-8")} if isinstance(record, bytes) else
-                       {"descriptor": record.to_bytes().decode("utf-8")}),
+                    **(
+                        {"text": record.decode("utf-8")}
+                        if isinstance(record, bytes)
+                        else {"descriptor": record.to_bytes().decode("utf-8")}
+                    ),
                     "document": document,
                     "part": part,
                     "source": source,

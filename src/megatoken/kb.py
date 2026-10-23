@@ -122,7 +122,12 @@ def _groups(items: Sequence[KnowledgeItem], batch: int) -> list[list[KnowledgeIt
 
 @torch.no_grad()
 def add_items(
-    base: KnowledgeBase, model: Any, multi: Any, items: Sequence[KnowledgeItem], *, batch: int = 16,
+    base: KnowledgeBase,
+    model: Any,
+    multi: Any,
+    items: Sequence[KnowledgeItem],
+    *,
+    batch: int = 16,
     relations: Sequence[tuple[str, str]] = (),
 ) -> list[int]:
     """Read each item alone and append its entry to ``base``; the new edge IDs.
@@ -146,7 +151,9 @@ def add_items(
             else:
                 source = item.record.source
                 if source.extractor != model.config.media_extractor:
-                    raise ValueError("Item features come from a different teacher than this model's")
+                    raise ValueError(
+                        "Item features come from a different teacher than this model's"
+                    )
                 features = torch.from_numpy(item.assets.load(source)).to(device)[None]
                 raw = model.core.encode_media(features, extractor=source.extractor)[0]
             written.append(
@@ -163,8 +170,10 @@ def add_items(
         labels.extend(item.source for item in group)
     if not staged:
         return []
-    fields = {name: torch.cat([getattr(rows, name) for rows in staged])
-              for name in ("departure", "key", "value", "destination")}
+    fields = {
+        name: torch.cat([getattr(rows, name) for rows in staged])
+        for name in ("departure", "key", "value", "destination")
+    }
     if relations:
         if len(set(labels)) != len(labels):
             raise ValueError("Navigation reference items require unique source labels")
@@ -184,7 +193,6 @@ def add_items(
     # Finish model work before taking the lock, then publish every group together.
     with base.lock:
         return base.add(**fields, sources=labels).tolist()
-
 
 
 def corpus_items(

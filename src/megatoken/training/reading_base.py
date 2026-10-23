@@ -70,8 +70,10 @@ class ReadingBase:
         )
         items = declared_knowledge(episode, assets, episode_metadata(episode))
         names = {item.source for item in items}
-        links = [(f"{episode.episode_id}:{row['left']}", f"{episode.episode_id}:{row['right']}")
-                 for row in local_relations(episode)]
+        links = [
+            (f"{episode.episode_id}:{row['left']}", f"{episode.episode_id}:{row['right']}")
+            for row in local_relations(episode)
+        ]
         # Only declared references enter normal search. Future episode targets stay out.
         links = [(a, b) for a, b in links if a in names and b in names]
         add_items(base, multi.generator, multi, items, relations=links)
