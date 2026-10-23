@@ -46,10 +46,22 @@ def utterances(archive, meeting, agent):
     ]
 
 
-def acquire(source_root, annotations, *, pairs=4):
+def acquire(
+    source_root,
+    annotations,
+    *,
+    pairs=4,
+    selected_meetings=(("ES2002a", "train"), ("ES2003a", "validation")),
+):
     if (source_root / "manifest.jsonl").exists():
         raise ValueError("Use --manifest to resume an already committed acquisition")
     source_root.mkdir(parents=True, exist_ok=True)
+    names = [meeting for meeting, _ in selected_meetings]
+    if len(names) != len(set(names)) or {split for _, split in selected_meetings} != {
+        "train",
+        "validation",
+    }:
+        raise ValueError("Declare distinct original meetings with both training and validation")
     rows, receipts, seen_speakers = [], [], set()
     with ZipFile(annotations) as archive, ThreadPoolExecutor(max_workers=4) as pool:
         meetings = ET.fromstring(archive.read("corpusResources/meetings.xml"))
@@ -59,9 +71,10 @@ def acquire(source_root, annotations, *, pairs=4):
                 f"https://groups.inf.ed.ac.uk/ami/AMICorpusMirror/amicorpus/{meeting}/audio/{meeting}.Headset-{channel}.wav",
                 source_root / f"{meeting}.Headset-{channel}.wav",
             )
-            for meeting in ("ES2002a", "ES2003a") for channel in ("1", "3")
+            for meeting, _ in selected_meetings
+            for channel in ("1", "3")
         }
-        for meeting, split in (("ES2002a", "train"), ("ES2003a", "validation")):
+        for meeting, split in selected_meetings:
             meta = next(m for m in meetings if m.get("observation") == meeting)
             speakers = sorted(
                 (s for s in meta if s.get("channel") in {"1", "3"}),
@@ -194,7 +207,18 @@ def main():
     p.add_argument("--packs", type=Path, required=True)
     p.add_argument("--root", type=Path, required=True)
     p.add_argument("--manifest", type=Path)
-    p.add_argument("--pairs", type=int, default=1, help="Disjoint annotated overlap windows per original meeting")
+    p.add_argument(
+        "--pairs",
+        type=int,
+        default=1,
+        help="Disjoint annotated overlap windows per original meeting",
+    )
+    p.add_argument(
+        "--meeting",
+        action="append",
+        metavar="MEETING:SPLIT",
+        help="Publisher meeting and explicit train or validation split; repeat for each meeting",
+    )
     p.add_argument("--device", default="cuda")
     args = p.parse_args()
     if args.pairs < 1:
@@ -203,7 +227,14 @@ def main():
 
     terms = json.loads(args.terms.read_text())
     TermsReview(**terms).require_approval()
-    manifest = args.manifest or acquire(args.source_root, args.annotations, pairs=args.pairs)
+    selected_meetings = (("ES2002a", "train"), ("ES2003a", "validation"))
+    if args.meeting:
+        selected_meetings = tuple(tuple(value.rsplit(":", 1)) for value in args.meeting)
+        if any(len(value) != 2 for value in selected_meetings):
+            p.error("Each meeting requires MEETING:train or MEETING:validation")
+    manifest = args.manifest or acquire(
+        args.source_root, args.annotations, pairs=args.pairs, selected_meetings=selected_meetings
+    )
     from megatoken.data.media_prepare import MediaPreparer
     from megatoken.data.timed_media import prepare_rows
     from megatoken.generation.codec import ByteCodec
