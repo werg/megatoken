@@ -161,7 +161,7 @@ def test_legacy_family_counts_cannot_be_summed_across_roots():
         "version": 1,
         "original_families": {"train|calls|executed_parallel_calls": 1},
     }
-    with pytest.raises(ValueError, match="reprepare manifests"):
+    with pytest.raises(ValueError, match="Malformed original family identities"):
         require_coverage(
             corpus(legacy, legacy),
             {"executed_parallel_calls": 1},

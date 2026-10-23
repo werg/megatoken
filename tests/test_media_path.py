@@ -720,7 +720,7 @@ def test_the_stage_plan_decides_what_trains():
 
 def test_trainable_rejects_unknown_scopes():
     for value in ("text", "bridge", "", None):
-        with pytest.raises(ValueError, match="all or media_bridge"):
+        with pytest.raises(ValueError, match="all, media_bridge, or latent_policy"):
             config(trainable=value)
 
 
