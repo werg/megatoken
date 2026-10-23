@@ -23,9 +23,10 @@
 
 The recurrent input is a `[batch, 32, 512]` raw facet tensor, or `[batch, 32, 256]`
 in the smaller preset. E builds the same format through ordered byte/ngram processing,
-repeated halving, and two dense facet refinement blocks. Four independently owned
-central stages process every selected input, use three temporary KV read/write
-transitions, then publish only the final rotated KV entry. A
+repeated halving, and two facet-refinement blocks. Four central stages process every
+selected input and use three temporary KV read/write transitions before publishing
+only the final rotated KV entry. Block-local structure remains distinct; eligible
+projection and FFN matrices use globally shared shape pools across E/C/P/U/R. A
 non-residual remix and twelve sparse prediction stages produce the next Gaussian mean.
 The realizer reads canonical raw facets directly; only future P uses
 C's final features and historical KV. See [architecture.md](architecture.md) for the tensor graph.
@@ -61,8 +62,9 @@ explicit P/U and adapter controllers.
 Sites sharing a selector contribute to that selector's combined assignment
 counts instead of creating repeated copies of the same balance term.
 
-In the media-bridge stage, the shared expert pools, bootstrap router, and their
-adapters remain frozen while media-local encoding and projection gains, the
+In the media-bridge stage, the shared expert pools, bootstrap router, all shared
+pool selector heads, and their adapters remain frozen while media-local encoding
+and projection gains, the
 central modality embedding, and realizer conditions train. The E-only recurrent
 encoder-reconstruction branch uses detached functional copies of R/U and the
 shared pools. It sends gradients through that fixed readout into E-produced
@@ -361,8 +363,11 @@ megatoken --json-output runs/recurrent-benchmark.json benchmark \
 ```
 
 The two production presets are `32x512` and `32x256`; both use all 32 facet slots.
-Run `inspect` for the current actual unique-owner count, including E, independent dense
-C, sparse P, and R. There are no private posterior or alignment heads. `inspect` performs a meta-device owner census without allocating full weight
+Run `inspect` for the current actual unique-owner count, including E-private
+frontend and block structure, the four C block sites, sparse P, R/U, and the
+globally shared expert pools. Shared pool values are counted once regardless of
+how many E/C/P/U/R sites use them. There are no private posterior or alignment
+heads. `inspect` performs a meta-device owner census without allocating full weight
 storage. Activations, gradients, optimizer state, and KV are separate from weight counts.
 
 Experts use a PyTorch reference or explicit Triton grouped kernels with row and weight
@@ -463,9 +468,13 @@ Export requires a completed bake. No donor model runs during training or serving
 
 ## Outcome RL
 
-Not implemented: the RL stage and its code were removed. The constraint any
-future latent-action RL must keep (freeze the whole conditional decoding map,
-E, C and R, while P's density changes) is recorded in
+Not implemented: the RL stage and its code were removed. Under the recorded
+future latent-action RL constraint, freeze the conditional decoding map and all
+shared expert matrix values and router/pool heads, because those shared values
+also serve E, C, P, U, and R. P-specific route-program parameters and other
+private distribution parameters may still change its density, but P cannot
+update shared projection or FFN matrices used by the frozen conditional map.
+The constraint is recorded in
 [decisions/0004-contextual-realization.md](decisions/0004-contextual-realization.md).
 
 ## Decisions before scaling

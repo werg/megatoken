@@ -64,6 +64,7 @@ def action_map_parameters(model):
     """E, C and R: everything between the observations and a realized action."""
     core = model.core
     return [
+        *core.shared_parameters(),
         *core.encoder_parameters(),
         *core.central_parameters(),
         *model.decoder.parameters(),

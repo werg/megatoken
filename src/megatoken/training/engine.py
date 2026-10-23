@@ -392,7 +392,7 @@ def train(
         # routed sites. Keep their gradients in one clipping domain rather than
         # letting a bank's contribution be multiplied by its number of uses.
         # During media-bridge training those global owners remain frozen; only
-        # media-local projections, router heads and realizer conditions train.
+        # media-local gains, biases, norms and realizer conditions train.
         shared_parameters = getattr(model.core, "shared_parameters", None)
         shared_ids = (
             {id(parameter) for parameter in shared_parameters()}

@@ -67,18 +67,22 @@ No decoded-byte reconciliation is needed.
 
 | Component | Default work | Main responsibility |
 | --- | --- | --- |
-| Ingestion E | Native byte/ngram frontend, exponential reduction, 2 dense facet blocks | Encode bytes into the common raw input format |
-| Central C | 4 dense blocks, three temporary gated KV reads | Integrate historical context repeatedly; persist final KV only; cache block 4 for P |
+| Ingestion E | Native byte/ngram frontend, exponential reduction, 2 facet-refinement blocks | Encode bytes into the common raw input format |
+| Central C | 4 central blocks, three temporary gated KV reads | Integrate historical context repeatedly; persist final KV only; cache block 4 for P |
 | Predictor P | Non-residual remix followed by 12 residual sparse stages | Build the next raw input distribution from processed context |
 | Realizer R | 32-slot seeding, progressive position expansion, raw-facet refinement | Deterministically emit structure, length, bindings, and lexical IDs |
 
-Four central blocks provide meaningful contextual processing without moving the
-large sparse prediction bank into the part that outcome RL must freeze. Twelve
-predictive blocks retain most depth after the remix. This allocation is a design
-choice to validate in training, not an experimentally established optimum.
+Four central blocks provide contextual processing, while twelve predictive
+blocks retain most depth after the remix. The blocks retain their own attention,
+normalization, residual, and stage structure, but eligible projection and FFN
+matrix values are owned by shared shape pools across E, C, P, U, R, and trainable
+media paths. This allocation is a design choice to validate in training, not an
+experimentally established optimum.
 
-C and E use the same `DenseFacetBlock` implementation with separate parameters.
-Every eligible learned linear projection and SwiGLU site uses the same
+C and E use the same `DenseFacetBlock` structure. Their block-local norms,
+gates, embeddings, and stage descriptors remain distinct; eligible learned
+linear and SwiGLU matrix values are drawn from the shared pools. Every eligible
+learned linear projection and SwiGLU site uses the same
 hierarchical routing path. A finite deterministic fold maps the current context
 to the small router width, then adds learned track, role, and stage codes. A
 shared bootstrap selector chooses one router expert, which produces the compact
@@ -90,13 +94,13 @@ shared shape pool, rather than through a separate learned router at every
 projection. Linear pools are shared by their padded canonical input/output
 dimensions; SwiGLU pools are shared by their canonical model width (with a `2D`
 gate/up width). A site pads its input to the pool width and crops the output to
-its original width. C, P, U, R, and the trainable media paths share the same
-expert values and per-pool heads. P still has its twelve residual attention
-stages and U still has its realization structure; their expert values are
-accessed through these global shape buckets. Three stage-specific intermediate KV projectors feed the next C
-block; one final KV projector alone owns persistent history and P's live keys.
-Each C/P block retains its own query/output reader. Intermediate KV is never
-added to the cache.
+its original width. Three stage-specific intermediate KV projection sites feed
+the next C block; one final projection site alone writes persistent history and
+P's live keys. Compatible matrix shapes at these sites use shared pool values;
+their site-local biases, routing phases, and surrounding block-specific
+normalization/gating remain distinct. Each C/P block retains its own query and
+output reader sites, while compatible projection matrices can share pool
+values. Intermediate KV is never added to the cache.
 
 Supported ungrouped `Conv1d` sites unfold kernel taps into the matching linear
 input/output pool, then sum the routed tap results with fan-in scaling and add
@@ -108,6 +112,10 @@ compact prediction context feature; the stage code differentiates the decisions
 without repeating the wide context projection. U makes its expansion decisions
 from the selected event's compact realization summary, with growth level encoded
 as the stage, so progressive row counts reuse that event-level context.
+
+P has twelve residual attention stages and U retains its realization structure;
+their eligible expert matrices use the global shape buckets. The P row-route
+program and U growth decisions remain role-specific routing structure.
 
 The vocabulary readout is a deliberate exception to expert replacement. Its
 rank-factorized `TiedVocabulary` projection is consumed directly by the same
@@ -121,8 +129,9 @@ C1 reads historical and current facets, then projects **KV1** from its updated
 state. C2 reads persistent history/current facets and KV1 using a **separately
 normalized, gated** temporary attention read, then emits KV2. C3 similarly reads
 KV2 and emits KV3. C4 reads KV3, then its updated final facets produce the
-**only** persistent KV4. Temporary writers have stage-specific parameters;
-the final writer is separately owned. There are no extra historical reads, and
+**only** persistent KV4. Each writer is a distinct projection site, but compatible
+projection matrices use the shared shape pool; stage-specific structure and any
+local bias remain separate. There are no extra historical reads, and
 all 32 temporary slots are discarded at the end of this central pass.
 
 Every facet has a learned, stable **slot-address embedding** (32 x D) injected
@@ -185,7 +194,7 @@ C, P and R no longer own separate adapter banks; E, C, P and R each retain a
 compact role controller. Every shared expert pool stores
 low-rank adapter factors alongside each base expert; `adapter_experts`,
 `adapter_rank` and `adapter_topk` are part of the architecture identity. The
-site-local controller adds its learned track and site preferences to the
+role-local controller adds its learned track and execution-stage preferences to the
 retrieval-conditioned preference. After each successful transducer lookup, the
 shared router bootstrap folds the lookup's blended
 32,768-wide knowledge value to a compact feature and executes one shared router
@@ -202,7 +211,7 @@ choose a new adapter mixture cannot recursively depend on that choice. Ordinary
 router-bank dispatches inside model routing epochs inherit the current mixture
 and can use the router bank's own adapter factors.
 
-At a routed site, the controller's preference selects adapter factors belonging
+At a routed site, the role controller's preference selects adapter factors belonging
 to the chosen base expert and adds their low-rank update to the expert result.
 The same path applies across C, P, U, R, and other eligible learned projections,
 including media-local sites. Shared pool weights and routing heads are
@@ -259,7 +268,7 @@ The stride-eight frontend produces source-width features. A shared ordered pair
 merge halves the sequence at each level, followed by bounded local attention and
 a shared FFN. Only the final at-most-32 source positions enter facet query
 attention. An aligned readout preserves ordering while query attention fills the
-canonical facet block. Two dense refinement blocks then operate at facet
+canonical facet block. Two facet-refinement blocks then operate at facet
 resolution, followed by an unconstrained-scale output projection.
 
 Each padded batch row uses the first reduction level at which it is ready. A
@@ -308,12 +317,16 @@ bindings, lexical argmax, and byte materialization are deterministic given the
 sample and public schema/copy context. The Gaussian density is a
 latent action density, not the probability of the resulting bytes.
 
-Outcome RL must freeze the complete conditional action map: **E, C, shared KV
-projection, and R**, including core-owned U transforms. P, its remix, controls,
-and Gaussian scale remain trainable. The `encoder_parameters`,
+Outcome RL is not implemented. Under the recorded future policy, shared expert
+matrix values and shared router/pool heads must be frozen because those values
+serve E, C, P, U, R, and trainable media paths together. E/C/R and core-owned U
+state that belongs to the conditional decoding map is frozen as well. P-specific
+route-program parameters, the fixed-shape facet-slot transform, and
+distribution-specific site-local parameters can remain trainable; P cannot update
+shared projection or FFN matrices that also serve the conditional map. The `encoder_parameters`,
 `central_parameters`, `predictor_parameters`, and `realizer_parameters` interfaces
 expose disjoint private owners without duplicate registration; global expert pools
-are listed separately and frozen with the complete map. The recurrent encoder
+are listed once and frozen with the complete map. The recurrent encoder
 reconstruction readout uses detached functional copies of R/U and the shared pools,
 so its gradient flows into E-produced facets without changing the readout weights.
 Shared pools can still receive gradients from the ordinary prior path that consumes
@@ -351,7 +364,7 @@ See [generation.md](generation.md) for tape and decoder details.
 | Raw facets | `32 x 512` | `32 x 256` |
 | Coordinates per prediction | 16,384 | 8,192 |
 | Source / control width | 512 | 256 |
-| E/C dense hidden width | 1,024 | 512 |
+| E/C FFN hidden width | 1,024 | 512 |
 | Attention queries | `4 x 128 = 512` | `4 x 64 = 256` |
 | Keys, separately values | `2 x 128 = 256` | `2 x 64 = 128` |
 | Concatenated P row width | 1,024 | 512 |
