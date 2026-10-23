@@ -567,7 +567,7 @@ def validate_curriculum_episode(episode):
     return result
 
 
-def curriculum_episodes(families=16, *, profiles=WINDOW_PROFILES, templates=TEMPLATES):
+def curriculum_episodes(families=32, *, profiles=WINDOW_PROFILES, templates=TEMPLATES):
     """Split by original task, never by retention strategy or window variant."""
     if type(families) is not int or families < 8:
         raise ValueError("Use at least eight original tasks per template for three splits")

@@ -209,7 +209,9 @@ def test_export_keeps_admitted_supply_and_normal_mixture_reads_scored_examples(t
     root = tmp_path / "prepared"
     with DedupStore(tmp_path / "spool.sqlite", DedupConfig(min_near_words=1_000_000)) as store:
         with store.transaction():
-            for episode in curriculum_episodes(8):
+            for episode in curriculum_episodes(
+                32, profiles=((DEFAULT_LOCAL_EVENTS, DEFAULT_CROSS_EVENTS),)
+            ):
                 store.add(episode, codec)
         store.freeze()
         report = export_prepared(

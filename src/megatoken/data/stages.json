@@ -107,12 +107,12 @@
           "context_strategy_fetch": 4,
           "context_strategy_summary": 4,
           "context_strategy_unavailable": 4,
-          "context_template_field_lookup": 1,
-          "context_template_invoice_total": 1,
-          "context_template_latest_revision": 1,
-          "context_template_user_constraint": 1,
-          "context_template_evidence_join": 1,
-          "context_template_exact_quotation": 1,
+          "context_template_field_lookup": 4,
+          "context_template_invoice_total": 4,
+          "context_template_latest_revision": 4,
+          "context_template_user_constraint": 4,
+          "context_template_evidence_join": 4,
+          "context_template_exact_quotation": 4,
           "context_released": 4
         }
       }
@@ -187,12 +187,12 @@
           "context_strategy_fetch": 4,
           "context_strategy_summary": 4,
           "context_strategy_unavailable": 4,
-          "context_template_field_lookup": 1,
-          "context_template_invoice_total": 1,
-          "context_template_latest_revision": 1,
-          "context_template_user_constraint": 1,
-          "context_template_evidence_join": 1,
-          "context_template_exact_quotation": 1,
+          "context_template_field_lookup": 4,
+          "context_template_invoice_total": 4,
+          "context_template_latest_revision": 4,
+          "context_template_user_constraint": 4,
+          "context_template_evidence_join": 4,
+          "context_template_exact_quotation": 4,
           "context_released": 4
         }
       }
@@ -265,12 +265,12 @@
           "context_strategy_fetch": 4,
           "context_strategy_summary": 4,
           "context_strategy_unavailable": 4,
-          "context_template_field_lookup": 1,
-          "context_template_invoice_total": 1,
-          "context_template_latest_revision": 1,
-          "context_template_user_constraint": 1,
-          "context_template_evidence_join": 1,
-          "context_template_exact_quotation": 1,
+          "context_template_field_lookup": 4,
+          "context_template_invoice_total": 4,
+          "context_template_latest_revision": 4,
+          "context_template_user_constraint": 4,
+          "context_template_evidence_join": 4,
+          "context_template_exact_quotation": 4,
           "context_released": 4
         }
       }
@@ -330,12 +330,12 @@
           "context_strategy_fetch": 4,
           "context_strategy_summary": 4,
           "context_strategy_unavailable": 4,
-          "context_template_field_lookup": 1,
-          "context_template_invoice_total": 1,
-          "context_template_latest_revision": 1,
-          "context_template_user_constraint": 1,
-          "context_template_evidence_join": 1,
-          "context_template_exact_quotation": 1,
+          "context_template_field_lookup": 4,
+          "context_template_invoice_total": 4,
+          "context_template_latest_revision": 4,
+          "context_template_user_constraint": 4,
+          "context_template_evidence_join": 4,
+          "context_template_exact_quotation": 4,
           "context_released": 4
         }
       }
@@ -397,12 +397,12 @@
           "context_strategy_fetch": 4,
           "context_strategy_summary": 4,
           "context_strategy_unavailable": 4,
-          "context_template_field_lookup": 1,
-          "context_template_invoice_total": 1,
-          "context_template_latest_revision": 1,
-          "context_template_user_constraint": 1,
-          "context_template_evidence_join": 1,
-          "context_template_exact_quotation": 1,
+          "context_template_field_lookup": 4,
+          "context_template_invoice_total": 4,
+          "context_template_latest_revision": 4,
+          "context_template_user_constraint": 4,
+          "context_template_evidence_join": 4,
+          "context_template_exact_quotation": 4,
           "context_released": 4
         }
       }

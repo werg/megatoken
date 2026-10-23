@@ -27,7 +27,7 @@ def main():
     parser.add_argument(
         "--families",
         type=int,
-        default=16,
+        default=32,
         help="Original tasks per template; all variants keep the same split",
     )
     parser.add_argument(

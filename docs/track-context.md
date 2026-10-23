@@ -111,7 +111,7 @@ Prepare authored demonstrations through ordinary deduplication and export:
 ```bash
 python scripts/prepare_context_tasks.py \
   --root /absolute/new/context-corpus --codec /absolute/codec \
-  --families 16
+  --families 32
 ```
 
 The count denotes original instances **per task template**. The six templates
@@ -138,6 +138,9 @@ original tasks for each context strategy, every template, the operating defaults
 and completed-history release, in both training and validation. Old one-template
 demonstrations cannot satisfy this supply. Missing supply fails before allocation
 of expensive model resources; start a new run after changing mixture semantics.
+The default preparation supplies at least four original instances of every
+template in validation. Smaller diagnostic preparations may fail regular stage
+admission even though they are usable for bounded integration checks.
 
 Answer checking recomputes facts from actual sources, verifies linked read results,
 and checks visibility for answers and summaries. The tests also replay episodes
