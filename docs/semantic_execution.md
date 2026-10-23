@@ -1,6 +1,6 @@
 # Semantic execution episodes from tracing-js-self
 
-This repository now has a versioned adapter for the `semantic-execution/1` export
+This repository now has a versioned adapter for the `semantic-execution/2` export
 format owned by [werg/tracing-js-self](https://github.com/werg/tracing-js-self/blob/main/docs/TRAINING_DATA_PLAN.md).
 The adapter lives in `src/megatoken/data/semantic_execution.py`, with a
 JSONL converter at `scripts/import_semantic_execution.py`. It is deliberately
@@ -111,3 +111,5 @@ code-on-call, reference-codec-aware source bundling, finite-context continuation
 packets, and all additional corpus admission gates remain controlled by
 `tracing-js-self`'s implementation ledger. Do not train an unadmitted corpus
 as a verified-success stream merely because this adapter accepted its schema.
+
+The v2 record is a source-facing **effective-computation** trace, not a bijection to ECMAScript internal methods. Supported getter, setter and proxy-trap executions are represented through ordinary calls and their observed effects. Unsupported guest operations remain runtime/profile diagnostics rather than an invented result. No v1 reader or compatibility path is provided.

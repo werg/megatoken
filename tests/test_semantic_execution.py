@@ -24,16 +24,20 @@ def fixture():
         ("observed", "value", {"entry": "f", "graph": {"roots": [["num", 3]], "objects": []}}),
         ("generated", "enter", {"invocation": "f1", "entry": "f", "arguments": [["num", 3]]}),
         ("generated", "value", {"id": "e1", "invocation": "f1", "result": ["num", 3]}),
-        ("generated", "branch", {"id": "e2", "dependsOn": ["e1"], "decision": False}),
+        (
+            "generated",
+            "branch",
+            {"id": "e2", "dependsOn": ["e1"], "test": ["bool", True], "path": "then"},
+        ),
         ("generated", "return", {"id": "e3", "dependsOn": ["e2"], "result": ["num", 4]}),
         ("generated", "end", {"invocation": "f1", "kind": "return"}),
     ]
     return {
         "public": {
-            "schema": "semantic-execution/1",
+            "schema": "semantic-execution/2",
             "profile": "training-js/1",
-            "traceFormat": "semantic-trace/1",
-            "contextFormat": "semantic-context/1",
+            "traceFormat": "semantic-trace/2",
+            "contextFormat": "semantic-context/2",
             "completionPolicy": "immediate-return",
             "groups": [
                 {
@@ -220,7 +224,7 @@ def test_native_preparation_preserves_semantic_groups_and_exact_target_bytes():
     episode, _ = adapt_semantic_execution(fixture(), allow_local=True)
     context = AdapterContext(
         source_id="tracer",
-        revision="pinned-v1",
+        revision="pinned-current",
         uri="local://semantic-execution",
         stream="semantic_execution",
         options={"preserve_native_stream": True},

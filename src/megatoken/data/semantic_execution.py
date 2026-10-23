@@ -28,8 +28,8 @@ from .schema import (
     digest_bytes,
 )
 
-_PUBLIC = "semantic-execution/1"
-_TRACE = "semantic-trace/1"
+_PUBLIC = "semantic-execution/2"
+_TRACE = "semantic-trace/2"
 _LANE = re.compile(r"t[0-7]\Z")
 _ID = re.compile(r"e[1-9]\d*\Z")
 _WORDS = frozenset(
@@ -38,6 +38,7 @@ _WORDS = frozenset(
         "value",
         "branch",
         "loop",
+        "carry",
         "alloc",
         "read",
         "write",
@@ -57,6 +58,146 @@ _WORDS = frozenset(
         "value-close",
     )
 )
+
+
+# Only source-facing effective computations are training targets. A prototype
+# walk, accessor descriptor, or spec-operation phase is not part of this wire
+# format; guest getter/trap work appears as ordinary call/read/write records.
+# Restrict each operation to its declared fields so old engine-format data is
+# not silently treated as valid execution reasoning.
+_FIELDS = {
+    "code": {"sourceId", "text", "codes", "sites", "staticFunctions"},
+    "enter": {
+        "invocation",
+        "entry",
+        "code",
+        "receiver",
+        "arguments",
+        "captures",
+        "dependsOn",
+    },
+    "value": {
+        "entry",
+        "invocation",
+        "graph",
+        "id",
+        "site",
+        "dependsOn",
+        "control",
+        "result",
+        "reads",
+        "writes",
+    },
+    "branch": {
+        "id",
+        "invocation",
+        "site",
+        "dependsOn",
+        "control",
+        "test",
+        "path",
+        "reads",
+    },
+    "loop": {"id", "invocation", "site", "dependsOn", "control", "path", "reads"},
+    "carry": {
+        "id",
+        "invocation",
+        "site",
+        "dependsOn",
+        "control",
+        "from",
+        "to",
+        "reads",
+    },
+    "alloc": {
+        "id",
+        "invocation",
+        "site",
+        "dependsOn",
+        "control",
+        "allocations",
+        "writes",
+        "result",
+        "reads",
+    },
+    "read": {"id", "invocation", "site", "dependsOn", "control", "reads", "result"},
+    "write": {
+        "id",
+        "invocation",
+        "site",
+        "dependsOn",
+        "control",
+        "reads",
+        "writes",
+        "result",
+        "update",
+    },
+    "delete": {"id", "invocation", "site", "dependsOn", "control", "writes"},
+    "call": {
+        "id",
+        "invocation",
+        "site",
+        "dependsOn",
+        "control",
+        "child",
+        "code",
+        "receiver",
+        "arguments",
+        "captures",
+        "reads",
+        "result",
+        "writes",
+    },
+    "return": {
+        "id",
+        "invocation",
+        "site",
+        "dependsOn",
+        "control",
+        "result",
+        "destination",
+    },
+    "throw": {
+        "id",
+        "invocation",
+        "site",
+        "dependsOn",
+        "control",
+        "result",
+        "destination",
+        "reason",
+    },
+    "await": {"id", "invocation", "site", "dependsOn", "control", "promise", "result"},
+    "resume": {"id", "invocation", "site", "dependsOn", "control", "promise", "result"},
+    "settle": {"id", "invocation", "site", "dependsOn", "control", "promise", "result"},
+    "request": {
+        "id",
+        "invocation",
+        "site",
+        "dependsOn",
+        "control",
+        "effect",
+        "operation",
+        "arguments",
+        "codec",
+        "signature",
+        "payload",
+    },
+    "observe": {
+        "id",
+        "invocation",
+        "site",
+        "dependsOn",
+        "control",
+        "effect",
+        "result",
+        "input",
+    },
+    "end": {"invocation", "kind"},
+    "value-open": {"id", "type"},
+    "value-part": {"id", "data"},
+    "value-close": {"id"},
+}
 
 
 class SemanticExecutionError(ValueError):
@@ -83,7 +224,7 @@ def _record(line: Any) -> tuple[str, dict[str, Any]]:
         _fail("Trace record is not a single UTF-8 line")
     head, separator, body = line.partition(" ")
     if not separator or head not in _WORDS:
-        _fail("Unknown or malformed semantic-trace/1 record")
+        _fail("Unknown or malformed semantic-trace/2 record")
     try:
         fields = json.loads(body)
     except (ValueError, TypeError) as error:
@@ -110,6 +251,22 @@ def _record(line: Any) -> tuple[str, dict[str, Any]]:
         raise SemanticExecutionError("Invalid strict trace JSON") from error
     if checked != fields:
         _fail("Inconsistent trace JSON")
+    if not set(fields).issubset(_FIELDS[head]):
+        _fail("Unexpected field in effective semantic trace")
+    if head == "branch" and (
+        not isinstance(fields.get("test"), list)
+        or fields.get("path") not in ("then", "else", "use-left", "evaluate-right")
+    ):
+        _fail("Missing source-level branch value or selected path")
+    if head == "loop" and fields.get("path") != "repeat":
+        _fail("Missing executed loop backedge")
+    if head == "carry" and not all(
+        isinstance(fields.get(name), dict)
+        and isinstance(fields[name].get("env"), str)
+        and isinstance(fields[name].get("key"), str)
+        for name in ("from", "to")
+    ):
+        _fail("Malformed lexical iteration carry")
     return head, fields
 
 
@@ -178,7 +335,7 @@ def _validate(
         _fail("Unknown execution or semantic trace format")
     if (
         public.get("profile") != "training-js/1"
-        or public.get("contextFormat") != "semantic-context/1"
+        or public.get("contextFormat") != "semantic-context/2"
     ):
         _fail("Unsupported JavaScript execution profile")
     if public.get("completionPolicy") != "immediate-return":
@@ -493,6 +650,9 @@ def _add_dependencies(
     control = fields.get("control")
     if control is not None:
         earlier = [*earlier, control]
+    for read in fields.get("reads", ()):
+        if isinstance(read, dict) and read.get("supplyingSemantic"):
+            earlier = [*earlier, read["supplyingSemantic"]]
     for dependency in dict.fromkeys(earlier):
         writer = producers.get(dependency)
         if writer is None or writer == reader:
