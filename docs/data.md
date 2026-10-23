@@ -4036,7 +4036,12 @@ page while signed in and press Agree:
 `files.agentic-chat.json` lists every file of every Hub source (about 101.6 GB stored) at the
 pinned revisions, built like the other listings. `configs/cloud/prepare-full-agentic-chat.json`
 prepares the manifest in 8 sandboxes with 28 shards each and 14 processes per sandbox, reviewing
-parser holds with `parser-review.agentic.json`. Nothing launches by itself; see "Preparing at
+parser holds with `parser-review.agentic.json`. The live storage trial reconciled 56,085 episodes
+in about 9 minutes; a linear extrapolation to this run is about 12 hours, with candidate overlap
+still uncertain. Its run file therefore allows 8 hours of ingest, 16 of reconciliation and 6
+of finishing/upload, plus 2 for transfers (maximum ingest lifetime 32 hours, accepted by a
+short-lived CPU probe on 2026-10-23). Earlier waves keep billing until their data is no longer
+needed; these lifetimes do not keep successfully published jobs running. Nothing launches by itself; see "Preparing at
 full volume". The largest stored file is the 17.5 GB cascade-2 file; single large files are the first
 thing to check if a shard dies (see the memory note in the second sweep's section).
 

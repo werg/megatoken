@@ -22,9 +22,9 @@
  "shards_per_sandbox": 28,
  "processes": 14,
  "hours": {
-  "ingest": 4,
-  "reconcile": 4,
-  "finish": 4
+  "ingest": 8,
+  "reconcile": 16,
+  "finish": 6
  },
  "cache": {
   "repo": "gabrielpickard/megatoken-training-data"
