@@ -1,5 +1,14 @@
 # Agent guidelines
 
+## Execution resources
+
+- The local GPU is authorized for appropriate bounded work, including small CUDA
+  regressions and inference checks. Check its current load and available memory;
+  preserve other users' processes. Large downloads and preparation remain cloud work.
+- On cloud placement exhaustion, try explicitly sized smaller CPU/RAM requests
+  that remain sufficient for the workload. Preserve required GPUs and memory floors.
+  Account concurrency quotas need a free job slot; smaller requests do not bypass them.
+
 ## Subagents
 
 - When delegating to subagents, only use Sonnet or Luna models (e.g. `model: "sonnet"`).

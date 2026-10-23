@@ -192,3 +192,27 @@ only the donor-placement and resume-limit fixes on the prior GPU snapshot line.
 It now uses both newly completed production donor assets. Original failure reports
 are preserved; the corrected GPU training/resume/export/serving result is pending.
 Do not remove `gpu-readiness/device-fix-code/` while this controller is active.
+
+## Smaller cloud requests and local GPU use
+
+The user authorized appropriate local GPU work and requested smaller cloud resource
+requests when capacity is exhausted. This preference is recorded in `AGENTS.md`.
+The bounded two-donor checkpoint restore regression passed on the local GB10, along
+with its CPU and meta cases. Existing local processes were left running.
+
+The readiness job now requests 4 CPU / 16 GiB RAM / 1 GPU, with an explicit fallback
+to 2 CPU / 16 GiB RAM / 1 GPU. The memory floor and GPU count are preserved. Large
+preparation jobs do not inherit these small-job sizes.
+
+The reusable `megatoken.cloud_capacity.start_with_fallbacks` launcher preserves the
+workload, inputs, snapshot, and secrets, advancing only through job-declared resource
+alternatives after runner-capacity rejection or a startup timeout. The existing
+cloud launcher owns failed-start cleanup. Account quotas, authentication errors,
+gateway failures, and upload errors propagate without reducing requirements.
+The external readiness retry controller now calls this helper, and its production
+asset job uses the same smaller alternatives. No already-running job was resized,
+and the successful GPU check was not relaunched.
+
+The prior corrected cloud GPU check has passed: optimizer step, checkpoint resume
+to step 2, bake/export/load, and served-session inference, using both completed
+production donor assets. Its reports remain in external `gpu-readiness/collected`.
