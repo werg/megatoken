@@ -130,7 +130,7 @@ def test_default_full_model_budget_expansion_is_bounded_and_legacy_counts_roundt
     assert restored.state_geometry == config.state_geometry
 
     codec = ByteCodec(
-        [bytes((value,)) for value in range(256)] + [None] * (config.vocab_size - 256),
+        [bytes((value,)) for value in range(256)] + [None] * (config.vocab_size - 256)
     )
     with torch.device("meta"):
         expanded = build_model(config, codec, device="meta")
@@ -164,8 +164,7 @@ def test_default_full_model_budget_expansion_is_bounded_and_legacy_counts_roundt
     expanded_count = expanded_audit["total_parameters"]
     legacy_count = legacy_audit["total_parameters"]
     details = (
-        f"legacy={legacy_count}, expanded={expanded_count}, "
-        f"delta={expanded_count - legacy_count}"
+        f"legacy={legacy_count}, expanded={expanded_count}, delta={expanded_count - legacy_count}"
     )
     assert expanded_audit["aliases"] == legacy_audit["aliases"] == 0
     assert expanded_count - legacy_count == expected_delta, details
