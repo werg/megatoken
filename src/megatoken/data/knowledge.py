@@ -1,8 +1,7 @@
 """Items for knowledge bases: prepared records, files, and the reading-from-a-base episodes.
 
-An **item** is one physical record already turned into teacher features by the
-existing preparation path: a compressed text piece, an image, a speech clip or a
-video clip (a ``MediaRecord``). A knowledge base is written from items (see
+An **item** is one raw text chunk or one physical record already turned into teacher
+features: a compressed text piece, an image, a speech clip or a video clip. A knowledge base is written from items (see
 ``megatoken.kb``). Three places produce them:
 
 - a prepared corpus: every observed (not generated) feature record of an
@@ -43,7 +42,7 @@ SUFFIXES = {
 class KnowledgeItem:
     """One prepared item and where it is filed."""
 
-    record: MediaRecord
+    record: MediaRecord | bytes
     assets: TensorAssetStore
     metadata: Mapping[
         str, object
@@ -55,6 +54,8 @@ class KnowledgeItem:
     @property
     def modality(self) -> str:
         """The event modality the item is observed as."""
+        if isinstance(self.record, bytes):
+            return "text"
         return "compressed_text" if self.record.modality == "text" else self.record.modality
 
 
@@ -72,7 +73,9 @@ def declared_knowledge(
     """The items an episode declares for a base (see ``knowledge_episode``)."""
     return [
         KnowledgeItem(
-            MediaRecord.from_bytes(row["descriptor"].encode("utf-8")),
+            row["text"].encode("utf-8")
+            if "text" in row
+            else MediaRecord.from_bytes(row["descriptor"].encode("utf-8")),
             assets,
             metadata,
             f"{episode.episode_id}:{row['source']}",
@@ -86,14 +89,16 @@ def declared_knowledge(
 def episode_items(
     episode: Episode, assets: TensorAssetStore, metadata: Mapping[str, object]
 ) -> list[KnowledgeItem]:
-    """Every item of an episode: its observed feature records and its declared items.
+    """Observed feature records, plain document parts, and explicitly declared items.
 
     Generated records (the episode's own targets) are never items. The parts of
     one compressed document share its logical record's identity.
     """
     observed = [
         KnowledgeItem(
-            MediaRecord.from_bytes(record.payload),
+            MediaRecord.from_bytes(record.payload)
+            if record.media_type == MEDIA_RECORD_TYPE
+            else record.payload,
             assets,
             metadata,
             f"{episode.episode_id}:{record.record_id}",
@@ -101,18 +106,26 @@ def episode_items(
             record.part_index,
         )
         for record in episode.records
-        if record.media_type == MEDIA_RECORD_TYPE and not record.policy_mask
+        if not record.policy_mask
+        and (
+            record.media_type == MEDIA_RECORD_TYPE
+            or (record.role == "document" and record.media_type.startswith("text/"))
+        )
     ]
     return observed + declared_knowledge(episode, assets, metadata)
 
 
-def knowledge_annotation(items: Sequence[tuple[MediaRecord, str, int, str]]) -> str:
+def knowledge_annotation(items: Sequence[tuple[MediaRecord | bytes, str, int, str]]) -> str:
     """``annotations_json`` declaring (descriptor, document, part, source) items for a base."""
     return canonical_json(
         {
             "knowledge_items": [
                 {
-                    "descriptor": record.to_bytes().decode("utf-8"),
+                    **(
+                        {"text": record.decode("utf-8")}
+                        if isinstance(record, bytes)
+                        else {"descriptor": record.to_bytes().decode("utf-8")}
+                    ),
                     "document": document,
                     "part": part,
                     "source": source,
@@ -127,7 +140,7 @@ def knowledge_episode(
     episode_id: str,
     question: str,
     answer: str,
-    items: Sequence[tuple[MediaRecord, str, int, str]],
+    items: Sequence[tuple[MediaRecord | bytes, str, int, str]],
     lineage: Lineage,
     *,
     cue: str = "",

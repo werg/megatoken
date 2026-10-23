@@ -235,11 +235,13 @@ def test_current_stage_budget_units_and_proposed_mixtures():
     }
     m1 = stage_recipe("M1")
     # The new cross-track evidence tasks take 0.1% from issue/PR sequences.
-    assert round((m1.mixture["issue_pr_sequences"] + m1.mixture["cross_track_evidence"])
-                 * m1.limit) == 16_213_080_000
+    assert (
+        round((m1.mixture["issue_pr_sequences"] + m1.mixture["cross_track_evidence"]) * m1.limit)
+        == 16_213_080_000
+    )
     assert round(m1.mixture["build_logs"] * m1.limit) == 636_120_000
     # Media is part of the plan: a bridge stage, then explicit shares and replay.
-    assert stage_recipe("MB").constraints["trainable"] == "media_bridge"
+    assert stage_recipe("MB").training["trainable"] == "media_bridge"
     p1 = stage_recipe("P1").mixture
     media = ("audio_identity", "image_identity", "video_identity", "transcription")
     assert all(p1[name] > 0 for name in media) and p1["long_document_reading"] == pytest.approx(
@@ -257,8 +259,9 @@ def test_stage_plan_leans_on_agentic_and_chat_data_over_raw_text():
     # Executed, verified and tool-use agent episodes and chat SFT dominate the text share;
     # raw web text is cut to well under half of its earlier 0.369 (two points of it
     # went to reading from a knowledge base and from a source collection).
-    assert (sum(p1.get(name, 0) for name in AGENTIC)
-            + p1["cross_track_evidence"]) == pytest.approx(0.26695)
+    assert (sum(p1.get(name, 0) for name in AGENTIC) + p1["cross_track_evidence"]) == pytest.approx(
+        0.26695
+    )
     assert p1["chat"] == pytest.approx(0.076)
     assert sum(p1[name] for name in RAW_WEB_TEXT) == pytest.approx(0.133)
     assert p1["base_reading"] == p1["collection_reading"] == pytest.approx(0.0095)
@@ -296,8 +299,9 @@ def test_stage_plan_leans_on_agentic_and_chat_data_over_raw_text():
         assert later["executed_trajectories"] >= 0.076 and later["verified_trajectories"] >= 0.076
     assert stage_recipe("M1").mixture["executed_trajectories"] == pytest.approx(0.1995)
     m2 = stage_recipe("M2").mixture
-    assert (m2["verified_trajectories"] + m2["speech_counterfactual"]
-            + m2["cross_track_evidence"]) == pytest.approx(0.4655)
+    assert (
+        m2["verified_trajectories"] + m2["speech_counterfactual"] + m2["cross_track_evidence"]
+    ) == pytest.approx(0.4655)
     s = stage_recipe("S").mixture
     assert s["tool_use"] + s["typed_exact_instructions"] + s["chat"] >= 0.225
     assert s["natural_document_replay"] <= 0.02

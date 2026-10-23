@@ -121,7 +121,7 @@ Reproduce the package gate with:
 ```bash
 python -m ruff check src tests scripts
 python -m ruff format --check src tests scripts
-bash -n scripts/launch.sh scripts/slurm.sh
+bash -n src/megatoken/cloud_bootstrap.sh
 python -m build --no-isolation
 python -m pip install --no-deps --force-reinstall dist/megatoken-0.1.0-py3-none-any.whl
 python -m pytest -q --junitxml=validation/contextual32-v4-installed-tests.xml

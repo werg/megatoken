@@ -122,19 +122,21 @@ def learner_round(
 ) -> LearnerRound:
     """Collect and reset one learner's round contribution (called at a round boundary)."""
     bank = optimizer.bank
-    deltas, writes = optimizer.take_round()
+    deltas, writes = optimizer.take_round((step, worker, PROVISIONAL_BASE))
     # Each provisional row is sent once, whole; it has no canonical base to differ from.
     provisional_ids = [edge for edge in growth.provisional_ids if edge in bank]
     growth.submitted_ids.extend(provisional_ids)
     growth.provisional_ids = []
     for name, (ids, rows) in list(deltas.items()):
+        if name == "value":
+            continue  # packed and limited to canonical edges by the optimizer
         keep = ids < PROVISIONAL_BASE
         deltas[name] = (ids[keep], rows[keep])
     value_delta: dict[str, Tensor] = {}
     if "value" in deltas:
-        ids, rows = deltas.pop("value")
+        # Already packed (and limited to canonical edges) by the optimizer, block by block.
+        ids, packed = deltas.pop("value")
         if ids.numel():
-            packed = pack_fp4(rows, row_seeds(ids.to(rows.device), "value", step, worker))
             value_delta = {
                 "ids": ids.cpu(),
                 "codes": packed.codes.cpu(),
@@ -240,7 +242,9 @@ def install_changes(
     Its submitted provisional rows are dropped (the coordinator adopted or
     rejected them; unsubmitted ones stay), its masters restart from the
     installed rows, and it keeps its own statistics for every edge that still
-    exists.
+    exists. Training done since the last submission on a row the coordinator
+    republished is carried onto the installed row, so a round in flight costs
+    the learner none of its progress.
     """
     if optimizer.bank is not bank or growth.bank is not bank:
         raise ValueError("Install requires one learner's bank, optimizer and growth")
@@ -248,6 +252,12 @@ def install_changes(
         raise RuntimeError("Install only between optimizer steps")
     gone = [edge for edge in growth.submitted_ids if edge in bank]
     retired = gone + changes.retired
+    republished = set(changes.rows["ids"].tolist()) - set(retired)
+    carried = {}
+    for name, (ids, delta) in optimizer.round_deltas().items():
+        keep = [k for k, edge in enumerate(ids.tolist()) if edge in republished]
+        if keep:
+            carried[name] = (ids[keep], delta[keep])
     bank.import_rows(changes.rows, retired=retired, next_id=changes.next_id)
     optimizer.forget(retired)
     # Rows the coordinator republished are this round's new base.
@@ -259,6 +269,20 @@ def install_changes(
     if changes.learned_values and not bank.learned_values:
         optimizer.switch_to_learned()
         growth.switch_to_learned()
+    for name, (ids, delta) in carried.items():
+        edges = ids.tolist()
+        if name == "value" and not bank.learned_values:
+            continue
+        optimizer._remember_origin(name, edges)  # the installed rows are the new base
+        target = bank.decode(name, ids).reshape(len(edges), -1) + delta.to(bank.device)
+        if name in ADDRESS_FIELDS:
+            bank.publish_addresses(
+                name, ids, unit(target), step=optimizer.step_number, worker=optimizer.worker
+            )
+        elif name == "value":
+            bank.publish_values(ids, target, step=optimizer.step_number, worker=optimizer.worker)
+        else:
+            bank.publish_bias(ids, target.reshape(-1))
 
 
 def _check_packed(ids: Tensor, packed: dict[str, Tensor], dim: int, message: str) -> None:
@@ -282,7 +306,12 @@ class TransducerCoordinator:
     """The canonical owner. Learners submit in any order; one merge per round."""
 
     def __init__(
-        self, bank: TransducerBank, growth: TransducerGrowth, *, evidence_from: int = 0
+        self,
+        bank: TransducerBank,
+        growth: TransducerGrowth,
+        *,
+        evidence_from: int = 0,
+        frozen: bool = False,
     ) -> None:
         if growth.bank is not bank or growth.optimizer is not None:
             raise ValueError("The coordinator's growth must share its bank and have no optimizer")
@@ -291,6 +320,7 @@ class TransducerCoordinator:
         self.bank = bank
         self.growth = growth
         self.evidence_from = evidence_from
+        self.frozen = frozen
         self.version = 0
         self.clock = 0
         # Highest merged sequence per worker: rounds arrive in order per worker.
@@ -322,6 +352,13 @@ class TransducerCoordinator:
 
     def _validate(self, submission: LearnerRound) -> None:
         """Refuse a round that could fail halfway through a merge."""
+        try:
+            self._validate_fields(submission)
+        except (KeyError, TypeError, AttributeError, IndexError) as error:
+            # A missing key or wrong type in a malformed wire object is the sender's error.
+            raise ValueError(f"Malformed transducer submission: {error!r}") from error
+
+    def _validate_fields(self, submission: LearnerRound) -> None:
         g = self.bank.geometry
         for name, (ids, rows) in submission.deltas.items():
             width = 1 if name == "bias" else g.dims(name)
@@ -358,6 +395,25 @@ class TransducerCoordinator:
                 torch.isfinite(mass).all() & (mass >= 0).all()
             ):
                 raise ValueError("Invalid submitted hindsight writes")
+        evidence = submission.evidence
+        if evidence is not None and evidence.ids.numel():
+            count = evidence.ids.numel()
+            columns = (
+                "utility",
+                "visits",
+                "dispersion",
+                "sketch_count",
+                "energy",
+                "last_step",
+            )
+            if evidence.sketch.ndim != 2 or evidence.sketch.shape[0] != count:
+                raise ValueError("Malformed structural evidence")
+            for name in columns:
+                if getattr(evidence, name).shape != (count,):
+                    raise ValueError("Malformed structural evidence")
+            floats = [evidence.sketch, *(getattr(evidence, n) for n in columns[:-1])]
+            if not all(bool(torch.isfinite(x.float()).all()) for x in floats):
+                raise ValueError("Nonfinite structural evidence")
         if submission.provisional:
             rows = submission.provisional
             if bool((rows["ids"] < PROVISIONAL_BASE).any()):
@@ -375,6 +431,8 @@ class TransducerCoordinator:
 
     def record_validation(self, step: int, bank_only_loss: float) -> bool:
         """Bank-only continuation loss; the switch, when due, lands with the next merge."""
+        if self.frozen:
+            return False
         if self.switch.record(step, bank_only_loss, self.bank) and not self.switch_requested:
             self.switch_requested = True
         return self.switch_requested
@@ -573,6 +631,15 @@ class TransducerCoordinator:
         if not self.pending:
             return {"submitted": 0, "fields": 0, "written": 0, "adopted": 0}
         try:
+            if self.frozen and any(
+                any(ids.numel() for ids, _ in row.deltas.values())
+                or row.write_ids.numel()
+                or row.value_delta.get("ids", torch.empty(0)).numel()
+                or row.provisional.get("ids", torch.empty(0)).numel()
+                or (row.evidence is not None and row.evidence.ids.numel())
+                for row in self.pending
+            ):
+                raise ValueError("Frozen coordinator memory cannot accept learner mutations")
             weights = self._weights()
             denominator = sum(weights)
             if not denominator > 0:
@@ -618,8 +685,9 @@ class TransducerCoordinator:
             added, mapping = self._adopt(weights)
             self._fold_evidence(weights, mapping)
             self.bank.masters.clear()
-            evolution = self.growth.evolve(step, evidence_from=self.evidence_from)
-            if self.switch_requested and not self.bank.learned_values:
+            if not self.frozen:
+                evolution = self.growth.evolve(step, evidence_from=self.evidence_from)
+            if not self.frozen and self.switch_requested and not self.bank.learned_values:
                 self.bank.switch_to_learned()
                 self.growth.switch_to_learned()
                 self.switch_version = self.version + 1
@@ -680,9 +748,12 @@ class TransducerCoordinator:
             "switch_requested": self.switch_requested,
             "switch_version": self.switch_version,
             "evidence_from": self.evidence_from,
+            "frozen": self.frozen,
         }
 
     def load_state_dict(self, state: dict) -> None:
+        if state.get("frozen", False) != self.frozen:
+            raise ValueError("Coordinator memory freeze policy changed during resume")
         if state["identity"] != self.bank.identity:
             raise ValueError("Only a v10 coordinator state can be restored")
         self.version = int(state["version"])

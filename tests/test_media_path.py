@@ -700,6 +700,7 @@ def test_frozen_owners_keep_their_masters_through_a_checkpoint():
 
 def config(**overrides):
     settings = dict(
+        purpose="diagnostic",
         model="tiny",
         phase="B0",
         budget=64,
@@ -719,8 +720,9 @@ def test_the_stage_plan_decides_what_trains():
 
 
 def test_trainable_rejects_unknown_scopes():
-    for value in ("text", "bridge", "", None):
-        with pytest.raises(ValueError, match="trainable is"):
+    assert config(trainable=None).trainable == "all"  # Omission inherits the shared policy.
+    for value in ("text", "bridge", ""):
+        with pytest.raises(ValueError, match="all, media_bridge, or latent_policy"):
             config(trainable=value)
 
 

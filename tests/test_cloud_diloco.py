@@ -103,6 +103,8 @@ def test_derive_sets_the_coordinator_url_and_checks_the_worker_count(tmp_path):
     config.write_text(
         json.dumps(
             {
+                "purpose": "diagnostic",
+                "max_steps": 1,
                 "model": "tiny",
                 "budget": 64,
                 "decoupled": {
@@ -141,7 +143,10 @@ def test_start_delivers_generated_files_secrets_and_peer_share_tokens(tmp_path, 
     git = ["git", "-C", str(repo), "-c", "user.email=t@t", "-c", "user.name=t"]
     subprocess.run([*git, "init", "-q"], check=True)
     (repo / "a.py").write_text("x = 1\n")
-    subprocess.run([*git, "add", "a.py"], check=True)
+    configuration = repo / "configs/train/x.yaml"
+    configuration.parent.mkdir(parents=True)
+    configuration.write_text("purpose: diagnostic\nmax_steps: 1\nmodel: tiny\n")
+    subprocess.run([*git, "add", "a.py", "configs/train/x.yaml"], check=True)
     subprocess.run([*git, "commit", "-qm", "init"], check=True)
     monkeypatch.setattr(cloud, "STATE", tmp_path / "state")
     monkeypatch.setattr(cloud, "SECRETS", tmp_path / "state" / "secrets")
@@ -341,7 +346,10 @@ def _launch_env(tmp_path, monkeypatch):
     git = ["git", "-C", str(repo), "-c", "user.email=t@t", "-c", "user.name=t"]
     subprocess.run([*git, "init", "-q"], check=True)
     (repo / "a.py").write_text("x = 1\n")
-    subprocess.run([*git, "add", "a.py"], check=True)
+    configuration = repo / "configs/train/x.yaml"
+    configuration.parent.mkdir(parents=True)
+    configuration.write_text("purpose: diagnostic\nmax_steps: 1\nmodel: tiny\n")
+    subprocess.run([*git, "add", "a.py", "configs/train/x.yaml"], check=True)
     subprocess.run([*git, "commit", "-qm", "init"], check=True)
     monkeypatch.setattr(cloud, "STATE", tmp_path / "state")
     monkeypatch.setattr(cloud, "SECRETS", tmp_path / "state" / "secrets")
@@ -412,3 +420,128 @@ def test_a_terminated_launcher_tears_its_sandboxes_down(monkeypatch):
         assert exit_.value.code == 143
     finally:
         signal.signal(signal.SIGTERM, previous)
+
+
+def test_teacher_artifact_is_remapped_once_and_vectors_only_reach_learners(monkeypatch):
+    files = [
+        {
+            "path": f"out/hindsight/{name}",
+            "url": f"https://peer/out/hindsight/{name}",
+            "sha256": "a" * 64,
+            "peer": "teacher-prep",
+        }
+        for name in ("manifest.json", "targets.sqlite", "encoding.pt", "media/value.fp4")
+    ]
+    monkeypatch.setattr(cloud_diloco, "data_inputs", lambda source: files)
+    spec = cloud_diloco.validate(
+        _spec(hindsight={"peer": "teacher-prep", "prefix": "out/hindsight"})
+    )
+    inputs = cloud_diloco.hindsight_inputs(spec)
+    assert {item["path"] for item in inputs} == {
+        f"data/hindsight/{name}"
+        for name in ("manifest.json", "targets.sqlite", "encoding.pt", "media/value.fp4")
+    }
+    assert inputs[-1]["url"].endswith("out/hindsight/media/value.fp4")
+    coordinator = cloud_diloco.coordinator_job(spec, inputs)
+    assert [item["path"] for item in coordinator["inputs"]] == ["data/hindsight/manifest.json"]
+    assert cloud_diloco.learner_job(spec, inputs, 0)["inputs"] == inputs
+
+
+def test_missing_default_teacher_inputs_abort_before_any_sandbox_starts(tmp_path, monkeypatch):
+    repo, run = _launch_env(tmp_path, monkeypatch)
+    config = repo / "configs/train/x.yaml"
+    config.write_text(
+        "model: tiny\n"
+        "hindsight_targets: /work/data/hindsight\n"
+        "decoupled: {coordinator_url: https://coordinator, run_id: test, workers: 2}\n"
+    )
+    monkeypatch.setattr(
+        cloud, "start", lambda *a, **kw: pytest.fail("Started billable work without teacher inputs")
+    )
+    with pytest.raises(cloud.CloudError, match="prepared manifest and index"):
+        cloud_diloco.launch(run, repo)
+
+
+def test_later_production_stage_cannot_launch_without_previous_checkpoint(tmp_path, monkeypatch):
+    from dataclasses import asdict
+
+    from training_fixture import production_config
+
+    repo, run = _launch_env(tmp_path, monkeypatch)
+    from megatoken.training.config import DecoupledConfig
+
+    config = production_config(
+        "P1", model="tiny", decoupled=DecoupledConfig("https://coordinator", "test", workers=2)
+    )
+    (repo / "configs/train/x.yaml").write_text(json.dumps(asdict(config)))
+    monkeypatch.setattr(cloud, "start", lambda *a, **kw: pytest.fail("Started billable work"))
+    spec = json.loads(run.read_text())
+    run.write_text(json.dumps({**spec, "workers": 3}))
+    with pytest.raises(cloud.CloudError, match="worker count"):
+        cloud_diloco.launch(run, repo)
+    run.write_text(json.dumps(spec))
+    with pytest.raises(cloud.CloudError, match="preceding checkpoint via coordinator"):
+        cloud_diloco.launch(run, repo)
+    spec = json.loads(run.read_text())
+    spec["coordinator"]["args"] += ["--resume", "/work/assets/previous-stage/latest.json"]
+    run.write_text(json.dumps(spec))
+    with pytest.raises(cloud.CloudError, match="checkpoint is absent"):
+        cloud_diloco.launch(run, repo)
+
+
+def test_cached_coordinator_derive_keeps_globs_without_local_data(tmp_path):
+    config = tmp_path / "config.json"
+    config.write_text(
+        json.dumps(
+            {
+                "purpose": "diagnostic",
+                "max_steps": 1,
+                "model": "tiny",
+                "datasets": ["/work/data/prepared/*"],
+                "decoupled": {"coordinator_url": "https://old", "workers": 2, "run_id": "test"},
+            }
+        )
+    )
+    output = tmp_path / "derived.json"
+    cloud_diloco.derive(config, "https://new", 2, output)
+    assert json.loads(output.read_text())["datasets"] == ["/work/data/prepared/*"]
+
+
+def test_required_decoder_and_donor_headers_cannot_be_forgotten():
+    from megatoken.training.config import TrainConfig
+
+    config = TrainConfig(
+        purpose="diagnostic",
+        max_steps=1,
+        model="tiny",
+        packs="/work/assets/packs/lock.json",
+        engram_imports=["/work/assets/donor"],
+    )
+    with pytest.raises(cloud.CloudError, match="Required training asset"):
+        cloud_diloco.validate_memory_delivery(config, [])
+
+
+def test_finish_reports_a_failed_coordinator_export_instead_of_success(tmp_path, monkeypatch):
+    run = {"coordinator": "sb-coordinator", "learners": ["sb-0", "sb-1"]}
+    path = tmp_path / "run.json"
+    path.write_text(json.dumps(run))
+    events, written = [], []
+
+    class Sandbox:
+        def write_file(self, name, data):
+            written.append(name)
+            return type("Done", (), {"result": lambda self: None})()
+
+    def collect(sandbox_id, destination, **_):
+        return {"sandbox_id": sandbox_id, "status": 3 if sandbox_id == "sb-coordinator" else 0}
+
+    monkeypatch.setattr(cloud_diloco, "_run_path", lambda run_id: path)
+    monkeypatch.setattr(cloud, "outputs_ready", lambda sandbox_id: True)
+    monkeypatch.setattr(cloud, "collect", collect)
+    monkeypatch.setattr(cloud, "_attach", lambda sandbox_id: Sandbox())
+    monkeypatch.setattr(cloud, "stop_all", lambda ids, reason, grace: [])
+    monkeypatch.setattr(cloud, "record", events.append)
+    with pytest.raises(cloud.CloudError, match="export failed"):
+        cloud_diloco.finish("unit-run", tmp_path / "out", poll=0)
+    assert written and events[-1]["event"] == "diloco_failed"
+    assert events[-1]["export_status"] == 3

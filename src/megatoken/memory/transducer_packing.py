@@ -127,8 +127,7 @@ class FP8Rows:
         return scaled.reshape(rows, groups * FP8_GROUP)[:, :dim]
 
 
-def pack_fp8(values: Tensor, seeds: Tensor | None = None) -> FP8Rows:
-    """E4M3 rows with per-128 FP32 scales; unbiased rounding when seeds are given."""
+def _pack_fp8_rows(values: Tensor, seeds: Tensor | None) -> FP8Rows:
     x = values.detach().float()
     if x.ndim != 2 or not bool(torch.isfinite(x).all()):
         raise ValueError("FP8 packing needs finite [rows, dim] values")
@@ -166,8 +165,7 @@ def _round_up_e4m3(scales: Tensor) -> Tensor:
     return positive[index]
 
 
-def pack_fp4(values: Tensor, seeds: Tensor | None = None) -> FP4Rows:
-    """Signed E2M1 rows. Group scales round up, so no element is clipped."""
+def _pack_fp4_rows(values: Tensor, seeds: Tensor | None) -> FP4Rows:
     x = values.detach().float()
     if x.ndim != 2 or not bool(torch.isfinite(x).all()):
         raise ValueError("FP4 packing needs finite [rows, dim] values")
@@ -201,6 +199,44 @@ def pack_fp4(values: Tensor, seeds: Tensor | None = None) -> FP4Rows:
     pairs = code.reshape(rows, -1, 2)
     packed = pairs[..., 0] | (pairs[..., 1] << 4)
     return FP4Rows(packed, group_scales.to(torch.float8_e4m3fn), row_scales)
+
+
+# Rows are independent, so a wide batch is packed in blocks: the rounding draws alone are
+# [rows, dim] int64/float64, which for 32,768-wide values is hundreds of KB per row.
+_BLOCK_ELEMENTS = 1 << 22
+
+
+def _blocks(values: Tensor, seeds: Tensor | None):
+    rows, dim = values.shape
+    step = max(1, _BLOCK_ELEMENTS // max(1, dim))
+    for start in range(0, rows, step):
+        yield values[start : start + step], None if seeds is None else seeds[start : start + step]
+
+
+def pack_fp8(values: Tensor, seeds: Tensor | None = None) -> FP8Rows:
+    """E4M3 rows with per-128 FP32 scales; unbiased rounding when seeds are given."""
+    if values.ndim != 2 or values.shape[0] <= max(1, _BLOCK_ELEMENTS // max(1, values.shape[1])):
+        return _pack_fp8_rows(values, seeds)
+    if not bool(torch.isfinite(values.detach()).all()):
+        raise ValueError("FP8 packing needs finite [rows, dim] values")
+    parts = [_pack_fp8_rows(block, block_seeds) for block, block_seeds in _blocks(values, seeds)]
+    return FP8Rows(
+        torch.cat([part.codes for part in parts]), torch.cat([part.scales for part in parts])
+    )
+
+
+def pack_fp4(values: Tensor, seeds: Tensor | None = None) -> FP4Rows:
+    """Signed E2M1 rows. Group scales round up, so no element is clipped."""
+    if values.ndim != 2 or values.shape[0] <= max(1, _BLOCK_ELEMENTS // max(1, values.shape[1])):
+        return _pack_fp4_rows(values, seeds)
+    if not bool(torch.isfinite(values.detach()).all()):
+        raise ValueError("FP4 packing needs finite [rows, dim] values")
+    parts = [_pack_fp4_rows(block, block_seeds) for block, block_seeds in _blocks(values, seeds)]
+    return FP4Rows(
+        torch.cat([part.codes for part in parts]),
+        torch.cat([part.group_scales for part in parts]),
+        torch.cat([part.row_scales for part in parts]),
+    )
 
 
 def fp8_nbytes(dim: int) -> int:
