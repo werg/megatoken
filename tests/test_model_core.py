@@ -426,6 +426,20 @@ def test_bf16_every_owner_and_unconditional_initial_state_are_differentiable():
         "central.modality_embedding.",
         "adapters.",
     )
+    media_only_pools = {
+        entry["pool"]
+        for entry in core.expert_pools.manifest()["sites"]
+        if str(entry["site"]).startswith("core.media_encoder.")
+    }
+    used_elsewhere = {
+        entry["pool"]
+        for entry in core.expert_pools.manifest()["sites"]
+        if not str(entry["site"]).startswith("core.media_encoder.")
+    }
+    inactive_media_pool_codes = {
+        "".join(character if character.isalnum() else "_" for character in pool) + "__codes"
+        for pool in media_only_pools - used_elsewhere
+    }
     assert [
         name
         for name, parameter in core.named_parameters()
@@ -433,6 +447,7 @@ def test_bf16_every_owner_and_unconditional_initial_state_are_differentiable():
         and not name.startswith(conditional)
         and "adapter_" not in name
         and not name.endswith("attention.same_track_bias")
+        and not any(name.endswith(f"pool_codes.{code}") for code in inactive_media_pool_codes)
     ] == []
     assert all(
         torch.isfinite(parameter.grad).all()
@@ -467,8 +482,9 @@ def test_owner_groups_are_disjoint_complete_and_allow_fixed_decoder_latent_rl():
         for group in (groups[0], groups[1], groups[3], groups[4], groups[5])
         for parameter in group
     )
-    assert core.remix.channels.down.weight.grad.norm() > 0
-    assert core.stages[0].attention.query.router.weight.grad.norm() > 0
+    assert core.remix.channels.norm.weight.grad.norm() > 0
+    assert core.p_router.palette_codes.grad.norm() > 0
+    assert core.p_router.row_codes.grad.norm() > 0
     assert all(parameter.grad is None for parameter in groups[5])
 
 
@@ -481,9 +497,9 @@ def test_real_owner_counts_shared_kv_and_expert_banks():
     assert core.p_bank.down.numel() == core.p_bank.experts * core.p_bank.dim * core.p_bank.hidden
     assert core.p_bank.gate_up_adapter_up.numel() > 0
     assert core.p_bank.down_adapter_up.numel() > 0
-    assert len({id(stage.always.router.weight) for stage in core.stages}) == 12
+    assert len({id(stage.always.router.weight) for stage in core.stages}) == 1
     assert all(stage.always._bank is core.stages[0].always._bank for stage in core.stages)
-    assert len({id(stage.attention.query.router.weight) for stage in core.stages}) == 12
+    assert len({id(stage.attention.query.router.weight) for stage in core.stages}) == 1
     assert all(
         stage.attention.query._bank is core.stages[0].attention.query._bank
         for stage in core.stages
@@ -492,7 +508,7 @@ def test_real_owner_counts_shared_kv_and_expert_banks():
     assert not hasattr(core.central, "history_pool")
     projectors = [core.central.memory, *core.central.temporary_memories]
     assert len({id(projector.key_value._bank) for projector in projectors}) == 1
-    assert len({id(projector.key_value.router.weight) for projector in projectors}) == 4
+    assert len({id(projector.key_value.router.weight) for projector in projectors}) == 1
     assert len(core.central.temporary_memories) == 3
     assert core.central.slot_embedding.shape == (config.n_facets, config.facet_dim)
     assert all(core.central.layers[index].temporary_gate is not None for index in (1, 2, 3))

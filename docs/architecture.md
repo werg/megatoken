@@ -78,17 +78,22 @@ predictive blocks retain most depth after the remix. This allocation is a design
 choice to validate in training, not an experimentally established optimum.
 
 C and E use the same `DenseFacetBlock` implementation with separate parameters.
-Every eligible learned linear projection and SwiGLU site is a routed expert
-site. Its small selector and site-specific biases are local to that operation;
-the expert values live in a core-owned shape registry. Linear pools are shared
-by their padded canonical input/output dimensions, and SwiGLU pools are shared
-by their canonical model width (with a `2D` gate/up width). A site pads its input
-to the pool width, routes one selected expert, and crops the output to the site's
-original width. This gives C, P, U, R, and the trainable media paths the same
-learned expert system while keeping each site's routing decision independent.
-P still has its twelve residual attention stages and U still has its realization
-structure; their old stage-local expert values are now accessed through these
-global shape buckets. Three stage-specific intermediate KV projectors feed the next C
+Every eligible learned linear projection and SwiGLU site uses the same
+hierarchical routing path. A finite deterministic fold maps the current context
+to the small router width, then adds learned track, role, and stage codes. A
+shared bootstrap selector chooses one router expert, which produces the compact
+routing feature. For each padded shape pool, one selector chooses an eligible
+expert palette and caches it for the current routing epoch. Sites in that pool
+use a deterministic prefix-hash phase to distribute their rows across the
+cached palette. Learned selection therefore happens once per routing epoch and
+shared shape pool, rather than through a separate learned router at every
+projection. Linear pools are shared by their padded canonical input/output
+dimensions; SwiGLU pools are shared by their canonical model width (with a `2D`
+gate/up width). A site pads its input to the pool width and crops the output to
+its original width. C, P, U, R, and the trainable media paths share the same
+expert values and per-pool heads. P still has its twelve residual attention
+stages and U still has its realization structure; their expert values are
+accessed through these global shape buckets. Three stage-specific intermediate KV projectors feed the next C
 block; one final KV projector alone owns persistent history and P's live keys.
 Each C/P block retains its own query/output reader. Intermediate KV is never
 added to the cache.
@@ -163,9 +168,10 @@ C, P and R no longer own separate adapter banks. Every shared expert pool stores
 low-rank adapter factors alongside each base expert; `adapter_experts`,
 `adapter_rank` and `adapter_topk` are part of the architecture identity. The
 site-local controller receives the retrieval-conditioned preference. After
-every transducer lookup, the controllers read the lookup's blended 32,768-wide
-knowledge value, the one its knowledge event is read from, and keep one
-preference per controller. Scaled by one minus the sink's share of the lookup,
+every transducer lookup, the shared router bootstrap folds the lookup's blended
+32,768-wide knowledge value to a compact feature and executes one shared router
+expert. Four small role-local heads turn that one feature into E/C/P/R adapter
+preferences. Scaled by one minus the sink's share of the lookup,
 that is the **mixture**. It rides on
 the multitrack state, so every meridian on every track runs under it until the
 next lookup replaces it; before the first lookup there is none, and a lookup
@@ -175,10 +181,11 @@ their state, so a speculative branch inherits it and a rejected one cannot leak 
 At a routed site, the controller's preference selects adapter factors belonging
 to the chosen base expert and adds their low-rank update to the expert result.
 The same path applies across C, P, U, R, and other eligible learned projections,
-including media-local sites. Shared pool weights are registered once under the
-core and therefore have one optimizer master, checkpoint owner, and distributed
-update even when many operations use them. Each site keeps its own selector and
-site-local bias. The hindsight pass is a training-only set of sites that uses
+including media-local sites. Shared pool weights and routing heads are
+registered once under the core and therefore have one optimizer master,
+checkpoint owner, and distributed update even when many operations use them.
+Each site keeps its own local bias and a deterministic phase within the pool's
+cached palette. The hindsight pass is a training-only set of sites that uses
 the same core pools; its local selectors are excluded from served export with
 the hindsight head, while those global pools remain part of the served state.
 Training drops a lookup's whole mixture with probability 0.1 (seeded by the

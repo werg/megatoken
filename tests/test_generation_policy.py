@@ -557,6 +557,21 @@ def test_late_media_registration_binds_its_trainable_condition(model):
     )
 
 
+def test_frozen_readout_cache_refreshes_when_parameters_are_added(model):
+    from torch import nn
+
+    from megatoken.model.multitrack import MultiTrackGenerator
+
+    multi = MultiTrackGenerator.of(model)
+    readout = nn.Sequential(nn.Linear(3, 4))
+    first = multi._frozen_readout(readout)
+    readout.append(nn.Linear(4, 2))
+    refreshed = multi._frozen_readout(readout)
+
+    assert set(first) == {"0.weight", "0.bias"}
+    assert set(refreshed) == {"0.weight", "0.bias", "1.weight", "1.bias"}
+
+
 def test_noncanonical_teacher_ids_remain_actual_ce_targets():
     pieces = [bytes([value]) for value in range(256)] + [b"ab"]
     codec = ByteCodec(pieces, merge_ranks={(b"a", b"b"): 0})

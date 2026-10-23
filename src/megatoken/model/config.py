@@ -48,6 +48,7 @@ class ModelConfig:
     projection_experts: int = 8
     eligible_experts: int = 8
     router_dim: int = 64
+    router_experts: int = 8
     routing_version: int = 3
     query_heads: int = 4
     kv_heads: int = 2
@@ -104,6 +105,7 @@ class ModelConfig:
             "u_always_hidden",
             "eligible_experts",
             "router_dim",
+            "router_experts",
             "remix_hidden",
             "max_history_chunks",
             "max_tracks",
@@ -219,6 +221,7 @@ class ModelConfig:
             u_experts=8,
             projection_experts=4,
             router_dim=16,
+            router_experts=4,
             max_history_chunks=8,
             attention_head_dim=8,
             vocab_size=256,

@@ -123,7 +123,9 @@ def test_compressed_documents_train_through_the_media_encoder(tmp_path, mode):
         ledger.finish()
     assert sum(b.counts["lexical"] for b in batches) > 0
     if mode == "bootstrap":  # recurrent training updates E on its own branch only
-        assert model.core.media_encoder.projection.weight.grad is not None
+        projection = model.core.media_encoder.projection
+        assert projection.router.weight.grad is not None
+        assert projection._bank.weight.grad is not None
     assert model.core.central.modality_embedding.weight.grad[4].abs().sum() > 0
 
 

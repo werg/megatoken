@@ -33,26 +33,34 @@ C's final features and historical KV. See [architecture.md](architecture.md) for
 ### Shared expert ownership
 
 Eligible learned projections and SwiGLU operations route through globally
-registered expert pools. Pools are grouped by padded input/output shape (linear
-sites) or hidden width (SwiGLU sites), so sites with compatible shapes use the
-same expert values. Each operation keeps its own small router and any local
-bias; the pool is referenced without registering a second copy under each
-site. The optimizer, checkpoint, and synchronous or DiLoCo synchronization
-therefore see every global pool parameter once, regardless of how many sites
-use it. Retrieval-conditioned adapter factors are stored with those shared
-expert values and follow the same one-owner rule.
+registered expert pools. A deterministic fold and track/role/stage codes create
+a compact bootstrap context; a shared bootstrap selector chooses one small
+router expert, which emits the routing feature. Each shared shape pool then
+selects its eligible expert palette once for the current routing epoch. Every
+compatible site reuses that cached palette, with a deterministic site-prefix
+phase distributing its rows across the palette. Learned selection happens
+once for the bootstrap and once per active shape pool per epoch, instead of at
+every individual projection. Pools group linear sites by padded input/output
+shape and SwiGLU sites by hidden width, so compatible sites share expert values
+and routing heads. Sites retain local biases, while the pool is referenced
+without registering duplicate parameters under each site. Optimizer,
+checkpoint, and synchronous or DiLoCo synchronization therefore see every
+global pool parameter once. Retrieval-conditioned adapter factors are stored
+with shared expert values and follow the same one-owner rule.
 
 The trainer clips gradients from global pools in a separate `shared` domain.
 This prevents one pool's norm from being counted once for every site that uses
-it. Site-local routers, biases, and the rest of the model remain in the model
-domain; recurrent encoder reconstruction retains its own encoder domain. Router
-balance diagnostics are reported for each selector separately, including the
-core P/U selectors, adapter controllers, and every routed site present in the
-full training model. These are local counts, not an aggregate claim that only
-P and U cover the model's routing decisions.
+it. P/U selectors, role-local adapter controllers, and the rest of the model
+remain in the model domain; recurrent encoder reconstruction retains its own
+encoder domain. Router balance diagnostics report the shared bootstrap selector,
+one selector per active shape pool, and the explicit P/U and adapter controllers.
+Sites sharing a selector contribute to that selector's combined assignment
+counts instead of creating repeated copies of the same balance term.
 
-In the media-bridge stage, the shared expert pools and their adapters remain
-frozen while media-local encoding, routing, and realizer conditions train. The
+In the media-bridge stage, the shared expert pools, bootstrap router, and their
+adapters remain frozen while media-local encoding, site-specific biases/gains,
+and realizer conditions train. Shared routing heads stay frozen with their
+shape pools. The
 E-only recurrent reconstruction path also freezes the global pools and their
 adapters as part of its direct readout; gradients pass through the fixed
 readout to E without updating those shared values. Main recurrent and replay

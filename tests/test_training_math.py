@@ -227,6 +227,7 @@ def test_shared_expert_pool_has_one_training_owner_and_its_own_clip_domain():
     model = TwoSites()
     # Both sites refer to the same bank without registering it a second time.
     assert model.first._bank is model.second._bank
+    assert model.first.router is model.second.router
     pool_parameter = model.first._bank.weight
     owners = [
         name
@@ -237,23 +238,16 @@ def test_shared_expert_pool_has_one_training_owner_and_its_own_clip_domain():
 
     optimizer = MasterAdamW(model, lr=0.01)
     shared_names = [name for name in optimizer.masters if name.startswith("expert_pools.")]
-    site_names = [
-        name
-        for name in optimizer.masters
-        if name.startswith(("first.router.", "second.router."))
-    ]
     rest_names = [
-        name for name in optimizer.masters if name not in set(shared_names + site_names)
+        name for name in optimizer.masters if name not in set(shared_names)
     ]
-    optimizer.set_gradient_domains(
-        {"shared": shared_names, "routers": site_names, "model": rest_names}
-    )
+    optimizer.set_gradient_domains({"shared": shared_names, "model": rest_names})
     values = torch.randn(2, 3)
     loss = model.first(values).square().sum() + 2 * model.second(values).square().sum()
     loss.backward()
     metrics = optimizer.step(max_norm=0.1)
     assert "gradient_norm_shared" in metrics
-    assert "gradient_norm_routers" in metrics
+    assert "gradient_norm_model" in metrics
     assert pool_parameter in optimizer.model_parameters.values()
     optimizer.close()
 

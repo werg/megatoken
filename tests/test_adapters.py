@@ -53,6 +53,20 @@ def memory_model(edges: int = 12, *, strength: float = 0.3):
     return model
 
 
+def test_adapter_controllers_share_one_compact_router_feature():
+    model = tiny_model()
+    core = model.core
+    value = torch.randn(core.config.transducer_value_rows * core.config.facet_dim)
+    before = core.expert_pools.router_evaluations
+    mixture = core.adapters.select(value, torch.tensor(0.75))
+    assert mixture.logits.shape == (1, len(OWNERS), core.config.adapter_experts)
+    assert core.expert_pools.router_evaluations == before + 1
+    assert all(
+        owner.router.in_features == core.config.router_dim
+        for owner in core.adapters.owners.values()
+    )
+
+
 def looked_up(model, *, training: bool = False):
     """Metadata, then one lookup: the session as the first answer would find it."""
     multi = MultiTrackGenerator(model)
@@ -264,7 +278,10 @@ def test_global_router_balance_covers_the_adapter_routers(tmp_path):
     routers = balance_routers(model)
     core_routers = {"p", "u", *(f"adapter_{name}" for name in OWNERS)}
     assert core_routers <= routers.keys()
-    assert any(name.startswith("site_") for name in routers)
+    selector_names = [name for name in routers if name.startswith("shape_")]
+    assert "shape_bootstrap" in selector_names
+    assert any(name.startswith("shape_pool_") for name in selector_names)
+    assert len({id(routers[name]) for name in selector_names}) == len(selector_names)
     window = RouterBalanceWindow()
     for router in routers.values():
         router.balance_recorder = window
@@ -282,6 +299,10 @@ def test_global_router_balance_covers_the_adapter_routers(tmp_path):
     ledger.finish()
     model.zero_grad()
     diagnostics = window.backward(DistributedContext(), routers=routers, coefficient=1.0)
+    assert selector_names and all(
+        f"balance_{name}_assignments" in diagnostics for name in selector_names
+    )
+    assert sum(diagnostics[f"balance_{name}_assignments"] for name in selector_names) > 0
     topk = model.config.adapter_topk
     for name in OWNERS:
         count = diagnostics[f"balance_adapter_{name}_assignments"]

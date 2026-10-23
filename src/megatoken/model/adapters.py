@@ -69,10 +69,12 @@ class OwnerAdapters(nn.Module):
         topk: int,
         max_tracks: int,
         sites: int,
+        input_dim: int | None = None,
     ) -> None:
         super().__init__()
         self.width, self.experts, self.rank, self.topk = width, experts, rank, topk
-        self.router = nn.Linear(value_dim, experts, bias=False)
+        # A compact shared-router feature fans out to role-local adapter heads.
+        self.router = nn.Linear(input_dim or value_dim, experts, bias=False)
         # Rows 0..max_tracks-1 are user tracks, then the reserved system tracks.
         self.track_preference = nn.Embedding(max_tracks + len(RESERVED_TRACKS), experts)
         self.stage_preference = nn.Embedding(sites, experts)
@@ -104,9 +106,10 @@ class OwnerAdapters(nn.Module):
 class AdapterBank(nn.Module):
     """The four causal routing controllers; factors live only in shared pools."""
 
-    def __init__(self, config: ModelConfig) -> None:
+    def __init__(self, config: ModelConfig, feature_provider=None) -> None:
         super().__init__()
         c = config
+        object.__setattr__(self, "_feature_provider", feature_provider)
         self.owners = nn.ModuleDict(
             {
                 name: OwnerAdapters(
@@ -117,6 +120,7 @@ class AdapterBank(nn.Module):
                     topk=c.adapter_topk,
                     max_tracks=c.max_tracks,
                     sites=sites,
+                    input_dim=c.router_dim,
                 )
                 for name, sites in zip(
                     OWNERS, (1, c.central_layers, c.prediction_layers, 1), strict=True
@@ -130,8 +134,30 @@ class AdapterBank(nn.Module):
 
     def select(self, value: Tensor, strength: Tensor) -> AdapterMixture:
         """The mixture of one lookup: ``value`` [value_dim], ``strength`` scalar in [0, 1]."""
-        logits = torch.stack([self.owners[name].semantic(value) for name in OWNERS])
-        context = value.detach()[None] if self.recording and torch.is_grad_enabled() else None
+        provider = self._feature_provider
+        if provider is None:
+            # Standalone adapter banks remain constructible without a core.
+            # Keep their controller input finite and compact even then.
+            width = int(self.owners[OWNERS[0]].router.in_features)
+            if value.shape[-1] < width:
+                features = F.pad(value, (0, width - value.shape[-1]))
+            else:
+                pieces = (value.shape[-1] + width - 1) // width
+                features = F.pad(value, (0, pieces * width - value.shape[-1]))
+                features = features.reshape(-1, pieces, width).mean(-2)
+            features = F.layer_norm(features.float(), (width,), eps=1e-6)
+            features = features.reshape(-1, width)
+        else:
+            # Compute this pooled lookup feature once, then fan it out to the
+            # four role-local heads. No adapter mixture is active at lookup
+            # time, avoiding recursion through the adapter factors.
+            features = provider.controller_features(
+                value.reshape(1, -1), role="other", stage=0, adapter_weights=None
+            )
+        logits = torch.stack(
+            [self.owners[name].semantic(features).squeeze(0) for name in OWNERS]
+        )
+        context = features.detach() if self.recording and torch.is_grad_enabled() else None
         return AdapterMixture(logits[None], strength.float().reshape(1), context)
 
     def plan(

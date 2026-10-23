@@ -197,8 +197,14 @@ class DeterministicDecoder(nn.Module):
         return self.header_start(raw.to(dtype).mean(1))
 
     def teacher_raw(self, core, context, plan: PreparedTargets):
-        """Vectorized independent examples; only the sparse CE positions are gathered."""
         context = core.prepare_realization(context) if isinstance(context, Tensor) else context
+        with core.expert_pools.routing_epoch_if_absent(
+            context.facets.mean(1), role="R", stage=0
+        ):
+            return self._teacher_raw_impl(core, context, plan)
+
+    def _teacher_raw_impl(self, core, context, plan: PreparedTargets):
+        """Vectorized independent examples; only the sparse CE positions are gathered."""
         batch = len(plan.ids)
         header = self.condition(self.header(context), self.mode_codes, 0)
         zero = header.float().sum() * 0
@@ -253,6 +259,13 @@ class DeterministicDecoder(nn.Module):
         return losses
 
     def forward(self, core, context, spec: ActionSpec, teacher: PreparedAction | None = None):
+        context = core.prepare_realization(context) if isinstance(context, Tensor) else context
+        with core.expert_pools.routing_epoch_if_absent(
+            context.facets.mean(1), role="R", stage=0
+        ):
+            return self._forward_impl(core, context, spec, teacher)
+
+    def _forward_impl(self, core, context, spec: ActionSpec, teacher: PreparedAction | None = None):
         context = core.prepare_realization(context) if isinstance(context, Tensor) else context
         if context.facets.shape[0] != 1:
             raise ValueError("action realization takes one example; raw supervision is batched")

@@ -295,7 +295,9 @@ def test_image_creation_target_enters_existing_grouped_loss_ledger(tmp_path):
         transducer=TransducerTrainer(model.transducer),
     )
     ledger.finish()
-    assert model.media_realizers.packs["sana"].condition.project.weight.grad is not None
+    project = model.media_realizers.packs["sana"].condition.project
+    assert project.router.weight.grad is not None
+    assert project._bank.weight.grad is not None
 
 
 def test_edit_view_requires_the_prior_base_and_compiles_a_verified_chain(tmp_path):

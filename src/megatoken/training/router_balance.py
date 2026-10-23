@@ -26,22 +26,20 @@ BalancedRouter = EpochRouter | OwnerAdapters | torch.nn.Module
 def balance_routers(model_or_core: FacetedCore | torch.nn.Module) -> dict[str, BalancedRouter]:
     """Return the individual expert selectors that can record balance routes.
 
-    A universal MoE model has a selector at each learned site. These are named
-    separately so diagnostics describe each local selector. Core P/U routers
-    and adapter controllers remain in the map because they still make distinct
-    routing decisions alongside the shared expert sites. Passing the full
-    generator also includes routed sites in training-only transducer heads;
-    passing only the core is supported for callers that only exercise core.
+    Routed sites use shared selectors: one bootstrap selector and one selector
+    per shape pool. Include those once, alongside the explicit P/U routers and
+    role-local retrieval adapter controllers. Site aliases are intentionally
+    omitted because they would count the same shared selector repeatedly.
     """
-    from megatoken.model.expert_pools import iter_sites
-
     core = getattr(model_or_core, "core", model_or_core)
     routers: dict[str, BalancedRouter] = {
         "p": core.p_router,
         "u": core.u_router,
         **{f"adapter_{name}": owner for name, owner in core.adapters.owners.items()},
     }
-    routers.update({f"site_{name}": site for name, site in iter_sites(model_or_core)})
+    pools = getattr(core, "expert_pools", None)
+    if pools is not None:
+        routers.update(pools.routing_selectors())
     return routers
 
 

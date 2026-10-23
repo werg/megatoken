@@ -57,6 +57,26 @@ def test_selected_palette_and_row_confidence_receive_task_gradients():
     assert (route.expert_ids[:, :, None] == route.eligible[:, None]).any(-1).all()
 
 
+def test_epoch_compile_reuses_one_shared_router_feature_for_all_stages():
+    class Provider:
+        router_dim = 8
+
+        def __init__(self):
+            self.calls = 0
+
+        def controller_features(self, context, **kwargs):
+            self.calls += 1
+            return context
+
+    provider = Provider()
+    router = EpochRouter(8, 8, 16, 4)
+    router.bind_feature_provider(provider, role="P")
+    program = router.compile(torch.randn(2, 8), tuple(range(12)), 16, epoch="test")
+    assert provider.calls == 1
+    assert len(program.routes) == 12
+    assert not any("context_projection" in name for name, _ in router.named_parameters())
+
+
 def test_routing_deterministic_replay_and_batch_membership_invariance():
     router = EpochRouter(8, 8, 16, 4)
     context = torch.randn(3, 8)

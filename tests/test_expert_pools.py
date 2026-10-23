@@ -29,6 +29,9 @@ def config():
         adapter_rank=2,
         adapter_topk=1,
         expert_backend="torch",
+        router_dim=4,
+        router_experts=3,
+        max_tracks=4,
     )
 
 
@@ -207,7 +210,7 @@ def test_site_exposes_replayable_balance_route():
     module(torch.randn(2, 3, 4))
     assert len(recorder.routes) == 1
     router, route = recorder.routes[0]
-    assert router is site
+    assert router is site.router
     assert route.expert_ids.shape == (6, 1)
     probabilities = site.balance_probabilities(route.router_context, route.router_stage)
     assert probabilities.shape == (6, site.experts)
@@ -236,3 +239,54 @@ def test_late_pool_and_site_binding_follow_existing_device_and_dtype():
     assert next(pools.pools.parameters()).dtype == torch.float64
     assert module[0].router.weight.dtype == torch.float64
     assert module[0].bias.dtype == torch.float64
+
+
+def test_shared_hierarchical_routing_computes_once_and_caches_per_pool():
+    module = nn.Sequential(nn.Linear(4, 4), nn.Linear(4, 4), nn.Linear(4, 8))
+    pools = ShapePools(config())
+    pools.bind(module, "hierarchy")
+    context = torch.randn(2, 4)
+    x = torch.randn(2, 7, 4)
+    with pools.routing_epoch(context, track_ids=torch.tensor([0, 1]), role="C", stage=2):
+        for layer in module:
+            x = layer(x)
+    assert pools.router_evaluations == 1
+    # The two 4x4 sites share one linear pool; the 4x8 projection uses another.
+    assert pools.palette_evaluations == 2
+    assert pools.expert_rows == 2 * 7 * 3
+    assert all(
+        not name.startswith("router.")
+        for site in (module[0], module[1], module[2])
+        for name, _ in site.named_parameters()
+    )
+    x.sum().backward()
+    assert pools.router_bank.gate_up.grad is not None
+    assert pools.pool_codes[next(key for key in pools.pool_codes if "linear_4_4" in key)].grad is not None
+
+
+def test_router_fold_is_track_aware_and_controller_uses_shared_experts():
+    pools = ShapePools(config())
+    context = torch.ones(2, 64)
+    first = pools.router_features(context, track_ids=torch.tensor([0, 1]), role="R")
+    second = pools.router_features(context, track_ids=torch.tensor([1, 0]), role="R")
+    assert first.shape == (2, 4)
+    assert not torch.allclose(first, second)
+    output = pools.controller_features(context, track_ids=torch.tensor([0, 1]), role="R")
+    assert output.shape == (2, 4)
+    assert pools.router_evaluations == 1
+
+
+def test_standalone_rank_two_calls_keep_one_context_per_batch_and_adapt_router():
+    module = nn.Sequential(nn.Linear(4, 4, bias=False))
+    pools = ShapePools(config())
+    pools.bind(module, "standalone")
+    recorder = type("Recorder", (), {"capture": lambda self, selector, route: setattr(self, "route", route)})()
+    module[0].balance_recorder = recorder
+    weights = torch.tensor([[1.0, 0.0], [0.0, 1.0]])
+    rows = torch.randn(2, 4, requires_grad=True)
+    with expert_scope(weights):
+        output = module(rows)
+    assert output.shape == rows.shape
+    assert recorder.route.router_context.shape[0] == 2
+    output.sum().backward()
+    assert pools.router_bank.gate_up_adapter_up.grad is not None
