@@ -32,7 +32,7 @@ from .witness_v3 import parse_record as parse_v3_record
 
 _PUBLIC = "semantic-execution/3"
 _TRACE = "semantic-trace/3"
-_LANE = re.compile(r"t[0-7]\\Z")
+_LANE = re.compile(r"t[0-7]\Z")
 
 
 class SemanticExecutionError(ValueError):
