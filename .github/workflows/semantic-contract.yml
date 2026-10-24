@@ -82,3 +82,10 @@ jobs:
 
       - name: Run semantic importer regression tests
         run: python -m pytest -q tests/test_semantic_execution.py
+      - name: Capture formatter-only patch for fixing full CI
+        if: always()
+        run: |
+          python -m pip install ruff==0.17.2
+          echo __RUFF_PATCH_BEGIN__
+          python -m ruff format --diff src tests scripts || true
+          echo __RUFF_PATCH_END__
