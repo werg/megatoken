@@ -333,9 +333,7 @@ def execution_episode(
             # The reads really run side by side (each waits out its delay in its own thread);
             # the environment records them below in selection order, so its execution
             # numbers never depend on which thread woke first.
-            pending = {
-                executor.submit(time.sleep, read_delay_seconds): item for item in selected
-            }
+            pending = {executor.submit(time.sleep, read_delay_seconds): item for item in selected}
             if index % 3 == 0:
                 group(
                     [

@@ -23,7 +23,9 @@ def test_served_evaluation_generates_same_track_media_from_checked_observations(
         PhysicalRecord(
             "speech", "assistant", speech.to_bytes(), policy_mask=True, media_type=MEDIA_RECORD_TYPE
         ),
-        PhysicalRecord("caption", "assistant", b"A caption", policy_mask=True, media_type="text/plain"),
+        PhysicalRecord(
+            "caption", "assistant", b"A caption", policy_mask=True, media_type="text/plain"
+        ),
     )
     episode = Episode(
         "evaluation",

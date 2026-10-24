@@ -541,9 +541,12 @@ def compile_open_translation(media, source, clip, *, language):
                 "audio",
                 media=output,
                 media_span=MediaSpan(
-                    f"decoded-audio:{speech_hash}", 0,
+                    f"decoded-audio:{speech_hash}",
+                    0,
                     speech_info.frames * 1000 // speech_info.samplerate,
-                    0, speech_info.frames, speech_info.samplerate,
+                    0,
+                    speech_info.frames,
+                    speech_info.samplerate,
                 ),
                 transform_json=output.transform_json,
                 provenance=source.options.get("translated_speech_provenance", "natural"),
@@ -561,8 +564,14 @@ def compile_open_translation(media, source, clip, *, language):
     }
     validate_streaming_translation(row)
     bundle = AlignedBundle(
-        stable_id(source.source_id, clip["id"], "streaming-v2", raw_hash,
-                  translation, "" if not speech else speech_hash),
+        stable_id(
+            source.source_id,
+            clip["id"],
+            "streaming-v2",
+            raw_hash,
+            translation,
+            "" if not speech else speech_hash,
+        ),
         Lineage(
             source.source_id,
             source.revision,

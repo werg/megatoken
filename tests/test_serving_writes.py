@@ -346,11 +346,16 @@ def test_cli_shutdown_flushes_open_sessions(engine, tmp_path, monkeypatch, strea
 
     def requests():
         yield json.dumps(dict(op="kb_overlay", name="private", scope="alice", path="u.kb")) + "\n"
-        yield json.dumps(dict(op="open", overlay="private", scope="alice",
-                              write_policy={"lag": 4})) + "\n"
+        yield (
+            json.dumps(dict(op="open", overlay="private", scope="alice", write_policy={"lag": 4}))
+            + "\n"
+        )
         (session_id,) = runtime.memory.sessions
         for text in ("fact", "result"):
-            yield json.dumps(dict(op="observe_text", session=session_id, track="main", text=text)) + "\n"
+            yield (
+                json.dumps(dict(op="observe_text", session=session_id, track="main", text=text))
+                + "\n"
+            )
         assert runtime.memory.bases["private"].edge_count == 0
         if stream_failure:
             raise RuntimeError("input disconnected")
@@ -365,8 +370,9 @@ def test_cli_shutdown_flushes_open_sessions(engine, tmp_path, monkeypatch, strea
         cli._serve(args)
     assert all(json.loads(line)["ok"] for line in output.getvalue().splitlines())
     assert not runtime.memory.sessions
-    saved = KnowledgeBase.load(tmp_path / "u.kb", geometry=engine.bank.geometry,
-                               identity=runtime.memory.identity)
+    saved = KnowledgeBase.load(
+        tmp_path / "u.kb", geometry=engine.bank.geometry, identity=runtime.memory.identity
+    )
     assert saved.edge_count > 0
 
 
