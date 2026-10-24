@@ -57,7 +57,6 @@ REQUIRED = {
     "value-part": {"id", "data"},
     "value-close": {"id"},
 }
-SOURCE_IDENTIFIER = re.compile(r"[$_A-Za-z][$_A-Za-z0-9]*\\Z")
 IDENTITY = re.compile(r"[a-z][a-z0-9]*\Z")
 BIGINT = re.compile(r"(?:0|-?[1-9][0-9]*)\Z")
 SPECIAL = {"-0", "NaN", "+Infinity", "-Infinity"}
