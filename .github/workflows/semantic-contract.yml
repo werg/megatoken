@@ -80,4 +80,4 @@ jobs:
           PY
 
       - name: Run semantic importer regression tests
-        run: python -m pytest -q tests/test_semantic_execution.py
+        run: python -m pytest -q tests/test_semantic_execution.py tests/test_semantic_execution_v3.py
