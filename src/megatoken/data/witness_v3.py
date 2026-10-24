@@ -16,7 +16,7 @@ class WitnessV3Error(ValueError):
     pass
 
 FIELDS = {
-    "code": {"entry", "source", "sites"},
+    "code": {"entry", "source", "sites", "randomSeed"},
     "input": {"graph"},
     "compute": {"expr", "result", "bind", "invocation", "site"},
     "choose": {"expr", "decision", "path", "invocation", "site"},
@@ -110,7 +110,9 @@ def expression(expr: Any) -> dict[str, int]:
         if nodes > 32:
             _fail("Expression node limit")
         op = node.get("op")
-        if op == "literal" and set(node) == {"op", "value"}:
+        if op == "random" and set(node) == {"op"}:
+            operators += 1
+        elif op == "literal" and set(node) == {"op", "value"}:
             value(node["value"])
             operands += 1
         elif op == "local" and set(node) == {"op", "name"} and isinstance(node["name"], str) and IDENTITY.fullmatch(node["name"]):
@@ -193,6 +195,9 @@ def parse_record(line: Any) -> tuple[str, dict[str, Any]]:
             or not isinstance(fields["source"], str) or not fields["source"]
             or not isinstance(fields["sites"], list)):
             _fail("Missing static code bundle")
+        seed = fields.get("randomSeed")
+        if seed is not None and (type(seed) is not int or not 0 <= seed <= 0xFFFFFFFF):
+            _fail("Invalid published deterministic source seed")
     elif kind == "input":
         graph(fields["graph"])
     elif kind in ("compute", "choose"):
