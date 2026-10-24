@@ -20,10 +20,10 @@ FIELDS = {
     "input": {"graph"},
     "compute": {"expr", "result", "bind", "invocation", "site"},
     "choose": {"expr", "decision", "path", "invocation", "site"},
-    "allocate": {"name", "kind", "length", "properties", "invocation"},
+    "allocate": {"name", "kind", "length", "properties", "code", "captures", "invocation"},
     "read": {"object", "key", "value", "present", "invocation"},
     "write": {"object", "key", "value", "present", "invocation"},
-    "bind": {"name", "value", "invocation"},
+    "bind": {"name", "value", "from", "invocation"},
     "call": {"child", "callee", "receiver", "arguments", "invocation"},
     "transfer": {"kind", "value", "handler", "invocation"},
     "return": {"value", "invocation"},
@@ -204,6 +204,21 @@ def parse_record(line: Any) -> tuple[str, dict[str, Any]]:
         value(fields["value"])
     elif kind in ("return", "throw", "transfer"):
         value(fields["value"])
+    elif kind == "allocate":
+        if fields["kind"] not in ("array", "object", "closure"):
+            _fail("Unregistered allocation kind")
+        if "captures" in fields:
+            if fields["kind"] != "closure" or not isinstance(fields["captures"], list):
+                _fail("Invalid closure capture owner")
+            used: set[str] = set()
+            for relation in fields["captures"]:
+                if (not isinstance(relation, dict) or set(relation) != {"binding", "cell"}
+                    or not isinstance(relation["binding"], str)
+                    or relation["binding"] in used
+                    or not isinstance(relation["cell"], str)
+                    or not IDENTITY.fullmatch(relation["cell"])):
+                    _fail("Malformed shared cell capture relation")
+                used.add(relation["binding"])
     elif kind == "observe":
         value(fields["result"])
         if fields["status"] not in ("fulfilled", "rejected"):
@@ -215,7 +230,7 @@ def parse_record(line: Any) -> tuple[str, dict[str, Any]]:
         _fail("Invalid owned job transition")
     if kind in ("read", "write") and (type(fields["present"]) is not bool or not isinstance(fields["key"], str)):
         _fail("Property presence contract")
-    for key in ("name", "bind", "object", "invocation", "child"):
+    for key in ("name", "bind", "from", "object", "invocation", "child"):
         if key in fields and (not isinstance(fields[key], str) or not IDENTITY.fullmatch(fields[key])):
             _fail("Invalid witness identity")
     return kind, fields
