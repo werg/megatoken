@@ -141,7 +141,7 @@ def test_v3_rejects_noncanonical_duplicate_or_unknown_expr_keys():
         adapt_semantic_execution(document, allow_local=True)
 
 
-@pytest.mark.parametrize("entry", ["isBoolean", "_scanData", "$wrapper", "résumé", "Δsum", "a\\u200cb"])
+@pytest.mark.parametrize("entry", ["isBoolean", "_scanData", "$wrapper", "résumé", "Δsum", "a\u200cb"])
 def test_v3_accepts_valid_javascript_source_identifiers(entry):
     document = fixture()
     code_record = line("code", {
