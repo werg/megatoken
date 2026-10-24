@@ -216,3 +216,29 @@ and the successful GPU check was not relaunched.
 The prior corrected cloud GPU check has passed: optimizer step, checkpoint resume
 to step 2, bake/export/load, and served-session inference, using both completed
 production donor assets. Its reports remain in external `gpu-readiness/collected`.
+
+## User-requested cloud shutdown, 24 October 2026
+
+The user requested stopping **all sandboxes for this project only**. This supersedes
+the running/queued work described above. Do not resume or relaunch the earlier jobs
+without a new user request.
+
+Verified at 07:31:48 UTC: no active Megatoken sandboxes remain. The last two active
+project sandboxes were stopped:
+
+- `1b29b2c4-7617-444e-9f5b-50b4467c687d` (media edits).
+- `a6f6cece-3681-4ccc-8e16-25b5c4a36130` (restricted-source media).
+
+Both report terminal `completed` status after their stop requests. Project scope was
+checked using the exact `megatoken` tag and the project's local launch records. One
+unrelated active sandbox was left untouched.
+
+Project launch/retry/collection controllers were stopped, including the paused chat
+controller, coding recovery monitor, progress monitor, and media collector. A second
+process scan found no remaining project cloud launchers. Collected local artifacts
+remain; an interrupted collection must not be treated as a verified completed copy.
+
+Shutdown evidence is outside the repository at
+`/home/werg/megatoken-runs/cloud/shutdown-2026-10-24/`. The persistent request marker is
+`/home/werg/megatoken-runs/cloud/STOP_REQUESTED.json`. Treat earlier PID and running-job
+records as historical, not instructions to restart them.
