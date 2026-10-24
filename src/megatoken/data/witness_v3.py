@@ -211,7 +211,7 @@ def parse_record(line: Any) -> tuple[str, dict[str, Any]]:
     elif kind in ("return", "throw", "transfer"):
         value(fields["value"])
     elif kind == "allocate":
-        if fields["kind"] not in ("array", "object", "closure"):
+        if fields["kind"] not in ("array", "object", "closure", "set", "regexp"):
             _fail("Unregistered allocation kind")
         if "captures" in fields:
             if fields["kind"] != "closure" or not isinstance(fields["captures"], list):
