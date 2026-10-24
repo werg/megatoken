@@ -34,21 +34,31 @@ def main():
     args.root.mkdir(parents=True)
     codec = load_codec(args.codec)
     code = Path(__file__).resolve().parents[1] / "src/megatoken/data"
-    receipt = {"operation": "causal-view republication", "original_receipt": original,
-               "episodes_sha256": sha256_file(args.episodes),
-               "original_receipt_sha256": sha256_file(args.receipt),
-               "dedup_sha256": sha256_file(code / "dedup.py"),
-               "causal_identity_sha256": sha256_file(code / "causal_identity.py"),
-               "content_and_frozen_splits_changed": False}
-    with DedupStore(args.root / "dedup.sqlite", DedupConfig(train_fraction=1, validation_fraction=0)) as store:
+    receipt = {
+        "operation": "causal-view republication",
+        "original_receipt": original,
+        "episodes_sha256": sha256_file(args.episodes),
+        "original_receipt_sha256": sha256_file(args.receipt),
+        "dedup_sha256": sha256_file(code / "dedup.py"),
+        "causal_identity_sha256": sha256_file(code / "causal_identity.py"),
+        "content_and_frozen_splits_changed": False,
+    }
+    with DedupStore(
+        args.root / "dedup.sqlite", DedupConfig(train_fraction=1, validation_fraction=0)
+    ) as store:
         with args.episodes.open() as handle, store.transaction():
             for line in handle:
                 if line.strip():
                     store.add(Episode.from_dict(json.loads(line)), codec)
         store.freeze()
-        result = export_prepared(store, args.root, codec=codec,
-                                 assets=TensorAssetStore(args.assets), source_receipts=[receipt],
-                                 pipeline_fingerprint=content_hash(receipt))
+        result = export_prepared(
+            store,
+            args.root,
+            codec=codec,
+            assets=TensorAssetStore(args.assets),
+            source_receipts=[receipt],
+            pipeline_fingerprint=content_hash(receipt),
+        )
     print(json.dumps({"fingerprint": result["fingerprint"], "counts": result["counts"]}))
 
 

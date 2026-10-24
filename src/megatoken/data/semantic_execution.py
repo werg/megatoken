@@ -103,9 +103,12 @@ def _host_request(fields: dict[str, Any]) -> tuple[list[Any], str]:
             values.append(None)
         else:
             _fail("Unsupported v3 external transport scalar")
-    if operation in ("demo.store", "demo.readNumber", "demo.readAsync") and not isinstance(values[0], str):
+    if operation in ("demo.store", "demo.readNumber", "demo.readAsync") and not isinstance(
+        values[0], str
+    ):
         _fail("Invalid version-three external key")
     return values, signature
+
 
 def _validate(
     public: Mapping[str, Any],
@@ -116,7 +119,10 @@ def _validate(
 ) -> tuple[list[dict[str, Any]], list[tuple[str, dict[str, Any]]], dict[str, int]]:
     if public.get("schema") != _PUBLIC or public.get("traceFormat") != _TRACE:
         _fail("Only semantic-execution/3 and semantic-trace/3 are supported")
-    if public.get("profile") != "training-js/1" or public.get("contextFormat") != "semantic-context/3":
+    if (
+        public.get("profile") != "training-js/1"
+        or public.get("contextFormat") != "semantic-context/3"
+    ):
         _fail("Unsupported source or observed context contract")
     if public.get("completionPolicy") != "immediate-root":
         _fail("Unsupported declared root completion policy")
@@ -406,5 +412,3 @@ def adapt_semantic_execution(
         codec_fingerprint=getattr(codec, "fingerprint", None),
         admission=status,
     )
-
-

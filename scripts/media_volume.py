@@ -366,7 +366,9 @@ def gap_table(only: set[str] | None = None, sources: dict[str, OpenSource] | Non
 def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("table", choices=("sources", "gap", "edits", "summary", "prepared"))
-    parser.add_argument("--root", type=Path, action="append", help="Checked prepared roots for measured supply")
+    parser.add_argument(
+        "--root", type=Path, action="append", help="Checked prepared roots for measured supply"
+    )
     parser.add_argument("--only", nargs="*", help="limit the gap table to these source ids")
     parser.add_argument(
         "--baseline", nargs="*", type=Path, help="the manifests before the change, for summary"

@@ -103,7 +103,10 @@ def test_resume_compatibility_covers_every_setting_that_changes_the_trajectory()
     from megatoken.training.engine import _resume_compatible
 
     base = TrainConfig(
-        purpose="diagnostic", max_steps=1, phase="B0", decoupled=DecoupledConfig("http://a:1", "run", workers=2)
+        purpose="diagnostic",
+        max_steps=1,
+        phase="B0",
+        decoupled=DecoupledConfig("http://a:1", "run", workers=2),
     )
     saved = asdict(base)
     # Where the coordinator lives (and how patiently it is polled) does not matter ...

@@ -95,8 +95,12 @@ def main():
             original = None
             original_receipts = dataset.manifest["sources"]
             for candidate in dataset.iter_episodes():
-                available = [e for g in candidate.meridians for e in g.events
-                             if e.modality == "audio" and e.role == "user"]
+                available = [
+                    e
+                    for g in candidate.meridians
+                    for e in g.events
+                    if e.modality == "audio" and e.role == "user"
+                ]
                 if len(available) >= 2 and len({e.speaker for e in available if e.speaker}) >= 2:
                     original = candidate
                     break
