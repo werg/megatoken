@@ -15,7 +15,7 @@ from collections.abc import Callable, Mapping
 from dataclasses import dataclass
 from typing import Any
 
-from .witness_v3 import parse_record as parse_v3_record
+from .witness_v3 import WitnessV3Error, parse_record as parse_v3_record
 
 from .schema import (
     Dependency,
@@ -237,7 +237,10 @@ def _fail(message: str) -> None:
 
 def _record(line: Any, *, v3: bool = False) -> tuple[str, dict[str, Any]]:
     if v3:
-        return parse_v3_record(line)
+        try:
+            return parse_v3_record(line)
+        except WitnessV3Error as error:
+            raise SemanticExecutionError(str(error)) from error
     if not isinstance(line, str) or "\n" in line or "\r" in line:
         _fail("Trace record is not a single UTF-8 line")
     head, separator, body = line.partition(" ")
