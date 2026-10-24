@@ -69,6 +69,13 @@ def test_native_version_three_import_keeps_exact_bytes_and_loss():
     assert isinstance(episode, Episode)
     assert receipt.generated == 4
     assert receipt.observed == 2
+    assert receipt.dependencies == 4
+    assert [(d.writer_id,d.reader_id) for d in episode.dependencies] == [
+        ("semantic:r2","semantic:r3"),
+        ("semantic:r3","semantic:r4"),
+        ("semantic:r4","semantic:r5"),
+        ("semantic:r5","semantic:r6"),
+    ]
     assert [record.payload for record in episode.records] == [
         row["events"][0]["record"].encode("utf-8")
         for row in document["public"]["groups"]
