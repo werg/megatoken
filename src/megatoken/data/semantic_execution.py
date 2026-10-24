@@ -15,8 +15,6 @@ from collections.abc import Callable, Mapping
 from dataclasses import dataclass
 from typing import Any
 
-from .witness_v3 import WitnessV3Error, parse_record as parse_v3_record
-
 from .schema import (
     Dependency,
     Episode,
@@ -29,6 +27,8 @@ from .schema import (
     TrackSpec,
     digest_bytes,
 )
+from .witness_v3 import WitnessV3Error
+from .witness_v3 import parse_record as parse_v3_record
 
 _PUBLIC = "semantic-execution/2"
 _TRACE = "semantic-trace/2"
