@@ -11,6 +11,7 @@ import math
 import re
 from typing import Any
 
+
 class WitnessV3Error(ValueError):
     pass
 
