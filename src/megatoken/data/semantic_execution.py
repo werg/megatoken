@@ -27,189 +27,12 @@ from .schema import (
     TrackSpec,
     digest_bytes,
 )
+from .witness_v3 import WitnessV3Error
+from .witness_v3 import parse_record as parse_v3_record
 
-_PUBLIC = "semantic-execution/2"
-_TRACE = "semantic-trace/2"
+_PUBLIC = "semantic-execution/3"
+_TRACE = "semantic-trace/3"
 _LANE = re.compile(r"t[0-7]\Z")
-_ID = re.compile(r"e[1-9]\d*\Z")
-_WORDS = frozenset(
-    (
-        "enter",
-        "value",
-        "branch",
-        "loop",
-        "carry",
-        "alloc",
-        "read",
-        "write",
-        "delete",
-        "call",
-        "return",
-        "throw",
-        "await",
-        "resume",
-        "settle",
-        "request",
-        "observe",
-        "code",
-        "end",
-        "value-open",
-        "value-part",
-        "value-close",
-    )
-)
-
-
-# Only source-facing effective computations are training targets. A prototype
-# walk, accessor descriptor, or spec-operation phase is not part of this wire
-# format; guest getter/trap work appears as ordinary call/read/write records.
-# Restrict each operation to its declared fields so old engine-format data is
-# not silently treated as valid execution reasoning.
-_FIELDS = {
-    "code": {
-        "sourceId",
-        "text",
-        "codes",
-        "sites",
-        "staticFunctions",
-        "staticRegExps",
-        "randomSeed",
-    },
-    "enter": {
-        "invocation",
-        "entry",
-        "code",
-        "receiver",
-        "arguments",
-        "captures",
-        "dependsOn",
-        "rest",
-    },
-    "value": {
-        "entry",
-        "invocation",
-        "graph",
-        "id",
-        "site",
-        "dependsOn",
-        "control",
-        "result",
-        "reads",
-        "writes",
-    },
-    "branch": {
-        "id",
-        "invocation",
-        "site",
-        "dependsOn",
-        "control",
-        "test",
-        "path",
-        "reads",
-    },
-    "loop": {"id", "invocation", "site", "dependsOn", "control", "path", "reads"},
-    "carry": {
-        "id",
-        "invocation",
-        "site",
-        "dependsOn",
-        "control",
-        "from",
-        "to",
-        "copies",
-        "reads",
-    },
-    "alloc": {
-        "id",
-        "invocation",
-        "site",
-        "dependsOn",
-        "control",
-        "allocations",
-        "writes",
-        "result",
-        "reads",
-    },
-    "read": {"id", "invocation", "site", "dependsOn", "control", "reads", "result"},
-    "write": {
-        "id",
-        "invocation",
-        "site",
-        "dependsOn",
-        "control",
-        "reads",
-        "writes",
-        "result",
-        "update",
-    },
-    "delete": {"id", "invocation", "site", "dependsOn", "control", "writes"},
-    "call": {
-        "id",
-        "invocation",
-        "site",
-        "dependsOn",
-        "control",
-        "child",
-        "code",
-        "receiver",
-        "arguments",
-        "captures",
-        "reads",
-        "result",
-        "writes",
-        "allocations",
-    },
-    "return": {
-        "id",
-        "invocation",
-        "site",
-        "dependsOn",
-        "control",
-        "result",
-        "destination",
-        "writes",
-    },
-    "throw": {
-        "id",
-        "invocation",
-        "site",
-        "dependsOn",
-        "control",
-        "result",
-        "destination",
-        "reason",
-    },
-    "await": {"id", "invocation", "site", "dependsOn", "control", "promise", "result"},
-    "resume": {"id", "invocation", "site", "dependsOn", "control", "promise", "result"},
-    "settle": {"id", "invocation", "site", "dependsOn", "control", "promise", "result"},
-    "request": {
-        "id",
-        "invocation",
-        "site",
-        "dependsOn",
-        "control",
-        "effect",
-        "operation",
-        "arguments",
-        "codec",
-        "signature",
-        "payload",
-    },
-    "observe": {
-        "id",
-        "invocation",
-        "site",
-        "dependsOn",
-        "control",
-        "effect",
-        "result",
-        "input",
-    },
-    "end": {"invocation", "kind"},
-    "value-open": {"id", "type"},
-    "value-part": {"id", "data"},
-    "value-close": {"id"},
-}
 
 
 class SemanticExecutionError(ValueError):
@@ -232,112 +55,10 @@ def _fail(message: str) -> None:
 
 
 def _record(line: Any) -> tuple[str, dict[str, Any]]:
-    if not isinstance(line, str) or "\n" in line or "\r" in line:
-        _fail("Trace record is not a single UTF-8 line")
-    head, separator, body = line.partition(" ")
-    if not separator or head not in _WORDS:
-        _fail("Unknown or malformed semantic-trace/2 record")
     try:
-        fields = json.loads(body)
-    except (ValueError, TypeError) as error:
-        raise SemanticExecutionError("Malformed trace JSON") from error
-    if not isinstance(fields, dict) or not all(isinstance(x, str) for x in fields):
-        _fail("Trace fields must have string keys")
-
-    # Reject duplicate JSON keys as well as nonstandard NaN/Infinity literals.
-    def strict_pairs(pairs: list[tuple[str, Any]]) -> dict[str, Any]:
-        output: dict[str, Any] = {}
-        for key, value in pairs:
-            if key in output:
-                _fail("Duplicate trace JSON key")
-            output[key] = value
-        return output
-
-    try:
-        checked = json.loads(
-            body,
-            object_pairs_hook=strict_pairs,
-            parse_constant=lambda value: _fail("Nonfinite JSON literal: " + value),
-        )
-    except (ValueError, TypeError) as error:
-        raise SemanticExecutionError("Invalid strict trace JSON") from error
-    if checked != fields:
-        _fail("Inconsistent trace JSON")
-    if not set(fields).issubset(_FIELDS[head]):
-        _fail("Unexpected field in effective semantic trace")
-    if head == "branch" and (
-        not isinstance(fields.get("test"), list)
-        or fields.get("path") not in ("then", "else", "use-left", "evaluate-right")
-    ):
-        _fail("Missing source-level branch value or selected path")
-    if head == "loop" and fields.get("path") != "repeat":
-        _fail("Missing executed loop backedge")
-    if head == "code":
-        if "randomSeed" in fields and (
-            type(fields["randomSeed"]) is not int or not 0 <= fields["randomSeed"] <= 0xFFFFFFFF
-        ):
-            _fail("Invalid deterministic source seed")
-        if "staticRegExps" in fields and (
-            not isinstance(fields["staticRegExps"], list)
-            or any(
-                not isinstance(regex, dict)
-                or set(regex) != {"name", "identity", "pattern", "flags"}
-                or not all(isinstance(value, str) for value in regex.values())
-                for regex in fields["staticRegExps"]
-            )
-        ):
-            _fail("Malformed visible regexp context")
-    if head == "enter" and "rest" in fields:
-        rest = fields["rest"]
-        if (
-            not isinstance(rest, dict)
-            or not {"name", "value"} <= set(rest) <= {"name", "value", "allocation"}
-            or not isinstance(rest["name"], str)
-            or not isinstance(rest["value"], list)
-            or len(rest["value"]) != 2
-            or rest["value"][0] != "ref"
-            or not isinstance(rest["value"][1], str)
-            or (
-                "allocation" in rest
-                and (
-                    not isinstance(rest["allocation"], dict)
-                    or set(rest["allocation"]) != {"identity", "kind", "shapeVersion", "properties"}
-                    or rest["allocation"]["kind"] != "array"
-                    or rest["allocation"]["identity"] != rest["value"][1]
-                    or not isinstance(rest["allocation"]["properties"], list)
-                )
-            )
-        ):
-            _fail("Malformed published rest parameter")
-    if head == "carry":
-
-        def valid_endpoint(endpoint: Any) -> bool:
-            return (
-                isinstance(endpoint, dict)
-                and isinstance(endpoint.get("env"), str)
-                and isinstance(endpoint.get("key"), str)
-                and type(endpoint.get("version")) is int
-                and endpoint["version"] >= 0
-            )
-
-        if "copies" in fields:
-            if (
-                "from" in fields
-                or "to" in fields
-                or not isinstance(fields["copies"], list)
-                or not fields["copies"]
-                or any(
-                    not isinstance(pair, dict)
-                    or set(pair) != {"from", "to"}
-                    or not valid_endpoint(pair["from"])
-                    or not valid_endpoint(pair["to"])
-                    for pair in fields["copies"]
-                )
-            ):
-                _fail("Malformed multi-binding lexical iteration carry")
-        elif not (valid_endpoint(fields.get("from")) and valid_endpoint(fields.get("to"))):
-            _fail("Malformed lexical iteration carry")
-    return head, fields
+        return parse_v3_record(line)
+    except WitnessV3Error as error:
+        raise SemanticExecutionError(str(error)) from error
 
 
 def _text_bytes(text: str) -> bytes:
@@ -349,50 +70,42 @@ def _text_bytes(text: str) -> bytes:
         raise SemanticExecutionError("Unescaped surrogate in transport record") from error
 
 
-_HOST_REQUESTS = {
-    "demo.readAsync": ("demo.readAsync/1", 1),
-    "demo.readNumber": ("demo.readNumber/1", 1),
-    "demo.store": ("demo.store/1", 2),
-}
-
-
-def _host_request(fields: dict[str, Any]) -> list[Any]:
-    """Validate the complete, materialized boundary; no guest handles cross it."""
+def _host_request(fields: dict[str, Any]) -> tuple[list[Any], str]:
+    """Materialize bounded semantic arguments, never hidden JS getters."""
     operation = fields.get("operation")
-    signature = _HOST_REQUESTS.get(operation)
-    if signature is None or fields.get("signature") != signature[0]:
-        _fail("External request has an unregistered versioned operation signature")
-    if fields.get("codec") != "canonical-json/1":
-        _fail("External request does not declare the supported canonical JSON codec")
-    wire = fields.get("payload")
-    if not isinstance(wire, str) or not 2 <= len(_text_bytes(wire)) <= 65536:
-        _fail("External request has missing or oversized immutable payload bytes")
-
-    def unique_pairs(pairs: list[tuple[str, Any]]) -> dict[str, Any]:
-        result: dict[str, Any] = {}
-        for key, value in pairs:
-            if key in result:
-                _fail("External JSON payload repeats an object key")
-            result[key] = value
-        return result
-
-    try:
-        args = json.loads(
-            wire,
-            object_pairs_hook=unique_pairs,
-            parse_constant=lambda value: _fail("Nonfinite external JSON value: " + value),
-        )
-    except (TypeError, ValueError) as error:
-        raise SemanticExecutionError("Malformed immutable external payload") from error
-    if (
-        not isinstance(args, list)
-        or len(args) != signature[1]
-        or not isinstance(args[0], str)
-        or args != fields.get("arguments")
-    ):
-        _fail("External JSON bytes disagree with the declared argument values")
-    return args
-
+    signatures = {
+        "demo.readNumber": ("demo.readNumber/1", 1),
+        "demo.readAsync": ("demo.readAsync/1", 1),
+        "demo.store": ("demo.store/1", 2),
+        "platform.dateNow": ("platform.dateNow/1", 0),
+        "console.log": ("console.log/1", None),
+        "console.warn": ("console.warn/1", None),
+        "console.error": ("console.error/1", None),
+    }
+    if operation not in signatures:
+        _fail("Unregistered v3 effect capability")
+    signature, count = signatures[operation]
+    supplied = fields.get("arguments")
+    if not isinstance(supplied, list) or (count is not None and len(supplied) != count):
+        _fail("Invalid v3 effect argument arity")
+    values = []
+    for value in supplied:
+        if not isinstance(value, list) or not value:
+            _fail("Invalid external scalar")
+        kind = value[0]
+        if kind == "str" and len(value) == 2 and isinstance(value[1], str):
+            values.append(value[1])
+        elif kind == "num" and len(value) == 2 and type(value[1]) in (int, float):
+            values.append(value[1])
+        elif kind == "bool" and len(value) == 2 and type(value[1]) is bool:
+            values.append(value[1])
+        elif kind == "null" and len(value) == 1:
+            values.append(None)
+        else:
+            _fail("Unsupported v3 external transport scalar")
+    if operation in ("demo.store", "demo.readNumber", "demo.readAsync") and not isinstance(values[0], str):
+        _fail("Invalid version-three external key")
+    return values, signature
 
 def _validate(
     public: Mapping[str, Any],
@@ -402,14 +115,11 @@ def _validate(
     max_history: int,
 ) -> tuple[list[dict[str, Any]], list[tuple[str, dict[str, Any]]], dict[str, int]]:
     if public.get("schema") != _PUBLIC or public.get("traceFormat") != _TRACE:
-        _fail("Unknown execution or semantic trace format")
-    if (
-        public.get("profile") != "training-js/1"
-        or public.get("contextFormat") != "semantic-context/2"
-    ):
-        _fail("Unsupported JavaScript execution profile")
-    if public.get("completionPolicy") != "immediate-return":
-        _fail("Completion policy not independently implemented")
+        _fail("Only semantic-execution/3 and semantic-trace/3 are supported")
+    if public.get("profile") != "training-js/1" or public.get("contextFormat") != "semantic-context/3":
+        _fail("Unsupported source or observed context contract")
+    if public.get("completionPolicy") != "immediate-root":
+        _fail("Unsupported declared root completion policy")
     groups = public.get("groups")
     if not isinstance(groups, list) or len(groups) < 4:
         _fail("Execution needs observed source/input and generated continuation")
@@ -417,13 +127,13 @@ def _validate(
         _fail("Episode exceeds model history; continuation segmentation is required")
     prefix: list[tuple[str, dict[str, Any]]] = []
     observed = generated = 0
-    completed: dict[str, int] = {}
     actions: dict[str, int] = {}
     deliveries: set[str] = set()
     opened: tuple[str, str, str] | None = None
     fragment_parts: list[str] = []
     phase = 0  # 0 = source, 1 = input, 2 = semantic continuation
     completed_continuation = False
+    last_completion: str | None = None
     for index, group in enumerate(groups):
         if not isinstance(group, dict) or group.get("id") != "m" + str(index + 1):
             _fail("Meridian identities must be consecutive and canonical")
@@ -477,10 +187,11 @@ def _validate(
         if phase < 2:
             if mode != "observed" or event["track"] != "t0":
                 _fail("Source and initial graph must be observed on the root lane")
-            if kind != ("code" if phase == 0 else "value"):
+            if kind != ("code" if phase == 0 else "input"):
                 _fail("Expected source code followed by the initial graph")
             if phase == 0:
-                if not isinstance(fields.get("text"), str) or not fields["text"]:
+                text = fields.get("source")
+                if not isinstance(text, str) or not text:
                     _fail("Missing exact source bytes")
             prefix.append((kind, fields))
             phase += 1
@@ -491,28 +202,17 @@ def _validate(
                 _fail("Nonenvironment operation cannot be observed")
             observed += 1
         else:
-            if kind in ("observe", "code"):
+            if kind in ("observe", "code", "input"):
                 _fail("Environment observations cannot be model-generated")
             generated += 1
+        if kind in ("return", "throw"):
+            last_completion = kind
         if kind == "end":
             if mode != "generated" or fields.get("kind") not in ("return", "throw"):
                 _fail("Invalid or incomplete declared root completion")
+            if fields["kind"] != last_completion:
+                _fail("Version-three end lacks a selected matching root completion")
             completed_continuation = True
-        event_id = fields.get("id")
-        if event_id is not None:
-            if not isinstance(event_id, str) or not _ID.fullmatch(event_id):
-                _fail("Noncanonical semantic event ID")
-            if event_id in completed:
-                _fail("Duplicate semantic producer ID")
-        declared = fields.get("dependsOn", ())
-        if not isinstance(declared, (list, tuple)):
-            _fail("Malformed semantic producer dependencies")
-        for prior in (
-            *declared,
-            *((fields.get("control"),) if fields.get("control") else ()),
-        ):
-            if not isinstance(prior, str) or prior not in completed or completed[prior] >= index:
-                _fail("Missing or same-meridian/future semantic producer")
         if kind == "request":
             fx = fields.get("effect")
             if not isinstance(fx, str) or not fx or fx in actions:
@@ -526,8 +226,6 @@ def _validate(
             if fx in deliveries:
                 _fail("Duplicate external result delivery")
             deliveries.add(fx)
-        if event_id is not None:
-            completed[event_id] = index
     if opened or phase != 2 or not completed_continuation or not generated:
         _fail("Unclosed context, fragmented value or incomplete execution")
     return groups, prefix, {"generated": generated, "observed": observed, "actions": len(actions)}
@@ -551,8 +249,8 @@ def adapt_semantic_execution(
     if not isinstance(export, Mapping) or not isinstance(export.get("public"), Mapping):
         _fail("A semantic execution export needs an explicit public payload")
     sidecar = export.get("sidecar")
-    if not isinstance(sidecar, Mapping) or sidecar.get("schema") != "semantic-supervision/1":
-        _fail("A supervision sidecar is required for dataset admission")
+    if not isinstance(sidecar, Mapping) or sidecar.get("schema") != "semantic-supervision/2":
+        _fail("Only semantic-supervision/2 can accompany version-three episodes")
     status = sidecar.get("admission", "locally_verified")
     if status != "admitted" and not allow_local:
         _fail("Unadmitted execution requires allow_local=True for diagnostic conversion")
@@ -565,7 +263,7 @@ def adapt_semantic_execution(
     groups, prefix, counts = _validate(
         public, codec=codec, max_positions=max_positions, max_history=max_history
     )
-    source = prefix[0][1]["text"]
+    source = prefix[0][1]["source"]
     family = sidecar.get("sourceLineage")
     if not isinstance(family, str) or not family:
         family = hashlib.sha256(_text_bytes(source)).hexdigest()[:20]
@@ -608,10 +306,10 @@ def adapt_semantic_execution(
 
     records: list[PhysicalRecord] = []
     meridians: list[Meridian] = []
-    producers: dict[str, str] = {}
     dependencies: list[Dependency] = []
     actions: list[LogicalAction] = []
     dispatched: dict[str, tuple[str, str]] = {}
+    previous_committed_record: str | None = None
 
     for ordinal, (start, end, kind, fields) in enumerate(spans):
         mode = groups[start]["mode"]
@@ -628,18 +326,19 @@ def adapt_semantic_execution(
             request_bytes = b"".join(
                 _text_bytes(groups[i]["events"][0]["record"]) for i in range(start, end + 1)
             )
+            host_arguments, signature = _host_request(fields)
             actions.append(
                 LogicalAction(
                     action_id=action_id,
                     call_id=effect,
                     tool_name=fields["operation"],
                     arguments_json=json.dumps(
-                        {"args": _host_request(fields)}, separators=(",", ":"), ensure_ascii=True
+                        {"args": host_arguments}, separators=(",", ":"), ensure_ascii=True
                     ),
                     record_ids=record_ids,
                     serialized_sha256=digest_bytes(request_bytes),
                     execution_id=execution_id,
-                    schema_id=fields["signature"],
+                    schema_id=signature,
                 )
             )
         if kind == "observe":
@@ -669,11 +368,12 @@ def adapt_semantic_execution(
         # materialized JSON request, array, or function return. Observations
         # are evidence, not policy-scored dependent predictions.
         name = record_ids[-1]
-        if mode == "generated":
-            _add_dependencies(kind, fields, name, producers, dependencies)
-        identifier = fields.get("id")
-        if isinstance(identifier, str):
-            producers[identifier] = name
+        # Native recurrence can only consume completed prior logical work.
+        # The edge is derived from causal commit order and observed boundaries,
+        # not from a private teacher operation or future source result.
+        if previous_committed_record is not None and mode == "generated":
+            dependencies.append(Dependency(previous_committed_record, name, "semantic"))
+        previous_committed_record = name
     tracks = tuple(TrackSpec("t" + str(i), "assistant") for i in range(8))
     episode_id = (
         "semantic:" + hashlib.sha256(b"\n".join(record.payload for record in records)).hexdigest()
@@ -708,29 +408,3 @@ def adapt_semantic_execution(
     )
 
 
-def _add_dependencies(
-    kind: str,
-    fields: dict[str, Any],
-    reader: str,
-    producers: dict[str, str],
-    dependencies: list[Dependency],
-) -> None:
-    if kind in ("code", "value-part", "value-open"):
-        return
-    earlier = fields.get("dependsOn", [])
-    if not isinstance(earlier, list) or not all(isinstance(x, str) for x in earlier):
-        _fail("Malformed semantic producer dependencies")
-    control = fields.get("control")
-    if control is not None:
-        earlier = [*earlier, control]
-    reads = fields.get("reads", ())
-    if not isinstance(reads, (list, tuple)):
-        _fail("Malformed semantic producer reads")
-    for read in reads:
-        if isinstance(read, dict) and read.get("supplyingSemantic"):
-            earlier = [*earlier, read["supplyingSemantic"]]
-    for dependency in dict.fromkeys(earlier):
-        writer = producers.get(dependency)
-        if writer is None or writer == reader:
-            _fail("Unresolved or future writer in execution dependency")
-        dependencies.append(Dependency(writer, reader, "semantic"))

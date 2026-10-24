@@ -29,7 +29,7 @@ jobs:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           repository: werg/tracing-js-self
-          ref: 648d84fe7692d6a90f5dbaf4ce7df3b1e3807be7
+          ref: 64442c68fedfceef12c4a21dd1829b67b17a4a1e
           path: tracing-js-self
           persist-credentials: false
       - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
@@ -38,7 +38,7 @@ jobs:
       - name: Generate pinned owned-interpreter traces
         run: |
           npm ci --prefix tracing-js-self
-          npm --prefix tracing-js-self run training:generate -- \
+          node tracing-js-self/tools/generate-witness-v3.mjs \
             --seed 42 --count 8 \
             --output "$RUNNER_TEMP/trace.jsonl" \
             --manifest "$RUNNER_TEMP/manifest.json"
@@ -65,6 +65,7 @@ jobs:
           ]
           manifest = json.loads((root / "manifest.json").read_text())
           assert len(source) == len(native) == manifest["counts"]["locally_verified"] == 8
+          assert all(row['public']['schema']=='semantic-execution/3' for row in source)
           assert manifest["counts"]["admitted"] == 0
           for trace, episode in zip(source, native, strict=True):
               expected = [
