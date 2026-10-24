@@ -39,7 +39,6 @@ def main():
     parser.add_argument("--packs", type=Path)
     parser.add_argument("--root", type=Path, required=True)
     parser.add_argument("--device", default="cuda")
-    parser.add_argument("--packs", type=Path)
     parser.add_argument("--tasks", type=int, default=8)
     parser.add_argument("--steps", type=int, default=8)
     parser.add_argument("--requests", type=int, default=3)

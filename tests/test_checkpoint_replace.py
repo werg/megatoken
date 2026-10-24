@@ -51,3 +51,17 @@ def test_a_pinned_checkpoint_is_not_replaced_by_an_unpinned_one(tmp_path):
     with pytest.raises(FileExistsError, match="pinned"):
         _save(tmp_path, 2)
     assert _marker(resolve_checkpoint(tmp_path)) == 1
+
+
+@pytest.mark.parametrize("field", ["pinned", "format_version"])
+def test_replacement_does_not_guess_missing_saved_fields(tmp_path, field):
+    live = _save(tmp_path, 1, pinned=True)
+    path = live / "metadata.json"
+    metadata = json.loads(path.read_text())
+    metadata.pop(field)
+    path.write_text(json.dumps(metadata))
+    before = path.read_bytes()
+    with pytest.raises(ValueError, match="complete current metadata"):
+        _save(tmp_path, 2)
+    assert path.read_bytes() == before and _marker(live) == 1
+    assert not list(tmp_path.glob(".superseded-*"))

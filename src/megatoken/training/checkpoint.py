@@ -112,11 +112,12 @@ def commit_checkpoint(
             # a crash at any point leaves exactly one committed checkpoint (see
             # ``recover_superseded``). A pinned one (a phase boundary) is never replaced
             # by an unpinned one.
-            try:
-                existing = json.loads((destination / "metadata.json").read_text())
-            except (FileNotFoundError, json.JSONDecodeError, OSError):
-                existing = {}
-            if existing.get("pinned") and not pinned:
+            existing = json.loads((destination / "metadata.json").read_text())
+            if existing.get("format_version") != FORMAT_VERSION or not isinstance(
+                existing.get("pinned"), bool
+            ):
+                raise ValueError("Replacing a checkpoint requires complete current metadata")
+            if existing["pinned"] and not pinned:
                 raise FileExistsError(
                     f"Refusing to replace pinned checkpoint {destination} with an unpinned one"
                 )

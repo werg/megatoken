@@ -359,15 +359,77 @@ def evaluate(bundle_path, data_path, output):
     }
 
 
+def prepare_codec_views(data_path, output):
+    """Teach the text codec to retain public observations, with original family splits."""
+    from megatoken.io import content_hash
+
+    codec = ByteCodec.byte_fallback()
+    with DedupStore(output / "dedup.sqlite", DedupConfig(min_near_words=1_000_000)) as store:
+        sources = []
+        for split in ("train", "validation"):
+            with PreparedDataset(data_path, split=split) as data:
+                sources.append(data.manifest["fingerprint"])
+                for source in data.iter_episodes():
+                    observations = [r for r in source.records if r.role == "environment"]
+                    if len(observations) != 1:
+                        raise ValueError(
+                            "The cost experiment requires one actual public observation"
+                        )
+                    payload = observations[0].payload
+                    if not 0 < len(codec.encode(payload)) <= 512:
+                        raise ValueError(
+                            "The public copy target exceeds the declared codec capacity"
+                        )
+                    sample = sequential_meridians(
+                        Episode(
+                            "public-copy:" + source.episode_id,
+                            (
+                                PhysicalRecord("input", "user", payload),
+                                PhysicalRecord("copy", "assistant", payload, policy_mask=True),
+                            ),
+                            replace(
+                                source.lineage,
+                                source_id="public-observation-copy",
+                                revision="v1",
+                                frozen_split=split,
+                            ),
+                            stream="bootstrap",
+                            control_seed=b"Reproduce the supplied text exactly.",
+                        )
+                    )
+                    store.add(sample, codec)
+        store.freeze()
+        export_prepared(
+            store,
+            output,
+            codec=codec,
+            pipeline_fingerprint=content_hash(
+                {"view": "public-observation-copy/v1", "sources": sources}
+            ),
+            source_receipts=[
+                {
+                    "origin": "authored_public_copy",
+                    "sources": sources,
+                    "scope": "exact reconstruction of available input; no selected procedure labels",
+                }
+            ],
+        )
+
+
 def main():
     p = argparse.ArgumentParser(description=__doc__)
     p.add_argument("--root", type=Path, required=True)
     p.add_argument("--families", type=int, default=64)
     p.add_argument("--steps", type=int, default=64)
+    p.add_argument("--foundation-steps", type=int, default=256)
     p.add_argument(
-        "--_stage", choices=("prepare", "train", "restart", "export", "evaluate"), default="prepare"
+        "--_stage",
+        choices=("prepare", "foundation", "train", "restart", "export", "evaluate"),
+        default="prepare",
     )
     args = p.parse_args()
+    if min(args.families, args.steps, args.foundation_steps) < 1:
+        p.error("Family and update budgets must be positive")
 
     def next_stage(stage):
         os.execv(
@@ -381,6 +443,8 @@ def main():
                 str(args.families),
                 "--steps",
                 str(args.steps),
+                "--foundation-steps",
+                str(args.foundation_steps),
                 "--_stage",
                 stage,
             ],
@@ -390,7 +454,11 @@ def main():
     if args._stage == "prepare":
         args.root.mkdir(parents=True, exist_ok=False)
         prepare(args.root / "data", families=args.families)
-        next_stage("train")
+        prepare_codec_views(args.root / "data", args.root / "codec-data")
+        with PreparedDataset(args.root / "data", split="validation") as heldout:
+            if not len(heldout):
+                raise ValueError("Prepare held-out original families before training")
+        next_stage("foundation")
     from megatoken.training.config import TrainConfig
     from megatoken.training.engine import train
 
@@ -399,10 +467,7 @@ def main():
         model="tiny",
         model_overrides={"max_capacity": 512},
         phase="P1",
-        # This experiment starts from random weights. Its public text reader
-        # must learn together with prediction and realization; a frozen random
-        # reader is not the pretrained reader assumed by recurrent-only tuning.
-        representation_mode="bootstrap",
+        representation_mode="recurrent",
         budget=1000000,
         datasets=[str(args.root / "data")],
         output=str(args.root / "training"),
@@ -425,13 +490,34 @@ def main():
         use_effort_mixture=False,
         checkpoint_every=16,
     )
+    if args._stage == "foundation":
+        foundation = replace(
+            config,
+            phase="B0",
+            representation_mode="bootstrap",
+            budget=2000000,
+            max_steps=args.foundation_steps,
+            output=str(args.root / "foundation"),
+            datasets=[str(args.root / "data"), str(args.root / "codec-data")],
+        )
+        write_json(args.root / "foundation-config.json", asdict(foundation))
+        result = train(foundation)
+        write_json(args.root / "foundation.json", result)
+        if result["termination"] == "requested":
+            raise SystemExit(130)
+        next_stage("train")
     if args._stage == "train":
         write_json(args.root / "train-config.json", asdict(config))
-        result = train(config)
+        result = train(
+            config,
+            resume=str(args.root / "foundation/checkpoints/latest.json"),
+            phase_transition=True,
+        )
         write_json(args.root / "training.json", result)
         if result["termination"] == "requested":
             raise SystemExit(130)
         next_stage("restart")
+    config = TrainConfig.load(args.root / "train-config.json")
     if args._stage == "restart":
         result = train(replace(config, max_steps=2), resume=str(checkpoint))
         write_json(args.root / "restart.json", result)
