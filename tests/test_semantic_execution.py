@@ -139,3 +139,27 @@ def test_v3_rejects_noncanonical_duplicate_or_unknown_expr_keys():
     document["public"]["groups"][2]["events"][0]["record"] = record
     with pytest.raises(SemanticExecutionError):
         adapt_semantic_execution(document, allow_local=True)
+
+
+@pytest.mark.parametrize("entry", ["isBoolean", "_scanData", "$wrapper", "résumé", "Δsum", "a\\u200cb"])
+def test_v3_accepts_valid_javascript_source_identifiers(entry):
+    document = fixture()
+    code_record = line("code", {
+        "entry": entry,
+        "source": f"function {entry}(){{return 1;}}",
+        "sites": [],
+    })
+    document["public"]["groups"][0]["events"][0]["record"] = code_record
+    episode, receipt = adapt_semantic_execution(document, allow_local=True)
+    assert receipt.observed == 2
+    assert episode.records[0].payload == code_record.encode("utf8")
+
+
+@pytest.mark.parametrize("entry", ["", "bad-name", "5bad", "name space", "x.y"])
+def test_v3_rejects_invalid_javascript_source_identifiers(entry):
+    document = fixture()
+    document["public"]["groups"][0]["events"][0]["record"] = line("code", {
+        "entry": entry, "source": "function run(){}", "sites": []
+    })
+    with pytest.raises(SemanticExecutionError, match="static code"):
+        adapt_semantic_execution(document, allow_local=True)
