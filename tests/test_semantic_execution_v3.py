@@ -7,10 +7,11 @@ import json
 import pytest
 
 from megatoken.data import WindowConfig, iter_windows
-from megatoken.data.semantic_execution import (
-    SemanticExecutionError, adapt_semantic_execution,
-)
 from megatoken.data.schema import Episode
+from megatoken.data.semantic_execution import (
+    SemanticExecutionError,
+    adapt_semantic_execution,
+)
 from megatoken.generation.codec import ByteCodec
 
 
