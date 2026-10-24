@@ -1,5 +1,9 @@
 # Local smoke results, 23 October 2026
 
+The generated Megatoken checkpoints and serving exports were removed on 24 October
+at the user's request. The reports, source snapshots, input data, and hindsight-kb
+download remain. Reproduction now requires rerunning the diagnostic training.
+
 The user authorized these local checks, fixes, appropriate use of the shared GB10,
 and internal-drive cleanup. Other users' GPU processes and source changes were
 preserved. Evidence is under `/home/werg/megatoken-runs/local-smokes-20261023-01/`.
