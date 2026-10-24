@@ -57,6 +57,7 @@ REQUIRED = {
     "value-part": {"id", "data"},
     "value-close": {"id"},
 }
+SOURCE_IDENTIFIER = re.compile(r"[$_A-Za-z][$_A-Za-z0-9]*\\Z")
 IDENTITY = re.compile(r"[a-z][a-z0-9]*\Z")
 BIGINT = re.compile(r"(?:0|-?[1-9][0-9]*)\Z")
 SPECIAL = {"-0", "NaN", "+Infinity", "-Infinity"}
@@ -191,7 +192,7 @@ def parse_record(line: Any) -> tuple[str, dict[str, Any]]:
     if not isinstance(fields, dict) or not REQUIRED[kind] <= set(fields) <= FIELDS[kind]:
         _fail("Unknown or missing typed operation fields")
     if kind == "code":
-        if (not isinstance(fields["entry"], str) or not IDENTITY.fullmatch(fields["entry"])
+        if (not isinstance(fields["entry"], str) or not SOURCE_IDENTIFIER.fullmatch(fields["entry"])
             or not isinstance(fields["source"], str) or not fields["source"]
             or not isinstance(fields["sites"], list)):
             _fail("Missing static code bundle")
