@@ -306,10 +306,10 @@ def adapt_semantic_execution(
 
     records: list[PhysicalRecord] = []
     meridians: list[Meridian] = []
-    producers: dict[str, str] = {}
     dependencies: list[Dependency] = []
     actions: list[LogicalAction] = []
     dispatched: dict[str, tuple[str, str]] = {}
+    previous_committed_record: str | None = None
 
     for ordinal, (start, end, kind, fields) in enumerate(spans):
         mode = groups[start]["mode"]
@@ -368,8 +368,12 @@ def adapt_semantic_execution(
         # materialized JSON request, array, or function return. Observations
         # are evidence, not policy-scored dependent predictions.
         name = record_ids[-1]
-        if mode == "generated":
-            _add_dependencies(kind, fields, name, producers, dependencies)
+        # Native recurrence can only consume completed prior logical work.
+        # The edge is derived from causal commit order and observed boundaries,
+        # not from a private teacher operation or future source result.
+        if previous_committed_record is not None and mode == "generated":
+            dependencies.append(Dependency(previous_committed_record, name, "semantic"))
+        previous_committed_record = name
     tracks = tuple(TrackSpec("t" + str(i), "assistant") for i in range(8))
     episode_id = (
         "semantic:" + hashlib.sha256(b"\n".join(record.payload for record in records)).hexdigest()
@@ -404,16 +408,3 @@ def adapt_semantic_execution(
     )
 
 
-def _add_dependencies(
-    kind: str,
-    fields: dict[str, Any],
-    reader: str,
-    producers: dict[str, str],
-    dependencies: list[Dependency],
-) -> None:
-    """Version-three records declare no interpreter event or teacher IDs.
-
-    Explicit effect associations and selected semantic ordering are represented
-    by real native actions/meridians, not synthetic source event dependencies.
-    """
-    return
