@@ -27,7 +27,7 @@ from .schema import (
 )
 from .semantic_context import validate_selected_context
 from .semantic_contract import validate_envelope_record
-from .semantic_execution import _host_request
+from .semantic_request import _host_request
 from .semantic_physical import physical_semantic_episode
 from .witness_v4 import WitnessV4Error, parse_record
 from .witness_v4 import graph as validate_graph

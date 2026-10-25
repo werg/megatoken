@@ -1440,7 +1440,7 @@ class SelectedSemanticInference:
         It returns a typed dispatch descriptor; the registered JS adapter then
         performs that action. Nothing asks the model to describe it again.
         """
-        from megatoken.data.semantic_execution import _host_request
+        from megatoken.data.semantic_request import _host_request
         from megatoken.data.witness_v4 import parse_record
 
         with self.lock:

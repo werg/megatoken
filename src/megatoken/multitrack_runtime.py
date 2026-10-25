@@ -1604,7 +1604,7 @@ class MultiTrackRuntime:
         all committed argument dependencies. This method never authors a new
         group, teacher tool payload, or predicted return.
         """
-        from megatoken.data.semantic_execution import _host_request
+        from megatoken.data.semantic_request import _host_request
         from megatoken.data.witness_v4 import WitnessV4Error, parse_record
 
         committed = dict(session.selected_groups)
