@@ -41,11 +41,18 @@ class ExecutionBinding:
         if not all(
             isinstance(item, str) and item.strip()
             for item in (
-                self.program_id, self.source_digest, self.entry, self.invocation_id,
-                self.realm_id, self.trigger_id, self.input_ref,
+                self.program_id,
+                self.source_digest,
+                self.entry,
+                self.invocation_id,
+                self.realm_id,
+                self.trigger_id,
+                self.input_ref,
             )
         ):
-            raise ValueError("Execution binding needs source, invocation, input and trigger identities")
+            raise ValueError(
+                "Execution binding needs source, invocation, input and trigger identities"
+            )
         if len(self.source_digest) != 64 or any(
             char not in "0123456789abcdef" for char in self.source_digest
         ):
@@ -53,7 +60,9 @@ class ExecutionBinding:
         if self.realm_policy not in {"fresh", "retained"}:
             raise ValueError("Execution binding needs explicit fresh or retained realm policy")
         if self.completion_mode not in {
-            "call-return", "await-returned-promise", "owned-quiescence"
+            "call-return",
+            "await-returned-promise",
+            "owned-quiescence",
         }:
             raise ValueError("Unknown selected execution completion policy")
         if len(self.capability_grants) != len(set(self.capability_grants)) or any(
@@ -85,9 +94,15 @@ class TrackDescription:
             object.__setattr__(self, "execution", ExecutionBinding(**self.execution))
         elif self.execution is not None and not isinstance(self.execution, ExecutionBinding):
             raise ValueError("Execution binding must be typed or a validated mapping")
-        if type(self.bootstrap_ready) is not bool or (self.bootstrap_ready and self.execution is None):
+        if type(self.bootstrap_ready) is not bool or (
+            self.bootstrap_ready and self.execution is None
+        ):
             raise ValueError("Only execution tracks can be marked bootstrapped")
-        if self.execution is not None and not self.bootstrap_ready and self.status not in {"waiting", "cancelled"}:
+        if (
+            self.execution is not None
+            and not self.bootstrap_ready
+            and self.status not in {"waiting", "cancelled"}
+        ):
             raise ValueError("Unbootstrapped execution tracks cannot be runnable")
 
         if type(self.budget) is not int or type(self.revision) is not int:
@@ -122,9 +137,10 @@ class TrackRegistry:
             )
 
     def create(self, purpose: str, **options) -> TrackDescription:
-        if options.get("execution") is None and sum(
-            t.status == "active" for t in self.tracks.values()
-        ) >= self.max_active:
+        if (
+            options.get("execution") is None
+            and sum(t.status == "active" for t in self.tracks.values()) >= self.max_active
+        ):
             raise ValueError("Active work capacity exhausted; queue work or finish an active track")
         if options.get("budget", 128) < 1:
             raise ValueError("New work requires a positive budget")
@@ -136,11 +152,15 @@ class TrackRegistry:
                 raise ValueError("Execution work requires a typed invocation binding")
             if sum(t.status == "waiting" for t in self.tracks.values()) >= self.max_waiting:
                 raise ValueError("Execution bootstrap waiting capacity exhausted")
-            if any(t.execution and t.execution.invocation_id == execution.invocation_id
-                   for t in self.tracks.values()):
+            if any(
+                t.execution and t.execution.invocation_id == execution.invocation_id
+                for t in self.tracks.values()
+            ):
                 raise ValueError("An execution invocation cannot create a second track")
             if options.get("status", "waiting") != "waiting" or options.get("bootstrap_ready"):
-                raise ValueError("New execution work must await observed program and invocation bootstrap")
+                raise ValueError(
+                    "New execution work must await observed program and invocation bootstrap"
+                )
             options["execution"] = execution
             options["status"] = "waiting"
         parent = options.get("parent")
@@ -152,7 +172,9 @@ class TrackRegistry:
             raise ValueError("Child work cannot acquire capabilities its parent does not have")
         if execution is not None and parent is not None:
             inherited = self.tracks[parent].execution
-            if inherited and not set(execution.capability_grants) <= set(inherited.capability_grants):
+            if inherited and not set(execution.capability_grants) <= set(
+                inherited.capability_grants
+            ):
                 raise ValueError("Child execution cannot expand parent external grants")
         address = options.pop("address", None) or f"{self.address_prefix}:{self.sequence}"
         if not isinstance(address, str) or not address or address in self.tracks:
@@ -169,7 +191,11 @@ class TrackRegistry:
         """Host-only, idempotent post-publication bootstrap. Never a model tool."""
         current = self.tracks[address]
         binding = current.execution
-        if binding is None or binding.source_digest != source_digest or binding.input_ref != input_ref:
+        if (
+            binding is None
+            or binding.source_digest != source_digest
+            or binding.input_ref != input_ref
+        ):
             raise ValueError("Execution bootstrap must match previously observed code and input")
         if current.bootstrap_ready:
             return current
@@ -184,9 +210,17 @@ class TrackRegistry:
 
     def change(self, address: str, operation: str, **changes) -> TrackDescription:
         current = self.tracks[address]
-        if current.execution is not None and not current.bootstrap_ready and operation not in {
-            "cancel", "wait", "progress", "rename",
-        }:
+        if (
+            current.execution is not None
+            and not current.bootstrap_ready
+            and operation
+            not in {
+                "cancel",
+                "wait",
+                "progress",
+                "rename",
+            }
+        ):
             raise ValueError("Execution bootstrap must publish source and invocation before work")
         if operation not in OPERATIONS[1:] + ("rename",):
             raise ValueError("Unknown lifecycle operation")
@@ -284,7 +318,8 @@ class TrackRegistry:
     def selectable(self, address: str, completed: set[str]) -> bool:
         track = self.tracks[address]
         return (
-            track.status == "active" and track.budget > 0
+            track.status == "active"
+            and track.budget > 0
             and (track.execution is None or track.bootstrap_ready)
             and set(track.prerequisites) <= completed
         )
@@ -329,27 +364,42 @@ def lifecycle_tools(capabilities=("text",)) -> list[dict]:
                             **{
                                 key: {"type": "string", "minLength": 1}
                                 for key in (
-                                    "program_id", "source_digest", "entry",
-                                    "invocation_id", "realm_id", "trigger_id", "input_ref",
+                                    "program_id",
+                                    "source_digest",
+                                    "entry",
+                                    "invocation_id",
+                                    "realm_id",
+                                    "trigger_id",
+                                    "input_ref",
                                 )
                             },
                             "realm_policy": {"enum": ["fresh", "retained"]},
                             "completion_mode": {
                                 "enum": [
-                                    "call-return", "await-returned-promise", "owned-quiescence"
+                                    "call-return",
+                                    "await-returned-promise",
+                                    "owned-quiescence",
                                 ]
                             },
                             "capability_grants": {
-                                "type": "array", "items": {"type": "string"},
+                                "type": "array",
+                                "items": {"type": "string"},
                                 "uniqueItems": True,
                             },
                             "completion_target": {"type": "string"},
                             "schema": {"const": "semantic-execution-binding/4"},
                         },
                         "required": [
-                            "program_id", "source_digest", "entry", "invocation_id",
-                            "realm_id", "trigger_id", "input_ref", "realm_policy",
-                            "completion_mode", "capability_grants",
+                            "program_id",
+                            "source_digest",
+                            "entry",
+                            "invocation_id",
+                            "realm_id",
+                            "trigger_id",
+                            "input_ref",
+                            "realm_policy",
+                            "completion_mode",
+                            "capability_grants",
                         ],
                         "additionalProperties": False,
                     },
