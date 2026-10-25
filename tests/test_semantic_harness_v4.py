@@ -295,6 +295,7 @@ def test_no_unadmitted_trajectory_can_be_labeled_success():
     with pytest.raises(SelectedHarnessError):
         adapt_selected_harness_v4(doc, admission_verifier=lambda _: False)
 
+
 def event_fixture():
     doc = fixture()
     program = doc["public"]["timeline"][0]
