@@ -71,42 +71,50 @@ def _text_bytes(text: str) -> bytes:
 
 
 def _host_request(fields: dict[str, Any]) -> tuple[list[Any], str]:
-    """Materialize bounded semantic arguments, never hidden JS getters."""
+    """Validate exactly the source-grounded JSON transport admitted by the JS codec.
+
+    Version-three is historical; references/callbacks require their own graph
+    validation and cannot be admitted merely because a JSON payload was supplied.
+    """
     operation = fields.get("operation")
     signatures = {
-        "demo.readNumber": ("demo.readNumber/1", 1),
-        "demo.readAsync": ("demo.readAsync/1", 1),
-        "demo.store": ("demo.store/1", 2),
-        "platform.dateNow": ("platform.dateNow/1", 0),
-        "console.log": ("console.log/1", None),
-        "console.warn": ("console.warn/1", None),
-        "console.error": ("console.error/1", None),
+        "demo.readNumber": ("demo.readNumber/1", 1, 0),
+        "demo.readAsync": ("demo.readAsync/1", 1, 0),
+        "demo.store": ("demo.store/1", 2, 0),
+        "platform.dateNow": ("platform.dateNow/1", 0, None),
+        "platform.console.log": ("platform.console.log/1", 1, 0),
+        "platform.console.info": ("platform.console.info/1", 1, 0),
+        "platform.console.warn": ("platform.console.warn/1", 1, 0),
+        "platform.console.error": ("platform.console.error/1", 1, 0),
     }
     if operation not in signatures:
         _fail("Unregistered v3 effect capability")
-    signature, count = signatures[operation]
+    signature, count, key_index = signatures[operation]
     supplied = fields.get("arguments")
-    if not isinstance(supplied, list) or (count is not None and len(supplied) != count):
+    if not isinstance(supplied, list) or len(supplied) != count:
         _fail("Invalid v3 effect argument arity")
-    values = []
-    for value in supplied:
-        if not isinstance(value, list) or not value:
+    values: list[Any] = []
+    for tag in supplied:
+        if not isinstance(tag, list) or not tag:
             _fail("Invalid external scalar")
-        kind = value[0]
-        if kind == "str" and len(value) == 2 and isinstance(value[1], str):
-            values.append(value[1])
-        elif kind == "num" and len(value) == 2 and type(value[1]) in (int, float):
-            values.append(value[1])
-        elif kind == "bool" and len(value) == 2 and type(value[1]) is bool:
-            values.append(value[1])
-        elif kind == "null" and len(value) == 1:
+        if tag[0] == "str" and len(tag) == 2 and isinstance(tag[1], str):
+            values.append(tag[1])
+        elif tag[0] == "num" and len(tag) == 2 and type(tag[1]) in (int, float):
+            values.append(tag[1])
+        elif tag[0] == "bool" and len(tag) == 2 and type(tag[1]) is bool:
+            values.append(tag[1])
+        elif tag == ["null"]:
             values.append(None)
         else:
-            _fail("Unsupported v3 external transport scalar")
-    if operation in ("demo.store", "demo.readNumber", "demo.readAsync") and not isinstance(
-        values[0], str
-    ):
-        _fail("Invalid version-three external key")
+            _fail("Nonprimitive v3 external transport requires an independent graph codec")
+    if key_index is not None and not isinstance(values[key_index], str):
+        _fail("Invalid external operation key")
+    try:
+        payload = json.loads(fields["payload"])
+    except (ValueError, TypeError) as error:
+        raise SemanticExecutionError("Invalid external JSON payload") from error
+    if payload != values or any(type(a) is not type(b) for a, b in zip(payload, values)):
+        _fail("Grounded request payload differs from evaluated arguments")
     return values, signature
 
 
