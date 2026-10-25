@@ -87,7 +87,7 @@ class TrackDescription:
             raise ValueError("Execution binding must be typed or a validated mapping")
         if type(self.bootstrap_ready) is not bool or (self.bootstrap_ready and self.execution is None):
             raise ValueError("Only execution tracks can be marked bootstrapped")
-        if self.execution is not None and not self.bootstrap_ready and self.status != "waiting":
+        if self.execution is not None and not self.bootstrap_ready and self.status not in {"waiting", "cancelled"}:
             raise ValueError("Unbootstrapped execution tracks cannot be runnable")
 
         if type(self.budget) is not int or type(self.revision) is not int:
@@ -122,7 +122,9 @@ class TrackRegistry:
             )
 
     def create(self, purpose: str, **options) -> TrackDescription:
-        if sum(t.status == "active" for t in self.tracks.values()) >= self.max_active:
+        if options.get("execution") is None and sum(
+            t.status == "active" for t in self.tracks.values()
+        ) >= self.max_active:
             raise ValueError("Active work capacity exhausted; queue work or finish an active track")
         if options.get("budget", 128) < 1:
             raise ValueError("New work requires a positive budget")
