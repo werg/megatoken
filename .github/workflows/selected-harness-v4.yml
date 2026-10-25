@@ -59,8 +59,9 @@ jobs:
           ]
           print("Validated controlled bridge: two explicit calls, four native dispatches, zero admitted training episodes")
           PY
-      - name: Validate negative witness, lifecycle and native-action regressions
+      - name: Validate lightweight native import and lifecycle regressions
         run: |
           python -m pytest -q tests/test_semantic_harness_v4.py \
-            tests/test_selected_semantic_bridge_v4.py \
             tests/test_semantic_harness_lifecycle_v4.py
+      # The actual MultiTrackRuntime dispatch bridge imports PyTorch and is
+      # exercised by the separate CPU workflow (which installs the CPU stack).
