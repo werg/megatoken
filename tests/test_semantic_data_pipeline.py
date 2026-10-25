@@ -603,6 +603,63 @@ def test_pure_state_receipts_remain_eligible_but_never_enter_outcome_only_input(
     validate_native_visibility(outcome)
 
 
+def test_outcome_only_normalizes_source_tuple_properties_for_array_result(production_codec):
+    from megatoken.data.semantic_corpus import outcome_control_episode
+    from megatoken.training.semantic_budget import validate_semantic_episode
+
+    episode, _ = adapt_selected_harness_v4(
+        CONTRACT["fixtures"]["envelope"]["valid"][1],
+        codec=production_codec,
+        max_positions=1024,
+        max_history=128,
+        allow_local=True,
+    )
+    annotation = json.loads(episode.supervision.annotations_json)
+    annotation["semantic_execution"].update(
+        representation="explicit", continuation="teacher_conditioned", admission="admitted"
+    )
+    episode = replace(
+        episode,
+        records=tuple(
+            replace(row, provenance="teacher") if row.policy_mask else row
+            for row in episode.records
+        ),
+        supervision=replace(
+            episode.supervision,
+            outcome="success",
+            verification="local_assertions",
+            annotations_json=json.dumps(annotation),
+        ),
+    )
+    outcome = outcome_control_episode(
+        episode,
+        reference_outcome={
+            "kind": "return",
+            "graph": {
+                "roots": [["ref", "o0"], ["num", 7]],
+                "objects": [
+                    {
+                        "id": "o0",
+                        "kind": "array",
+                        "properties": [["0", ["num", 3]], ["length", ["num", 1]]],
+                    }
+                ],
+            },
+        },
+        codec=production_codec,
+        max_history=128,
+    )
+    validate_semantic_episode(outcome, phase="SO", representation="outcome-only")
+    answer = next(
+        b"".join(part.payload for part in parts).decode()
+        for parts in outcome.iter_logical_records()
+        if parts[0].policy_mask and parts[0].logical_id == "outcome:answer"
+    )
+    assert (
+        '"properties":[{"key":"0","value":["num",3]},{"key":"length","value":["num",1]}]' in answer
+    )
+
+
 def test_rejected_interactive_cost_keeps_new_bytes_and_deduplicates_committed_native_failure():
     from megatoken.training.semantic_evaluation import _interactive_usage
 
