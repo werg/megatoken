@@ -1212,6 +1212,61 @@ class MultiTrackRuntime:
             session.tool_routes[action_id] = (address, group.tape.event_ids[index])
 
     @_commit_owner
+    def dispatch_semantic_requests(
+        self, session: TrackSession, group: GroupGeneration, runner, adapters, *,
+        verify_source,
+    ) -> tuple[str, ...]:
+        """Dispatch derived, fully committed semantic tool actions without
+        re-encoding selected witness bytes as model-generated tool JSON.
+
+        The caller supplies an independent selected-state/source validator.
+        That validator must check the invocation, source callsite, grants and
+        all committed argument dependencies. This method never authors a new
+        group, teacher tool payload, or predicted return.
+        """
+        from megatoken.data.semantic_execution import _host_request
+        from megatoken.data.witness_v3 import WitnessV3Error, parse_record
+
+        if not any(value is group for value in session.selected_groups.values()):
+            raise ValueError("Semantic requests require a committed selected group")
+        if not callable(verify_source):
+            raise ValueError("Semantic bridge requires an independent source/ownership validator")
+        dispatched: list[str] = []
+        for index, raw in enumerate(group.tape.payloads):
+            if not isinstance(raw, bytes) or not raw.startswith(b"request "):
+                continue
+            if not group.tape.valid[index] or group.tape.modalities[index] != "text":
+                raise ValueError("Incomplete or invalid semantic requests cannot dispatch")
+            try:
+                kind, fields = parse_record(raw.decode("utf-8", errors="strict"))
+            except (UnicodeDecodeError, WitnessV3Error) as error:
+                raise ValueError("Malformed committed semantic request") from error
+            if kind != "request":
+                raise ValueError("Selected action must be a request witness")
+            operation = fields["operation"]
+            _host_request(fields)
+            address = group.tape.tracks[index]
+            # The source validator operates on the already committed selection
+            # and explicit track, and MUST establish source/realm ownership.
+            if verify_source(address, fields) is not True:
+                raise ValueError("Selected request failed source, capability or realm checks")
+            adapter = adapters.get(operation)
+            if adapter is None or not callable(getattr(adapter, "execute_selected", None)):
+                raise ValueError("Native semantic adapter must accept validated original witness bytes")
+            action_id = f"{group.tape.meridian_id}:{group.tape.event_ids[index]}"
+            if action_id in session.tool_routes:
+                continue  # Already submitted; never repeat a native write.
+            runner.submit(
+                action_id,
+                lambda fn=adapter, identity=action_id, payload=raw: fn.execute_selected(
+                    action_id=identity, payload=payload
+                ),
+            )
+            session.tool_routes[action_id] = (address, group.tape.event_ids[index])
+            dispatched.append(action_id)
+        return tuple(dispatched)
+
+    @_commit_owner
     def collect_tools(self, session: TrackSession, runner, *, effort: int = 6):
         results, failures = runner.collect_ready()
         for action_id in (*results, *failures):
