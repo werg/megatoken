@@ -18,7 +18,7 @@ jobs:
     runs-on: ubuntu-24.04
     timeout-minutes: 45
     env:
-      MEGATOKEN_TOKENIZER_JSON: ${{ runner.temp }}/tokenizer.json
+      MEGATOKEN_TOKENIZER_JSON: ${{ github.workspace }}/validation/semantic-tokenizer.json
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
@@ -46,6 +46,7 @@ jobs:
           from pathlib import Path
           from megatoken.generation.codec import LING_REVISION, LING_TOKENIZER_SHA256
           path = Path(os.environ['MEGATOKEN_TOKENIZER_JSON'])
+          path.parent.mkdir(parents=True, exist_ok=True)
           urllib.request.urlretrieve(f'https://huggingface.co/inclusionAI/Ling-3.0-tiny/resolve/{LING_REVISION}/tokenizer.json', path)
           assert hashlib.sha256(path.read_bytes()).hexdigest() == LING_TOKENIZER_SHA256
           PY
@@ -57,7 +58,7 @@ jobs:
           cd tracing-js-self
           node tools/generate-semantic-contract.mjs --check
           node tools/generate-host-contract.mjs --check
-          node tools/generate-effectful-training.mjs --out "$RUNNER_TEMP/teacher" \
+          node tools/generate-effectful-training.mjs --jobs 4 --out "$RUNNER_TEMP/teacher" \
             --megatoken "$GITHUB_WORKSPACE" --tokenizer "$MEGATOKEN_TOKENIZER_JSON" \
             --python python --require-native
       - name: Recheck independent source and native gates and export the prepared corpus
@@ -89,14 +90,17 @@ jobs:
             node --test tracing-js-self/test/training-orchestration-evaluation.test.js
           python scripts/validate_semantic_orchestration.py --evidence-dir "$RUNNER_TEMP/orchestration" \
             --tokenizer-json "$MEGATOKEN_TOKENIZER_JSON" --output "$RUNNER_TEMP/orchestration-receipt.json"
-      - name: Collect paired source recipes and verify every configured train and validation stage
+      - name: Collect paired source recipes from the pinned producer checkout
+        working-directory: tracing-js-self
         run: |
-          node tracing-js-self/tools/generate-effectful-training.mjs --out "$RUNNER_TEMP/recipe-explicit" \
+          node tools/generate-effectful-training.mjs --out "$RUNNER_TEMP/recipe-explicit" \
             --recipe training-v4 --representation explicit --jobs 4 \
             --megatoken "$GITHUB_WORKSPACE" --tokenizer "$MEGATOKEN_TOKENIZER_JSON" --python python --require-native
-          node tracing-js-self/tools/generate-effectful-training.mjs --out "$RUNNER_TEMP/recipe-compact" \
+          node tools/generate-effectful-training.mjs --out "$RUNNER_TEMP/recipe-compact" \
             --recipe training-v4 --representation compact --jobs 4 \
             --megatoken "$GITHUB_WORKSPACE" --tokenizer "$MEGATOKEN_TOKENIZER_JSON" --python python --require-native
+      - name: Verify every configured train and validation stage
+        run: |
           python scripts/prepare_semantic_experiments.py \
             --explicit-corpus "$RUNNER_TEMP/recipe-explicit" --compact-corpus "$RUNNER_TEMP/recipe-compact" \
             --tracer-root tracing-js-self --tokenizer-json "$MEGATOKEN_TOKENIZER_JSON" \
