@@ -293,9 +293,9 @@ def adapt_selected_harness_v4(
         previous=last_by_track.get(track)
         if previous is not None and kind == "semantic":
             dependencies.append(Dependency(previous, record_id, "semantic"))
-        if result_of:
-            dependency_source = "semantic:r" + str(requests[key]["index"] + 1)
-            dependencies.append(Dependency(dependency_source, record_id, "effect"))
+        # Result->request correlation lives in PhysicalRecord.result_of and
+        # the logical action table. Dependency edges are prediction readers,
+        # never a future *observed* result pretending to be a prediction.
         last_by_track[track] = record_id
 
     if not programs or not activations or not all(v["terminal"] for v in activations.values()):
