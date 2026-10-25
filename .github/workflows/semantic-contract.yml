@@ -33,7 +33,7 @@ jobs:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           repository: werg/tracing-js-self
-          ref: e8ff6785ac5ed836515317f2ca408d8ba9958391 # canonical v4 source-grounded witness
+          ref: 77480bf3b85b34620dd07a3b12f223e45b827d9e # canonical v4 source-grounded witness
           path: tracing-js-self
           persist-credentials: false
       - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
