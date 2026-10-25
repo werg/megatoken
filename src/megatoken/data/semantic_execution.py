@@ -113,7 +113,9 @@ def _host_request(fields: dict[str, Any]) -> tuple[list[Any], str]:
         payload = json.loads(fields["payload"])
     except (ValueError, TypeError) as error:
         raise SemanticExecutionError("Invalid external JSON payload") from error
-    if payload != values or any(type(a) is not type(b) for a, b in zip(payload, values, strict=True)):
+    if payload != values or any(
+        type(a) is not type(b) for a, b in zip(payload, values, strict=True)
+    ):
         _fail("Grounded request payload differs from evaluated arguments")
     return values, signature
 
