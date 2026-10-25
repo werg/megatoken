@@ -89,7 +89,7 @@ class SemanticExperimentConfig:
 
 def validate_semantic_episode(episode, *, phase, representation):
     """Bind actual native teaching records to the declared experiment arm."""
-    from megatoken.data.witness_v4 import graph, parse_record, value
+    from megatoken.data.witness_v4 import parse_record
     from megatoken.io import strict_json_loads
 
     annotation = json.loads(episode.supervision.annotations_json).get("semantic_execution", {})
