@@ -14,6 +14,7 @@ without disturbing the committed session.
 
 from __future__ import annotations
 
+import hashlib
 import json
 import time
 from collections.abc import Callable, Mapping, Sequence
@@ -74,6 +75,36 @@ class ReadyWork:
     modality_options: tuple[ActionSpec | MediaOutputSpec, ...] = ()
 
 
+@dataclass(frozen=True)
+class LifecycleRecordedTape:
+    """An explicitly recorded decision, deliberately not a sampled model tape."""
+
+    meridian_id: int
+    tracks: tuple[str, ...]
+    event_ids: tuple[str, ...]
+    payloads: tuple[bytes, ...]
+    valid: tuple[bool, ...] = (True,)
+    modalities: tuple[str, ...] = ("text",)
+    terminal: tuple[bool, ...] = (True,)
+    emitted_ids: tuple[tuple[int, ...], ...] = ()
+
+
+@dataclass(frozen=True)
+class LifecycleTeacherAction:
+    tape: LifecycleRecordedTape
+    policy_digest: str
+    decision: int
+
+
+@dataclass(frozen=True)
+class ControlledFixtureAction:
+    """Controlled engineering input with neither model nor teacher authority."""
+
+    tape: LifecycleRecordedTape
+    fixture_digest: str
+    decision: int
+
+
 @dataclass
 class RenderWork:
     selection: SelectedGroup
@@ -110,6 +141,8 @@ class TrackSession:
     tool_errors: dict[str, str] = field(default_factory=dict)
     tool_publication: dict[str, int] = field(default_factory=dict)
     selected_groups: dict[int, GroupGeneration] = field(default_factory=dict)
+    teacher_lifecycle_actions: dict[str, LifecycleTeacherAction] = field(default_factory=dict)
+    controlled_fixture_actions: dict[str, ControlledFixtureAction] = field(default_factory=dict)
     rendering: dict[int, RenderWork] = field(default_factory=dict)
     queue: list[ReadyWork] = field(default_factory=list)
     work_sequence: int = 0
@@ -117,6 +150,12 @@ class TrackSession:
     scheduling_log: list[tuple[str, tuple[str, ...]]] = field(default_factory=list)
     reserved_output_bytes: dict[int, int] = field(default_factory=dict)
     context_archive: ContextArchive = field(default_factory=ContextArchive)
+    execution_programs: dict[str, dict] = field(default_factory=dict)
+    execution_inputs: dict[str, dict] = field(default_factory=dict)
+    execution_publication: dict[str, int] = field(default_factory=dict)
+    execution_source_events: dict[str, tuple[str, ...]] = field(default_factory=dict)
+    execution_receipts: list[dict] = field(default_factory=list)
+    execution_delivered: set[str] = field(default_factory=set)
 
     @property
     def state(self) -> MultiTrackState:
@@ -940,7 +979,13 @@ class MultiTrackRuntime:
             if key in values:
                 values[key] = tuple(values[key])
         registry = session.tracks
-        snapshot = (dict(registry.tracks), registry.sequence, list(registry.transitions))
+        snapshot = (
+            dict(registry.tracks),
+            list(registry.transitions),
+            dict(registry.admissions),
+            dict(registry.dependencies),
+            dict(registry.completions),
+        )
         try:
             if operation == "create":
                 if address is not None and address != MAIN_TRACK:
@@ -949,9 +994,13 @@ class MultiTrackRuntime:
                     f"{registry.address_prefix}:{registry.sequence}" in session.state.track_registry
                 ):
                     registry.sequence += 1
-                description = registry.create(
-                    **values, **({"address": address} if address is not None else {})
-                )
+                ingress_key = values.pop("ingress_key", None)
+                if ingress_key is not None:
+                    description = registry.admit_execution(ingress_key, **values)
+                else:
+                    description = registry.create(
+                        **values, **({"address": address} if address is not None else {})
+                    )
             else:
                 if address is None:
                     raise ValueError("Lifecycle action needs its returned track address")
@@ -987,9 +1036,143 @@ class MultiTrackRuntime:
         except Exception:
             # Published chunks remain causal facts. An allocated address is
             # consumed even if the rest of its announcement could not publish.
-            registry.tracks, _, registry.transitions = snapshot
+            (
+                registry.tracks,
+                registry.transitions,
+                registry.admissions,
+                registry.dependencies,
+                registry.completions,
+            ) = snapshot
             raise
         return description
+
+    @_commit_owner
+    def register_execution_context(self, session: TrackSession, *, program: dict, invocation: dict):
+        """Register immutable host context without executing code or exposing future state."""
+        if (
+            not isinstance(program, dict)
+            or not isinstance(invocation, dict)
+            or program.get("schema") != "semantic-execution/4"
+            or program.get("kind") != "program"
+            or program.get("mode") != "observed"
+            or invocation.get("schema") != "semantic-execution/4"
+            or invocation.get("kind") != "invocation"
+            or invocation.get("mode") != "observed"
+            or not isinstance(program.get("source"), str)
+            or hashlib.sha256(program["source"].encode()).hexdigest() != program.get("digest")
+            or invocation.get("sourceDigest") != program["digest"]
+            or invocation.get("programId") != program.get("programId")
+        ):
+            raise ValueError("Execution context requires exact observed program and invocation")
+
+        def canonical(item):
+            return json.dumps(item, sort_keys=True, separators=(",", ":"), allow_nan=False)
+
+        program = json.loads(canonical(program))
+        invocation = json.loads(canonical(invocation))
+        program_id = program["programId"]
+        input_ref = hashlib.sha256(canonical(invocation["inputGraph"]).encode()).hexdigest()
+        key = invocation["invocationId"] + ":" + input_ref
+        if (
+            program_id in session.execution_programs
+            and session.execution_programs[program_id] != program
+        ):
+            raise ValueError("Published execution program is immutable")
+        if key in session.execution_inputs and session.execution_inputs[key] != invocation:
+            raise ValueError("Published execution invocation is immutable")
+        session.execution_programs[program_id] = program
+        session.execution_inputs[key] = invocation
+        return input_ref
+
+    @_commit_owner
+    def bootstrap_execution(self, session: TrackSession, address: str):
+        """Publish code, then invocation, before making a reserved child runnable."""
+        track = session.tracks.tracks[address]
+        binding = track.execution
+        if binding is None:
+            raise ValueError("Execution bootstrap requires a typed binding")
+        if track.bootstrap_ready:
+            return track
+        try:
+            program = session.execution_programs[binding.program_id]
+            invocation = session.execution_inputs[binding.invocation_id + ":" + binding.input_ref]
+            if (
+                program["digest"] != binding.source_digest
+                or invocation["realmId"] != binding.realm_id
+                or invocation["entry"] != binding.entry
+                or invocation["completionPolicy"] != binding.completion_mode
+                or not set(binding.capability_grants) <= set(program["capabilities"])
+            ):
+                raise ValueError("Execution bootstrap context differs from its typed binding")
+            progress = session.execution_publication.get(address, 0)
+            for index, event in enumerate((program, invocation)):
+                if index < progress:
+                    continue
+                before = set(session.occupied_events)
+                self.observe_text(
+                    session,
+                    address,
+                    json.dumps(event, sort_keys=True, separators=(",", ":")).encode(),
+                    role="user",
+                    effort=1,
+                )
+                if index == 0:
+                    session.execution_source_events[address] = tuple(
+                        identity
+                        for identity in session.context_archive.events
+                        if identity not in before
+                    )
+                session.execution_publication[address] = index + 1
+            return session.tracks.activate_execution(
+                address, source_digest=binding.source_digest, input_ref=binding.input_ref
+            )
+        except Exception as error:
+            if session.tracks.tracks[address].status not in {"completed", "cancelled"}:
+                session.tracks.change(address, "cancel")
+            receipt = {
+                "schema": "semantic-bootstrap/4",
+                "track": address,
+                "invocation": binding.invocation_id,
+                "status": "failed",
+                "error": str(error),
+            }
+            session.execution_receipts.append(receipt)
+            raise ValueError("Execution bootstrap failed; reservation cancelled") from error
+
+    @_commit_owner
+    def complete_execution(self, session: TrackSession, address: str, *, kind: str, value):
+        """Deliver child completion independently of its creation tool result."""
+        receipt = session.tracks.complete_execution(address, kind=kind, value=value)
+        key = receipt["dependency"]["id"]
+        if key in session.execution_delivered:
+            return receipt
+        target = receipt["target"]
+        if target is not None:
+            owner = session.tracks.tracks.get(target)
+            if owner is None:
+                raise ValueError("Completion destination has no runtime owner")
+            if owner.status not in {"cancelled", "completed"}:
+                self.observe_text(
+                    session,
+                    target,
+                    json.dumps(receipt, sort_keys=True, separators=(",", ":")).encode(),
+                    role="environment",
+                    effort=1,
+                )
+        session.execution_receipts.append(receipt)
+        session.execution_delivered.add(key)
+        session.completed_events.add(key)
+        session.tracks.wake_ready_executions(delivered=session.completed_events)
+        return receipt
+
+    @_commit_owner
+    def wake_execution(self, session: TrackSession, address: str, *, work: ReadyWork | None = None):
+        track = session.tracks.wake_execution(address, delivered=session.completed_events)
+        if work is not None:
+            if work.track != address or work.task_revision != track.revision:
+                raise ValueError("Wake output belongs to another track or stale task revision")
+            self.enqueue(session, work)
+        return track
 
     def _publish_tool_result(
         self, session: TrackSession, action_id: str, payload: bytes, *, effort: int = 6
@@ -1019,19 +1202,170 @@ class MultiTrackRuntime:
         session.occupied_events.add(f"result:{action_id}")
 
     @_commit_owner
-    def execute_lifecycle(self, session: TrackSession, group: GroupGeneration):
+    def commit_lifecycle_teacher(
+        self,
+        session: TrackSession,
+        *,
+        track: str,
+        payload: bytes,
+        policy_digest: str,
+        decision: int,
+    ) -> LifecycleTeacherAction:
+        """Collect an explicit trusted coordinator policy through the real executor.
+
+        This is a data-collection authority: it records observed teacher
+        continuation and cannot manufacture a model action tape or dispatch a
+        guest semantic request. The collector retains the policy and independent
+        child admission outside predictor inputs.
+        """
+        import jsonschema
+
+        from megatoken.lifecycle import lifecycle_tools
+        from megatoken.tool_schema import parse_tool_action
+
+        if (
+            not isinstance(policy_digest, str)
+            or len(policy_digest) != 64
+            or any(char not in "0123456789abcdef" for char in policy_digest)
+            or type(decision) is not int
+            or decision < 0
+        ):
+            raise ValueError("Teacher orchestration requires a pinned policy and decision index")
+        name, arguments, _, _ = parse_tool_action(payload)
+        definitions = {
+            tool["name"]: tool["parameters"] for tool in lifecycle_tools(tuple(self.output_specs))
+        }
+        if name not in definitions:
+            raise ValueError("Coordinator teacher authority is restricted to lifecycle tools")
+        jsonschema.validate(arguments, definitions[name])
+        identity = f"teacher:{policy_digest}:{decision}"
+        previous = session.teacher_lifecycle_actions.get(identity)
+        if previous is not None:
+            if previous.tape.payloads != (payload,) or previous.tape.tracks != (track,):
+                raise ValueError("Teacher retry rewrote its committed decision")
+            return previous
+        if not session.tracks.selectable(track, session.completed_events):
+            raise ValueError("Coordinator teacher cannot select closed or blocked work")
+        if session.tracks.tracks[track].budget < 1:
+            raise ValueError("Coordinator teacher exhausted its work budget")
+        revision = session.revision
+        chunks = segment_bytes(
+            payload, self.generator.generator.codec, self.chunking, chat_template="none"
+        )
+        for index, chunk in enumerate(chunks):
+            self.observe(
+                session,
+                (
+                    ObservedEvent(
+                        track,
+                        "text",
+                        chunk.payload,
+                        ROLE_TO_ID["assistant"],
+                        terminal=index + 1 == len(chunks),
+                        event_id=f"{identity}:part:{index}",
+                    ),
+                ),
+                effort=1,
+            )
+        session.tracks.charge((track,))
+        action = LifecycleTeacherAction(
+            LifecycleRecordedTape(revision, (track,), (identity,), (payload,)),
+            policy_digest,
+            decision,
+        )
+        session.teacher_lifecycle_actions[identity] = action
+        return action
+
+    @_commit_owner
+    def commit_fixture_action(self, session, *, track, payload, fixture_digest, decision, family):
+        """Commit an explicit controlled selection at the engineering input boundary.
+
+        This produces no model-selected or source-teacher provenance. The public
+        semantic serving entry point gates access behind a separate fixture flag.
+        Invalid fixture bytes are retained just like invalid model selections.
+        """
+        if (
+            not isinstance(payload, bytes)
+            or len(payload) > 65536
+            or not isinstance(fixture_digest, str)
+            or len(fixture_digest) != 64
+            or any(char not in "0123456789abcdef" for char in fixture_digest)
+            or type(decision) is not int
+            or decision < 0
+            or family not in {"lifecycle", "semantic"}
+        ):
+            raise ValueError(
+                "Controlled lifecycle input needs exact bounded bytes and fixture identity"
+            )
+        identity = f"controlled:{family}:{track}:{fixture_digest}:{decision}"
+        previous = session.controlled_fixture_actions.get(identity)
+        if previous is not None:
+            if previous.tape.payloads != (payload,) or previous.tape.tracks != (track,):
+                raise ValueError("Controlled retry rewrote its committed decision")
+            return previous
+        if not session.tracks.selectable(track, session.completed_events):
+            raise ValueError("Controlled selection cannot select closed or blocked work")
+        revision = session.revision
+        chunks = segment_bytes(
+            payload, self.generator.generator.codec, self.chunking, chat_template="none"
+        )
+        for index, chunk in enumerate(chunks):
+            self.observe(
+                session,
+                (
+                    ObservedEvent(
+                        track,
+                        "text",
+                        chunk.payload,
+                        ROLE_TO_ID["assistant"],
+                        terminal=index + 1 == len(chunks),
+                        event_id=f"{identity}:part:{index}",
+                    ),
+                ),
+                effort=1,
+            )
+        session.tracks.charge((track,))
+        action = ControlledFixtureAction(
+            LifecycleRecordedTape(
+                revision,
+                (track,),
+                (identity,),
+                (payload,),
+                emitted_ids=(tuple(self.generator.generator.codec.encode(payload)),),
+            ),
+            fixture_digest,
+            decision,
+        )
+        session.controlled_fixture_actions[identity] = action
+        return action
+
+    @_commit_owner
+    def execute_lifecycle(
+        self,
+        session: TrackSession,
+        group: GroupGeneration | LifecycleTeacherAction | ControlledFixtureAction,
+    ):
         """Execute selected, validated control messages through the same policy as tools."""
         import jsonschema
 
         from megatoken.lifecycle import lifecycle_tools
         from megatoken.tool_schema import parse_tool_action
 
-        if not any(value is group for value in session.selected_groups.values()):
+        if not any(
+            value is group
+            for registry in (
+                session.selected_groups,
+                session.teacher_lifecycle_actions,
+                session.controlled_fixture_actions,
+            )
+            for value in registry.values()
+        ):
             raise ValueError("Lifecycle execution requires committed selected actions")
         tools = {
             tool["name"]: tool["parameters"] for tool in lifecycle_tools(tuple(self.output_specs))
         }
         outcomes = []
+        bootstraps = []
         for index, payload in enumerate(group.tape.payloads):
             if not group.tape.valid[index] or group.tape.modalities[index] != "text":
                 continue
@@ -1052,7 +1386,16 @@ class MultiTrackRuntime:
             # Keep attachment to the requesting task even when it closes itself.
             session.tool_routes[action_id] = (address, group.tape.event_ids[index])
             try:
-                if name == "track_context_status":
+                if name == "track_join":
+                    if arguments["address"] != address:
+                        raise ValueError("A selected join must suspend its own parent track")
+                    description = session.tracks.wait_for_execution(
+                        address,
+                        arguments["completion_dependency"],
+                        delivered=session.completed_events,
+                    )
+                    outcome = {"action_id": action_id, "track": asdict(description)}
+                elif name == "track_context_status":
                     outcome = self.context_status(
                         session, track=arguments["address"], include_sources=True
                     )
@@ -1112,9 +1455,24 @@ class MultiTrackRuntime:
                                 "Child work cannot exceed its parent's remaining work budget"
                             )
                     description = self.track_action(
-                        session, name.removeprefix("track_"), **arguments
+                        session,
+                        name.removeprefix("track_"),
+                        **arguments,
+                        **(
+                            {"ingress_key": action_id}
+                            if name == "track_create" and arguments.get("execution")
+                            else {}
+                        ),
                     )
                     outcome = {"action_id": action_id, "track": asdict(description)}
+                    if description.execution is not None and name in {
+                        "track_create",
+                        "track_assign",
+                    }:
+                        outcome["completion_dependency"] = session.tracks.completion_dependency(
+                            description.address
+                        )
+                        bootstraps.append(description.address)
                 status = "completed"
             except (ValueError, KeyError) as exc:
                 outcome = {"action_id": action_id, "error": str(exc)}
@@ -1127,6 +1485,21 @@ class MultiTrackRuntime:
         for action_id, payload in tuple(session.tool_ready.items()):
             self._publish_tool_result(session, action_id, payload)
             del session.tool_ready[action_id]
+        for address in bootstraps:
+            try:
+                self.bootstrap_execution(session, address)
+            except ValueError:
+                # The failure receipt and cancelled reservation remain visible;
+                # creation acknowledgement is never rewritten as completion.
+                parent = session.tracks.tracks[address].parent
+                if parent is not None:
+                    self.observe_text(
+                        session,
+                        parent,
+                        json.dumps(session.execution_receipts[-1], sort_keys=True).encode(),
+                        role="environment",
+                        effort=1,
+                    )
         return outcomes
 
     @_commit_owner
@@ -1220,6 +1593,8 @@ class MultiTrackRuntime:
         adapters,
         *,
         verify_source,
+        fragments=None,
+        allow_controlled_fixture=False,
     ) -> tuple[str, ...]:
         """Dispatch derived, fully committed semantic tool actions without
         re-encoding selected witness bytes as model-generated tool JSON.
@@ -1230,31 +1605,74 @@ class MultiTrackRuntime:
         group, teacher tool payload, or predicted return.
         """
         from megatoken.data.semantic_execution import _host_request
-        from megatoken.data.witness_v3 import WitnessV3Error, parse_record
+        from megatoken.data.witness_v4 import WitnessV4Error, parse_record
 
-        if not any(value is group for value in session.selected_groups.values()):
+        committed = dict(session.selected_groups)
+        if allow_controlled_fixture:
+            committed.update(
+                {
+                    value.tape.meridian_id: value
+                    for value in session.controlled_fixture_actions.values()
+                }
+            )
+        if not any(value is group for value in committed.values()):
             raise ValueError("Semantic requests require a committed selected group")
         if not callable(verify_source):
             raise ValueError("Semantic bridge requires an independent source/ownership validator")
+        payloads = group.tape.payloads
+        if fragments is not None:
+            parts = tuple(fragments)
+            revisions = []
+            if not parts or parts[-1] is not group or len(parts) > 64:
+                raise ValueError("Logical semantic action needs its final committed fragment")
+            for index, part in enumerate(parts):
+                revision = next((key for key, value in committed.items() if value is part), None)
+                if (
+                    revision is None
+                    or len(part.tape.payloads) != 1
+                    or part.tape.tracks != group.tape.tracks
+                    or part.tape.modalities != ("text",)
+                    or part.tape.valid != (True,)
+                    or part.tape.terminal != (index == len(parts) - 1,)
+                ):
+                    raise ValueError("Incomplete, foreign or uncommitted semantic fragment")
+                revisions.append(revision)
+            if any(
+                right != left + 1 for left, right in zip(revisions, revisions[1:], strict=False)
+            ):
+                raise ValueError("A logical selection cannot incorporate interleaved observations")
+            payloads = (b"".join(part.tape.payloads[0] for part in parts),)
+            if len(payloads[0]) > 65536:
+                raise ValueError("Logical semantic request exceeds its declared byte budget")
         dispatched: list[str] = []
-        for index, raw in enumerate(group.tape.payloads):
+        for index, raw in enumerate(payloads):
             if not isinstance(raw, bytes) or not raw.startswith(b"request "):
                 continue
             if not group.tape.valid[index] or group.tape.modalities[index] != "text":
                 raise ValueError("Incomplete or invalid semantic requests cannot dispatch")
             try:
                 kind, fields = parse_record(raw.decode("utf-8", errors="strict"))
-            except (UnicodeDecodeError, WitnessV3Error) as error:
+            except (UnicodeDecodeError, WitnessV4Error) as error:
                 raise ValueError("Malformed committed semantic request") from error
             if kind != "request":
                 raise ValueError("Selected action must be a request witness")
             operation = fields["operation"]
-            _host_request(fields)
             address = group.tape.tracks[index]
             # The source validator operates on the already committed selection
             # and explicit track, and MUST establish source/realm ownership.
-            if verify_source(address, fields) is not True:
+            verified = verify_source(address, fields)
+            if verified is not True and not (
+                isinstance(verified, dict) and verified.get("verified") is True
+            ):
                 raise ValueError("Selected request failed source, capability or realm checks")
+            _host_request(fields, heap=verified.get("heap") if isinstance(verified, dict) else None)
+            registry = getattr(session, "tracks", None)
+            if registry is not None:
+                owner = registry.tracks.get(address)
+                if owner is None or owner.status not in {"active", "waiting"}:
+                    raise ValueError("Selected request has no live runtime owner")
+                if owner.execution and operation not in owner.execution.capability_grants:
+                    raise ValueError("Selected request exceeds its runtime-established grant")
             adapter = adapters.get(operation)
             if adapter is None or not callable(getattr(adapter, "execute_selected", None)):
                 raise ValueError(
@@ -1263,13 +1681,15 @@ class MultiTrackRuntime:
             action_id = f"{group.tape.meridian_id}:{group.tape.event_ids[index]}"
             if action_id in session.tool_routes:
                 continue  # Already submitted; never repeat a native write.
+            # Store original routing before transport submission. A submitter
+            # that might have started work cannot make a retry duplicate it.
+            session.tool_routes[action_id] = (address, group.tape.event_ids[index])
             runner.submit(
                 action_id,
                 lambda fn=adapter, identity=action_id, payload=raw: fn.execute_selected(
                     action_id=identity, payload=payload
                 ),
             )
-            session.tool_routes[action_id] = (address, group.tape.event_ids[index])
             dispatched.append(action_id)
         return tuple(dispatched)
 

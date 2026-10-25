@@ -27,12 +27,12 @@ from .schema import (
     TrackSpec,
     digest_bytes,
 )
-from .witness_v3 import WitnessV3Error
-from .witness_v3 import parse_record as parse_v3_record
+from .witness_v4 import WitnessV4Error
+from .witness_v4 import parse_record as parse_v4_record
 
-_PUBLIC = "semantic-execution/3"
-_TRACE = "semantic-trace/3"
-_LANE = re.compile(r"t[0-7]\Z")
+_PUBLIC = "semantic-execution/4"
+_TRACE = "semantic-trace/4"
+_LANE = re.compile(r"[a-z][a-z0-9:_-]*\Z")
 
 
 class SemanticExecutionError(ValueError):
@@ -56,8 +56,8 @@ def _fail(message: str) -> None:
 
 def _record(line: Any) -> tuple[str, dict[str, Any]]:
     try:
-        return parse_v3_record(line)
-    except WitnessV3Error as error:
+        return parse_v4_record(line)
+    except WitnessV4Error as error:
         raise SemanticExecutionError(str(error)) from error
 
 
@@ -70,87 +70,14 @@ def _text_bytes(text: str) -> bytes:
         raise SemanticExecutionError("Unescaped surrogate in transport record") from error
 
 
-def _host_request(fields: dict[str, Any]) -> tuple[list[Any], str]:
-    """Validate exactly the source-grounded JSON transport admitted by the JS codec.
+def _host_request(fields: dict[str, Any], *, heap=None, require_promise=False):
+    """Independently materialize the single versioned shared capability catalog."""
+    from .host_operations import materialize_request
 
-    Version-three is historical; references/callbacks require their own graph
-    validation and cannot be admitted merely because a JSON payload was supplied.
-    """
-    operation = fields.get("operation")
-    signatures = {
-        "demo.readNumber": ("demo.readNumber/1", 1, 0),
-        "demo.readAsync": ("demo.readAsync/1", 1, 0),
-        "demo.store": ("demo.store/1", 2, 0),
-        "demo.withCallback": ("demo.withCallback/1", 2, 0),
-        "demo.listen": ("demo.listen/1", 2, 0),
-        "demo.unlisten": ("demo.unlisten/1", 1, 0),
-        "platform.dateNow": ("platform.dateNow/1", 0, None),
-        "platform.console.log": ("platform.console.log/1", 1, 0),
-        "platform.console.info": ("platform.console.info/1", 1, 0),
-        "platform.console.warn": ("platform.console.warn/1", 1, 0),
-        "platform.console.error": ("platform.console.error/1", 1, 0),
-        "http.get": ("http.get/1", 1, 0),
-        "http.post": ("http.post/1", 2, 0),
-        "http.responseStatus": ("http.responseStatus/1", 1, 0),
-        "http.responseRead": ("http.responseRead/1", 1, 0),
-        "http.responseClose": ("http.responseClose/1", 1, 0),
-        "http.abort": ("http.abort/1", 1, 0),
-        "fs.readText": ("fs.readText/1", 1, 0),
-        "fs.writeText": ("fs.writeText/1", 2, 0),
-        "fs.list": ("fs.list/1", 1, 0),
-        "fs.openRead": ("fs.openRead/1", 1, 0),
-        "fs.readChunk": ("fs.readChunk/1", 1, 0),
-        "fs.close": ("fs.close/1", 1, 0),
-        "net.connect": ("net.connect/1", 2, 0),
-        "net.write": ("net.write/1", 2, 0),
-        "net.read": ("net.read/1", 1, 0),
-        "net.close": ("net.close/1", 1, 0),
-    }
-    callback_slots = {
-        "demo.withCallback": {1},
-        "demo.listen": {1},
-    }
-    if operation not in signatures:
-        _fail("Unregistered v3 effect capability")
-    signature, count, key_index = signatures[operation]
-    supplied = fields.get("arguments")
-    if not isinstance(supplied, list) or len(supplied) != count:
-        _fail("Invalid v3 effect argument arity")
-    values: list[Any] = []
-    for index, tag in enumerate(supplied):
-        if not isinstance(tag, list) or not tag:
-            _fail("Invalid external scalar")
-        if index in callback_slots.get(operation, set()):
-            if (
-                len(tag) != 2
-                or tag[0] != "ref"
-                or not isinstance(tag[1], str)
-                or not re.fullmatch(r"[a-z][a-z0-9]*", tag[1])
-            ):
-                _fail("Callback slot must reference an owned guest closure")
-            values.append({"$ownedCallback": tag[1]})
-            continue
-        if tag[0] == "str" and len(tag) == 2 and isinstance(tag[1], str):
-            values.append(tag[1])
-        elif tag[0] == "num" and len(tag) == 2 and type(tag[1]) in (int, float):
-            values.append(tag[1])
-        elif tag[0] == "bool" and len(tag) == 2 and type(tag[1]) is bool:
-            values.append(tag[1])
-        elif tag == ["null"]:
-            values.append(None)
-        else:
-            _fail("Nonprimitive v3 external transport requires an independent graph codec")
-    if key_index is not None and not isinstance(values[key_index], str):
-        _fail("Invalid external operation key")
     try:
-        payload = json.loads(fields["payload"])
-    except (ValueError, TypeError) as error:
-        raise SemanticExecutionError("Invalid external JSON payload") from error
-    if payload != values or any(
-        type(a) is not type(b) for a, b in zip(payload, values, strict=True)
-    ):
-        _fail("Grounded request payload differs from evaluated arguments")
-    return values, signature
+        return materialize_request(fields, heap=heap, require_promise=require_promise)
+    except (ValueError, TypeError, KeyError) as error:
+        raise SemanticExecutionError(str(error)) from error
 
 
 def _validate(
@@ -161,10 +88,10 @@ def _validate(
     max_history: int,
 ) -> tuple[list[dict[str, Any]], list[tuple[str, dict[str, Any]]], dict[str, int]]:
     if public.get("schema") != _PUBLIC or public.get("traceFormat") != _TRACE:
-        _fail("Only semantic-execution/3 and semantic-trace/3 are supported")
+        _fail("Only semantic-execution/4 and semantic-trace/4 are supported")
     if (
         public.get("profile") != "training-js/1"
-        or public.get("contextFormat") != "semantic-context/3"
+        or public.get("contextFormat") != "semantic-context/4"
     ):
         _fail("Unsupported source or observed context contract")
     if public.get("completionPolicy") != "immediate-root":
@@ -198,7 +125,7 @@ def _validate(
         if not isinstance(event, dict) or not isinstance(event.get("track"), str):
             _fail("Invalid meridian member")
         if not _LANE.fullmatch(event["track"]):
-            _fail("Track outside the fixed t0..t7 registry")
+            _fail("Invalid dynamic execution track identity")
         payload = _text_bytes(event.get("record"))
         if len(payload) > 1024:
             _fail("Trace exceeds the declared physical byte cap")
@@ -234,7 +161,9 @@ def _validate(
         elif kind in ("value-part", "value-close"):
             _fail("Fragment without preceding value-open")
         if phase < 2:
-            if mode != "observed" or event["track"] != "t0":
+            if mode != "observed" or (
+                phase == 1 and event["track"] != groups[0]["events"][0]["track"]
+            ):
                 _fail("Source and initial graph must be observed on the root lane")
             if kind != ("code" if phase == 0 else "input"):
                 _fail("Expected source code followed by the initial graph")
@@ -297,17 +226,25 @@ def adapt_semantic_execution(
     """
     if not isinstance(export, Mapping) or not isinstance(export.get("public"), Mapping):
         _fail("A semantic execution export needs an explicit public payload")
+    if "timeline" in export["public"]:
+        from .semantic_harness_v4 import adapt_selected_harness_v4
+
+        return adapt_selected_harness_v4(
+            export,
+            codec=codec,
+            max_positions=max_positions,
+            max_history=max_history,
+            allow_local=allow_local,
+            admission_verifier=admission_verifier,
+        )
     sidecar = export.get("sidecar")
     if not isinstance(sidecar, Mapping) or sidecar.get("schema") != "semantic-supervision/2":
-        _fail("Only semantic-supervision/2 can accompany version-three episodes")
+        _fail("Only semantic-supervision/2 can accompany offline grouped episodes")
     status = sidecar.get("admission", "locally_verified")
-    if status != "admitted" and not allow_local:
-        _fail("Unadmitted execution requires allow_local=True for diagnostic conversion")
     if status == "admitted":
-        if sidecar.get("referenceStatus") != "agreed":
-            _fail("Admitted execution lacks independent outcome agreement")
-        if admission_verifier is None or not admission_verifier(export):
-            _fail("Admitted execution requires an independent external admission verifier")
+        _fail("Grouped exports are offline diagnostics; production requires selected-harness/2")
+    if not allow_local:
+        _fail("Grouped execution requires allow_local=True for offline diagnostic conversion")
     public = export["public"]
     groups, prefix, counts = _validate(
         public, codec=codec, max_positions=max_positions, max_history=max_history
@@ -423,7 +360,10 @@ def adapt_semantic_execution(
         if previous_committed_record is not None and mode == "generated":
             dependencies.append(Dependency(previous_committed_record, name, "semantic"))
         previous_committed_record = name
-    tracks = tuple(TrackSpec("t" + str(i), "assistant") for i in range(8))
+    tracks = tuple(
+        TrackSpec(name, "assistant")
+        for name in dict.fromkeys(group["events"][0]["track"] for group in groups)
+    )
     episode_id = (
         "semantic:" + hashlib.sha256(b"\n".join(record.payload for record in records)).hexdigest()
     )

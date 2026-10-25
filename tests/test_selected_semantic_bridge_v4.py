@@ -98,7 +98,7 @@ def test_validated_selected_request_has_single_stable_native_action_and_route():
     [
         witness(payload='["forged"]'),
         b'request {"effect":',
-        witness(effect="fx1").replace(b'"invocation":"i1"', b'"invocation":"broken-name"'),
+        witness(effect="fx1").replace(b'"invocation":"i1"', b'"invocation":"Bad name"'),
     ],
 )
 def test_malformed_or_ungrounded_request_cannot_submit(line):

@@ -12,6 +12,7 @@ from typing import Any
 # Explicit code producers for procedural and locally collected streams. The
 # values name real callables so a catalog entry cannot claim nonexistent data.
 STREAM_PRODUCERS = {
+    "semantic_execution": "megatoken.data.semantic_corpus:prepare_semantic_corpus",
     "context_management": "megatoken.data.context_curriculum:curriculum_episode",
     "dynamic_execution": "megatoken.data.dynamic_execution:execution_episode",
     "duplex_execution": "megatoken.data.execution_traces:prepare_traces",

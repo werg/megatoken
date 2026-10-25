@@ -31,7 +31,7 @@ from megatoken.generation.latents import DiagonalGaussian
 from megatoken.generation.structure import ActionSpec
 from megatoken.generation.targets import PreparedAction, PreparedTargets
 from megatoken.io import strict_json_loads
-from megatoken.model.context import DEFAULT_CONTEXT_POLICY, ContextPolicy
+from megatoken.model.context import DEFAULT_CONTEXT_POLICY, ContextPolicy, retained_context_events
 from megatoken.tensors import byte_tensor, is_host
 
 from .adapters import OWNERS, AdapterMixture, AdapterPlan
@@ -362,51 +362,16 @@ class MultiTrackCore:
         A hard global cap still bounds memory, including pinned/locally wanted
         groups; pressure that would discard a pin is rejected before publication.
         """
-        new_events = len(tracks)
-        budget = self.core.config.max_history_chunks
-        if new_events > budget:
-            raise ValueError("One meridian exceeds the global historical event capacity")
-        names = (*state.history_event_tracks, *tracks)
-        policy = state.context_policy
-        wanted = set()
-        for track in set(names):
-            local, _ = policy.window(track)
-            own = [i for i, name in enumerate(names) if name == track]
-            if local:
-                wanted.update(own[-local:])
-        cross = max((policy.cross_events, *(row[2] for row in policy.windows)))
-        wanted.update(
-            i
-            for i, position in enumerate(state.history_positions)
-            if position >= state.context_seen + new_events - cross
+        kept, retained_sizes, dropped = retained_context_events(
+            policy=state.context_policy,
+            tracks=state.history_event_tracks,
+            positions=state.history_positions,
+            event_ids=state.history_event_ids,
+            meridian_sizes=state.meridian_sizes,
+            seen=state.context_seen,
+            new_tracks=tracks,
+            budget=self.core.config.max_history_chunks,
         )
-        pinned = {event for _, event in policy.pins}
-        wanted.update(i for i, event in enumerate(state.history_event_ids) if event in pinned)
-        groups, start = [], 0
-        for size in state.meridian_sizes:
-            indices = tuple(range(start, start + size))
-            if any(i in wanted for i in indices):
-                groups.append(indices)
-            start += size
-        count = sum(map(len, groups))
-        pressure = set()
-        while count + new_events > budget:
-            removable = next(
-                (
-                    i
-                    for i, group in enumerate(groups)
-                    if not any(state.history_event_ids[j] in pinned for j in group)
-                ),
-                None,
-            )
-            if removable is None:
-                raise ValueError(
-                    "Context budget cannot retain pinned evidence and the incoming group"
-                )
-            removed = groups.pop(removable)
-            pressure.update(removed)
-            count -= len(removed)
-        kept = tuple(i for group in groups for i in group)
         history = state.history
         if len(kept) != len(state.history_event_ids):
             f = self.core.config.n_facets
@@ -418,12 +383,7 @@ class MultiTrackCore:
                 history.values.index_select(2, slots),
                 None if history.mask is None else history.mask.index_select(1, slots),
             )
-        dropped = tuple(
-            (event, "global_budget" if i in pressure else "window_expired")
-            for i, event in enumerate(state.history_event_ids)
-            if i not in kept
-        )
-        return history, tuple(map(len, groups)), kept, dropped
+        return history, retained_sizes, kept, dropped
 
     def advance_group(
         self,

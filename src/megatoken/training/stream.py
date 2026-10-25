@@ -52,6 +52,7 @@ class EpisodeWindow:
     window: TrainingWindow
     # The root the episode was prepared in: its media tensors live there.
     assets: TensorAssetStore
+    episode_end: bool = False
 
 
 class _WindowPlan:
@@ -197,7 +198,12 @@ class WindowStream:
             self._open_block()
         result = None
         if self.slot < self.local_length:
-            result = EpisodeWindow(self._episode, self._plan[self.slot], self._assets)
+            result = EpisodeWindow(
+                self._episode,
+                self._plan[self.slot],
+                self._assets,
+                episode_end=self.slot + 1 == self.local_length,
+            )
             source = result.episode.lineage.source_id
             self.sampled_source_windows[source] = self.sampled_source_windows.get(source, 0) + 1
         self.slot += 1

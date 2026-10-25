@@ -28,6 +28,33 @@ def fixture():
     owners = {}
 
     def add(kind, mode, track, **fields):
+        defaults = {
+            "program": {
+                "functions": [],
+                "dependencies": [],
+                "sourceMap": None,
+                "languageProfile": "owned-javascript/1",
+                "module": False,
+                "sourceMetadata": None,
+            },
+            "semantic": {"traceFormat": "semantic-trace/4"},
+            "result": {"errorOrigin": None},
+            "handler": {"closureId": None, "lifetime": "subscription", "ownerInvocationId": None},
+            "invocation": {"ingressKey": fields.get("triggerId")},
+        }
+        fields = {**defaults.get(kind, {}), **fields}
+        if kind == "invocation":
+            fields = {
+                "receiver": ["undefined"],
+                "taskRevision": 1,
+                "activation": "call",
+                "closureId": None,
+                "parentInvocationId": None,
+                "deadline": None,
+                "bindings": {},
+                "realmPolicy": "fresh",
+                **fields,
+            }
         owners[track] = owners.get(track, 0) + 1
         events.append(
             {
@@ -68,7 +95,7 @@ def fixture():
         invocationId="call1",
         realmId="realm1",
         triggerId="outside1",
-        completionPolicy="immediate-root",
+        completionPolicy="call-return",
         entry="run",
         sourceDigest=sha,
         inputGraph={
@@ -81,13 +108,14 @@ def fixture():
         "generated",
         "worker:0",
         invocationId="call1",
-        traceFormat="semantic-trace/3",
+        traceFormat="semantic-trace/4",
         line=line(
             "request",
             {
                 "effect": "fx1",
                 "operation": "demo.readAsync",
-                "invocation": "i1",
+                "invocation": "call1",
+                "promise": "p1",
                 "site": {"start": start, "end": start + len(call)},
                 "arguments": [["str", "counter"]],
                 "payload": '["counter"]',
@@ -125,7 +153,7 @@ def fixture():
         "generated",
         "worker:0",
         invocationId="call1",
-        traceFormat="semantic-trace/3",
+        traceFormat="semantic-trace/4",
         line=line("return", {"value": ["num", 7]}),
     )
     add(
@@ -133,14 +161,15 @@ def fixture():
         "generated",
         "worker:0",
         invocationId="call1",
-        traceFormat="semantic-trace/3",
+        traceFormat="semantic-trace/4",
         line=line("end", {"kind": "return"}),
     )
     return {
         "public": {
             "schema": "semantic-execution/4",
-            "traceFormat": "semantic-trace/3",
-            "profile": "selected-harness/1",
+            "traceFormat": "semantic-trace/4",
+            "profile": "selected-harness/2",
+            "contextFormat": "semantic-context/4",
             "timeline": events,
         },
         "sidecar": {
@@ -162,7 +191,10 @@ def test_selected_harness_import_uses_actual_dynamic_track_and_one_bound_action(
     assert episode.actions[0].call_id == "session1:call1:fx1"
     assert episode.actions[0].tool_name == "demo.readAsync"
     assert json.loads(episode.actions[0].arguments_json) == {"args": ["counter"]}
-    assert [r.policy_mask for r in episode.records] == [
+    public_records = [
+        r for r in episode.records if not r.logical_id.startswith("semantic:context:")
+    ]
+    assert [r.policy_mask for r in public_records] == [
         False,
         False,
         True,
@@ -171,7 +203,7 @@ def test_selected_harness_import_uses_actual_dynamic_track_and_one_bound_action(
         True,
         True,
     ]
-    assert episode.records[4].result_of == episode.actions[0].action_id
+    assert public_records[4].result_of == episode.actions[0].action_id
     assert Episode.from_dict(episode.to_dict()) == episode
     assert list(
         iter_windows(
@@ -184,7 +216,7 @@ def test_selected_harness_import_uses_actual_dynamic_track_and_one_bound_action(
 @pytest.mark.parametrize(
     "mutation",
     [
-        lambda d: d["public"].update(traceFormat="semantic-trace/4"),
+        lambda d: d["public"].update(traceFormat="semantic-trace/3"),
         lambda d: d["public"]["timeline"][1].update(sourceDigest="bad"),
         lambda d: d["public"]["timeline"][2].update(mode="observed"),
         lambda d: d["public"]["timeline"][2].update(track="other"),
@@ -206,7 +238,8 @@ def test_selected_harness_import_uses_actual_dynamic_track_and_one_bound_action(
                 {
                     "effect": "fx1",
                     "operation": "demo.readAsync",
-                    "invocation": "i1",
+                    "invocation": "call1",
+                    "promise": "p1",
                     "site": {"start": 0, "end": 3},
                     "arguments": [["str", "counter"]],
                     "payload": '["counter"]',
@@ -275,7 +308,7 @@ def test_program_once_and_more_than_eight_lifetime_tracks():
                     "mode": "generated",
                     "kind": "semantic",
                     "invocationId": inv,
-                    "traceFormat": "semantic-trace/3",
+                    "traceFormat": "semantic-trace/4",
                     "line": line(kind, data),
                 }
             )
@@ -303,6 +336,33 @@ def event_fixture():
     owners = {"host": 1}
 
     def add(kind, mode, track, **fields):
+        defaults = {
+            "program": {
+                "functions": [],
+                "dependencies": [],
+                "sourceMap": None,
+                "languageProfile": "owned-javascript/1",
+                "module": False,
+                "sourceMetadata": None,
+            },
+            "semantic": {"traceFormat": "semantic-trace/4"},
+            "result": {"errorOrigin": None},
+            "handler": {"closureId": None, "lifetime": "subscription", "ownerInvocationId": None},
+            "invocation": {"ingressKey": fields.get("triggerId")},
+        }
+        fields = {**defaults.get(kind, {}), **fields}
+        if kind == "invocation":
+            fields = {
+                "receiver": ["undefined"],
+                "taskRevision": 1,
+                "activation": "call",
+                "closureId": None,
+                "parentInvocationId": None,
+                "deadline": None,
+                "bindings": {},
+                "realmPolicy": "fresh",
+                **fields,
+            }
         owners[track] = owners.get(track, 0) + 1
         timeline.append(
             {
@@ -354,7 +414,7 @@ def event_fixture():
             triggerId=trigger,
             entry="run",
             sourceDigest=program["digest"],
-            completionPolicy="immediate-root",
+            completionPolicy="call-return",
             realmPolicy="retained",
             inputGraph={"roots": [["num", index]], "objects": []},
         )
@@ -363,7 +423,7 @@ def event_fixture():
             "generated",
             "worker:0",
             invocationId=invocation_id,
-            traceFormat="semantic-trace/3",
+            traceFormat="semantic-trace/4",
             line=line("return", {"value": ["num", index]}),
         )
         add(
@@ -371,7 +431,7 @@ def event_fixture():
             "generated",
             "worker:0",
             invocationId=invocation_id,
-            traceFormat="semantic-trace/3",
+            traceFormat="semantic-trace/4",
             line=line("end", {"kind": "return"}),
         )
     add("handler-close", "observed", "host", subscriptionId="sub1", discarded=[])

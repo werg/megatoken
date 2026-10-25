@@ -6,9 +6,11 @@ record so that late results cannot be redirected to a newly created task.
 
 from __future__ import annotations
 
-from dataclasses import dataclass, field, replace
+import hashlib
+import json
+from dataclasses import asdict, dataclass, field, replace
 
-LIFECYCLE_VERSION = 1
+LIFECYCLE_VERSION = 2
 OPERATIONS = ("create", "assign", "progress", "wait", "continue", "complete", "cancel", "resume")
 
 
@@ -124,6 +126,9 @@ class TrackRegistry:
     address_prefix: str = "track"
     # Runtime choices and model actions are recorded separately by the caller.
     transitions: list[tuple[str, TrackDescription]] = field(default_factory=list)
+    admissions: dict[str, dict] = field(default_factory=dict)
+    dependencies: dict[str, dict] = field(default_factory=dict)
+    completions: dict[str, dict] = field(default_factory=dict)
 
     def __post_init__(self):
         if (
@@ -139,11 +144,18 @@ class TrackRegistry:
     def create(self, purpose: str, **options) -> TrackDescription:
         if (
             options.get("execution") is None
+            and options.get("status", "active") == "active"
             and sum(t.status == "active" for t in self.tracks.values()) >= self.max_active
         ):
             raise ValueError("Active work capacity exhausted; queue work or finish an active track")
         if options.get("budget", 128) < 1:
             raise ValueError("New work requires a positive budget")
+        if (
+            options.get("execution") is None
+            and options.get("status") == "waiting"
+            and sum(track.status == "waiting" for track in self.tracks.values()) >= self.max_waiting
+        ):
+            raise ValueError("Waiting work capacity exhausted; finish or cancel pending work")
         execution = options.get("execution")
         if execution is not None:
             if isinstance(execution, dict):
@@ -166,16 +178,19 @@ class TrackRegistry:
         parent = options.get("parent")
         if parent is not None and parent not in self.tracks:
             raise ValueError("Parent task does not exist")
+        if parent is not None and self.tracks[parent].status in {"completed", "cancelled"}:
+            raise ValueError("Closed parent tasks cannot acquire new children")
         if parent is not None and not set(options.get("capabilities", ("text",))) <= set(
             self.tracks[parent].capabilities
         ):
             raise ValueError("Child work cannot acquire capabilities its parent does not have")
         if execution is not None and parent is not None:
             inherited = self.tracks[parent].execution
-            if inherited and not set(execution.capability_grants) <= set(
-                inherited.capability_grants
-            ):
+            grants = inherited.capability_grants if inherited else self.tracks[parent].capabilities
+            if not set(execution.capability_grants) <= set(grants):
                 raise ValueError("Child execution cannot expand parent external grants")
+            if execution.completion_target not in {"", parent}:
+                raise ValueError("Child execution completion must return to its owning parent")
         address = options.pop("address", None) or f"{self.address_prefix}:{self.sequence}"
         if not isinstance(address, str) or not address or address in self.tracks:
             raise ValueError("Track creation requires a fresh address")
@@ -184,6 +199,246 @@ class TrackRegistry:
         self.tracks[address] = description
         self.transitions.append(("create", description))
         return description
+
+    def admit_execution(self, ingress_key: str, *, execution, purpose: str, **options):
+        """Reserve one address per admitted outside/selected activation.
+
+        Duplicate delivery returns the original allocation; changing a retry's
+        invocation, arguments, owner or grants is an error. Failed bootstrap is
+        retained as cancelled work and cannot silently allocate another child.
+        """
+        if not isinstance(ingress_key, str) or not ingress_key:
+            raise ValueError("Execution ingress requires a stable delivery key")
+        execution = ExecutionBinding(**execution) if isinstance(execution, dict) else execution
+        if not isinstance(execution, ExecutionBinding):
+            raise ValueError("Execution admission requires a typed binding")
+        payload = json.dumps(
+            {"execution": asdict(execution), "purpose": purpose, "options": options},
+            sort_keys=True,
+            separators=(",", ":"),
+            allow_nan=False,
+        )
+        digest = hashlib.sha256(payload.encode()).hexdigest()
+        previous = self.admissions.get(ingress_key)
+        if previous is not None:
+            if previous["digest"] != digest:
+                raise ValueError("Execution ingress retry changed its immutable binding")
+            return self.tracks[previous["address"]]
+        description = self.create(purpose, execution=execution, **options)
+        self.admissions[ingress_key] = {"digest": digest, "address": description.address}
+        return description
+
+    def completion_dependency(self, address: str) -> dict:
+        """Issue a typed dependency for this exact invocation and task revision."""
+        track = self.tracks[address]
+        if track.execution is None:
+            raise ValueError("Only execution work has an invocation completion dependency")
+        key = f"completion:{address}:{track.revision}"
+        reference = {
+            "schema": "semantic-completion-dependency/4",
+            "id": key,
+            "track": address,
+            "revision": track.revision,
+            "invocation": track.execution.invocation_id,
+        }
+        if key in self.dependencies and self.dependencies[key] != reference:
+            raise ValueError("Completion dependency identity cannot be reused")
+        self.dependencies[key] = reference
+        return dict(reference)
+
+    def _dependency(self, reference: dict) -> dict:
+        if (
+            not isinstance(reference, dict)
+            or self.dependencies.get(reference.get("id")) != reference
+        ):
+            raise ValueError("Dependency was not issued for this runtime invocation")
+        return reference
+
+    def wait_for_execution(
+        self, address: str, reference: dict, *, delivered: set[str] | None = None
+    ) -> TrackDescription:
+        reference = self._dependency(reference)
+        child = self.tracks[reference["track"]]
+        if child.parent != address:
+            raise ValueError("Child completion can only suspend its owning parent")
+        current = self.tracks[address]
+        dependencies = tuple(dict.fromkeys((*current.prerequisites, reference["id"])))
+        waiting = self.change(address, "wait", prerequisites=dependencies)
+        # Joining frees an active slot for an already published child.
+        self.wake_ready_executions(delivered=delivered or set())
+        return waiting
+
+    def wake_execution(self, address: str, *, delivered: set[str]) -> TrackDescription:
+        """Readiness follows observed delivery and capacity admission, never arrival alone."""
+        current = self.tracks[address]
+        coordinator_join = current.execution is None and any(
+            key in self.dependencies for key in current.prerequisites
+        )
+        if current.status != "waiting" or not (current.bootstrap_ready or coordinator_join):
+            raise ValueError("Only bootstrapped execution or a typed parent join can be woken")
+        if not set(current.prerequisites) <= delivered:
+            raise ValueError("Execution dependencies have not all been delivered")
+        return self.change(address, "continue")
+
+    def wake_ready_executions(self, *, delivered: set[str]) -> tuple[TrackDescription, ...]:
+        """Admit ready waiting work in stable creation order under the active bound."""
+        ready = []
+        for track in tuple(self.tracks.values()):
+            if sum(t.status == "active" for t in self.tracks.values()) >= self.max_active:
+                break
+            if (
+                track.status == "waiting"
+                and (
+                    track.bootstrap_ready
+                    or (
+                        track.execution is None
+                        and any(key in self.dependencies for key in track.prerequisites)
+                    )
+                )
+                and set(track.prerequisites) <= delivered
+            ):
+                ready.append(self.wake_execution(track.address, delivered=delivered))
+        return tuple(ready)
+
+    def complete_execution(self, address: str, *, kind: str, value) -> dict:
+        """Produce a scoped receipt distinct from the earlier creation acknowledgement."""
+        track = self.tracks[address]
+        if track.execution is None or kind not in {"return", "throw", "cancelled", "failed"}:
+            raise ValueError("Execution completion requires a bound invocation and disposition")
+        reference = self.completion_dependency(address)
+        receipt = {
+            "schema": "semantic-completion/4",
+            "dependency": reference,
+            "kind": kind,
+            "value": value,
+            "parent": track.parent,
+            "target": track.execution.completion_target or track.parent,
+        }
+        # Verify transport representability before any lifecycle mutation.
+        json.dumps(receipt, allow_nan=False)
+        previous = self.completions.get(reference["id"])
+        if previous is not None:
+            if previous != receipt:
+                raise ValueError("Invocation completion cannot change after publication")
+            return dict(previous)
+        if kind in {"return", "throw"} and any(
+            child.parent == address and child.status in {"active", "waiting"}
+            for child in self.tracks.values()
+        ):
+            raise ValueError("Required child work blocks parent completion")
+        if track.status == "cancelled" and kind not in {"cancelled", "failed"}:
+            raise ValueError("Cancelled invocation cannot publish successful completion")
+        if track.status not in {"completed", "cancelled"}:
+            self.change(address, "cancel" if kind in {"cancelled", "failed"} else "complete")
+        self.completions[reference["id"]] = receipt
+        return dict(receipt)
+
+    def checkpoint(self) -> dict:
+        return {
+            "schema": "semantic-lifecycle-checkpoint/4",
+            "version": LIFECYCLE_VERSION,
+            "max_active": self.max_active,
+            "max_waiting": self.max_waiting,
+            "sequence": self.sequence,
+            "address_prefix": self.address_prefix,
+            "tracks": [asdict(track) for track in self.tracks.values()],
+            "admissions": self.admissions,
+            "dependencies": self.dependencies,
+            "completions": self.completions,
+        }
+
+    @classmethod
+    def restore(cls, checkpoint: dict):
+        required = {
+            "schema",
+            "version",
+            "max_active",
+            "max_waiting",
+            "sequence",
+            "address_prefix",
+            "tracks",
+            "admissions",
+            "dependencies",
+            "completions",
+        }
+        if (
+            not isinstance(checkpoint, dict)
+            or set(checkpoint) != required
+            or checkpoint["schema"] != "semantic-lifecycle-checkpoint/4"
+            or checkpoint["version"] != LIFECYCLE_VERSION
+        ):
+            raise ValueError("Incompatible lifecycle checkpoint")
+        saved = json.loads(json.dumps(checkpoint, allow_nan=False))
+        result = cls(
+            max_active=saved["max_active"],
+            max_waiting=saved["max_waiting"],
+            sequence=saved["sequence"],
+            address_prefix=saved["address_prefix"],
+        )
+        if (
+            type(result.sequence) is not int
+            or result.sequence < 0
+            or not isinstance(result.address_prefix, str)
+            or not result.address_prefix
+        ):
+            raise ValueError("Invalid persisted lifecycle allocation sequence")
+        for value in saved["tracks"]:
+            track = TrackDescription(**value)
+            if track.address in result.tracks:
+                raise ValueError("Duplicate checkpoint track")
+            result.tracks[track.address] = track
+        if (
+            sum(t.status == "active" for t in result.tracks.values()) > result.max_active
+            or sum(t.status == "waiting" for t in result.tracks.values()) > result.max_waiting
+            or any(
+                t.parent is not None and t.parent not in result.tracks
+                for t in result.tracks.values()
+            )
+        ):
+            raise ValueError("Checkpoint ownership or capacity is invalid")
+        result.admissions = saved["admissions"]
+        result.dependencies = saved["dependencies"]
+        result.completions = saved["completions"]
+        invocations = [
+            track.execution.invocation_id for track in result.tracks.values() if track.execution
+        ]
+        if len(invocations) != len(set(invocations)):
+            raise ValueError("A restored invocation cannot own two tracks")
+        for track in result.tracks.values():
+            seen, owner = {track.address}, track.parent
+            while owner is not None:
+                if owner in seen:
+                    raise ValueError("Checkpoint parent ownership contains a cycle")
+                seen.add(owner)
+                owner = result.tracks[owner].parent
+        for admission in result.admissions.values():
+            if (
+                admission.get("address") not in result.tracks
+                or len(admission.get("digest", "")) != 64
+            ):
+                raise ValueError("Invalid persisted execution admission")
+        for key, reference in result.dependencies.items():
+            track = result.tracks.get(reference.get("track"))
+            if (
+                not track
+                or not track.execution
+                or reference.get("id") != key
+                or reference.get("schema") != "semantic-completion-dependency/4"
+                or type(reference.get("revision")) is not int
+                or reference["revision"] > track.revision
+                or reference["revision"] < 0
+                or (
+                    reference["revision"] == track.revision
+                    and reference.get("invocation") != track.execution.invocation_id
+                )
+            ):
+                raise ValueError("Invalid persisted completion dependency")
+        for key, receipt in result.completions.items():
+            if receipt.get("schema") != "semantic-completion/4" or result.dependencies.get(
+                key
+            ) != receipt.get("dependency"):
+                raise ValueError("Invalid persisted completion receipt")
+        return result
 
     def activate_execution(
         self, address: str, *, source_digest: str, input_ref: str
@@ -198,12 +453,18 @@ class TrackRegistry:
         ):
             raise ValueError("Execution bootstrap must match previously observed code and input")
         if current.bootstrap_ready:
+            if current.status in {"completed", "cancelled"}:
+                raise ValueError("Closed execution bootstrap cannot be resumed")
             return current
         if current.status != "waiting":
             raise ValueError("Closed or mutated execution bootstrap cannot be resumed")
-        if sum(t.status == "active" for t in self.tracks.values()) >= self.max_active:
-            raise ValueError("Cannot activate a child beyond active work capacity")
-        updated = replace(current, bootstrap_ready=True, status="active")
+        available = sum(t.status == "active" for t in self.tracks.values()) < self.max_active
+        # Publishing source consumes no active execution slot. Capacity queues
+        # a fully bootstrapped child instead of turning successful publication
+        # into a failed invocation that callers might retry with duplicate work.
+        updated = replace(
+            current, bootstrap_ready=True, status="active" if available else "waiting"
+        )
         self.tracks[address] = updated
         self.transitions.append(("bootstrap", updated))
         return updated
@@ -227,7 +488,7 @@ class TrackRegistry:
         if current.status in {"completed", "cancelled"} and operation not in {"resume", "rename"}:
             raise ValueError("Closed work requires explicit resumption")
         allowed = {
-            "assign": {"purpose", "completion", "prerequisites"},
+            "assign": {"purpose", "completion", "prerequisites", "execution"},
             "progress": {"progress"},
             "wait": {"prerequisites"},
             "rename": {"label"},
@@ -238,6 +499,25 @@ class TrackRegistry:
         }[operation]
         if set(changes) - allowed:
             raise ValueError("Lifecycle action contains unsupported changes")
+        if "execution" in changes:
+            if operation != "assign" or current.status != "waiting":
+                raise ValueError("A new execution binding needs an eligible idle waiting track")
+            if (
+                current.execution
+                and f"completion:{address}:{current.revision}" not in self.completions
+            ):
+                raise ValueError("Assign cannot replace an unfinished owned invocation")
+            binding = changes["execution"]
+            binding = ExecutionBinding(**binding) if isinstance(binding, dict) else binding
+            if not isinstance(binding, ExecutionBinding) or any(
+                t.execution and t.execution.invocation_id == binding.invocation_id
+                for t in self.tracks.values()
+            ):
+                raise ValueError("Assigned invocation must have a fresh typed identity")
+            if not set(binding.capability_grants) <= set(current.capabilities):
+                raise ValueError("Assigned execution cannot expand the track's grants")
+            changes["execution"] = binding
+            changes["bootstrap_ready"] = False
         if operation in {"resume", "continue"} and current.status != "active":
             if sum(t.status == "active" for t in self.tracks.values()) >= self.max_active:
                 raise ValueError("Active work capacity exhausted; queue resumption")
@@ -262,6 +542,10 @@ class TrackRegistry:
         )
         self.tracks[address] = updated
         self.transitions.append((operation, updated))
+        if operation == "cancel":
+            for child in tuple(self.tracks.values()):
+                if child.parent == address and child.status in {"active", "waiting"}:
+                    self.change(child.address, "cancel")
         return updated
 
     def legal_tools(self, capabilities=("text",)):
@@ -277,7 +561,9 @@ class TrackRegistry:
             properties = tool["parameters"]["properties"]
             if name == "track_create":
                 if not available:
-                    continue
+                    if sum(t.status == "waiting" for t in self.tracks.values()) >= self.max_waiting:
+                        continue
+                    tool["parameters"]["required"].append("execution")
                 if live:
                     properties["parent"] = {"enum": live}
                 else:
@@ -342,7 +628,30 @@ def lifecycle_tools(capabilities=("text",)) -> list[dict]:
     These are genuine control messages, not dummy user-facing text. Their raw
     selection and policy density are retained in the ordinary grouped tape.
     """
-    return [
+    tools = [
+        {
+            "name": "track_join",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "address": {"type": "string"},
+                    "completion_dependency": {
+                        "type": "object",
+                        "properties": {
+                            "schema": {"const": "semantic-completion-dependency/4"},
+                            "id": {"type": "string"},
+                            "track": {"type": "string"},
+                            "revision": {"type": "integer", "minimum": 0},
+                            "invocation": {"type": "string"},
+                        },
+                        "required": ["schema", "id", "track", "revision", "invocation"],
+                        "additionalProperties": False,
+                    },
+                },
+                "required": ["address", "completion_dependency"],
+                "additionalProperties": False,
+            },
+        },
         {
             "name": "track_create",
             "parameters": {
@@ -499,3 +808,10 @@ def lifecycle_tools(capabilities=("text",)) -> list[dict]:
             for operation in ("continue", "complete", "cancel", "resume")
         ],
     ]
+
+    create = next(tool for tool in tools if tool["name"] == "track_create")
+    assign = next(tool for tool in tools if tool["name"] == "track_assign")
+    assign["parameters"]["properties"]["execution"] = create["parameters"]["properties"][
+        "execution"
+    ]
+    return tools

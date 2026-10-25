@@ -1,4 +1,4 @@
-"""Strict, independent semantic-trace/3 record validation.
+"""Strict, independent semantic-trace/4 record validation.
 
 Unlike the archival version-two event projection this grammar describes bounded
 public computations. All source/journal/certificate evidence stays outside
@@ -13,13 +13,13 @@ import re
 from typing import Any
 
 
-class WitnessV3Error(ValueError):
+class WitnessV4Error(ValueError):
     pass
 
 
 FIELDS = {
     "code": {"entry", "source", "sites", "randomSeed"},
-    "input": {"graph"},
+    "input": {"graph", "retained"},
     "compute": {"expr", "result", "bind", "invocation", "site"},
     "choose": {"expr", "decision", "path", "invocation", "site"},
     "allocate": {"name", "kind", "length", "properties", "code", "captures", "invocation"},
@@ -30,9 +30,22 @@ FIELDS = {
     "transfer": {"kind", "value", "handler", "invocation"},
     "return": {"value", "invocation"},
     "throw": {"value", "invocation"},
-    "request": {"effect", "operation", "arguments", "invocation", "site", "payload"},
-    "observe": {"effect", "result", "status"},
-    "job": {"action", "job", "owner", "result"},
+    "request": {"effect", "operation", "arguments", "invocation", "site", "payload", "promise"},
+    "promise": {
+        "action",
+        "promise",
+        "value",
+        "target",
+        "job",
+        "reaction",
+        "closure",
+        "rejectionClosure",
+        "invocation",
+    },
+    "await": {"promise", "continuation", "invocation", "returnPromise"},
+    "resume": {"continuation", "invocation", "result", "status"},
+    "observe": {"effect", "result", "status", "graph"},
+    "job": {"action", "job", "owner", "result", "closure"},
     "end": {"kind"},
     "value-open": {"id", "type"},
     "value-part": {"id", "data"},
@@ -52,6 +65,9 @@ REQUIRED = {
     "return": {"value"},
     "throw": {"value"},
     "request": {"effect", "operation", "arguments", "invocation", "site", "payload"},
+    "promise": {"action", "promise"},
+    "await": {"promise", "continuation", "invocation"},
+    "resume": {"continuation", "invocation", "result", "status"},
     "observe": {"effect", "result", "status"},
     "job": {"action", "job", "owner"},
     "end": {"kind"},
@@ -60,6 +76,7 @@ REQUIRED = {
     "value-close": {"id"},
 }
 IDENTITY = re.compile(r"[a-z][a-z0-9]*\Z")
+INVOCATION_IDENTITY = re.compile(r"[a-z][a-z0-9:_-]*\Z")
 BIGINT = re.compile(r"(?:0|-?[1-9][0-9]*)\Z")
 SPECIAL = {"-0", "NaN", "+Infinity", "-Infinity"}
 OPERATORS = {
@@ -88,7 +105,7 @@ UNARY = {"!", "+", "-", "~", "typeof", "void"}
 
 
 def _fail(reason: str) -> None:
-    raise WitnessV3Error("Invalid semantic-trace/3: " + reason)
+    raise WitnessV4Error("Invalid semantic-trace/4: " + reason)
 
 
 def _pairs(pairs: list[tuple[str, Any]]) -> dict[str, Any]:
@@ -149,7 +166,7 @@ def expression(expr: Any) -> dict[str, int]:
             op == "local"
             and set(node) == {"op", "name"}
             and isinstance(node["name"], str)
-            and IDENTITY.fullmatch(node["name"])
+            and node["name"].replace("$", "_").isidentifier()
         ):
             operands += 1
         elif (
@@ -180,7 +197,7 @@ def expression(expr: Any) -> dict[str, int]:
     return {"operatorCount": operators, "operandCount": operands, "nodeCount": nodes}
 
 
-def graph(data: Any) -> None:
+def graph(data: Any, *, retained: set[str] | None = None) -> None:
     if not isinstance(data, dict) or set(data) != {"roots", "objects"}:
         _fail("Input graph envelope")
     roots, objects = data["roots"], data["objects"]
@@ -236,7 +253,7 @@ def graph(data: Any) -> None:
                     _fail("Array index past length")
     for item in [*roots, *(p["value"] for n in objects for p in n["properties"])]:
         value(item)
-        if item[0] == "ref" and item[1] not in ids:
+        if item[0] == "ref" and item[1] not in ids | (retained or set()):
             _fail("Dangling input reference")
 
 
@@ -245,7 +262,7 @@ def parse_record(line: Any) -> tuple[str, dict[str, Any]]:
         _fail("Trace record is not one line")
     kind, separator, body = line.partition(" ")
     if not separator or kind not in FIELDS:
-        _fail("Unknown version-three operation")
+        _fail("Unknown version-four operation")
     try:
         fields = json.loads(
             body,
@@ -253,7 +270,7 @@ def parse_record(line: Any) -> tuple[str, dict[str, Any]]:
             parse_constant=lambda value: _fail("Nonfinite JSON literal"),
         )
     except (ValueError, TypeError) as error:
-        raise WitnessV3Error("Malformed semantic-trace/3 JSON") from error
+        raise WitnessV4Error("Malformed semantic-trace/4 JSON") from error
     if not isinstance(fields, dict) or not REQUIRED[kind] <= set(fields) <= FIELDS[kind]:
         _fail("Unknown or missing typed operation fields")
     if kind == "code":
@@ -273,7 +290,14 @@ def parse_record(line: Any) -> tuple[str, dict[str, Any]]:
         if seed is not None and (type(seed) is not int or not 0 <= seed <= 0xFFFFFFFF):
             _fail("Invalid published deterministic source seed")
     elif kind == "input":
-        graph(fields["graph"])
+        retained = fields.get("retained", [])
+        if (
+            not isinstance(retained, list)
+            or len(retained) != len(set(retained))
+            or any(not isinstance(item, str) or not IDENTITY.fullmatch(item) for item in retained)
+        ):
+            _fail("Malformed retained reference grant")
+        graph(fields["graph"], retained=set(retained))
     elif kind in ("compute", "choose"):
         expression(fields["expr"])
         value(fields["result"] if kind == "compute" else fields["decision"])
@@ -334,29 +358,83 @@ def parse_record(line: Any) -> tuple[str, dict[str, Any]]:
                 parse_constant=lambda _: _fail("Nonfinite external JSON"),
             )
         except (TypeError, ValueError) as error:
-            raise WitnessV3Error("Malformed external request payload") from error
+            raise WitnessV4Error("Malformed external request payload") from error
+        from .host_operations import canonical_json
+
         if (
             not isinstance(payload, list)
-            or json.dumps(payload, ensure_ascii=False, separators=(",", ":"), allow_nan=False)
-            != fields["payload"]
-        ):
-            _fail("External request payload must be a canonical JSON array")
+            and not (isinstance(payload, dict) and payload.get("schema") == "owned-graph/1")
+        ) or canonical_json(payload) != fields["payload"]:
+            _fail("External request payload must be canonical declared JSON or owned graph data")
     elif kind == "observe":
         value(fields["result"])
         if fields["status"] not in ("fulfilled", "rejected"):
             _fail("Invalid observation status")
+        if "graph" in fields:
+            graph(fields["graph"])
+            if fields["graph"]["roots"] != [fields["result"]]:
+                _fail("Observed graph root differs from its supplied result")
+    elif kind == "promise":
+        action = fields["action"]
+        extras = set(fields) - {"action", "promise", "invocation"}
+        if action == "create" and extras:
+            _fail("Promise creation cannot invent a settlement")
+        elif action in {"resolve", "reject"}:
+            if extras != {"value"}:
+                _fail("Promise settlement needs its exact owned value")
+            value(fields["value"])
+        elif action == "adopt" and extras != {"target"}:
+            _fail("Promise adoption needs a target promise")
+        elif action == "react":
+            if not {"job", "reaction"} <= extras <= {
+                "job",
+                "reaction",
+                "closure",
+                "rejectionClosure",
+                "target",
+            } or fields["reaction"] not in {"then", "catch", "finally"}:
+                _fail("Promise reaction needs an owned job and declared reaction")
+        elif action not in {"create", "resolve", "reject", "adopt", "react"}:
+            _fail("Unknown owned Promise transition")
+    elif kind == "resume":
+        value(fields["result"])
+        if fields["status"] not in {"fulfilled", "rejected"}:
+            _fail("Resume requires an observed Promise settlement")
     elif kind == "end":
         if fields["kind"] not in ("return", "throw"):
             _fail("Invalid terminal completion")
     if kind == "job" and fields["action"] not in ("enqueue", "dispatch", "complete"):
         _fail("Invalid owned job transition")
+    if kind == "job" and "closure" in fields and fields["action"] != "enqueue":
+        _fail("Owned job closures belong only to registration")
+    if kind == "promise" and "rejectionClosure" in fields and fields.get("reaction") != "then":
+        _fail("Rejection closure requires a then reaction")
     if kind in ("read", "write") and (
         type(fields["present"]) is not bool or not isinstance(fields["key"], str)
     ):
         _fail("Property presence contract")
-    for key in ("name", "bind", "from", "object", "invocation", "child"):
+    for key in (
+        "object",
+        "promise",
+        "continuation",
+        "target",
+        "job",
+        "closure",
+        "rejectionClosure",
+        "returnPromise",
+    ):
         if key in fields and (
             not isinstance(fields[key], str) or not IDENTITY.fullmatch(fields[key])
         ):
             _fail("Invalid witness identity")
+    for key in ("invocation", "child"):
+        if key in fields and (
+            not isinstance(fields[key], str) or not INVOCATION_IDENTITY.fullmatch(fields[key])
+        ):
+            _fail("Invalid dynamic invocation identity")
+    for key in ("name", "bind", "from"):
+        if key in fields and (
+            not isinstance(fields[key], str) or not fields[key].replace("$", "_").isidentifier()
+        ):
+            _fail("Invalid source binding name")
     return kind, fields

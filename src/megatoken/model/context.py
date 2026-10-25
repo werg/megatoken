@@ -90,3 +90,57 @@ class ContextPolicy:
 
 
 DEFAULT_CONTEXT_POLICY = ContextPolicy().to_json()
+
+
+def retained_context_events(
+    *, policy, tracks, positions, event_ids, meridian_sizes, seen, new_tracks, budget
+):
+    """The shared bounded-history admission rule for serving and data preparation.
+
+    Decisions depend only on public event ownership, positions and context policy;
+    tensor storage is selected afterwards by the recurrent model.
+    """
+    incoming = len(new_tracks)
+    if incoming > budget:
+        raise ValueError("One meridian exceeds the global historical event capacity")
+    names = (*tracks, *new_tracks)
+    wanted = set()
+    for track in set(names):
+        local, _ = policy.window(track)
+        own = [index for index, name in enumerate(names) if name == track]
+        if local:
+            wanted.update(own[-local:])
+    cross = max((policy.cross_events, *(row[2] for row in policy.windows)))
+    wanted.update(
+        index for index, position in enumerate(positions) if position >= seen + incoming - cross
+    )
+    pinned = {event for _, event in policy.pins}
+    wanted.update(index for index, event in enumerate(event_ids) if event in pinned)
+    groups, start = [], 0
+    for size in meridian_sizes:
+        indices = tuple(range(start, start + size))
+        if any(index in wanted for index in indices):
+            groups.append(indices)
+        start += size
+    count, pressure = sum(map(len, groups)), set()
+    while count + incoming > budget:
+        removable = next(
+            (
+                index
+                for index, group in enumerate(groups)
+                if not any(event_ids[item] in pinned for item in group)
+            ),
+            None,
+        )
+        if removable is None:
+            raise ValueError("Context budget cannot retain pinned evidence and the incoming group")
+        removed = groups.pop(removable)
+        pressure.update(removed)
+        count -= len(removed)
+    kept = tuple(index for group in groups for index in group)
+    dropped = tuple(
+        (event, "global_budget" if index in pressure else "window_expired")
+        for index, event in enumerate(event_ids)
+        if index not in kept
+    )
+    return kept, tuple(map(len, groups)), dropped
