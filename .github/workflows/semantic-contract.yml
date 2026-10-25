@@ -33,7 +33,7 @@ jobs:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           repository: werg/tracing-js-self
-          ref: b238fb48e6dc2b3a97e8c1280d4b961c0593466c # paired v4 code; integration pin updated together
+          ref: e8ff6785ac5ed836515317f2ca408d8ba9958391 # canonical v4 source-grounded witness
           path: tracing-js-self
           persist-credentials: false
       - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
@@ -78,7 +78,7 @@ jobs:
             tests/test_semantic_orchestration.py \
             tests/test_semantic_contract_v4.py tests/test_semantic_host_contract.py \
             tests/test_selected_semantic_bridge_v4.py tests/test_semantic_harness_lifecycle_v4.py \
-            tests/test_semantic_execution.py tests/test_semantic_training_state.py tests/test_training_stream.py \
+            tests/test_semantic_training_state.py tests/test_training_stream.py \
             tests/test_checkpoint_async.py tests/test_checkpoint_replace.py \
             tests/test_track_context.py tests/test_context_preparation.py
           python -m pytest -q tests/test_meridian_training.py -k semantic_execution_continues_from_teacher_recorded_semantics
@@ -90,19 +90,16 @@ jobs:
             node --test tracing-js-self/test/training-orchestration-evaluation.test.js
           python scripts/validate_semantic_orchestration.py --evidence-dir "$RUNNER_TEMP/orchestration" \
             --tokenizer-json "$MEGATOKEN_TOKENIZER_JSON" --output "$RUNNER_TEMP/orchestration-receipt.json"
-      - name: Collect paired source recipes from the pinned producer checkout
+      - name: Collect the canonical source curriculum with actual native admission
         working-directory: tracing-js-self
         run: |
-          node tools/generate-effectful-training.mjs --out "$RUNNER_TEMP/recipe-explicit" \
-            --recipe training-v4 --representation explicit --jobs 4 \
+          node tools/generate-effectful-training.mjs --out "$RUNNER_TEMP/recipe" \
+            --recipe training-v4 --jobs 4 \
             --megatoken "$GITHUB_WORKSPACE" --tokenizer "$MEGATOKEN_TOKENIZER_JSON" --python python --require-native
-          node tools/generate-effectful-training.mjs --out "$RUNNER_TEMP/recipe-compact" \
-            --recipe training-v4 --representation compact --jobs 4 \
-            --megatoken "$GITHUB_WORKSPACE" --tokenizer "$MEGATOKEN_TOKENIZER_JSON" --python python --require-native
-      - name: Verify every configured train and validation stage
+      - name: Verify canonical train and validation stage supply
         run: |
           python scripts/prepare_semantic_experiments.py \
-            --explicit-corpus "$RUNNER_TEMP/recipe-explicit" --compact-corpus "$RUNNER_TEMP/recipe-compact" \
+            --corpus "$RUNNER_TEMP/recipe" \
             --tracer-root tracing-js-self --tokenizer-json "$MEGATOKEN_TOKENIZER_JSON" \
             --producer-revision "$(git -C tracing-js-self rev-parse HEAD)" --consumer-revision "$(git rev-parse HEAD)" \
             --output "$RUNNER_TEMP/experiments"

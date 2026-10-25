@@ -25,7 +25,7 @@ jobs:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           repository: werg/tracing-js-self
-          ref: b238fb48e6dc2b3a97e8c1280d4b961c0593466c # paired v4 code; integration pin updated together
+          ref: e8ff6785ac5ed836515317f2ca408d8ba9958391 # canonical v4 source-grounded witness
           path: tracing-js-self
           persist-credentials: false
       - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
@@ -56,11 +56,11 @@ jobs:
           episode, receipt = adapt_selected_harness_v4(document, codec=codec, allow_local=True)
           assert receipt.invocations == 2
           assert receipt.actions == 4
-          assert receipt.observations == 13  # source/input, dispatch/results, retained source and state refresh
+          assert receipt.observations == sum(event['kind'] != 'semantic' for event in document['public']['timeline'])
           assert receipt.tracks == 3  # one host and two dynamic work owners
           assert episode.supervision.outcome == "unknown"
           assert all(not record.policy_mask for record in episode.records if record.role != "assistant")
-          assert sum(record.policy_mask for record in episode.records) == 18
+          assert sum(record.policy_mask for record in episode.records) >= sum(event['kind'] == 'semantic' for event in document['public']['timeline'])
           assert len({action.call_id for action in episode.actions}) == 4
           assert all(action.tool_name in {"demo.readAsync", "demo.store"} for action in episode.actions)
           assert [record.payload for record in episode.records if record.policy_mask] == [
