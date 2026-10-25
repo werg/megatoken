@@ -254,6 +254,7 @@ def test_program_once_and_more_than_eight_lifetime_tracks():
             "track": track,
             "ownerSequence": 1,
             "invocationId": inv,
+            "realmId": f"realm{index}",
             "triggerId": f"outside{index}",
         }
         rows.append(node)
