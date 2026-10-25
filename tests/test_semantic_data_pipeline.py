@@ -347,7 +347,7 @@ def test_training_experiment_preflight_blocks_missing_engineering_gate(tmp_path)
     )
     with pytest.raises(ValueError, match="precede"):
         config.preflight()
-    with pytest.raises(ValueError, match="precede"):
+    with pytest.raises(ValueError, match="representation disagree"):
         config.preflight(phase="SC")
     with pytest.raises(ValueError, match="phase, frozen cohort"):
         config.preflight(phase="SO")
