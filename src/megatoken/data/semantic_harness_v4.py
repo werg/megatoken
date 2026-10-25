@@ -15,12 +15,20 @@ from dataclasses import dataclass
 from typing import Any
 
 from .schema import (
-    Dependency, Episode, Lineage, LogicalAction, Meridian, PhysicalRecord,
-    Supervision, TrackEvent, TrackSpec, digest_bytes,
+    Dependency,
+    Episode,
+    Lineage,
+    LogicalAction,
+    Meridian,
+    PhysicalRecord,
+    Supervision,
+    TrackEvent,
+    TrackSpec,
+    digest_bytes,
 )
 from .semantic_execution import _host_request
-from .witness_v3 import WitnessV3Error, graph as validate_graph
-from .witness_v3 import parse_record
+from .witness_v3 import WitnessV3Error, parse_record
+from .witness_v3 import graph as validate_graph
 
 
 class SelectedHarnessError(ValueError):
@@ -134,7 +142,6 @@ def adapt_selected_harness_v4(
         else:
             _fail("Unregistered harness envelope kind")
         invocation_id = item.get("invocationId")
-        operation = None
         action_id = None
         result_of = None
         execution_id = None
