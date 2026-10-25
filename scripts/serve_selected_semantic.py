@@ -33,7 +33,7 @@ def dispatch(adapter, message):
         )
     if op == "select":
         return adapter.select(
-            message["prefix"], representation=message.get("representation", "explicit")
+            message["prefix"], representation=message.get("representation", "compact")
         )
     if op == "select-controlled":
         return adapter.select(
@@ -41,8 +41,6 @@ def dispatch(adapter, message):
             representation=message["representation"],
             controlledRecord=message["record"],
         )
-    if op == "outcome":
-        return adapter.select_outcome(message["prefix"])
     if op == "open-orchestration":
         return adapter.open_orchestration(
             **{key: value for key, value in message.items() if key not in {"id", "op"}}

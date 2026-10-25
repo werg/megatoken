@@ -247,28 +247,14 @@ def test_inference_initialization_attests_actual_checkpoint_and_seeds_rngs():
         adapter.initialize(seed=29, checkpointIdentity="a" * 64)
 
 
-def test_outcome_only_is_one_real_native_selection_without_semantic_stepping():
-    import json
-
-    expected = {
-        "schema": "semantic-outcome/4",
-        "completion": {"kind": "return", "value": ["num", 7]},
-        "state": {"roots": [["num", 7]], "objects": []},
-    }
-    runtime = FakeRuntime([json.dumps(expected).encode()])
+def test_unsupported_semantic_representations_fail_before_guest_execution():
+    runtime = FakeRuntime()
     adapter = SelectedSemanticInference(runtime, model_identity="a" * 64, verify_context=False)
-    prefix = fixture()
-    prefix["committed"][0]["capabilities"] = []
-    result = adapter.select_outcome(prefix)
-    assert result["schema"] == "selected-outcome-output/4"
-    assert result["representation"] == "outcome-only"
-    assert result["outcome"] == expected
-    assert len(runtime.generated_specs) == 1
-    assert len(runtime.sessions[0].observations) == 2
+    for obsolete in ("explicit", "outcome-only", "unknown"):
+        with pytest.raises(SemanticSelectionError, match="canonical semantic witness"):
+            adapter.select(fixture(), representation=obsolete)
     assert runtime.native_calls == 0
-    assert adapter.sessions["session1"].work["i1"].completed
-    with pytest.raises(SemanticSelectionError, match="pure source"):
-        SelectedSemanticInference(FakeRuntime(), verify_context=False).select_outcome(fixture())
+    assert len(runtime.generated_specs) == 0
 
 
 def test_rewinding_or_replacing_earlier_observation_never_changes_model_history():
@@ -292,7 +278,7 @@ def test_invocation_representation_cannot_change_before_or_after_checkpoint():
     prefix = fixture()
     selected = adapter.select(prefix, representation="compact")
     add(prefix, "semantic", line=selected["record"])
-    with pytest.raises(SemanticSelectionError, match="change its selected representation"):
+    with pytest.raises(SemanticSelectionError, match="canonical semantic witness"):
         adapter.select(prefix, representation="explicit")
     checkpoint = adapter.checkpoint("session1", [prefix])
     assert checkpoint["work"][0]["representation"] == "compact"
@@ -300,7 +286,7 @@ def test_invocation_representation_cannot_change_before_or_after_checkpoint():
         FakeRuntime(), verify_context=False, model_identity="a" * 64
     )
     restored.restore(checkpoint)
-    with pytest.raises(SemanticSelectionError, match="change its selected representation"):
+    with pytest.raises(SemanticSelectionError, match="canonical semantic witness"):
         restored.select(prefix, representation="explicit")
 
 

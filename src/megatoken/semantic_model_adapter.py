@@ -901,14 +901,10 @@ class SelectedSemanticInference:
             if group.tape.tracks == (work.actual_track,):
                 self.runtime.release_generation(session, revision)
 
-    def select(self, prefix: dict, *, representation="explicit", controlledRecord=None) -> dict:
-        if representation not in {"explicit", "compact", "outcome-only"}:
-            raise SemanticSelectionError("Unknown selected inference representation")
+    def select(self, prefix: dict, *, representation="compact", controlledRecord=None) -> dict:
+        if representation != "compact":
+            raise SemanticSelectionError("Only the canonical semantic witness is supported")
         program, invocation, events = _validate_prefix(prefix)
-        if representation == "outcome-only" and (program.get("capabilities") or len(events) != 2):
-            raise SemanticSelectionError(
-                "Noninteractive outcomes require only pure source and invocation input"
-            )
         with self.lock:
             session_key = _text(program["session"], "session")
             state = self._opened(session_key)
@@ -1138,22 +1134,12 @@ class SelectedSemanticInference:
                 b"evaluated arguments and source span. Never predict observations, "
                 b"events, native results or future tool receipts."
             )
-            if representation == "outcome-only":
-                instruction = (
-                    b"Predict the pure program outcome directly from the observed source and invocation. "
-                    b"Emit exactly one JSON object with schema semantic-outcome/4, completion {kind: return or throw, value: canonical tagged value}, "
-                    b"and state {roots: canonical tagged original argument roots followed by result, objects: complete reachable owned data graph}. "
-                    b"Do not emit semantic witness lines or call tools. Never predict observations."
-                )
-            elif representation == "compact":
-                instruction += (
-                    b" Use bounded compact expressions only for adjacent pure computation: "
-                    b"at most 8 operators and 32 expression nodes. Preserve source dependency order. "
-                    b"Never fuse across effects, mutation, binding, branches, calls, awaits, callbacks, "
-                    b"returns, throws, or cleanup boundaries."
-                )
-            else:
-                instruction += b" Emit each explicit source computation as its own witness record."
+            instruction += (
+                b" Use source-grounded, temporally evaluated pure expressions: "
+                b"at most 8 operators and 32 expression nodes. Preserve real "
+                b"lexical source bindings, aliases, effects, mutations, callbacks, "
+                b"await boundaries and completion. Avoid anonymous temporary cells."
+            )
             # A logical semantic record may span several real model meridians.
             # Native commitment waits for the final terminal; no peer result or
             # second generated tool envelope is inserted between fragments.
@@ -1255,9 +1241,7 @@ class SelectedSemanticInference:
                 original
             ).hexdigest()
             return {
-                "schema": "selected-outcome-output/4"
-                if representation == "outcome-only"
-                else "selected-model-output/2",
+                "schema": "selected-model-output/2",
                 "representation": representation,
                 "record": output,
                 "selection": {
@@ -1273,53 +1257,6 @@ class SelectedSemanticInference:
                     "stateBootstrap": work.state_bootstrap,
                 },
             }
-
-    def select_outcome(self, prefix: dict) -> dict:
-        """One actual noninteractive model answer for the pure common-support control."""
-        from megatoken.data.witness_v4 import graph, value
-        from megatoken.io import strict_json_loads
-
-        result = self.select(prefix, representation="outcome-only")
-        program, invocation, _ = _validate_prefix(prefix)
-        state = self.sessions[program["session"]]
-        work = state.work[invocation["invocationId"]]
-        try:
-            predicted = strict_json_loads(result["record"])
-            if (
-                not isinstance(predicted, dict)
-                or set(predicted) != {"schema", "completion", "state"}
-                or predicted["schema"] != "semantic-outcome/4"
-                or not isinstance(predicted["completion"], dict)
-                or set(predicted["completion"]) != {"kind", "value"}
-                or predicted["completion"]["kind"] not in {"return", "throw"}
-            ):
-                raise ValueError("Noninteractive model answer has an invalid completion schema")
-            value(predicted["completion"]["value"])
-            graph(predicted["state"])
-            if (
-                len(predicted["state"]["roots"]) != len(invocation["inputGraph"]["roots"]) + 1
-                or predicted["state"]["roots"][-1] != predicted["completion"]["value"]
-            ):
-                raise ValueError("Noninteractive result must be the last observable graph root")
-        except (ValueError, KeyError, TypeError) as error:
-            evidence = {
-                "reason": str(error),
-                "selection": result["selection"],
-                "payloadHex": result["record"].encode().hex(),
-                "representation": "outcome-only",
-            }
-            work.rejections.append(evidence)
-            state.runtime_session.tracks.change(work.actual_track, "cancel")
-            work.completed = True
-            self._release_selected_payloads(state, work)
-            raise SemanticSelectionError(
-                "Model emitted an invalid noninteractive outcome", evidence=evidence
-            ) from error
-        work.selected.clear()
-        work.completed = True
-        state.runtime_session.tracks.change(work.actual_track, "complete")
-        self._release_selected_payloads(state, work)
-        return {**result, "outcome": predicted}
 
     def open_orchestration(self, **options):
         from .semantic_orchestration import open_orchestration
@@ -1873,11 +1810,9 @@ class SelectedSemanticInference:
                         if publication == 2:
                             self._observe(session, address, invocation)
                 for item, program, invocation, events in prepared:
-                    if item["representation"] not in {
-                        "explicit",
-                        "compact",
-                        "outcome-only",
-                    } and not (item["representation"] is None and item["selections"] == 0):
+                    if item["representation"] != "compact" and not (
+                        item["representation"] is None and item["selections"] == 0
+                    ):
                         raise SemanticSelectionError(
                             "Restored invocation lacks its exact representation"
                         )
