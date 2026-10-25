@@ -106,6 +106,40 @@ def _train_check(args):
     return run(args)
 
 
+def _initialize_coordinator_with_provenance(
+    initialize,
+    root,
+    *,
+    run_id,
+    parameter_masters,
+    source_checkpoint_state_sha256=None,
+    source_checkpoint_metadata_sha256=None,
+    **kwargs,
+):
+    """Write a local source/output receipt only after initialization succeeds."""
+    from megatoken.io import sha256_file, write_json
+    from megatoken.training.diloco_protocol import parameter_identity
+
+    root = Path(root)
+    manifest = initialize(root, run_id=run_id, **kwargs)
+    receipt = {
+        "schema": "diloco-bootstrap-provenance/1",
+        "run_id": run_id,
+        "source_checkpoint_state_sha256": source_checkpoint_state_sha256,
+        "source_checkpoint_metadata_sha256": source_checkpoint_metadata_sha256,
+        "coordinator_manifest_fingerprint": manifest["fingerprint"],
+        "coordinator_bootstrap_sha256": sha256_file(root / "bootstrap.pt"),
+        "parameter_identity": parameter_identity(parameter_masters),
+        "source_kind": "checkpoint"
+        if source_checkpoint_state_sha256 is not None
+        else "initialized-without-source-checkpoint",
+    }
+    # This local receipt binds immutable source and initialized files. It is an
+    # auditable provenance chain, not a signature against a hostile operator.
+    write_json(root / "semantic-bootstrap-provenance.json", receipt)
+    return manifest
+
+
 def _diloco_initialize(args):
     """Create immutable coordinator bootstrap from the exact train architecture."""
     import json
@@ -238,9 +272,17 @@ def _diloco_initialize(args):
     }
     weights: dict = {}
     transducer_state = None
+    source_directory = source_metadata = None
+    source_state_sha256 = source_metadata_sha256 = None
     if args.resume:
         # A new coordinator is the DiLoCo phase transition: it may install
         # realizers the previous phase lacked, whose masters start from init.
+        source_directory = resolve_checkpoint(args.resume)
+        source_metadata = json.loads((source_directory / "metadata.json").read_text())
+        source_state_sha256 = sha256_file(source_directory / "state.pt")
+        source_metadata_sha256 = sha256_file(source_directory / "metadata.json")
+        if source_state_sha256 != source_metadata.get("state_sha256"):
+            raise ValueError("Bootstrap checkpoint state checksum mismatch")
         payload, _ = load_checkpoint(args.resume, map_location="cpu")
         from megatoken.data.recipes import validate_stage_start
 
@@ -275,9 +317,20 @@ def _diloco_initialize(args):
         for name, parameter in model.named_parameters()
         if parameter.requires_grad
     }
-    return initialize_coordinator(
+    if args.resume:
+        if (
+            sha256_file(source_directory / "state.pt") != source_state_sha256
+            or sha256_file(source_directory / "metadata.json") != source_metadata_sha256
+            or source_state_sha256 != source_metadata.get("state_sha256")
+        ):
+            raise ValueError("Bootstrap checkpoint changed during coordinator initialization")
+    return _initialize_coordinator_with_provenance(
+        initialize_coordinator,
         args.root,
         run_id=config.decoupled.run_id,
+        parameter_masters=masters,
+        source_checkpoint_state_sha256=source_state_sha256,
+        source_checkpoint_metadata_sha256=source_metadata_sha256,
         model_state=model.state_dict(),
         masters=masters,
         model_config=model_config.to_dict(),

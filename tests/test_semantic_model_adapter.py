@@ -147,6 +147,9 @@ class FakeRuntime:
 
         return MultiTrackRuntime.dispatch_semantic_requests(self, *args, **kwargs)
 
+    def release_generation(self, session, revision):
+        session.selected_groups.pop(revision, None)
+
 
 def add(prefix, kind, mode="generated", **fields):
     import json
@@ -434,6 +437,8 @@ def test_actual_initialized_model_inference_and_source_reread_change_no_weights(
                 ]
             )
             adapter.cancel_invocation("session1", "i1")
+            assert not state.runtime_session.selected_groups
+            assert not state.runtime_session.reserved_output_bytes
         assert all(torch.equal(value, model.state_dict()[name]) for name, value in before.items())
     finally:
         runtime.close()

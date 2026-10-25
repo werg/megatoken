@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """Prepare every semantic experiment arm and verify train/validation supply.
 
-Consumes the two source-certified training-v4 recipe manifests. It rechecks
+Consumes paired source-certified training-v4 or benchmark-v1 recipe manifests. It rechecks
 source/native admission, collects real runtime lifecycle labels for each split,
 and verifies the configured curriculum without creating an optimizer.
 """
@@ -17,6 +17,11 @@ from pathlib import Path
 
 from megatoken.data.host_operations import CONTRACT_DIGEST
 from megatoken.data.semantic_corpus import prepare_semantic_corpus, source_verifier_for_checkout
+from megatoken.data.semantic_recipe_preparation import (
+    benchmark_recipe_preparation_summary,
+    validate_paired_recipe_manifests,
+    validate_recipe_manifest,
+)
 from megatoken.generation.codec import LING_TOKENIZER_SHA256, ByteCodec
 from megatoken.io import write_json
 from megatoken.training.semantic_budget import validate_stage_supply
@@ -30,6 +35,7 @@ def main():
     parser.add_argument("--tokenizer-json", type=Path, required=True)
     parser.add_argument("--producer-revision", required=True)
     parser.add_argument("--consumer-revision", required=True)
+    parser.add_argument("--recipe", choices=("training-v4", "benchmark-v1"), default="training-v4")
     parser.add_argument("--output", type=Path, required=True)
     options = parser.parse_args()
     options.output.mkdir(parents=True, exist_ok=True)
@@ -48,31 +54,25 @@ def main():
         return verified[key]
 
     manifests = {}
+    recipe_summaries = {}
     for representation in ("explicit", "compact"):
         root = getattr(options, representation + "_corpus").resolve()
         manifest = json.loads((root / "manifest.json").read_text())
-        if (
-            manifest.get("schema") != "semantic-corpus-manifest/4"
-            or manifest.get("producerRevision") != options.producer_revision
-            or manifest.get("catalogDigest") != CONTRACT_DIGEST
-            or manifest.get("representation") != representation
-            or manifest.get("recipe", {}).get("name") != "training-v4"
-            or manifest["recipe"].get("retainEveryAuthoredFamily") is not True
-            or any(case.get("status") != "admitted" for case in manifest["cases"])
-        ):
-            raise ValueError("Complete source/native admitted training-v4 recipe manifest required")
-        declared = {case["family"] for case in manifest["cases"]}
-        if declared != set(manifest["recipe"]["families"]):
-            raise ValueError("Prepared recipe dropped or relabeled an authored source family")
+        if manifest.get("catalogDigest") != CONTRACT_DIGEST:
+            raise ValueError("Prepared recipe uses a different host operation catalog")
+        recipe_summaries[representation] = validate_recipe_manifest(
+            manifest,
+            recipe_name=options.recipe,
+            representation=representation,
+            producer_revision=options.producer_revision,
+        )
         manifests[representation] = (root, manifest)
     left, right = (manifests[name][1] for name in ("explicit", "compact"))
-    if left["recipe"]["templateDigest"] != right["recipe"]["templateDigest"] or {
-        (case["id"], case["family"], case["split"], case["role"]) for case in left["cases"]
-    } != {(case["id"], case["family"], case["split"], case["role"]) for case in right["cases"]}:
-        raise ValueError("Explicit and compact recipe families/splits are not paired")
+    validate_paired_recipe_manifests(left, right)
 
     datasets = {"common-support": {}, "effectful-tracks-events": {}}
     reports, lifecycle = [], []
+    prepared_counts = {}
     for representation, (root, manifest) in manifests.items():
         for cohort, role in (
             ("common-support", "common-support"),
@@ -99,6 +99,7 @@ def main():
                     raise ValueError("Configured source recipe preparation refused a required case")
                 datasets[cohort][output_representation] = [str(output.resolve())]
                 reports.append(report)
+                prepared_counts[f"{cohort}/{output_representation}"] = report["accepted"]
                 print(
                     f"Prepared {cohort}/{output_representation}: {report['accepted']} admitted episodes",
                     file=sys.stderr,
@@ -172,6 +173,13 @@ def main():
         "learnedSuccess": None,
     }
     write_json(options.output / "experiment-preparation.json", receipt)
+    if options.recipe == "benchmark-v1":
+        if recipe_summaries["explicit"] != recipe_summaries["compact"]:
+            raise ValueError("Explicit and compact benchmark lineage/count summaries differ")
+        write_json(
+            options.output / "benchmark-recipe-preparation.json",
+            benchmark_recipe_preparation_summary(recipe_summaries["explicit"], prepared_counts),
+        )
     write_json(
         options.output / "dataset-bindings.json",
         {"datasets": datasets, "codec": str(options.tokenizer_json.resolve())},

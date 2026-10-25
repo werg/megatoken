@@ -889,6 +889,18 @@ class SelectedSemanticInference:
         }
         work.selection_history.clear()
 
+    def _release_selected_payloads(self, state, work):
+        """Discard archived physical generations without removing causal history.
+
+        Requests may reach native commitment after their prefix acknowledgement,
+        so physical generations remain until terminal completion or cancellation.
+        Idempotent native commitment receipts and causal history remain available.
+        """
+        session = state.runtime_session
+        for revision, group in tuple(session.selected_groups.items()):
+            if group.tape.tracks == (work.actual_track,):
+                self.runtime.release_generation(session, revision)
+
     def select(self, prefix: dict, *, representation="explicit", controlledRecord=None) -> dict:
         if representation not in {"explicit", "compact", "outcome-only"}:
             raise SemanticSelectionError("Unknown selected inference representation")
@@ -1152,6 +1164,7 @@ class SelectedSemanticInference:
                 work.rejections.append(rejection)
                 state.runtime_session.tracks.change(work.actual_track, "cancel")
                 work.completed = True
+                self._release_selected_payloads(state, work)
                 raise SemanticSelectionError(message, evidence=rejection)
 
             for fragment in range(64):
@@ -1298,12 +1311,14 @@ class SelectedSemanticInference:
             work.rejections.append(evidence)
             state.runtime_session.tracks.change(work.actual_track, "cancel")
             work.completed = True
+            self._release_selected_payloads(state, work)
             raise SemanticSelectionError(
                 "Model emitted an invalid noninteractive outcome", evidence=evidence
             ) from error
         work.selected.clear()
         work.completed = True
         state.runtime_session.tracks.change(work.actual_track, "complete")
+        self._release_selected_payloads(state, work)
         return {**result, "outcome": predicted}
 
     def open_orchestration(self, **options):
@@ -1400,6 +1415,7 @@ class SelectedSemanticInference:
             self._completion_escapes(work, snapshot, receipt)
             work.completed = True
             self._retire_subscriptions(state)
+            self._release_selected_payloads(state, work)
 
     def cancel_invocation(self, session: str, invocation: str) -> None:
         with self.lock:
@@ -1413,6 +1429,7 @@ class SelectedSemanticInference:
             }:
                 state.runtime_session.tracks.change(work.actual_track, "cancel")
             work.completed = True
+            self._release_selected_payloads(state, work)
 
     def commit_request(
         self, session: str, invocation: str, selection: dict, record: str, validation: dict

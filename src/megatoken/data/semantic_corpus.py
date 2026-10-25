@@ -199,12 +199,31 @@ def outcome_control_episode(
         or reference_outcome["kind"] not in {"return", "throw"}
     ):
         raise ValueError("Outcome controls require the independently admitted source outcome")
-    graph(reference_outcome["graph"])
-    if not reference_outcome["graph"]["roots"]:
+    # The source verifier preserves its compact tuple-property graph encoding,
+    # while semantic-trace/4 requires named property objects. Normalize only
+    # this independently verified value graph at the consumer boundary.
+    source_graph = reference_outcome["graph"]
+    if not isinstance(source_graph, dict) or set(source_graph) != {"roots", "objects"}:
+        raise ValueError("Outcome controls require a complete source graph")
+    normalized_graph = {
+        "roots": source_graph["roots"],
+        "objects": [],
+    }
+    for node in source_graph["objects"]:
+        if not isinstance(node, dict) or not isinstance(node.get("properties"), list):
+            raise ValueError("Outcome controls require source graph properties")
+        properties = []
+        for prop in node["properties"]:
+            if not isinstance(prop, list) or len(prop) != 2:
+                raise ValueError("Outcome controls require tuple-encoded source properties")
+            properties.append({"key": prop[0], "value": prop[1]})
+        normalized_graph["objects"].append({**node, "properties": properties})
+    graph(normalized_graph)
+    if not normalized_graph["roots"]:
         raise ValueError("Outcome controls need an explicit final result root")
     completion = {
         "kind": reference_outcome["kind"],
-        "value": reference_outcome["graph"]["roots"][-1],
+        "value": normalized_graph["roots"][-1],
     }
     value(completion["value"])
     observed, tracks = [], {}
@@ -231,8 +250,7 @@ def outcome_control_episode(
             observed.append((payload, item["track"]))
     if (
         len(invocations) != 1
-        or len(reference_outcome["graph"]["roots"])
-        != len(invocations[0]["inputGraph"]["roots"]) + 1
+        or len(normalized_graph["roots"]) != len(invocations[0]["inputGraph"]["roots"]) + 1
     ):
         raise ValueError(
             "Outcome control requires one root invocation and its exact observable graph"
@@ -242,7 +260,7 @@ def outcome_control_episode(
         {
             "schema": "semantic-outcome/4",
             "completion": completion,
-            "state": reference_outcome["graph"],
+            "state": normalized_graph,
         }
     ).encode()
     rows = [
