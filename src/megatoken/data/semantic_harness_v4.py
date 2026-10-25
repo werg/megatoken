@@ -183,6 +183,13 @@ def adapt_selected_harness_v4(
                 or not isinstance(item.get("entry"), str)
                 or not isinstance(item.get("sites"), list)
                 or not isinstance(item.get("capabilities"), list)
+                or (
+                    "functions" in item and (
+                        not isinstance(item["functions"], list)
+                        or any(not isinstance(f, dict) or not isinstance(f.get("name"), (str, type(None)))
+                               for f in item["functions"])
+                    )
+                )
             ):
                 _fail("Malformed immutable program publication")
             programs[name] = item
@@ -196,7 +203,10 @@ def adapt_selected_harness_v4(
                 or program_id not in programs
                 or not _ident(item.get("realmId"))
                 or not _ident(item.get("trackId"))
-                or item.get("entry") != programs[program_id]["entry"]
+                or item.get("entry") not in (
+                    [programs[program_id]["entry"]]
+                    + [f.get("name") for f in programs[program_id].get("functions", [])]
+                )
                 or item.get("realmPolicy") not in ("fresh", "retained")
                 or type(item.get("queueLimit")) is not int
                 or not 1 <= item["queueLimit"] <= 4096
@@ -207,6 +217,7 @@ def adapt_selected_harness_v4(
                 "program": program_id,
                 "realm": item["realmId"],
                 "track": item["trackId"],
+                "entry": item["entry"],
                 "policy": item["realmPolicy"],
                 "seen": set(),
             }
@@ -250,7 +261,10 @@ def adapt_selected_harness_v4(
                 or program_id not in programs
                 or not all(_ident(item.get(k)) for k in ("realmId", "triggerId"))
                 or track == "host"
-                or item.get("entry") != programs[program_id]["entry"]
+                or item.get("entry") not in (
+                    [programs[program_id]["entry"]]
+                    + [f.get("name") for f in programs[program_id].get("functions", [])]
+                )
                 or item.get("sourceDigest") != programs[program_id]["digest"]
                 or item.get("completionPolicy") not in ("immediate-root", "owned-quiescence")
             ):
@@ -277,6 +291,7 @@ def adapt_selected_harness_v4(
                     or pending_event["triggerId"] != item["triggerId"]
                     or pending_event["programId"] != program_id
                     or pending_event["realmId"] != realm_id
+                    or item["entry"] != handlers[pending_event["subscriptionId"]]["entry"]
                 ):
                     _fail("Outside event was not delivered to its bound handler invocation")
                 pending_event = None
