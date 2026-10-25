@@ -2,6 +2,7 @@
 
 This is an external-effect safety boundary, not an alternate trace format.
 """
+
 from typing import Any
 
 from .host_operations import materialize_request
