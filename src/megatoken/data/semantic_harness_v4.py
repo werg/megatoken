@@ -116,6 +116,15 @@ def adapt_selected_harness_v4(
     last_by_track: dict[str, str] = {}
     owner_sequences: dict[str, int] = {}
     observed = 0
+    # A controlled, locally verified action is not an admitted teacher
+    # projection. Its origin must not be relabeled to manufacture authority.
+    selected_provenance = (
+        "teacher"
+        if admission == "admitted" and sidecar.get("selectionOrigin") == "certified_teacher"
+        else "student"
+        if sidecar.get("selectionOrigin") == "model"
+        else "unknown"
+    )
 
     for index, item in enumerate(timeline):
         if not isinstance(item, dict):
@@ -312,7 +321,7 @@ def adapt_selected_harness_v4(
                 payload,
                 turn_index=index,
                 policy_mask=kind == "semantic",
-                provenance="teacher" if kind == "semantic" else "executed",
+                provenance=selected_provenance if kind == "semantic" else "executed",
                 action_id=action_id,
                 result_of=result_of,
                 execution_id=execution_id if result_of else None,
