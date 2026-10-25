@@ -264,12 +264,12 @@ class SelectedSemanticInference:
             config = self.runtime.generator.generator.config
             maximum = min(self.max_tokens, config.max_capacity)
             instruction = (
-                "Emit exactly one complete canonical semantic-trace/3 witness. "
-                "Use only the observed source, this invocation and prior selected "
-                "semantics. An external call is a validated request with already "
-                "evaluated arguments and source span. Never predict observations, "
-                "events, native results or future tool receipts."
-            ).encode("utf-8")
+                b"Emit exactly one complete canonical semantic-trace/3 witness. "
+                b"Use only the observed source, this invocation and prior selected "
+                b"semantics. An external call is a validated request with already "
+                b"evaluated arguments and source span. Never predict observations, "
+                b"events, native results or future tool receipts."
+            )
             # The *real* checkpoint/recurrence and native tokenizer are used.
             generated = self.runtime.generate(
                 state.runtime_session,
