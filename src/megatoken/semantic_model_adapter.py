@@ -38,7 +38,7 @@ def _validate_prefix(prefix: Any) -> tuple[dict, dict, list[dict]]:
     if not isinstance(prefix, dict) or prefix.get("schema") != "selected-inference-prefix/1":
         raise SemanticSelectionError("Unknown selected-model inference prefix version")
     events = prefix.get("committed")
-    if not isinstance(events, list) or len(events) < 2:
+    if not isinstance(events, list) or len(events) < 2 or any(not isinstance(e, dict) for e in events):
         raise SemanticSelectionError("Model execution needs published code before invocation")
     programs = [
         event
@@ -218,9 +218,6 @@ class SelectedSemanticInference:
     def _advance(self, state: _Session, work: _Work, events: list[dict]) -> None:
         for event in events:
             encoded = _canonical(event)
-            index = len(work.seen)
-            if index < len(work.seen):
-                raise AssertionError("Unreachable retained event cursor")
             if event["kind"] == "semantic":
                 expected = work.selected.pop(0) if work.selected else None
                 if expected is None or event["line"].encode("utf-8") != expected:
@@ -314,12 +311,24 @@ class SelectedSemanticInference:
                 },
             }
 
-    def close_invocation(self, session: str, invocation: str) -> None:
+    def close_invocation(self, session: str, invocation: str, prefix: dict) -> None:
+        """A complete public return/end must acknowledge the last actual selected tape."""
+        program, inv, events = _validate_prefix(prefix)
+        if program["session"] != session or inv["invocationId"] != invocation:
+            raise SemanticSelectionError("Completion belongs to another selected invocation")
+        if not events or events[-1].get("kind") != "semantic" or not events[-1].get("line", "").startswith("end "):
+            raise SemanticSelectionError("Model completion needs the selected terminal end")
         with self.lock:
             state = self.sessions.get(session)
             if state is None or invocation not in state.work:
                 raise SemanticSelectionError("Unknown selected invocation")
             work = state.work[invocation]
+            if len(events) < len(work.seen) or any(
+                before != _canonical(events[index])
+                for index, before in enumerate(work.seen)
+            ):
+                raise SemanticSelectionError("Completion rewrites earlier model history")
+            self._advance(state, work, events[len(work.seen):])
             if work.selected:
                 raise SemanticSelectionError("Cannot complete before last selection commits")
             state.runtime_session.tracks.change(work.actual_track, "complete")
