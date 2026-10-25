@@ -13,6 +13,56 @@ OPERATIONS = ("create", "assign", "progress", "wait", "continue", "complete", "c
 
 
 @dataclass(frozen=True)
+class ExecutionBinding:
+    """Runtime-validated invocation identity attached to a created work track.
+
+    This is a typed ingress intent, not a generated JS source string or a
+    completed invocation. Code and input must be published *after* creating
+    the track and *before* activate_execution marks it runnable.
+    """
+
+    program_id: str
+    source_digest: str
+    entry: str
+    invocation_id: str
+    realm_id: str
+    trigger_id: str
+    input_ref: str
+    realm_policy: str = "fresh"
+    completion_mode: str = "await-returned-promise"
+    capability_grants: tuple[str, ...] = ()
+    completion_target: str = ""
+    schema: str = "semantic-execution-binding/4"
+
+    def __post_init__(self):
+        object.__setattr__(self, "capability_grants", tuple(self.capability_grants))
+        if self.schema != "semantic-execution-binding/4":
+            raise ValueError("Unrecognized selected execution-binding schema")
+        if not all(
+            isinstance(item, str) and item.strip()
+            for item in (
+                self.program_id, self.source_digest, self.entry, self.invocation_id,
+                self.realm_id, self.trigger_id, self.input_ref,
+            )
+        ):
+            raise ValueError("Execution binding needs source, invocation, input and trigger identities")
+        if len(self.source_digest) != 64 or any(
+            char not in "0123456789abcdef" for char in self.source_digest
+        ):
+            raise ValueError("Execution binding requires pinned lowercase SHA-256 source")
+        if self.realm_policy not in {"fresh", "retained"}:
+            raise ValueError("Execution binding needs explicit fresh or retained realm policy")
+        if self.completion_mode not in {
+            "call-return", "await-returned-promise", "owned-quiescence"
+        }:
+            raise ValueError("Unknown selected execution completion policy")
+        if len(self.capability_grants) != len(set(self.capability_grants)) or any(
+            not isinstance(name, str) or not name for name in self.capability_grants
+        ):
+            raise ValueError("Execution capability grants must be distinct")
+
+
+@dataclass(frozen=True)
 class TrackDescription:
     address: str
     purpose: str
@@ -25,10 +75,21 @@ class TrackDescription:
     status: str = "active"
     prerequisites: tuple[str, ...] = ()
     progress: str = ""
+    execution: ExecutionBinding | None = None
+    bootstrap_ready: bool = False
 
     def __post_init__(self):
         object.__setattr__(self, "capabilities", tuple(self.capabilities))
         object.__setattr__(self, "prerequisites", tuple(self.prerequisites))
+        if isinstance(self.execution, dict):
+            object.__setattr__(self, "execution", ExecutionBinding(**self.execution))
+        elif self.execution is not None and not isinstance(self.execution, ExecutionBinding):
+            raise ValueError("Execution binding must be typed or a validated mapping")
+        if type(self.bootstrap_ready) is not bool or (self.bootstrap_ready and self.execution is None):
+            raise ValueError("Only execution tracks can be marked bootstrapped")
+        if self.execution is not None and not self.bootstrap_ready and self.status != "waiting":
+            raise ValueError("Unbootstrapped execution tracks cannot be runnable")
+
         if type(self.budget) is not int or type(self.revision) is not int:
             raise ValueError("Track budget and revision must be integers")
         if not self.address or not self.purpose.strip() or self.budget < 0 or self.revision < 0:
@@ -65,6 +126,21 @@ class TrackRegistry:
             raise ValueError("Active work capacity exhausted; queue work or finish an active track")
         if options.get("budget", 128) < 1:
             raise ValueError("New work requires a positive budget")
+        execution = options.get("execution")
+        if execution is not None:
+            if isinstance(execution, dict):
+                execution = ExecutionBinding(**execution)
+            if not isinstance(execution, ExecutionBinding):
+                raise ValueError("Execution work requires a typed invocation binding")
+            if sum(t.status == "waiting" for t in self.tracks.values()) >= self.max_waiting:
+                raise ValueError("Execution bootstrap waiting capacity exhausted")
+            if any(t.execution and t.execution.invocation_id == execution.invocation_id
+                   for t in self.tracks.values()):
+                raise ValueError("An execution invocation cannot create a second track")
+            if options.get("status", "waiting") != "waiting" or options.get("bootstrap_ready"):
+                raise ValueError("New execution work must await observed program and invocation bootstrap")
+            options["execution"] = execution
+            options["status"] = "waiting"
         parent = options.get("parent")
         if parent is not None and parent not in self.tracks:
             raise ValueError("Parent task does not exist")
@@ -72,6 +148,10 @@ class TrackRegistry:
             self.tracks[parent].capabilities
         ):
             raise ValueError("Child work cannot acquire capabilities its parent does not have")
+        if execution is not None and parent is not None:
+            inherited = self.tracks[parent].execution
+            if inherited and not set(execution.capability_grants) <= set(inherited.capability_grants):
+                raise ValueError("Child execution cannot expand parent external grants")
         address = options.pop("address", None) or f"{self.address_prefix}:{self.sequence}"
         if not isinstance(address, str) or not address or address in self.tracks:
             raise ValueError("Track creation requires a fresh address")
@@ -81,8 +161,31 @@ class TrackRegistry:
         self.transitions.append(("create", description))
         return description
 
+    def activate_execution(
+        self, address: str, *, source_digest: str, input_ref: str
+    ) -> TrackDescription:
+        """Host-only, idempotent post-publication bootstrap. Never a model tool."""
+        current = self.tracks[address]
+        binding = current.execution
+        if binding is None or binding.source_digest != source_digest or binding.input_ref != input_ref:
+            raise ValueError("Execution bootstrap must match previously observed code and input")
+        if current.bootstrap_ready:
+            return current
+        if current.status != "waiting":
+            raise ValueError("Closed or mutated execution bootstrap cannot be resumed")
+        if sum(t.status == "active" for t in self.tracks.values()) >= self.max_active:
+            raise ValueError("Cannot activate a child beyond active work capacity")
+        updated = replace(current, bootstrap_ready=True, status="active")
+        self.tracks[address] = updated
+        self.transitions.append(("bootstrap", updated))
+        return updated
+
     def change(self, address: str, operation: str, **changes) -> TrackDescription:
         current = self.tracks[address]
+        if current.execution is not None and not current.bootstrap_ready and operation not in {
+            "cancel", "wait", "progress", "rename",
+        }:
+            raise ValueError("Execution bootstrap must publish source and invocation before work")
         if operation not in OPERATIONS[1:] + ("rename",):
             raise ValueError("Unknown lifecycle operation")
         if current.status in {"completed", "cancelled"} and operation not in {"resume", "rename"}:
@@ -179,7 +282,9 @@ class TrackRegistry:
     def selectable(self, address: str, completed: set[str]) -> bool:
         track = self.tracks[address]
         return (
-            track.status == "active" and track.budget > 0 and set(track.prerequisites) <= completed
+            track.status == "active" and track.budget > 0
+            and (track.execution is None or track.bootstrap_ready)
+            and set(track.prerequisites) <= completed
         )
 
     def charge(self, addresses: tuple[str, ...]):
@@ -215,6 +320,36 @@ def lifecycle_tools(capabilities=("text",)) -> list[dict]:
                         "items": {"type": "string"},
                         "minItems": 1,
                         "uniqueItems": True,
+                    },
+                    "execution": {
+                        "type": "object",
+                        "properties": {
+                            **{
+                                key: {"type": "string", "minLength": 1}
+                                for key in (
+                                    "program_id", "source_digest", "entry",
+                                    "invocation_id", "realm_id", "trigger_id", "input_ref",
+                                )
+                            },
+                            "realm_policy": {"enum": ["fresh", "retained"]},
+                            "completion_mode": {
+                                "enum": [
+                                    "call-return", "await-returned-promise", "owned-quiescence"
+                                ]
+                            },
+                            "capability_grants": {
+                                "type": "array", "items": {"type": "string"},
+                                "uniqueItems": True,
+                            },
+                            "completion_target": {"type": "string"},
+                            "schema": {"const": "semantic-execution-binding/4"},
+                        },
+                        "required": [
+                            "program_id", "source_digest", "entry", "invocation_id",
+                            "realm_id", "trigger_id", "input_ref", "realm_policy",
+                            "completion_mode", "capability_grants",
+                        ],
+                        "additionalProperties": False,
                     },
                 },
                 "required": ["purpose", "completion", "budget"],
