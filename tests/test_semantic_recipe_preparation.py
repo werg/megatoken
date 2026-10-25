@@ -220,12 +220,15 @@ def test_benchmark_primary_role_counts_are_checked_per_family_not_only_globally(
             producer_revision="a" * 40,
         )
 
+
 def test_obsolete_recipe_representation_is_refused():
     compact, _ = _benchmark_pair()
     obsolete = copy.deepcopy(compact)
     obsolete["representation"] = "explicit"
     with pytest.raises(ValueError, match="Complete source/native admitted"):
         validate_recipe_manifest(
-            obsolete, recipe_name="benchmark-v1", representation="compact",
+            obsolete,
+            recipe_name="benchmark-v1",
+            representation="compact",
             producer_revision="a" * 40,
         )

@@ -592,8 +592,10 @@ def evaluate_cohort(
             trace_valid = inconsistency is None and not evidence.get("failure")
             episode, _ = adapt_selected_harness_v4(
                 evidence["episode"],
-                codec=codec, allow_local=True,
-                max_positions=1024, max_history=1024,
+                codec=codec,
+                allow_local=True,
+                max_positions=1024,
+                max_history=1024,
             )
             if request.get("schema") == "selected-orchestration-evaluation-case/4":
                 _validate_orchestration(evidence, codec, origin)

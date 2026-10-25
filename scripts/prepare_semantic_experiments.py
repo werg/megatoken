@@ -93,12 +93,18 @@ def main():
         command = [
             sys.executable,
             str(Path(__file__).with_name("collect_semantic_lifecycle.py")),
-            "--input", str(root / child["path"]),
-            "--output", str(output),
-            "--tracer-root", str(options.tracer_root.resolve()),
-            "--producer-revision", options.producer_revision,
-            "--consumer-revision", options.consumer_revision,
-            "--tokenizer-json", str(options.tokenizer_json.resolve()),
+            "--input",
+            str(root / child["path"]),
+            "--output",
+            str(output),
+            "--tracer-root",
+            str(options.tracer_root.resolve()),
+            "--producer-revision",
+            options.producer_revision,
+            "--consumer-revision",
+            options.consumer_revision,
+            "--tokenizer-json",
+            str(options.tokenizer_json.resolve()),
         ]
         completed = subprocess.run(command, check=True, capture_output=True, text=True, timeout=180)
         receipt = json.loads(completed.stdout)["receipt"]
@@ -111,14 +117,16 @@ def main():
     supply = []
     for cohort, arms in datasets.items():
         roots = arms["compact"]
-        supply.append(validate_stage_supply(
-            roots,
-            phase="SE" if cohort == "effectful-tracks-events" else "SC",
-            representation="compact",
-            codec=codec,
-            producer_revision=options.producer_revision,
-            consumer_revision=options.consumer_revision,
-        ))
+        supply.append(
+            validate_stage_supply(
+                roots,
+                phase="SE" if cohort == "effectful-tracks-events" else "SC",
+                representation="compact",
+                codec=codec,
+                producer_revision=options.producer_revision,
+                consumer_revision=options.consumer_revision,
+            )
+        )
     receipt = {
         "schema": "semantic-experiment-preparation/4",
         "producerRevision": options.producer_revision,

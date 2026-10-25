@@ -179,7 +179,9 @@ def main():
             or selected["result"].get("representation") != "compact"
             or not selected["result"]["selection"]["modelSelected"]
         ):
-            raise ValueError("Canonical semantic path did not return an actual native model selection")
+            raise ValueError(
+                "Canonical semantic path did not return an actual native model selection"
+            )
     elif not selected["error"].get("evidence"):
         raise ValueError("Initialized-model failure lost its actual selected output evidence")
     if sha256_file(destination / "model.safetensors") != manifest["model_sha256"]:

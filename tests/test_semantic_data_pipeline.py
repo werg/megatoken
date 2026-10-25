@@ -361,8 +361,11 @@ def test_canonical_training_refuses_obsolete_labels_and_keeps_public_state(produ
 
     document = canonical_document(1)
     episode, _ = adapt_selected_harness_v4(
-        document, codec=production_codec, max_positions=1024,
-        max_history=128, allow_local=True,
+        document,
+        codec=production_codec,
+        max_positions=1024,
+        max_history=128,
+        allow_local=True,
     )
     annotation = json.loads(episode.supervision.annotations_json)
     annotation["semantic_execution"].update(
