@@ -61,11 +61,12 @@ def test_validated_selected_request_has_single_stable_native_action_and_route():
     runner = Runner()
     adapter = SelectedAdapter()
     runtime = object.__new__(MultiTrackRuntime)
-    verifier = lambda track, fields: (
-        track == "worker:17"
-        and fields["invocation"] == "i1"
-        and fields["site"] == {"start": 12, "end": 31}
-    )
+    def verifier(track, fields):
+        return (
+            track == "worker:17"
+            and fields["invocation"] == "i1"
+            and fields["site"] == {"start": 12, "end": 31}
+        )
     submitted = runtime.dispatch_semantic_requests(
         session, group, runner, {"demo.readAsync": adapter},
         verify_source=verifier,
