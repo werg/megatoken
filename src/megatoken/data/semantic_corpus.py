@@ -9,17 +9,14 @@ from __future__ import annotations
 import hashlib
 import json
 from collections import Counter
-from dataclasses import replace
 from pathlib import Path
 
 from .chunking import ChunkingConfig
 from .dedup import DedupConfig, DedupStore
 from .host_operations import CONTRACT_DIGEST, canonical_json
-from .schema import Episode, Meridian, PhysicalRecord, TrackEvent
 from .semantic_admission import native_admission
 from .semantic_contract import FIXTURE_DIGEST, SCHEMA_DIGEST
 from .semantic_harness_v4 import adapt_selected_harness_v4
-from .semantic_physical import physical_semantic_episode
 from .storage import export_prepared
 from .witness_v4 import parse_record
 
@@ -175,123 +172,6 @@ def semantic_behaviors(episode) -> set[str]:
     return behaviors
 
 
-def outcome_control_episode(
-    episode: Episode, *, reference_outcome, codec, max_positions=1024, max_history=1024
-):
-    """Pure common-support outcome control with the same source/input/lineage.
-
-    Effectful tasks require interactive selected requests and cannot use this
-    noninteractive control. Outcome labels are teacher data, never observations.
-    """
-    if episode.actions:
-        raise ValueError("Outcome-only controls are restricted to pure common-support tasks")
-    if json.loads(episode.supervision.annotations_json).get("semantic_execution", {}).get(
-        "admission"
-    ) != "admitted" or any(
-        record.provenance != "teacher" for record in episode.records if record.policy_mask
-    ):
-        raise ValueError("Outcome controls require actual independently admitted teacher labels")
-    from .witness_v4 import graph, value
-
-    if (
-        not isinstance(reference_outcome, dict)
-        or set(reference_outcome) != {"kind", "graph"}
-        or reference_outcome["kind"] not in {"return", "throw"}
-    ):
-        raise ValueError("Outcome controls require the independently admitted source outcome")
-    # The source verifier preserves its compact tuple-property graph encoding,
-    # while semantic-trace/4 requires named property objects. Normalize only
-    # this independently verified value graph at the consumer boundary.
-    source_graph = reference_outcome["graph"]
-    if not isinstance(source_graph, dict) or set(source_graph) != {"roots", "objects"}:
-        raise ValueError("Outcome controls require a complete source graph")
-    normalized_graph = {
-        "roots": source_graph["roots"],
-        "objects": [],
-    }
-    for node in source_graph["objects"]:
-        if not isinstance(node, dict) or not isinstance(node.get("properties"), list):
-            raise ValueError("Outcome controls require source graph properties")
-        properties = []
-        for prop in node["properties"]:
-            if not isinstance(prop, list) or len(prop) != 2:
-                raise ValueError("Outcome controls require tuple-encoded source properties")
-            properties.append({"key": prop[0], "value": prop[1]})
-        normalized_graph["objects"].append({**node, "properties": properties})
-    graph(normalized_graph)
-    if not normalized_graph["roots"]:
-        raise ValueError("Outcome controls need an explicit final result root")
-    completion = {
-        "kind": reference_outcome["kind"],
-        "value": normalized_graph["roots"][-1],
-    }
-    value(completion["value"])
-    observed, tracks = [], {}
-    invocations = []
-    for parts in episode.iter_logical_records():
-        if parts[0].logical_id.startswith("semantic:context:"):
-            continue
-        payload = b"".join(part.payload for part in parts)
-        if parts[0].policy_mask:
-            kind, fields = parse_record(payload.decode())
-            if kind in {"request", "await", "promise", "resume", "job"}:
-                raise ValueError("Outcome-only controls cannot hide interactive execution")
-        else:
-            item = json.loads(payload)
-            if item["kind"] in {"source-read", "source-evict", "model-context"}:
-                # Pure teacher state/source rereads are verified by the full
-                # component gate, but never enter the output-only model input.
-                continue
-            if item["kind"] not in {"program", "invocation"}:
-                raise ValueError("Outcome-only controls must not receive future effect evidence")
-            tracks[item["track"]] = True
-            if item["kind"] == "invocation":
-                invocations.append(item)
-            observed.append((payload, item["track"]))
-    if (
-        len(invocations) != 1
-        or len(normalized_graph["roots"]) != len(invocations[0]["inputGraph"]["roots"]) + 1
-    ):
-        raise ValueError(
-            "Outcome control requires one root invocation and its exact observable graph"
-        )
-    track = next(reversed(tracks))
-    payload = canonical_json(
-        {
-            "schema": "semantic-outcome/4",
-            "completion": completion,
-            "state": normalized_graph,
-        }
-    ).encode()
-    rows = [
-        PhysicalRecord(f"outcome:r{i}", "user", value, policy_mask=False, provenance="executed")
-        for i, (value, _) in enumerate(observed)
-    ]
-    rows.append(
-        PhysicalRecord(
-            "outcome:answer", "assistant", payload, policy_mask=True, provenance="teacher"
-        )
-    )
-    events = [address for _, address in observed] + [track]
-    annotations = json.loads(episode.supervision.annotations_json)
-    annotations["semantic_execution"]["representation"] = "outcome-only"
-    result = replace(
-        episode,
-        episode_id=episode.episode_id + ":outcome",
-        records=tuple(rows),
-        actions=(),
-        dependencies=(),
-        meridians=tuple(
-            Meridian(i, (TrackEvent(row.record_id, address, "text", i, row.role),))
-            for i, (row, address) in enumerate(zip(rows, events, strict=True))
-        ),
-        supervision=replace(episode.supervision, annotations_json=json.dumps(annotations)),
-    )
-    return physical_semantic_episode(
-        result, codec=codec, max_positions=max_positions, max_history=max_history
-    )
-
-
 def prepare_semantic_corpus(
     candidates,
     output,
@@ -302,14 +182,14 @@ def prepare_semantic_corpus(
     source_verifier,
     max_positions=1024,
     max_history=1024,
-    representation="explicit",
+    representation="compact",
     split_seed="semantic-family/4",
 ):
     """Recheck every admitted candidate and write a native training-ready corpus."""
     if not callable(source_verifier):
         raise ValueError("Production preparation requires an independent source verifier")
-    if representation not in {"explicit", "compact", "outcome-only"}:
-        raise ValueError("Unknown semantic experiment representation")
+    if representation != "compact":
+        raise ValueError("Only the canonical semantic witness is supported")
     for revision in (producer_revision, consumer_revision):
         if len(revision) != 40 or any(c not in "0123456789abcdef" for c in revision):
             raise ValueError(
@@ -365,20 +245,8 @@ def prepare_semantic_corpus(
                     max_history=max_history,
                     admission_verifier=lambda _: True,
                 )
-                if document["sidecar"].get("representation") != (
-                    "explicit" if representation == "outcome-only" else representation
-                ):
-                    raise ValueError(
-                        "Corpus representation differs from its certified producer projection"
-                    )
-                if representation == "outcome-only":
-                    episode = outcome_control_episode(
-                        episode,
-                        reference_outcome=document["sidecar"]["reference"]["outcome"],
-                        codec=codec,
-                        max_positions=max_positions,
-                        max_history=max_history,
-                    )
+                if document["sidecar"].get("representation") != "compact":
+                    raise ValueError("Only source-grounded semantic traces may enter the corpus")
                 disposition = store.add(episode, codec)
                 counts[disposition] += 1
                 counts["admitted"] += 1

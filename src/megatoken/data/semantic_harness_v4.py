@@ -158,6 +158,7 @@ def adapt_selected_harness_v4(
         or public.get("contextFormat") != "semantic-context/4"
         or public.get("profile") != "selected-harness/2"
         or sidecar.get("schema") != "semantic-supervision/2"
+        or sidecar.get("representation") != "compact"
     ):
         _fail("Wrong explicit selected-harness contract/version")
     admission = sidecar.get("admission", "locally_verified")

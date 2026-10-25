@@ -27,9 +27,6 @@ def main():
     parser.add_argument("--producer-revision", required=True)
     parser.add_argument("--consumer-revision", required=True)
     parser.add_argument("--tokenizer-json", type=Path, required=True)
-    parser.add_argument(
-        "--representation", choices=("explicit", "compact", "outcome-only"), default="explicit"
-    )
     parser.add_argument("--max-positions", type=int, default=1024)
     parser.add_argument("--max-history", type=int, default=1024)
     options = parser.parse_args()
@@ -79,7 +76,6 @@ def main():
         producer_revision=options.producer_revision,
         consumer_revision=options.consumer_revision,
         source_verifier=source_verifier,
-        representation=options.representation,
         max_positions=options.max_positions,
         max_history=options.max_history,
     )
