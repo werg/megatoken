@@ -1213,7 +1213,12 @@ class MultiTrackRuntime:
 
     @_commit_owner
     def dispatch_semantic_requests(
-        self, session: TrackSession, group: GroupGeneration, runner, adapters, *,
+        self,
+        session: TrackSession,
+        group: GroupGeneration,
+        runner,
+        adapters,
+        *,
         verify_source,
     ) -> tuple[str, ...]:
         """Dispatch derived, fully committed semantic tool actions without
@@ -1252,7 +1257,9 @@ class MultiTrackRuntime:
                 raise ValueError("Selected request failed source, capability or realm checks")
             adapter = adapters.get(operation)
             if adapter is None or not callable(getattr(adapter, "execute_selected", None)):
-                raise ValueError("Native semantic adapter must accept validated original witness bytes")
+                raise ValueError(
+                    "Native semantic adapter must accept validated original witness bytes"
+                )
             action_id = f"{group.tape.meridian_id}:{group.tape.event_ids[index]}"
             if action_id in session.tool_routes:
                 continue  # Already submitted; never repeat a native write.
