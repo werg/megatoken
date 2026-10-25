@@ -5,7 +5,6 @@ import pytest
 
 from megatoken.data.semantic_recipe_preparation import (
     benchmark_recipe_preparation_summary,
-    validate_paired_recipe_manifests,
     validate_recipe_manifest,
 )
 
@@ -96,19 +95,17 @@ def _benchmark_pair():
         "schema": "semantic-corpus-manifest/4",
         "producerRevision": "a" * 40,
         "catalogDigest": "b" * 64,
-        "representation": "explicit",
+        "representation": "compact",
         "recipe": recipe,
         "cases": rows,
     }
-    compact = copy.deepcopy(manifest)
-    compact["representation"] = "compact"
-    return manifest, compact, split_counts
+    return manifest, split_counts
 
 
 def test_benchmark_preparation_requires_all_families_splits_roles_and_unique_ast_lineage():
-    explicit, compact, expected_splits = _benchmark_pair()
+    compact, expected_splits = _benchmark_pair()
     summary = validate_recipe_manifest(
-        explicit, recipe_name="benchmark-v1", representation="explicit", producer_revision="a" * 40
+        compact, recipe_name="benchmark-v1", representation="compact", producer_revision="a" * 40
     )
     assert summary["recipe"] == "benchmark-v1"
     assert summary["familyCount"] == summary["algorithmCount"] == 42
@@ -118,13 +115,12 @@ def test_benchmark_preparation_requires_all_families_splits_roles_and_unique_ast
     validate_recipe_manifest(
         compact, recipe_name="benchmark-v1", representation="compact", producer_revision="a" * 40
     )
-    validate_paired_recipe_manifests(explicit, compact)
-    sidecar = benchmark_recipe_preparation_summary(summary, {"common-support/explicit": 42})
+    sidecar = benchmark_recipe_preparation_summary(summary, {"common-support/compact": 42})
     assert sidecar["schema"] == "semantic-benchmark-preparation/1"
-    assert sidecar["preparedCaseCounts"] == {"common-support/explicit": 42}
+    assert sidecar["preparedCaseCounts"] == {"common-support/compact": 42}
     assert sidecar["optimizerSteps"] == 0 and sidecar["learnedSuccess"] is None
 
-    duplicate_ast = copy.deepcopy(explicit)
+    duplicate_ast = copy.deepcopy(compact)
     duplicate_ast["recipe"]["algorithms"][1]["normalizedAstDigest"] = duplicate_ast["recipe"][
         "algorithms"
     ][0]["normalizedAstDigest"]
@@ -132,7 +128,7 @@ def test_benchmark_preparation_requires_all_families_splits_roles_and_unique_ast
         validate_recipe_manifest(
             duplicate_ast,
             recipe_name="benchmark-v1",
-            representation="explicit",
+            representation="compact",
             producer_revision="a" * 40,
         )
 
@@ -172,43 +168,43 @@ def test_training_v4_remains_the_default_compatible_manifest_branch():
         ],
     }
     result = validate_recipe_manifest(
-        manifest, recipe_name="training-v4", representation="explicit", producer_revision="c" * 40
+        manifest, recipe_name="training-v4", representation="compact", producer_revision="c" * 40
     )
     assert result["familyCount"] == 1
 
 
 def test_benchmark_preparation_rejects_split_leakage_or_unadmitted_case():
-    explicit, _, _ = _benchmark_pair()
-    crossed = copy.deepcopy(explicit)
+    compact, _ = _benchmark_pair()
+    crossed = copy.deepcopy(compact)
     crossed["cases"][0]["split"] = "test" if crossed["cases"][0]["split"] != "test" else "train"
     with pytest.raises(ValueError, match="split"):
         validate_recipe_manifest(
             crossed,
             recipe_name="benchmark-v1",
-            representation="explicit",
+            representation="compact",
             producer_revision="a" * 40,
         )
-    unadmitted = copy.deepcopy(explicit)
+    unadmitted = copy.deepcopy(compact)
     unadmitted["cases"][0]["status"] = "locally_verified"
     with pytest.raises(ValueError, match="admitted"):
         validate_recipe_manifest(
             unadmitted,
             recipe_name="benchmark-v1",
-            representation="explicit",
+            representation="compact",
             producer_revision="a" * 40,
         )
 
 
 def test_benchmark_primary_role_counts_are_checked_per_family_not_only_globally():
-    explicit, _, _ = _benchmark_pair()
+    compact, _ = _benchmark_pair()
     same_split_families = next(
         (left, right)
-        for left in explicit["recipe"]["families"]
-        for right in explicit["recipe"]["families"]
+        for left in compact["recipe"]["families"]
+        for right in compact["recipe"]["families"]
         if left < right and _split(left) == _split(right)
     )
     left, right = same_split_families
-    shifted = copy.deepcopy(explicit)
+    shifted = copy.deepcopy(compact)
     source_row = next(
         case for case in shifted["cases"] if case["family"] == left and case["role"] == "effectful"
     )
@@ -220,6 +216,16 @@ def test_benchmark_primary_role_counts_are_checked_per_family_not_only_globally(
         validate_recipe_manifest(
             shifted,
             recipe_name="benchmark-v1",
-            representation="explicit",
+            representation="compact",
+            producer_revision="a" * 40,
+        )
+
+def test_obsolete_recipe_representation_is_refused():
+    compact, _ = _benchmark_pair()
+    obsolete = copy.deepcopy(compact)
+    obsolete["representation"] = "explicit"
+    with pytest.raises(ValueError, match="Complete source/native admitted"):
+        validate_recipe_manifest(
+            obsolete, recipe_name="benchmark-v1", representation="compact",
             producer_revision="a" * 40,
         )
