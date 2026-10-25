@@ -48,7 +48,9 @@ def main() -> int:
                 if op == "select":
                     response = adapter.select(message["prefix"])
                 elif op == "complete":
-                    response = adapter.close_invocation(message["session"], message["invocation"])
+                    response = adapter.close_invocation(
+                        message["session"], message["invocation"], message["prefix"]
+                    )
                 elif op == "cancel":
                     response = adapter.cancel_invocation(message["session"], message["invocation"])
                 else:
