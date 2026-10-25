@@ -212,12 +212,15 @@ def extract_engram(
             shutil.rmtree(temporary)
 
 
-def install_engram_asset(model: Any, path: str | Path) -> None:
+def load_engram_asset(config: Any, path: str | Path):
+    """Validate the actual donor tensors without allocating a model or learned map."""
     import torch
+
+    from megatoken.model.frontend import validate_import_tensors
 
     source = Path(path)
     metadata = json.loads((source / "engram.json").read_text())
-    if metadata["format_version"] != 1 or metadata["exact_rows"] != model.core.config.exact_rows:
+    if metadata["format_version"] != 1 or metadata["exact_rows"] != config.exact_rows:
         raise ValueError("Engram asset does not match the native key space")
     row_space = metadata.get("row_space", "exact")
     if row_space not in {"exact", "native_hashed"}:
@@ -225,18 +228,18 @@ def install_engram_asset(model: Any, path: str | Path) -> None:
     expected_rows = (
         metadata.get("ngram_rows")
         if row_space == "native_hashed"
-        else metadata.get("ngram_rows", model.core.config.ngram_rows)
+        else metadata.get("ngram_rows", config.ngram_rows)
     )
-    if expected_rows != model.core.config.ngram_rows:
+    if expected_rows != config.ngram_rows:
         raise ValueError("Engram asset does not match the native table size")
     if row_space == "native_hashed":
         if metadata.get("algorithm") != "native-context-to-byte-hash-v1":
             raise ValueError("Native hashed asset does not declare a supported extraction method")
         if metadata.get("hash_algorithm") != "rolling-257-order-seeded-v1":
             raise ValueError("Native hashed asset does not match the current hash function")
-        if metadata.get("ngram_orders") != list(model.core.config.ngram_orders):
+        if metadata.get("ngram_orders") != list(config.ngram_orders):
             raise ValueError("Native hashed asset n-gram orders differ from the model")
-        if metadata.get("exact_bigrams") != model.core.config.exact_bigrams:
+        if metadata.get("exact_bigrams") != config.exact_bigrams:
             raise ValueError("Native hashed asset exact-byte layout differs from the model")
     if sha256_file(source / "descriptors.npz") != metadata["descriptor_sha256"]:
         raise ValueError("Engram descriptor checksum mismatch")
@@ -245,7 +248,16 @@ def install_engram_asset(model: Any, path: str | Path) -> None:
             name: torch.from_numpy(archive[name].copy())
             for name in ("rows", "descriptors", "coverage", "support")
         }
-    model.core.frontend.ngrams.install_import(**tensors, allow_hashed=row_space == "native_hashed")
+    tensors["rows"] = tensors["rows"].long()
+    validate_import_tensors(config, **tensors, allow_hashed=row_space == "native_hashed")
+    return metadata, tensors
+
+
+def install_engram_asset(model: Any, path: str | Path) -> None:
+    metadata, tensors = load_engram_asset(model.core.config, path)
+    model.core.frontend.ngrams.install_import(
+        **tensors, allow_hashed=metadata.get("row_space", "exact") == "native_hashed"
+    )
 
 
 def install_configured_imports(model, config, *, resumed=False, phase_transition=False):

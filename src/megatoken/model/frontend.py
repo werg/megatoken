@@ -30,6 +30,26 @@ class BakeReport:
     optimizer_rows_reset: bool
 
 
+def validate_import_tensors(config, rows, descriptors, coverage, support, *, allow_hashed=False):
+    """Shared donor validation without allocating a model or a learned map."""
+    if rows.ndim != 1 or descriptors.shape != (rows.numel(), 128):
+        raise ValueError("Expected rows[n] and fixed descriptors[n,128]")
+    if coverage.shape != rows.shape or support.shape != rows.shape:
+        raise ValueError("Coverage and support must each have one value per row")
+    if rows.numel() == 0 or rows.unique().numel() != rows.numel():
+        raise ValueError("Imported rows must be nonempty and unique")
+    upper = config.ngram_rows if allow_hashed else config.exact_rows
+    if bool(((rows < 0) | (rows >= upper)).any()):
+        kind = "native" if allow_hashed else "exact native"
+        raise ValueError(f"Imported rows must fit the {kind} key space")
+    if allow_hashed and bool((rows < config.exact_rows).any()):
+        raise ValueError("Native hashed imports must not target exact byte rows")
+    if not bool(torch.isfinite(descriptors).all()):
+        raise ValueError("Descriptors must be finite")
+    if not bool(((coverage >= 0) & (coverage <= 1) & (support >= 0) & (support <= 1)).all()):
+        raise ValueError("Coverage and support must lie in [0,1]")
+
+
 class _NGramImport(nn.Module):
     """One donor's independent projected descriptors and learned native map."""
 
@@ -196,22 +216,9 @@ class NativeNGramTable(nn.Module):
         Install before constructing the optimizer (or explicitly add its group).
         """
         rows = rows.to(device=self.embedding.weight.device, dtype=torch.long)
-        if rows.ndim != 1 or descriptors.shape != (rows.numel(), 128):
-            raise ValueError("Expected rows[n] and fixed descriptors[n,128]")
-        if coverage.shape != rows.shape or support.shape != rows.shape:
-            raise ValueError("Coverage and support must each have one value per row")
-        if rows.numel() == 0 or rows.unique().numel() != rows.numel():
-            raise ValueError("Imported rows must be nonempty and unique")
-        upper = self.config.ngram_rows if allow_hashed else self.config.exact_rows
-        if bool(((rows < 0) | (rows >= upper)).any()):
-            kind = "native" if allow_hashed else "exact native"
-            raise ValueError(f"Imported rows must fit the {kind} key space")
-        if allow_hashed and bool((rows < self.config.exact_rows).any()):
-            raise ValueError("Native hashed imports must not target exact byte rows")
-        if not bool(torch.isfinite(descriptors).all()):
-            raise ValueError("Descriptors must be finite")
-        if not bool(((coverage >= 0) & (coverage <= 1) & (support >= 0) & (support <= 1)).all()):
-            raise ValueError("Coverage and support must lie in [0,1]")
+        validate_import_tensors(
+            self.config, rows, descriptors, coverage, support, allow_hashed=allow_hashed
+        )
         if self.import_map is None:
             permutation = torch.argsort(rows)
             self.import_rows = rows[permutation].detach()

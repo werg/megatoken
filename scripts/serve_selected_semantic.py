@@ -86,7 +86,22 @@ def main() -> int:
     parser.add_argument("--max-tokens", type=int, default=512)
     parser.add_argument("--max-sessions", type=int, default=32)
     parser.add_argument("--controlled-lifecycle-fixtures", action="store_true")
+    parser.add_argument(
+        "--profile-output", type=Path, help="Write an immutable measured serving report after EOF"
+    )
+    parser.add_argument(
+        "--profile-origin", choices=("controlled", "fixed", "trained"), default="fixed"
+    )
     args = parser.parse_args()
+    profile = None
+    if args.profile_output is not None:
+        if args.profile_output.exists():
+            parser.error("Profile reports are immutable; choose a new output path")
+        if args.controlled_lifecycle_fixtures and args.profile_origin != "controlled":
+            parser.error("Controlled lifecycle fixtures require controlled profile origin")
+        from megatoken.semantic_profile import ServingProfile
+
+        profile = ServingProfile(args.served, args.device, origin=args.profile_origin)
     bundle = ServedBundle(args.served, device=args.device)
     runtime = MultiTrackRuntime(MultiTrackGenerator.of(bundle.model), chunking=bundle.chunking)
     adapter = SelectedSemanticInference(
@@ -97,17 +112,28 @@ def main() -> int:
         model_identity=bundle.manifest["model_sha256"],
         allow_controlled_lifecycle=args.controlled_lifecycle_fixtures,
     )
+    if profile is not None:
+        profile.loaded(bundle)
     try:
         for line in sys.stdin:
             if not line.strip():
                 continue
             request_id = None
+            message = None
+            if profile is not None:
+                profile.synchronize()
             started = time.perf_counter()
             try:
                 message = json.loads(line)
                 if not isinstance(message, dict) or not isinstance(message.get("id"), str):
                     raise ValueError("RPC needs a stable request ID")
                 request_id = message["id"]
+                if (
+                    profile is not None
+                    and profile.origin != "controlled"
+                    and message.get("op") == "select-controlled"
+                ):
+                    raise ValueError("Controlled selections require controlled profile origin")
                 response = dispatch(adapter, message)
                 reply = {"id": request_id, "ok": True, "result": response}
             except Exception as error:
@@ -122,6 +148,9 @@ def main() -> int:
                         "evidence": getattr(error, "evidence", None),
                     },
                 }
+            if profile is not None:
+                profile.synchronize()
+                profile.record(message, reply, time.perf_counter() - started, adapter)
             reply["runtimeMetrics"] = {
                 "schema": "semantic-inference-metrics/4",
                 "computeSeconds": time.perf_counter() - started,
@@ -134,7 +163,22 @@ def main() -> int:
                 flush=True,
             )
     finally:
-        runtime.close()
+        if profile is not None:
+            from megatoken.semantic_profile import state_counts
+
+            profile.before_close = state_counts(adapter)
+        closed = False
+        try:
+            runtime.close()
+            closed = True
+        finally:
+            if profile is not None:
+                args.profile_output.parent.mkdir(parents=True, exist_ok=True)
+                with args.profile_output.open("x", encoding="utf-8") as handle:
+                    json.dump(
+                        profile.report(runtime_closed=closed), handle, indent=2, allow_nan=False
+                    )
+                    handle.write("\n")
     return 0
 
 
