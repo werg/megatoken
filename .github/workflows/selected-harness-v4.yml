@@ -46,7 +46,7 @@ jobs:
           episode, receipt = adapt_selected_harness_v4(document, allow_local=True)
           assert receipt.invocations == 2
           assert receipt.actions == 4
-          assert receipt.observations == 10  # program, invocations, 4 dispatch and 4 results
+          assert receipt.observations == 11  # program, two invocations, 4 dispatch and 4 results
           assert receipt.tracks == 3  # one host and two dynamic work owners
           assert episode.supervision.outcome == "unknown"
           assert all(not record.policy_mask for record in episode.records if record.role != "assistant")
