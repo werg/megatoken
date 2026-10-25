@@ -30,7 +30,7 @@ FIELDS = {
     "transfer": {"kind", "value", "handler", "invocation"},
     "return": {"value", "invocation"},
     "throw": {"value", "invocation"},
-    "request": {"effect", "operation", "arguments", "invocation"},
+    "request": {"effect", "operation", "arguments", "invocation", "site", "payload"},
     "observe": {"effect", "result", "status"},
     "job": {"action", "job", "owner", "result"},
     "end": {"kind"},
@@ -51,7 +51,7 @@ REQUIRED = {
     "transfer": {"kind", "value", "handler"},
     "return": {"value"},
     "throw": {"value"},
-    "request": {"effect", "operation", "arguments"},
+    "request": {"effect", "operation", "arguments", "invocation", "site", "payload"},
     "observe": {"effect", "result", "status"},
     "job": {"action", "job", "owner"},
     "end": {"kind"},
@@ -306,6 +306,39 @@ def parse_record(line: Any) -> tuple[str, dict[str, Any]]:
                 ):
                     _fail("Malformed shared cell capture relation")
                 used.add(relation["binding"])
+    elif kind == "request":
+        site = fields["site"]
+        if (
+            not isinstance(fields["operation"], str)
+            or not fields["operation"]
+            or not isinstance(fields["effect"], str)
+            or not IDENTITY.fullmatch(fields["effect"])
+            or not isinstance(fields["arguments"], list)
+            or len(fields["arguments"]) > 32
+            or not isinstance(site, dict)
+            or set(site) != {"start", "end"}
+            or type(site["start"]) is not int
+            or type(site["end"]) is not int
+            or site["start"] < 0
+            or site["end"] <= site["start"]
+            or not isinstance(fields["payload"], str)
+            or len(fields["payload"].encode("utf-8")) > 65536
+        ):
+            _fail("Invalid grounded external invocation")
+        for argument in fields["arguments"]:
+            value(argument)
+        try:
+            payload = json.loads(
+                fields["payload"],
+                object_pairs_hook=_pairs,
+                parse_constant=lambda _: _fail("Nonfinite external JSON"),
+            )
+        except (TypeError, ValueError) as error:
+            raise WitnessV3Error("Malformed external request payload") from error
+        if not isinstance(payload, list) or json.dumps(
+            payload, ensure_ascii=False, separators=(",", ":"), allow_nan=False
+        ) != fields["payload"]:
+            _fail("External request payload must be a canonical JSON array")
     elif kind == "observe":
         value(fields["result"])
         if fields["status"] not in ("fulfilled", "rejected"):
