@@ -139,7 +139,7 @@ def test_training_v4_remains_the_default_compatible_manifest_branch():
     manifest = {
         "schema": "semantic-corpus-manifest/4",
         "producerRevision": "c" * 40,
-        "representation": "explicit",
+        "representation": "compact",
         "recipe": {
             "schema": "semantic-source-recipe/4",
             "name": "training-v4",

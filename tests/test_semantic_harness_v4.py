@@ -174,6 +174,7 @@ def fixture():
         },
         "sidecar": {
             "schema": "semantic-supervision/2",
+            "representation": "compact",
             "admission": "locally_verified",
             "referenceStatus": "unverified",
         },

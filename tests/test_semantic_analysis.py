@@ -83,7 +83,7 @@ def _report(cohort):
         "origin": "controlled",
         "checkpointIdentity": None,
         "seed": 17,
-        "representation": "explicit",
+        "representation": "compact",
         "learnedSuccess": None,
         "summary": {
             "tasks": len(rows),

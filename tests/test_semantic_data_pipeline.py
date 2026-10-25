@@ -25,6 +25,14 @@ from megatoken.training.semantic_evaluation import (
 )
 
 
+def canonical_document(index: int):
+    # The old contract's negative/archival fixture remains immutable, but
+    # runnable v4 test inputs must declare their actual selected representation.
+    document = copy.deepcopy(CONTRACT["fixtures"]["envelope"]["valid"][index])
+    document["sidecar"]["representation"] = "compact"
+    return document
+
+
 @pytest.fixture
 def production_codec():
     path = Path(os.environ.get("MEGATOKEN_TOKENIZER_JSON", ".validation/tokenizer.json"))
@@ -34,7 +42,7 @@ def production_codec():
 
 
 def test_production_tokenizer_fragmentation_source_visibility_and_loss(production_codec):
-    document = copy.deepcopy(CONTRACT["fixtures"]["envelope"]["valid"][0])
+    document = canonical_document(0)
     program, invocation = document["public"]["timeline"][:2]
     program["source"] += "\n/* " + "long source context must remain visible. " * 300 + "*/"
     digest = hashlib.sha256(program["source"].encode()).hexdigest()
@@ -76,6 +84,7 @@ def test_production_context_eviction_and_checked_reread(production_codec):
     document = json.loads(
         (Path(__file__).parent / "fixtures/semantic-v4/checkpoint-recovery.json").read_text()
     )
+    document["sidecar"]["representation"] = "compact"
     receipt = native_admission(document, codec=production_codec, consumer_revision="a" * 40)
     assert receipt["contextTransportRecords"] == 3
     assert receipt["fragmentationValidated"] and receipt["visibilityValidated"]
@@ -90,6 +99,7 @@ def test_source_visibility_alone_does_not_admit_evicted_captured_state(productio
     document = json.loads(
         (Path(__file__).parent / "fixtures/semantic-v4/retained-events.json").read_text()
     )
+    document["sidecar"]["representation"] = "compact"
     episode, _ = adapt_selected_harness_v4(
         document, codec=production_codec, allow_local=True, max_positions=1024, max_history=1024
     )
@@ -254,9 +264,9 @@ def test_evaluation_keeps_expected_outcome_private_and_controlled_success_unlear
     evidence = {
         "schema": "semantic-evaluation-result/4",
         "origin": "controlled",
-        "representation": "explicit",
+        "representation": "compact",
         "outcome": cohort["cases"][0]["expected"],
-        "episode": CONTRACT["fixtures"]["envelope"]["valid"][0],
+        "episode": canonical_document(0),
         "firstSemanticInconsistency": None,
         "hardGates": dict.fromkeys(HARD_GATES, 0),
         "costs": {
@@ -299,7 +309,7 @@ def test_exposure_budget_restart_preserves_whole_task_and_measured_compute_count
         schema="semantic-training-experiment/4",
         regime="fixed-examples",
         limit=2,
-        representation="explicit",
+        representation="compact",
         cohort="frozen-cohort.json",
         engineering_receipt="engineering.json",
     )
@@ -331,7 +341,7 @@ def test_training_experiment_preflight_blocks_missing_engineering_gate(tmp_path)
         schema="semantic-training-experiment/4",
         regime="fixed-tokens",
         limit=100,
-        representation="explicit",
+        representation="compact",
         cohort=str(cohort),
         engineering_receipt=str(gate),
     )
@@ -341,232 +351,21 @@ def test_training_experiment_preflight_blocks_missing_engineering_gate(tmp_path)
         config.preflight(phase="SC")
 
 
-def outcome_evaluation_fixture():
-    document = copy.deepcopy(CONTRACT["fixtures"]["envelope"]["valid"][0])
-    program, invocation = document["public"]["timeline"][:2]
-    answer = {
-        "schema": "semantic-outcome/4",
-        "completion": {"kind": "return", "value": ["num", 7]},
-        "state": {"roots": [["num", 7]], "objects": []},
-    }
-    request = {
-        "program": {"source": program["source"]},
-        "controlledOutcome": answer,
-        "controlledSelectionsByRepresentation": {"explicit": {"private": ["secret"]}},
-    }
-    expected = {
-        "completion": answer["completion"],
-        "state": answer["state"],
-        "effects": [],
-        "callbacks": [],
-        "cleanup": [],
-    }
-
-    def digest(value):
-        return hashlib.sha256(canonical_json(value).encode()).hexdigest()
-
-    case = {
-        "id": "pure",
-        "family": "pure-family",
-        "split": "test",
-        "request": request,
-        "expected": expected,
-        "referenceReceipt": {
-            "status": "agreed",
-            "requestDigest": digest(request),
-            "outcomeDigest": digest(expected),
-        },
-    }
-    cohort = freeze_cohort(
-        [case],
-        name="common-support",
-        thresholds={"wholeTaskSuccess": 1.0, "traceValid": 1.0},
-        historical_baseline={"sourceRunbook": "source-runbook"},
-        historical_baseline_pending=True,
-    )
-    prefix = {
-        "schema": "selected-inference-prefix/2",
-        "programId": program["programId"],
-        "source": program["source"],
-        "sourceDigest": program["digest"],
-        "entry": invocation["entry"],
-        "invocationId": invocation["invocationId"],
-        "trackId": invocation["track"],
-        "realmId": invocation["realmId"],
-        "completionPolicy": invocation["completionPolicy"],
-        "committed": [program, invocation],
-    }
-    evidence = {
-        "schema": "semantic-evaluation-result/4",
-        "origin": "fixed-weights",
-        "representation": "outcome-only",
-        "checkpointIdentity": "a" * 64,
-        "inferenceIdentity": {
-            "schema": "semantic-inference-identity/4",
-            "seed": 17,
-            "checkpointIdentity": "a" * 64,
-            "tokenizerIdentity": ByteCodec.byte_fallback().fingerprint,
-        },
-        "record": json.dumps(answer, indent=2),
-        "servedPrefix": prefix,
-        "outcome": expected,
-        "firstSemanticInconsistency": None,
-        "failure": None,
-        "hardGates": dict.fromkeys(HARD_GATES, 0),
-        "costs": {
-            "computeSeconds": 0.25,
-            "peakMemoryBytes": 1234,
-            "dispatches": 0,
-            "queueDepth": 0,
-            "leakedResources": 0,
-        },
-    }
-    raw = evidence["record"].encode()
-    evidence["selection"] = {
-        "modelSelected": True,
-        "codecFingerprint": ByteCodec.byte_fallback().fingerprint,
-        "fragments": [
-            {
-                "selectedEventId": "native-outcome",
-                "payloadHex": raw.hex(),
-                "emittedTokenIds": list(raw),
-            }
-        ],
-    }
-    return cohort, evidence
-
-
-def test_outcome_evaluation_counts_exact_model_bytes_and_only_served_observations():
-    from megatoken.semantic_model_adapter import _canonical
-
-    cohort, evidence = outcome_evaluation_fixture()
-    codec = ByteCodec.byte_fallback()
-    seen = []
-
-    def runner(request):
-        seen.append(request)
-        return evidence
-
-    report = evaluate_cohort(
-        cohort,
-        runner,
-        codec=codec,
-        seed=17,
-        origin="fixed-weights",
-        representation="outcome-only",
-        checkpoint_identity="a" * 64,
-    )
-    assert report["summary"]["wholeTaskSuccess"] == 1
-    assert report["summary"]["generatedTokens"] == len(codec.encode(evidence["record"].encode()))
-    assert report["summary"]["observedTokens"] == sum(
-        len(codec.encode(_canonical(event))) for event in evidence["servedPrefix"]["committed"]
-    )
-    assert "controlled" not in json.dumps(seen) and "secret" not in json.dumps(seen)
-    evidence["record"] = evidence["record"].replace('"return"', '"throw"')
-    failed = evaluate_cohort(
-        cohort,
-        runner,
-        codec=codec,
-        seed=17,
-        origin="fixed-weights",
-        representation="outcome-only",
-        checkpoint_identity="a" * 64,
-    )
-    assert failed["summary"]["wholeTaskSuccess"] == 0
-    assert failed["summary"]["generatedTokens"] > 0
-    assert failed["summary"]["computeSeconds"] == 0.25
-
-
-def test_invalid_outcome_preserves_exact_bytes_cost_and_failure_receipt():
-    cohort, evidence = outcome_evaluation_fixture()
-    evidence["record"] = None
-    evidence["selection"] = None
-    evidence["failure"] = {
-        "category": "SemanticSelectionError",
-        "evidence": {
-            "payloadHex": b"invalid \xff bytes".hex(),
-            "fragments": [
-                {
-                    "selectedEventId": "failed-native",
-                    "payloadHex": b"invalid \xff bytes".hex(),
-                    "emittedTokenIds": list(b"invalid \xff bytes"),
-                }
-            ],
-        },
-    }
-    report = evaluate_cohort(
-        cohort,
-        lambda _: evidence,
-        codec=ByteCodec.byte_fallback(),
-        seed=17,
-        origin="fixed-weights",
-        representation="outcome-only",
-        checkpoint_identity="a" * 64,
-    )
-    assert report["summary"]["generatedTokens"] == len(b"invalid \xff bytes")
-    assert report["summary"]["computeSeconds"] == 0.25
-    assert report["cases"][0]["failureEvidence"] == evidence["failure"]
-    assert not report["cases"][0]["traceValid"]
-
-
-def test_training_configuration_and_native_labels_cannot_change_representation():
-    from megatoken.training.semantic_budget import validate_semantic_episode
-
-    declaration = json.loads(
-        (Path(__file__).parents[1] / "configs/semantic/train-seed-17.json").read_text()
-    )
-    declaration["phase"] = "SO"
-    with pytest.raises(ValueError, match="Outcome-only representation"):
-        TrainConfig.from_dict(declaration, expand_data=False)
-    episode, _ = adapt_selected_harness_v4(
-        CONTRACT["fixtures"]["envelope"]["valid"][0], allow_local=True
-    )
-    annotation = {
-        "semantic_execution": {
-            "schema": "semantic-execution/4",
-            "representation": "explicit",
-            "continuation": "teacher_conditioned",
-        }
-    }
-    # These controlled native records test the consumer guard, not teacher admission.
-    episode = replace(
-        episode,
-        records=tuple(
-            replace(row, provenance="teacher") if row.policy_mask else row
-            for row in episode.records
-        ),
-        supervision=replace(
-            episode.supervision,
-            outcome="success",
-            verification="local_assertions",
-            reward=1.0,
-            annotations_json=json.dumps(annotation),
-        ),
-    )
-    validate_semantic_episode(episode, phase="SC", representation="explicit")
-    with pytest.raises(ValueError, match="certified training representation"):
-        validate_semantic_episode(episode, phase="SC", representation="compact")
-
-
-def test_pure_state_receipts_remain_eligible_but_never_enter_outcome_only_input(production_codec):
-    from megatoken.data.semantic_corpus import outcome_control_episode
+def test_canonical_training_refuses_obsolete_labels_and_keeps_public_state(production_codec):
     from megatoken.training.semantic_budget import (
         validate_semantic_episode,
         validate_semantic_geometry,
     )
 
+    document = canonical_document(1)
     episode, _ = adapt_selected_harness_v4(
-        CONTRACT["fixtures"]["envelope"]["valid"][1],
-        codec=production_codec,
-        max_positions=1024,
-        max_history=128,
-        allow_local=True,
+        document, codec=production_codec, max_positions=1024,
+        max_history=128, allow_local=True,
     )
     annotation = json.loads(episode.supervision.annotations_json)
     annotation["semantic_execution"].update(
-        representation="explicit", continuation="teacher_conditioned", admission="admitted"
+        representation="compact", continuation="teacher_conditioned", admission="admitted"
     )
-    # Isolated representation-guard inputs, not a production admission receipt.
     episode = replace(
         episode,
         records=tuple(
@@ -580,84 +379,19 @@ def test_pure_state_receipts_remain_eligible_but_never_enter_outcome_only_input(
             annotations_json=json.dumps(annotation),
         ),
     )
-    validate_semantic_episode(episode, phase="SC", representation="explicit")
+    validate_semantic_episode(episode, phase="SC", representation="compact")
     validate_native_visibility(episode)
     with pytest.raises(ValueError, match="configured model"):
         validate_semantic_geometry(episode, max_history=64, max_positions=1024)
-    outcome = outcome_control_episode(
-        episode,
-        reference_outcome={
-            "kind": "return",
-            "graph": {"roots": [["num", 7], ["num", 7]], "objects": []},
-        },
-        codec=production_codec,
-        max_history=128,
-    )
-    observations = [
-        json.loads(b"".join(part.payload for part in parts))["kind"]
-        for parts in outcome.iter_logical_records()
-        if not parts[0].policy_mask and not parts[0].logical_id.startswith("semantic:context:")
-    ]
-    assert observations == ["program", "invocation"]
-    validate_semantic_episode(outcome, phase="SO", representation="outcome-only")
-    validate_native_visibility(outcome)
+    with pytest.raises(ValueError, match="certified training representation"):
+        validate_semantic_episode(episode, phase="SC", representation="explicit")
+    with pytest.raises(ValueError, match="certified training representation"):
+        validate_semantic_episode(episode, phase="SO", representation="outcome-only")
 
-
-def test_outcome_only_normalizes_source_tuple_properties_for_array_result(production_codec):
-    from megatoken.data.semantic_corpus import outcome_control_episode
-    from megatoken.training.semantic_budget import validate_semantic_episode
-
-    episode, _ = adapt_selected_harness_v4(
-        CONTRACT["fixtures"]["envelope"]["valid"][1],
-        codec=production_codec,
-        max_positions=1024,
-        max_history=128,
-        allow_local=True,
-    )
-    annotation = json.loads(episode.supervision.annotations_json)
-    annotation["semantic_execution"].update(
-        representation="explicit", continuation="teacher_conditioned", admission="admitted"
-    )
-    episode = replace(
-        episode,
-        records=tuple(
-            replace(row, provenance="teacher") if row.policy_mask else row
-            for row in episode.records
-        ),
-        supervision=replace(
-            episode.supervision,
-            outcome="success",
-            verification="local_assertions",
-            annotations_json=json.dumps(annotation),
-        ),
-    )
-    outcome = outcome_control_episode(
-        episode,
-        reference_outcome={
-            "kind": "return",
-            "graph": {
-                "roots": [["ref", "o0"], ["num", 7]],
-                "objects": [
-                    {
-                        "id": "o0",
-                        "kind": "array",
-                        "properties": [["0", ["num", 3]], ["length", ["num", 1]]],
-                    }
-                ],
-            },
-        },
-        codec=production_codec,
-        max_history=128,
-    )
-    validate_semantic_episode(outcome, phase="SO", representation="outcome-only")
-    answer = next(
-        b"".join(part.payload for part in parts).decode()
-        for parts in outcome.iter_logical_records()
-        if parts[0].policy_mask and parts[0].logical_id == "outcome:answer"
-    )
-    assert (
-        '"properties":[{"key":"0","value":["num",3]},{"key":"length","value":["num",1]}]' in answer
-    )
+    forged = copy.deepcopy(document)
+    forged["sidecar"]["representation"] = "explicit"
+    with pytest.raises(ValueError, match="canonical|contract"):
+        adapt_selected_harness_v4(forged, allow_local=True)
 
 
 def test_rejected_interactive_cost_keeps_new_bytes_and_deduplicates_committed_native_failure():

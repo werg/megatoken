@@ -60,7 +60,7 @@ def test_controlled_coordinator_and_child_share_actual_bootstrap_join_and_comple
         native_runtime, model_identity="a" * 64, allow_controlled_lifecycle=True
     )
     opened = adapter.open_orchestration(
-        session=session, proposals=[prefix], origin="controlled", representation="explicit"
+        session=session, proposals=[prefix], origin="controlled", representation="compact"
     )
     track = opened["track"]
 
