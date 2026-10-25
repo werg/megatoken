@@ -9,7 +9,7 @@ import subprocess
 from pathlib import Path
 
 from megatoken.generation.codec import LING_TOKENIZER_SHA256, ByteCodec
-from megatoken.io import write_json
+from megatoken.io import write_text_atomic
 from megatoken.training.semantic_evaluation import (
     compare_experiments,
     evaluate_cohort,
@@ -97,7 +97,11 @@ def main():
             checkpoint_identity=options.checkpoint_identity,
         )
     options.output.parent.mkdir(parents=True, exist_ok=True)
-    write_json(options.output, result)
+    # These artifacts bind JavaScript-compatible insertion-order JSON. Sorting
+    # nested request or outcome keys would invalidate the frozen source receipts.
+    write_text_atomic(
+        options.output, json.dumps(result, indent=2, ensure_ascii=False, allow_nan=False) + "\n"
+    )
     print(
         json.dumps(
             result.get("summary", {"schema": result["schema"], "digest": result.get("digest")}),

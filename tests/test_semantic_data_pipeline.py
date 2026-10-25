@@ -4,6 +4,8 @@ import copy
 import hashlib
 import json
 import os
+import subprocess
+import sys
 from dataclasses import replace
 from pathlib import Path
 
@@ -19,6 +21,7 @@ from megatoken.training.semantic_evaluation import (
     HARD_GATES,
     evaluate_cohort,
     freeze_cohort,
+    verify_cohort,
 )
 
 
@@ -208,6 +211,41 @@ def cohort_fixture():
         name="effectful-tracks-events",
         thresholds={"wholeTaskSuccess": 1.0, "traceValid": 1.0},
     )
+
+
+def test_frozen_cohort_cli_preserves_source_receipt_bytes(tmp_path):
+    cohort = cohort_fixture()
+    declaration = tmp_path / "declaration.json"
+    output = tmp_path / "cohort.json"
+    declaration.write_text(
+        json.dumps(
+            {
+                "cases": cohort["cases"],
+                "name": cohort["name"],
+                "thresholds": cohort["thresholds"],
+            }
+        )
+    )
+    root = Path(__file__).resolve().parents[1]
+    subprocess.run(
+        [
+            sys.executable,
+            str(root / "scripts/evaluate_semantic.py"),
+            "freeze",
+            "--declaration",
+            str(declaration),
+            "--output",
+            str(output),
+        ],
+        cwd=root,
+        check=True,
+        capture_output=True,
+        text=True,
+    )
+    restored = json.loads(output.read_text())
+    verify_cohort(restored)
+    assert restored == cohort
+    assert list(restored["cases"][0]["request"]) == ["source", "args"]
 
 
 def test_evaluation_keeps_expected_outcome_private_and_controlled_success_unlearned():

@@ -13,6 +13,9 @@ def test_dual_native_preparation_binds_corpus_and_preserves_donor_order(tmp_path
     document = {"repo": "test/data", "revision": "fixed-data-revision"}
     pin.write_text(json.dumps(document))
     monkeypatch.setattr(publish, "load_pin", lambda path: document)
+    key_file = tmp_path / "keys"
+    key_file.write_text("fixture key file")
+    monkeypatch.setattr(cache, "key_path", lambda: key_file)
     monkeypatch.setattr(cache, "load_keys", lambda: "private-keys")
     monkeypatch.setattr(hub, "api", lambda: "api-client")
 

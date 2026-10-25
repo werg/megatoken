@@ -1,4 +1,4 @@
-name: Pinned selected semantic harness bridge (diagnostic)
+name: Pinned selected semantic harness bridge (controlled engineering)
 
 on:
   pull_request:
@@ -18,12 +18,14 @@ jobs:
       - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
         with:
           python-version: '3.12'
-      - name: Install native consumer
-        run: python -m pip install -e . pytest
+      - name: Install production native consumer
+        run: |
+          python -m pip install torch==2.10.0 --index-url https://download.pytorch.org/whl/cpu
+          python -m pip install -e '.[train,data,dev]'
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           repository: werg/tracing-js-self
-          ref: fd442a259220dfcd9dc089c928413e8028a8f14b # pinned selected fixture producer
+          ref: b238fb48e6dc2b3a97e8c1280d4b961c0593466c # paired v4 code; integration pin updated together
           path: tracing-js-self
           persist-credentials: false
       - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
@@ -33,24 +35,32 @@ jobs:
         run: |
           npm ci --prefix tracing-js-self
           node tracing-js-self/tools/generate-selected-harness-v4.mjs "$RUNNER_TEMP/harness.json"
+          node tracing-js-self/tools/generate-selected-continuity-v4.mjs "$RUNNER_TEMP/continuity"
       - name: Independently import actual selected and observed bytes
         run: |
           python - <<'PY'
           import json
           import os
+          import urllib.request
           from pathlib import Path
 
           from megatoken.data.semantic_harness_v4 import adapt_selected_harness_v4
+          from megatoken.data.semantic_admission import native_admission
+          from megatoken.generation.codec import ByteCodec, LING_REVISION, LING_TOKENIZER_SHA256
+
+          tokenizer = Path(os.environ['RUNNER_TEMP']) / 'tokenizer.json'
+          urllib.request.urlretrieve(f'https://huggingface.co/inclusionAI/Ling-3.0-tiny/resolve/{LING_REVISION}/tokenizer.json', tokenizer)
+          codec = ByteCodec.from_tokenizer_json(tokenizer, expected_sha256=LING_TOKENIZER_SHA256)
 
           document = json.loads((Path(os.environ["RUNNER_TEMP"]) / "harness.json").read_text())
-          episode, receipt = adapt_selected_harness_v4(document, allow_local=True)
+          episode, receipt = adapt_selected_harness_v4(document, codec=codec, allow_local=True)
           assert receipt.invocations == 2
           assert receipt.actions == 4
-          assert receipt.observations == 11  # program, two invocations, 4 dispatch and 4 results
+          assert receipt.observations == 13  # source/input, dispatch/results, retained source and state refresh
           assert receipt.tracks == 3  # one host and two dynamic work owners
           assert episode.supervision.outcome == "unknown"
           assert all(not record.policy_mask for record in episode.records if record.role != "assistant")
-          assert sum(record.policy_mask for record in episode.records) == 10
+          assert sum(record.policy_mask for record in episode.records) == 18
           assert len({action.call_id for action in episode.actions}) == 4
           assert all(action.tool_name in {"demo.readAsync", "demo.store"} for action in episode.actions)
           assert [record.payload for record in episode.records if record.policy_mask] == [
@@ -58,10 +68,13 @@ jobs:
               for event in document["public"]["timeline"] if event["kind"] == "semantic"
           ]
           print("Validated controlled bridge: two explicit calls, four native dispatches, zero admitted training episodes")
+          for name in ('async-pair', 'promise-finally', 'retained-events', 'checkpoint-recovery'):
+              candidate = json.loads((Path(os.environ['RUNNER_TEMP']) / 'continuity' / (name + '.json')).read_text())
+              receipt = native_admission(candidate, codec=codec, consumer_revision=os.environ['GITHUB_SHA'])
+              assert receipt['visibilityValidated'] and receipt['fragmentationValidated']
+          print('Validated four controlled continuity episodes with the real production tokenizer.')
           PY
       - name: Validate lightweight native import and lifecycle regressions
         run: |
           python -m pytest -q tests/test_semantic_harness_v4.py \
             tests/test_semantic_harness_lifecycle_v4.py
-      # The actual MultiTrackRuntime dispatch bridge imports PyTorch and is
-      # exercised by the separate CPU workflow (which installs the CPU stack).

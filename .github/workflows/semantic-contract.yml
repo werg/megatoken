@@ -1,4 +1,4 @@
-name: Pinned tracer semantic episode contract
+name: Source-certified semantic corpus and production native gates
 
 on:
   push:
@@ -16,7 +16,9 @@ concurrency:
 jobs:
   semantic:
     runs-on: ubuntu-24.04
-    timeout-minutes: 15
+    timeout-minutes: 45
+    env:
+      MEGATOKEN_TOKENIZER_JSON: ${{ runner.temp }}/tokenizer.json
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
@@ -24,61 +26,99 @@ jobs:
       - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
         with:
           python-version: '3.12'
-      - name: Install lightweight megatoken schema and codec
-        run: python -m pip install -e . pytest
+      - name: Install non-optimizing CPU validation dependencies
+        run: |
+          python -m pip install torch==2.10.0 --index-url https://download.pytorch.org/whl/cpu
+          python -m pip install -e '.[train,data,dev]'
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           repository: werg/tracing-js-self
-          ref: fd8277bc8ddaf00a0efc1f0e5087e977caabf869 # paired unified v3 Unicode source contract
+          ref: b238fb48e6dc2b3a97e8c1280d4b961c0593466c # paired v4 code; integration pin updated together
           path: tracing-js-self
           persist-credentials: false
       - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
         with:
           node-version: '22'
-      - name: Generate unified semantic-execution/3 traces
-        run: |
-          npm ci --prefix tracing-js-self
-          node tracing-js-self/tools/generate-training.mjs \
-            --seed 42 --count 8 \
-            --output "$RUNNER_TEMP/trace.jsonl" \
-            --manifest "$RUNNER_TEMP/manifest.json"
-      - name: Import only diagnostic episodes with the explicit byte fallback
-        run: |
-          python scripts/import_semantic_execution.py \
-            --input "$RUNNER_TEMP/trace.jsonl" \
-            --output "$RUNNER_TEMP/native.jsonl" \
-            --diagnostic-byte --allow-local
-      - name: Verify exact target transport and absent predictor oracle
+      - name: Obtain and verify the exact production tokenizer
         run: |
           python - <<'PY'
-          import json
-          import os
+          import hashlib, os, urllib.request
           from pathlib import Path
-
-          from megatoken.data.schema import Episode
-
-          root = Path(os.environ["RUNNER_TEMP"])
-          source = [json.loads(s) for s in (root / "trace.jsonl").read_text().splitlines()]
-          native = [
-              Episode.from_dict(json.loads(s))
-              for s in (root / "native.jsonl").read_text().splitlines()
-          ]
-          manifest = json.loads((root / "manifest.json").read_text())
-          assert len(source) == len(native) == manifest["counts"]["locally_verified"] == 8
-          assert all(row['public']['schema']=='semantic-execution/3' for row in source)
-          assert manifest["counts"]["admitted"] == 0
-          for trace, episode in zip(source, native, strict=True):
-              expected = [
-                  group["events"][0]["record"].encode("utf-8")
-                  for group in trace["public"]["groups"]
-              ]
-              assert [record.payload for record in episode.records] == expected
-              assert len(episode.meridians) == len(expected)
-              assert episode.supervision.outcome == "unknown"
-              assert all(b"referenceStatus" not in payload for payload in expected)
-              assert all(b"sidecar" not in payload for payload in expected)
-          print("Verified 8 byte-identical causal imports; 0 admitted episodes.")
+          from megatoken.generation.codec import LING_REVISION, LING_TOKENIZER_SHA256
+          path = Path(os.environ['MEGATOKEN_TOKENIZER_JSON'])
+          urllib.request.urlretrieve(f'https://huggingface.co/inclusionAI/Ling-3.0-tiny/resolve/{LING_REVISION}/tokenizer.json', path)
+          assert hashlib.sha256(path.read_bytes()).hexdigest() == LING_TOKENIZER_SHA256
           PY
-
-      - name: Run semantic importer regression tests
-        run: python -m pytest -q tests/test_semantic_execution.py
+      - name: Check both declared contracts and collect actual teacher executions
+        run: |
+          npm ci --prefix tracing-js-self
+          cmp tracing-js-self/contracts/semantic-harness-v4.json src/megatoken/data/contracts/semantic-harness-v4.json
+          cmp tracing-js-self/contracts/host-operations-v4.json src/megatoken/data/contracts/host-operations-v4.json
+          cd tracing-js-self
+          node tools/generate-semantic-contract.mjs --check
+          node tools/generate-host-contract.mjs --check
+          node tools/generate-effectful-training.mjs --out "$RUNNER_TEMP/teacher" \
+            --megatoken "$GITHUB_WORKSPACE" --tokenizer "$MEGATOKEN_TOKENIZER_JSON" \
+            --python python --require-native
+      - name: Recheck independent source and native gates and export the prepared corpus
+        run: |
+          python scripts/validate_semantic_corpus.py --corpus "$RUNNER_TEMP/teacher" \
+            --output "$RUNNER_TEMP/prepared" --tracer-root tracing-js-self \
+            --tokenizer-json "$MEGATOKEN_TOKENIZER_JSON"
+          python scripts/collect_semantic_lifecycle.py --input "$RUNNER_TEMP/teacher/counter-0.json" \
+            --output "$RUNNER_TEMP/lifecycle" --tracer-root tracing-js-self \
+            --producer-revision "$(git -C tracing-js-self rev-parse HEAD)" \
+            --consumer-revision "$(git rev-parse HEAD)" --tokenizer-json "$MEGATOKEN_TOKENIZER_JSON"
+      - name: Exercise real tokenizer, context, lifecycle, inference and restart without optimization
+        run: |
+          python scripts/check_semantic_inference.py --tokenizer-json "$MEGATOKEN_TOKENIZER_JSON" --output "$RUNNER_TEMP/fixed-inference"
+          python -m pytest -q tests/test_semantic_data_pipeline.py tests/test_semantic_runtime_integration.py \
+            tests/test_semantic_model_adapter.py tests/test_semantic_harness_v4.py \
+            tests/test_semantic_orchestration.py \
+            tests/test_semantic_contract_v4.py tests/test_semantic_host_contract.py \
+            tests/test_selected_semantic_bridge_v4.py tests/test_semantic_harness_lifecycle_v4.py \
+            tests/test_semantic_execution.py tests/test_semantic_training_state.py tests/test_training_stream.py \
+            tests/test_checkpoint_async.py tests/test_checkpoint_replace.py \
+            tests/test_track_context.py tests/test_context_preparation.py
+          python -m pytest -q tests/test_meridian_training.py -k semantic_execution_continues_from_teacher_recorded_semantics
+      - name: Exercise actual shared-process coordinator and child inference
+        run: |
+          MEGATOKEN_PYTHON="$(command -v python)" MEGATOKEN_REPOSITORY="$GITHUB_WORKSPACE" \
+            MEGATOKEN_ORCHESTRATION_SERVED="$RUNNER_TEMP/fixed-inference/served" \
+            MEGATOKEN_ORCHESTRATION_EVIDENCE_DIR="$RUNNER_TEMP/orchestration" OMP_NUM_THREADS=1 \
+            node --test tracing-js-self/test/training-orchestration-evaluation.test.js
+          python scripts/validate_semantic_orchestration.py --evidence-dir "$RUNNER_TEMP/orchestration" \
+            --tokenizer-json "$MEGATOKEN_TOKENIZER_JSON" --output "$RUNNER_TEMP/orchestration-receipt.json"
+      - name: Collect paired source recipes and verify every configured train and validation stage
+        run: |
+          node tracing-js-self/tools/generate-effectful-training.mjs --out "$RUNNER_TEMP/recipe-explicit" \
+            --recipe training-v4 --representation explicit --jobs 4 \
+            --megatoken "$GITHUB_WORKSPACE" --tokenizer "$MEGATOKEN_TOKENIZER_JSON" --python python --require-native
+          node tracing-js-self/tools/generate-effectful-training.mjs --out "$RUNNER_TEMP/recipe-compact" \
+            --recipe training-v4 --representation compact --jobs 4 \
+            --megatoken "$GITHUB_WORKSPACE" --tokenizer "$MEGATOKEN_TOKENIZER_JSON" --python python --require-native
+          python scripts/prepare_semantic_experiments.py \
+            --explicit-corpus "$RUNNER_TEMP/recipe-explicit" --compact-corpus "$RUNNER_TEMP/recipe-compact" \
+            --tracer-root tracing-js-self --tokenizer-json "$MEGATOKEN_TOKENIZER_JSON" \
+            --producer-revision "$(git -C tracing-js-self rev-parse HEAD)" --consumer-revision "$(git rev-parse HEAD)" \
+            --output "$RUNNER_TEMP/experiments"
+      - name: Freeze and execute the held-out controlled engineering cohort
+        run: |
+          node tracing-js-self/tools/freeze-selected-evaluation.mjs "$RUNNER_TEMP/teacher" "$RUNNER_TEMP/cohort-declaration.json"
+          python scripts/evaluate_semantic.py freeze --declaration "$RUNNER_TEMP/cohort-declaration.json" --output "$RUNNER_TEMP/cohort.json"
+          python scripts/evaluate_semantic.py run --cohort "$RUNNER_TEMP/cohort.json" \
+            --runner-argv '["node","tracing-js-self/tools/run-selected-evaluation.mjs","--origin","controlled"]' \
+            --origin controlled --seed 17 --tokenizer-json "$MEGATOKEN_TOKENIZER_JSON" --output "$RUNNER_TEMP/evaluation.json" --require-engineering-success
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        if: always()
+        with:
+          name: semantic-engineering-receipts
+          path: |
+            ${{ runner.temp }}/teacher/manifest.json
+            ${{ runner.temp }}/prepared/semantic-report.json
+            ${{ runner.temp }}/lifecycle/lifecycle-admission.json
+            ${{ runner.temp }}/cohort.json
+            ${{ runner.temp }}/evaluation.json
+            ${{ runner.temp }}/fixed-inference/inference-check.json
+            ${{ runner.temp }}/orchestration-receipt.json
+            ${{ runner.temp }}/experiments/experiment-preparation.json

@@ -99,6 +99,12 @@ def test_launch_readiness_catches_the_known_configuration_gaps():
         assert config["unfilled_placeholders"], "PIN_ placeholders must be reported"
     assert findings["phases_without_an_example_config"] == []
     assert findings["configs_without_default_memory"] == []
+    semantic = {c["phase"]: c for c in result["configs"] if c["phase"] in {"SC", "SE", "SO"}}
+    assert set(semantic) == {"SC", "SE", "SO"}
+    for config in semantic.values():
+        assert config["loader_error"] is None
+        assert config["missing_streams"] == []
+        assert config["unfilled_placeholders"], "Semantic artifacts must be explicitly bound"
     # nothing is silently dropped: every example config is audited
     audited = {Path(c["config"]).name for c in result["configs"]}
     assert {p.name for p in (ROOT / "configs/train").glob("*.yaml")} <= audited

@@ -321,3 +321,36 @@ class SemanticExposure:
             "cohortDigest": cohort_digest,
             **asdict(self),
         }
+
+
+def semantic_training_state(exposure, *, cohort_digest):
+    """Persist experiment counters only for an explicitly configured experiment."""
+    if exposure is None:
+        if cohort_digest is not None:
+            raise ValueError("A semantic cohort requires its experiment exposure state")
+        return {}
+    if (
+        not isinstance(cohort_digest, str)
+        or len(cohort_digest) != 64
+        or any(character not in "0123456789abcdef" for character in cohort_digest)
+    ):
+        raise ValueError("Semantic exposure requires its frozen cohort digest")
+    return {
+        "semantic_exposure": exposure.checkpoint(),
+        "semantic_cohort_digest": cohort_digest,
+    }
+
+
+def restore_semantic_training_state(payload, *, cohort_digest):
+    """Restore the exact configured experiment, without inferring absent fields."""
+    fields = {"semantic_exposure", "semantic_cohort_digest"}
+    present = fields.intersection(payload)
+    if cohort_digest is None:
+        if present:
+            raise ValueError("A nonsemantic checkpoint cannot contain semantic experiment state")
+        return None
+    if present != fields or payload["semantic_cohort_digest"] != cohort_digest:
+        raise ValueError("Semantic restart requires its exact exposure state and frozen cohort")
+    exposure = SemanticExposure.restore(payload["semantic_exposure"])
+    semantic_training_state(exposure, cohort_digest=cohort_digest)
+    return exposure

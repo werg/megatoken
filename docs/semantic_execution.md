@@ -22,7 +22,7 @@ initialized model checks establish inference plumbing and failure handling only.
 | Model prefix and selected response | `selected-inference-prefix/2`, `selected-model-output/2` |
 | Native lifecycle binding | `semantic-execution-binding/4`; native lifecycle version 2 |
 | Runtime inference checkpoint | `semantic-model-checkpoint/4`; declared observed-bootstrap equivalence |
-| Training restart format | 17, including mandatory experiment exposure counters |
+| Training restart format | 18; semantic experiments require exposure counters, other stages omit them |
 | Tokenizer | `inclusionAI/Ling-3.0-tiny`, revision `9a98e35fe1c9ee255f78dd64771c7ae15a799481` |
 | Tokenizer file SHA-256 | `40fb9d7d7795b8bd305aeff39ce9963f3f450915b9553f2938e009be9a1fed60` |
 | Native codec fingerprint | `7f52faca2fe82273a889023defd2f1a6fd6080a21096ec77e97f4798a0a370b2` |
@@ -318,6 +318,12 @@ common-support controls. Templates for seeds 17, 29, and 43 retain the normal
 production tokenizer, teacher-memory, donor, checkpoint, and held-out requirements.
 They contain explicit asset bindings to fill; no sample optimizer run is part
 of preparation or engineering acceptance.
+The repository's launch-readiness inventory includes
+`configs/train/semantic-effectful.example.yaml`,
+`configs/train/semantic-common.example.yaml`, and
+`configs/train/semantic-outcome.example.yaml`. Their source-corpus and lifecycle
+placeholders point to the real preparation routes above and remain unbound until
+the corresponding admitted artifacts and launch assets are supplied.
 
 `configs/semantic/experiment-plan-v4.json` freezes separate common-support and
 effectful cohorts, explicit/compact representations, the pure outcome-only
@@ -331,8 +337,10 @@ schema/catalog/fixture digests and producer/consumer pins before model or optimi
 setup; each native training window also checks its actual teaching labels.
 The semantic comparison matrix deliberately uses one metered worker and one
 atomic window per budget decision. It does not claim unimplemented global
-budget synchronization between independent workers. Restart format 17 preserves consumed full episodes,
-generated/observed token exposure, and active compute time. Fixed-token windows
+budget synchronization between independent workers. Restart format 18 preserves
+consumed full episodes, generated/observed token exposure, and active compute time
+only for configured semantic experiments. Other stages omit this accounting from
+their summaries and checkpoints. Fixed-token windows
 retain a declared maximum 65,535-token overshoot for a single 64-KiB logical
 action; receipts report the actual overshoot. Exported budget receipts bind the
 served weights digest to the exact training checkpoint and frozen cohort.
