@@ -335,9 +335,11 @@ def parse_record(line: Any) -> tuple[str, dict[str, Any]]:
             )
         except (TypeError, ValueError) as error:
             raise WitnessV3Error("Malformed external request payload") from error
-        if not isinstance(payload, list) or json.dumps(
-            payload, ensure_ascii=False, separators=(",", ":"), allow_nan=False
-        ) != fields["payload"]:
+        if (
+            not isinstance(payload, list)
+            or json.dumps(payload, ensure_ascii=False, separators=(",", ":"), allow_nan=False)
+            != fields["payload"]
+        ):
             _fail("External request payload must be a canonical JSON array")
     elif kind == "observe":
         value(fields["result"])
