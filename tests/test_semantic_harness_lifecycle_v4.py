@@ -28,7 +28,7 @@ def test_executable_track_must_observe_code_and_input_before_activation():
     child = registry.create("Run a verified program", parent=parent.address, execution=binding())
     assert child.status == "waiting"
     assert child.bootstrap_ready is False
-    assert not registry.selectable(child.address, ())
+    assert not registry.selectable(child.address, set())
     with pytest.raises(ValueError, match="bootstrap"):
         registry.change(child.address, "continue")
     with pytest.raises(ValueError, match="bootstrap"):
@@ -45,7 +45,7 @@ def test_executable_track_must_observe_code_and_input_before_activation():
     )
     assert live.bootstrap_ready
     assert live.status == "active"
-    assert registry.selectable(live.address, ())
+    assert registry.selectable(live.address, set())
     assert (
         registry.activate_execution(
             live.address, source_digest="a" * 64, input_ref=live.execution.input_ref
