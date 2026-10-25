@@ -18,7 +18,7 @@ from megatoken.data.schema import encode_record
 from megatoken.data.semantic_harness_v4 import adapt_selected_harness_v4
 
 SEEDS = (17, 29, 43)
-REPRESENTATIONS = ("explicit", "compact", "outcome-only")
+REPRESENTATIONS = ("compact",)
 HARD_GATES = (
     "futureObservationLeaks",
     "unauthorizedEffects",
@@ -39,65 +39,6 @@ CONTROLLED_FIELDS = frozenset(
 
 def _digest(value):
     return hashlib.sha256(canonical_json(value).encode()).hexdigest()
-
-
-def _outcome_usage(evidence, codec):
-    """Count the exact answer bytes and the observations used by native serving."""
-    from megatoken.semantic_model_adapter import _canonical, _validate_prefix
-
-    prefix = evidence["servedPrefix"]
-    if CONTROLLED_FIELDS & set(prefix) or {"expected", "referenceReceipt"} & set(prefix):
-        raise ValueError("Outcome inference prefix contains private controlled/reference labels")
-    program, _invocation, events = _validate_prefix(prefix)
-    if len(events) != 2 or program["capabilities"]:
-        raise ValueError(
-            "Outcome inference must receive only pure source and invocation observations"
-        )
-    raw = evidence.get("record")
-    if raw is not None:
-        if not isinstance(raw, str):
-            raise ValueError("Generated outcome evidence must retain its original UTF-8 record")
-        raw = raw.encode()
-    else:
-        rejection = (evidence.get("failure") or {}).get("evidence") or {}
-        encoded = rejection.get("payloadHex")
-        if isinstance(encoded, str):
-            raw = bytes.fromhex(encoded)
-        elif isinstance(encoded, list) and all(
-            item is None or isinstance(item, str) for item in encoded
-        ):
-            raw = b"".join(bytes.fromhex(item) for item in encoded if item is not None)
-        elif evidence.get("failure"):
-            # A failure before native selection has no selected output bytes.
-            raw = b""
-        else:
-            raise ValueError("Outcome runner omitted the actual generated record")
-    observed = sum(len(codec.encode(_canonical(event))) for event in events)
-    return len(codec.encode(raw)), observed, raw
-
-
-def _validate_outcome_record(raw, actual):
-    from megatoken.data.witness_v4 import graph, value
-    from megatoken.io import strict_json_loads
-
-    answer = strict_json_loads(raw.decode("utf-8"))
-    if (
-        not isinstance(answer, dict)
-        or set(answer) != {"schema", "completion", "state"}
-        or answer["schema"] != "semantic-outcome/4"
-        or set(answer["completion"]) != {"kind", "value"}
-        or answer["completion"]["kind"] not in {"return", "throw"}
-        or answer["completion"] != actual["completion"]
-        or answer["state"] != actual["state"]
-    ):
-        raise ValueError("Outcome receipt does not match its actual generated record")
-    value(answer["completion"]["value"])
-    graph(answer["state"])
-    if (
-        not answer["state"]["roots"]
-        or answer["state"]["roots"][-1] != answer["completion"]["value"]
-    ):
-        raise ValueError("Outcome result is not its final observable graph root")
 
 
 def _interactive_usage(evidence, codec):
@@ -545,7 +486,7 @@ def verify_cohort(cohort):
 
 
 def evaluate_cohort(
-    cohort, runner, *, codec, seed, origin, representation="explicit", checkpoint_identity=None
+    cohort, runner, *, codec, seed, origin, representation="compact", checkpoint_identity=None
 ):
     """Execute a supplied production runner with no access to private expected labels."""
     verify_cohort(cohort)
@@ -559,8 +500,6 @@ def evaluate_cohort(
         not isinstance(checkpoint_identity, str) or len(checkpoint_identity) != 64
     ):
         raise ValueError("Model evaluations require their immutable served model digest")
-    if representation == "outcome-only" and cohort["name"] != "common-support":
-        raise ValueError("Noninteractive outcome controls do not execute the effectful cohort")
     if origin == "trained" and any(case["split"] != "test" for case in cohort["cases"]):
         raise ValueError("Learned comparison reports require the frozen test-only cohort")
     rows = []
@@ -627,11 +566,8 @@ def evaluate_cohort(
                 raise ValueError(
                     "Runner must report measured compute, memory, dispatch and resource costs"
                 )
-            raw = None
             rejected_tokens = 0
-            if representation == "outcome-only":
-                generated, observed, raw = _outcome_usage(evidence, codec)
-            elif request.get("schema") == "selected-orchestration-evaluation-case/4":
+            if request.get("schema") == "selected-orchestration-evaluation-case/4":
                 generated, observed, physical = _orchestration_usage(evidence, codec)
             else:
                 generated, observed, rejected_tokens = _interactive_usage(evidence, codec)
@@ -654,26 +590,20 @@ def evaluate_cohort(
             if inconsistency is not None and not isinstance(inconsistency, dict):
                 raise ValueError("First semantic violation must be an exact failure receipt")
             trace_valid = inconsistency is None and not evidence.get("failure")
-            if representation != "outcome-only":
-                episode, _ = adapt_selected_harness_v4(
-                    evidence["episode"],
-                    codec=codec,
-                    allow_local=True,
-                    max_positions=1024,
-                    max_history=1024,
-                )
-                if request.get("schema") == "selected-orchestration-evaluation-case/4":
-                    _validate_orchestration(evidence, codec, origin)
-                else:
-                    generated, observed = rejected_tokens, 0
-                    for record in episode.records:
-                        count = encode_record(record, codec).tokens
-                        generated += count if record.policy_mask else 0
-                        observed += count if not record.policy_mask else 0
-                    physical = len(episode.records)
+            episode, _ = adapt_selected_harness_v4(
+                evidence["episode"],
+                codec=codec, allow_local=True,
+                max_positions=1024, max_history=1024,
+            )
+            if request.get("schema") == "selected-orchestration-evaluation-case/4":
+                _validate_orchestration(evidence, codec, origin)
             else:
-                if not evidence.get("failure"):
-                    _validate_outcome_record(raw, actual)
+                generated, observed = rejected_tokens, 0
+                for record in episode.records:
+                    count = encode_record(record, codec).tokens
+                    generated += count if record.policy_mask else 0
+                    observed += count if not record.policy_mask else 0
+                physical = len(episode.records)
             canonical_generated = generated
             if model_generated is not None:
                 generated = model_generated
@@ -855,16 +785,12 @@ def compare_experiments(reports, budgets, *, historical_receipt=None):
         groups.setdefault(regime, []).append((report, budget))
     result = {}
     for regime, group in groups.items():
-        representations = (
-            REPRESENTATIONS
-            if group[0][0]["cohort"] == "common-support"
-            else ("explicit", "compact")
-        )
+        representations = REPRESENTATIONS
         expected = {(seed, representation) for seed in SEEDS for representation in representations}
         pairs = [(report["seed"], report["representation"]) for report, _ in group]
         if len(pairs) != len(set(pairs)) or set(pairs) != expected:
             raise ValueError(
-                "Budget comparison requires each representation at seeds 17, 29 and 43"
+                "Budget reports require the one canonical representation at seeds 17, 29 and 43"
             )
         meter = {"fixed-examples": "examples", "fixed-tokens": "generatedTokens"}.get(regime)
         if meter == "examples" and len({budget[meter] for _, budget in group}) != 1:
