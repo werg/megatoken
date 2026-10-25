@@ -487,7 +487,7 @@
     }
   },
   "digest": "83036b29b7c117e6d947b1b5e5b8b30acb773efeeb538f33c8862966bb086206",
-  "fixtureDigest": "bef4c96b9713a7f9cfc21a2afb287fc3f8920bc53a4a951f20f5e86d1a673072",
+  "fixtureDigest": "741d2626262f3d71324d5bfac59273a23da35cacae6d571ae5dd023673057567",
   "fixtures": {
     "witness": {
       "valid": [
@@ -644,6 +644,7 @@
           "sidecar": {
             "schema": "semantic-supervision/2",
             "admission": "locally_verified",
+            "representation": "compact",
             "referenceStatus": "unverified",
             "sourceLineage": null,
             "split": null,
@@ -835,6 +836,7 @@
           "sidecar": {
             "schema": "semantic-supervision/2",
             "admission": "locally_verified",
+            "representation": "compact",
             "referenceStatus": "unverified",
             "sourceLineage": null,
             "split": null,
@@ -976,6 +978,7 @@
           "sidecar": {
             "schema": "semantic-supervision/2",
             "admission": "locally_verified",
+            "representation": "compact",
             "referenceStatus": "unverified",
             "sourceLineage": null,
             "split": null,
@@ -1115,6 +1118,7 @@
           "sidecar": {
             "schema": "semantic-supervision/2",
             "admission": "locally_verified",
+            "representation": "compact",
             "referenceStatus": "unverified",
             "sourceLineage": null,
             "split": null,
@@ -1251,6 +1255,7 @@
           "sidecar": {
             "schema": "semantic-supervision/2",
             "admission": "locally_verified",
+            "representation": "compact",
             "referenceStatus": "unverified",
             "sourceLineage": null,
             "split": null,
@@ -1442,6 +1447,7 @@
           "sidecar": {
             "schema": "semantic-supervision/2",
             "admission": "locally_verified",
+            "representation": "compact",
             "referenceStatus": "unverified",
             "sourceLineage": null,
             "split": null,
@@ -1633,6 +1639,7 @@
           "sidecar": {
             "schema": "semantic-supervision/2",
             "admission": "locally_verified",
+            "representation": "compact",
             "referenceStatus": "unverified",
             "sourceLineage": null,
             "split": null,
@@ -1824,6 +1831,7 @@
           "sidecar": {
             "schema": "semantic-supervision/2",
             "admission": "locally_verified",
+            "representation": "compact",
             "referenceStatus": "unverified",
             "sourceLineage": null,
             "split": null,
