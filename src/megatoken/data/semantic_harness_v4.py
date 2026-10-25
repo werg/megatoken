@@ -184,10 +184,14 @@ def adapt_selected_harness_v4(
                 or not isinstance(item.get("sites"), list)
                 or not isinstance(item.get("capabilities"), list)
                 or (
-                    "functions" in item and (
+                    "functions" in item
+                    and (
                         not isinstance(item["functions"], list)
-                        or any(not isinstance(f, dict) or not isinstance(f.get("name"), (str, type(None)))
-                               for f in item["functions"])
+                        or any(
+                            not isinstance(f, dict)
+                            or not isinstance(f.get("name"), (str, type(None)))
+                            for f in item["functions"]
+                        )
                     )
                 )
             ):
@@ -203,7 +207,8 @@ def adapt_selected_harness_v4(
                 or program_id not in programs
                 or not _ident(item.get("realmId"))
                 or not _ident(item.get("trackId"))
-                or item.get("entry") not in (
+                or item.get("entry")
+                not in (
                     [programs[program_id]["entry"]]
                     + [f.get("name") for f in programs[program_id].get("functions", [])]
                 )
@@ -261,7 +266,8 @@ def adapt_selected_harness_v4(
                 or program_id not in programs
                 or not all(_ident(item.get(k)) for k in ("realmId", "triggerId"))
                 or track == "host"
-                or item.get("entry") not in (
+                or item.get("entry")
+                not in (
                     [programs[program_id]["entry"]]
                     + [f.get("name") for f in programs[program_id].get("functions", [])]
                 )
