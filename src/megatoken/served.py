@@ -103,6 +103,22 @@ def export_served(
         }
         if bundled_codec != "byte":
             manifest["tokenizer_sha256"] = sha256_file(temporary / bundled_codec)
+        if payload["train_config"].get("semantic_experiment") is not None:
+            from megatoken.training.semantic_budget import (
+                SemanticExperimentConfig,
+                SemanticExposure,
+            )
+
+            experiment = SemanticExperimentConfig(**payload["train_config"]["semantic_experiment"])
+            receipt = SemanticExposure.restore(payload["semantic_exposure"]).receipt(
+                experiment,
+                seed=payload["train_config"]["seed"],
+                checkpoint_identity=manifest["model_sha256"],
+                cohort_digest=payload["semantic_cohort_digest"],
+            )
+            receipt["trainingCheckpointSha256"] = metadata["state_sha256"]
+            write_json(temporary / "semantic-budget.json", receipt)
+            manifest["semantic_budget_sha256"] = sha256_file(temporary / "semantic-budget.json")
         write_json(temporary / "manifest.json", manifest)
         fsync_directory(temporary)
         os.rename(temporary, destination)
@@ -163,6 +179,18 @@ class ServedBundle:
             raise ValueError("Served configuration checksum mismatch")
         if sha256_file(directory / "transducer.pt") != manifest["transducer_sha256"]:
             raise ValueError("Served transducer bank checksum mismatch")
+        if "semantic_budget_sha256" in manifest:
+            if (
+                sha256_file(directory / "semantic-budget.json")
+                != manifest["semantic_budget_sha256"]
+            ):
+                raise ValueError("Served semantic exposure receipt checksum mismatch")
+            budget = json.loads((directory / "semantic-budget.json").read_text())
+            if (
+                budget.get("checkpointIdentity") != manifest["model_sha256"]
+                or budget.get("trainingCheckpointSha256") != manifest["checkpoint_sha256"]
+            ):
+                raise ValueError("Served semantic budget is attached to different weights")
         self.config = ModelConfig.from_dict(
             json.loads((directory / "model_config.json").read_text())
         )

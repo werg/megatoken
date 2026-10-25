@@ -169,6 +169,34 @@ def test_actual_source_sampling_is_restartable_and_excludes_padding(prepared):
         restarted.close()
 
 
+def test_whole_episode_budget_counts_once_after_fragmented_windows_and_restart(prepared):
+    stream = WindowStream(
+        PreparedCorpus([prepared], stream="alpha"), ByteCodec.byte_fallback(), WINDOWS, seed=0
+    )
+    replacement = WindowStream(
+        PreparedCorpus([prepared], stream="alpha"), ByteCodec.byte_fallback(), WINDOWS, seed=0
+    )
+    completed, records = [], []
+    try:
+        for _ in range(2):
+            item = stream.next()
+            records.append(item.episode.episode_id)
+            if item.episode_end:
+                completed.append(item.episode.episode_id)
+        replacement.load_state_dict(stream.state_dict())
+        while replacement.epoch == 0:
+            item = replacement.next()
+            if item is not None:
+                records.append(item.episode.episode_id)
+                if item.episode_end:
+                    completed.append(item.episode.episode_id)
+        assert len(records) == 6
+        assert len(completed) == len(set(completed)) == 3
+    finally:
+        stream.close()
+        replacement.close()
+
+
 def test_inventory_separates_preparation_from_actual_source_sampling(prepared, tmp_path):
     from megatoken.data.inventory import source_inventory
     from megatoken.io import write_json

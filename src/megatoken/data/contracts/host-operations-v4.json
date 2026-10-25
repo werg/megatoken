@@ -1,0 +1,1436 @@
+{
+  "schema": "host-operations/4",
+  "operations": [
+    {
+      "operation": "demo.listen",
+      "kind": "promise",
+      "signature": "demo.listen/1",
+      "arity": 2,
+      "key": 0,
+      "callbackIndices": [
+        1
+      ],
+      "callbackLifetime": "subscription",
+      "codec": "canonical-json/1",
+      "callbackReturn": "void",
+      "callbackProfile": "owned-deferred-job",
+      "resultCodec": "canonical-scalar/1",
+      "authority": {
+        "scope": "fixture",
+        "grant": "host-established",
+        "ownership": "session-and-realm"
+      },
+      "replay": "recorded-observations-only",
+      "retry": "reconcile-before-retry",
+      "cancellation": "abort-signal-and-resource-close",
+      "lifetime": "explicit-owner-and-close",
+      "limits": {
+        "arguments": 2,
+        "graphNodes": 256,
+        "graphProperties": 4096,
+        "payloadBytes": 65536,
+        "callbackArguments": 32
+      }
+    },
+    {
+      "operation": "demo.readAsync",
+      "kind": "promise",
+      "signature": "demo.readAsync/1",
+      "arity": 1,
+      "key": 0,
+      "codec": "canonical-json/1",
+      "callbackIndices": [],
+      "callbackLifetime": "none",
+      "callbackReturn": "void",
+      "callbackProfile": "owned-deferred-job",
+      "resultCodec": "canonical-scalar/1",
+      "authority": {
+        "scope": "fixture",
+        "grant": "host-established",
+        "ownership": "session-and-realm"
+      },
+      "replay": "recorded-observations-only",
+      "retry": "host-policy",
+      "cancellation": "abort-signal-and-resource-close",
+      "lifetime": "invocation",
+      "limits": {
+        "arguments": 1,
+        "graphNodes": 256,
+        "graphProperties": 4096,
+        "payloadBytes": 65536,
+        "callbackArguments": 32
+      }
+    },
+    {
+      "operation": "demo.readNumber",
+      "kind": "synchronous",
+      "signature": "demo.readNumber/1",
+      "arity": 1,
+      "key": 0,
+      "codec": "canonical-json/1",
+      "callbackIndices": [],
+      "callbackLifetime": "none",
+      "callbackReturn": "void",
+      "callbackProfile": "owned-deferred-job",
+      "resultCodec": "canonical-scalar/1",
+      "authority": {
+        "scope": "fixture",
+        "grant": "host-established",
+        "ownership": "session-and-realm"
+      },
+      "replay": "recorded-observations-only",
+      "retry": "host-policy",
+      "cancellation": "receipt-only",
+      "lifetime": "invocation",
+      "limits": {
+        "arguments": 1,
+        "graphNodes": 256,
+        "graphProperties": 4096,
+        "payloadBytes": 65536,
+        "callbackArguments": 32
+      }
+    },
+    {
+      "operation": "demo.store",
+      "kind": "synchronous",
+      "signature": "demo.store/1",
+      "arity": 2,
+      "key": 0,
+      "codec": "canonical-json/1",
+      "callbackIndices": [],
+      "callbackLifetime": "none",
+      "callbackReturn": "void",
+      "callbackProfile": "owned-deferred-job",
+      "resultCodec": "canonical-scalar/1",
+      "authority": {
+        "scope": "fixture",
+        "grant": "host-established",
+        "ownership": "session-and-realm"
+      },
+      "replay": "recorded-observations-only",
+      "retry": "reconcile-before-retry",
+      "cancellation": "receipt-only",
+      "lifetime": "invocation",
+      "limits": {
+        "arguments": 2,
+        "graphNodes": 256,
+        "graphProperties": 4096,
+        "payloadBytes": 65536,
+        "callbackArguments": 32
+      }
+    },
+    {
+      "operation": "demo.unlisten",
+      "kind": "promise",
+      "signature": "demo.unlisten/1",
+      "arity": 1,
+      "key": 0,
+      "codec": "canonical-json/1",
+      "callbackIndices": [],
+      "callbackLifetime": "none",
+      "callbackReturn": "void",
+      "callbackProfile": "owned-deferred-job",
+      "resultCodec": "canonical-scalar/1",
+      "authority": {
+        "scope": "fixture",
+        "grant": "host-established",
+        "ownership": "session-and-realm"
+      },
+      "replay": "recorded-observations-only",
+      "retry": "reconcile-before-retry",
+      "cancellation": "abort-signal-and-resource-close",
+      "lifetime": "invocation",
+      "limits": {
+        "arguments": 1,
+        "graphNodes": 256,
+        "graphProperties": 4096,
+        "payloadBytes": 65536,
+        "callbackArguments": 32
+      }
+    },
+    {
+      "operation": "demo.withCallback",
+      "kind": "promise",
+      "signature": "demo.withCallback/1",
+      "arity": 2,
+      "key": 0,
+      "callbackIndices": [
+        1
+      ],
+      "codec": "canonical-json/1",
+      "callbackLifetime": "call",
+      "callbackReturn": "void",
+      "callbackProfile": "owned-deferred-job",
+      "resultCodec": "canonical-scalar/1",
+      "authority": {
+        "scope": "fixture",
+        "grant": "host-established",
+        "ownership": "session-and-realm"
+      },
+      "replay": "recorded-observations-only",
+      "retry": "reconcile-before-retry",
+      "cancellation": "abort-signal-and-resource-close",
+      "lifetime": "invocation",
+      "limits": {
+        "arguments": 2,
+        "graphNodes": 256,
+        "graphProperties": 4096,
+        "payloadBytes": 65536,
+        "callbackArguments": 32
+      }
+    },
+    {
+      "operation": "dom.getAttribute",
+      "kind": "promise",
+      "signature": "dom.getAttribute/1",
+      "arity": 2,
+      "key": 0,
+      "codec": "canonical-json/1",
+      "callbackIndices": [],
+      "callbackLifetime": "none",
+      "callbackReturn": "void",
+      "callbackProfile": "owned-deferred-job",
+      "resultCodec": "canonical-scalar/1",
+      "authority": {
+        "scope": "dom-root",
+        "grant": "host-established",
+        "ownership": "session-and-realm"
+      },
+      "replay": "recorded-observations-only",
+      "retry": "host-policy",
+      "cancellation": "abort-signal-and-resource-close",
+      "lifetime": "invocation",
+      "limits": {
+        "arguments": 2,
+        "graphNodes": 256,
+        "graphProperties": 4096,
+        "payloadBytes": 65536,
+        "callbackArguments": 32
+      }
+    },
+    {
+      "operation": "dom.getText",
+      "kind": "promise",
+      "signature": "dom.getText/1",
+      "arity": 1,
+      "key": 0,
+      "codec": "canonical-json/1",
+      "callbackIndices": [],
+      "callbackLifetime": "none",
+      "callbackReturn": "void",
+      "callbackProfile": "owned-deferred-job",
+      "resultCodec": "canonical-scalar/1",
+      "authority": {
+        "scope": "dom-root",
+        "grant": "host-established",
+        "ownership": "session-and-realm"
+      },
+      "replay": "recorded-observations-only",
+      "retry": "host-policy",
+      "cancellation": "abort-signal-and-resource-close",
+      "lifetime": "invocation",
+      "limits": {
+        "arguments": 1,
+        "graphNodes": 256,
+        "graphProperties": 4096,
+        "payloadBytes": 65536,
+        "callbackArguments": 32
+      }
+    },
+    {
+      "operation": "dom.off",
+      "kind": "promise",
+      "signature": "dom.off/1",
+      "arity": 1,
+      "key": 0,
+      "codec": "canonical-json/1",
+      "callbackIndices": [],
+      "callbackLifetime": "none",
+      "callbackReturn": "void",
+      "callbackProfile": "owned-deferred-job",
+      "resultCodec": "canonical-scalar/1",
+      "authority": {
+        "scope": "dom-root",
+        "grant": "host-established",
+        "ownership": "session-and-realm"
+      },
+      "replay": "recorded-observations-only",
+      "retry": "reconcile-before-retry",
+      "cancellation": "abort-signal-and-resource-close",
+      "lifetime": "invocation",
+      "limits": {
+        "arguments": 1,
+        "graphNodes": 256,
+        "graphProperties": 4096,
+        "payloadBytes": 65536,
+        "callbackArguments": 32
+      }
+    },
+    {
+      "operation": "dom.on",
+      "kind": "promise",
+      "signature": "dom.on/1",
+      "arity": 3,
+      "key": 0,
+      "callbackIndices": [
+        2
+      ],
+      "callbackLifetime": "subscription",
+      "codec": "canonical-json/1",
+      "callbackReturn": "void",
+      "callbackProfile": "owned-deferred-job",
+      "resultCodec": "canonical-scalar/1",
+      "authority": {
+        "scope": "dom-root",
+        "grant": "host-established",
+        "ownership": "session-and-realm"
+      },
+      "replay": "recorded-observations-only",
+      "retry": "reconcile-before-retry",
+      "cancellation": "abort-signal-and-resource-close",
+      "lifetime": "explicit-owner-and-close",
+      "limits": {
+        "arguments": 3,
+        "graphNodes": 256,
+        "graphProperties": 4096,
+        "payloadBytes": 65536,
+        "callbackArguments": 32
+      }
+    },
+    {
+      "operation": "dom.query",
+      "kind": "promise",
+      "signature": "dom.query/1",
+      "arity": 1,
+      "key": 0,
+      "codec": "canonical-json/1",
+      "callbackIndices": [],
+      "callbackLifetime": "none",
+      "callbackReturn": "void",
+      "callbackProfile": "owned-deferred-job",
+      "resultCodec": "canonical-scalar/1",
+      "authority": {
+        "scope": "dom-root",
+        "grant": "host-established",
+        "ownership": "session-and-realm"
+      },
+      "replay": "recorded-observations-only",
+      "retry": "host-policy",
+      "cancellation": "abort-signal-and-resource-close",
+      "lifetime": "explicit-owner-and-close",
+      "limits": {
+        "arguments": 1,
+        "graphNodes": 256,
+        "graphProperties": 4096,
+        "payloadBytes": 65536,
+        "callbackArguments": 32
+      }
+    },
+    {
+      "operation": "dom.release",
+      "kind": "promise",
+      "signature": "dom.release/1",
+      "arity": 1,
+      "key": 0,
+      "codec": "canonical-json/1",
+      "callbackIndices": [],
+      "callbackLifetime": "none",
+      "callbackReturn": "void",
+      "callbackProfile": "owned-deferred-job",
+      "resultCodec": "canonical-scalar/1",
+      "authority": {
+        "scope": "dom-root",
+        "grant": "host-established",
+        "ownership": "session-and-realm"
+      },
+      "replay": "recorded-observations-only",
+      "retry": "reconcile-before-retry",
+      "cancellation": "abort-signal-and-resource-close",
+      "lifetime": "invocation",
+      "limits": {
+        "arguments": 1,
+        "graphNodes": 256,
+        "graphProperties": 4096,
+        "payloadBytes": 65536,
+        "callbackArguments": 32
+      }
+    },
+    {
+      "operation": "dom.remove",
+      "kind": "promise",
+      "signature": "dom.remove/1",
+      "arity": 1,
+      "key": 0,
+      "codec": "canonical-json/1",
+      "callbackIndices": [],
+      "callbackLifetime": "none",
+      "callbackReturn": "void",
+      "callbackProfile": "owned-deferred-job",
+      "resultCodec": "canonical-scalar/1",
+      "authority": {
+        "scope": "dom-root",
+        "grant": "host-established",
+        "ownership": "session-and-realm"
+      },
+      "replay": "recorded-observations-only",
+      "retry": "reconcile-before-retry",
+      "cancellation": "abort-signal-and-resource-close",
+      "lifetime": "invocation",
+      "limits": {
+        "arguments": 1,
+        "graphNodes": 256,
+        "graphProperties": 4096,
+        "payloadBytes": 65536,
+        "callbackArguments": 32
+      }
+    },
+    {
+      "operation": "dom.setAttribute",
+      "kind": "promise",
+      "signature": "dom.setAttribute/1",
+      "arity": 3,
+      "key": 0,
+      "codec": "canonical-json/1",
+      "callbackIndices": [],
+      "callbackLifetime": "none",
+      "callbackReturn": "void",
+      "callbackProfile": "owned-deferred-job",
+      "resultCodec": "canonical-scalar/1",
+      "authority": {
+        "scope": "dom-root",
+        "grant": "host-established",
+        "ownership": "session-and-realm"
+      },
+      "replay": "recorded-observations-only",
+      "retry": "reconcile-before-retry",
+      "cancellation": "abort-signal-and-resource-close",
+      "lifetime": "invocation",
+      "limits": {
+        "arguments": 3,
+        "graphNodes": 256,
+        "graphProperties": 4096,
+        "payloadBytes": 65536,
+        "callbackArguments": 32
+      }
+    },
+    {
+      "operation": "dom.setText",
+      "kind": "promise",
+      "signature": "dom.setText/1",
+      "arity": 2,
+      "key": 0,
+      "codec": "canonical-json/1",
+      "callbackIndices": [],
+      "callbackLifetime": "none",
+      "callbackReturn": "void",
+      "callbackProfile": "owned-deferred-job",
+      "resultCodec": "canonical-scalar/1",
+      "authority": {
+        "scope": "dom-root",
+        "grant": "host-established",
+        "ownership": "session-and-realm"
+      },
+      "replay": "recorded-observations-only",
+      "retry": "reconcile-before-retry",
+      "cancellation": "abort-signal-and-resource-close",
+      "lifetime": "invocation",
+      "limits": {
+        "arguments": 2,
+        "graphNodes": 256,
+        "graphProperties": 4096,
+        "payloadBytes": 65536,
+        "callbackArguments": 32
+      }
+    },
+    {
+      "operation": "dom.startTimer",
+      "kind": "promise",
+      "signature": "dom.startTimer/1",
+      "arity": 2,
+      "key": null,
+      "callbackIndices": [
+        1
+      ],
+      "callbackLifetime": "subscription",
+      "codec": "canonical-json/1",
+      "callbackReturn": "void",
+      "callbackProfile": "owned-deferred-job",
+      "resultCodec": "canonical-scalar/1",
+      "authority": {
+        "scope": "dom-root",
+        "grant": "host-established",
+        "ownership": "session-and-realm"
+      },
+      "replay": "recorded-observations-only",
+      "retry": "reconcile-before-retry",
+      "cancellation": "abort-signal-and-resource-close",
+      "lifetime": "explicit-owner-and-close",
+      "limits": {
+        "arguments": 2,
+        "graphNodes": 256,
+        "graphProperties": 4096,
+        "payloadBytes": 65536,
+        "callbackArguments": 32
+      }
+    },
+    {
+      "operation": "dom.stopTimer",
+      "kind": "promise",
+      "signature": "dom.stopTimer/1",
+      "arity": 1,
+      "key": 0,
+      "codec": "canonical-json/1",
+      "callbackIndices": [],
+      "callbackLifetime": "none",
+      "callbackReturn": "void",
+      "callbackProfile": "owned-deferred-job",
+      "resultCodec": "canonical-scalar/1",
+      "authority": {
+        "scope": "dom-root",
+        "grant": "host-established",
+        "ownership": "session-and-realm"
+      },
+      "replay": "recorded-observations-only",
+      "retry": "reconcile-before-retry",
+      "cancellation": "abort-signal-and-resource-close",
+      "lifetime": "invocation",
+      "limits": {
+        "arguments": 1,
+        "graphNodes": 256,
+        "graphProperties": 4096,
+        "payloadBytes": 65536,
+        "callbackArguments": 32
+      }
+    },
+    {
+      "operation": "fs.close",
+      "kind": "promise",
+      "signature": "fs.close/1",
+      "arity": 1,
+      "key": 0,
+      "codec": "canonical-json/1",
+      "callbackIndices": [],
+      "callbackLifetime": "none",
+      "callbackReturn": "void",
+      "callbackProfile": "owned-deferred-job",
+      "resultCodec": "canonical-scalar/1",
+      "authority": {
+        "scope": "filesystem-root",
+        "grant": "host-established",
+        "ownership": "session-and-realm"
+      },
+      "replay": "recorded-observations-only",
+      "retry": "reconcile-before-retry",
+      "cancellation": "abort-signal-and-resource-close",
+      "lifetime": "invocation",
+      "limits": {
+        "arguments": 1,
+        "graphNodes": 256,
+        "graphProperties": 4096,
+        "payloadBytes": 65536,
+        "callbackArguments": 32
+      }
+    },
+    {
+      "operation": "fs.closeWrite",
+      "kind": "promise",
+      "signature": "fs.closeWrite/1",
+      "arity": 1,
+      "key": 0,
+      "codec": "canonical-json/1",
+      "callbackIndices": [],
+      "callbackLifetime": "none",
+      "callbackReturn": "void",
+      "callbackProfile": "owned-deferred-job",
+      "resultCodec": "canonical-scalar/1",
+      "authority": {
+        "scope": "filesystem-root",
+        "grant": "host-established",
+        "ownership": "session-and-realm"
+      },
+      "replay": "recorded-observations-only",
+      "retry": "reconcile-before-retry",
+      "cancellation": "abort-signal-and-resource-close",
+      "lifetime": "invocation",
+      "limits": {
+        "arguments": 1,
+        "graphNodes": 256,
+        "graphProperties": 4096,
+        "payloadBytes": 65536,
+        "callbackArguments": 32
+      }
+    },
+    {
+      "operation": "fs.list",
+      "kind": "promise",
+      "signature": "fs.list/1",
+      "arity": 1,
+      "key": 0,
+      "codec": "canonical-json/1",
+      "callbackIndices": [],
+      "callbackLifetime": "none",
+      "callbackReturn": "void",
+      "callbackProfile": "owned-deferred-job",
+      "resultCodec": "canonical-scalar/1",
+      "authority": {
+        "scope": "filesystem-root",
+        "grant": "host-established",
+        "ownership": "session-and-realm"
+      },
+      "replay": "recorded-observations-only",
+      "retry": "host-policy",
+      "cancellation": "abort-signal-and-resource-close",
+      "lifetime": "invocation",
+      "limits": {
+        "arguments": 1,
+        "graphNodes": 256,
+        "graphProperties": 4096,
+        "payloadBytes": 65536,
+        "callbackArguments": 32
+      }
+    },
+    {
+      "operation": "fs.openRead",
+      "kind": "promise",
+      "signature": "fs.openRead/1",
+      "arity": 1,
+      "key": 0,
+      "codec": "canonical-json/1",
+      "callbackIndices": [],
+      "callbackLifetime": "none",
+      "callbackReturn": "void",
+      "callbackProfile": "owned-deferred-job",
+      "resultCodec": "canonical-scalar/1",
+      "authority": {
+        "scope": "filesystem-root",
+        "grant": "host-established",
+        "ownership": "session-and-realm"
+      },
+      "replay": "recorded-observations-only",
+      "retry": "reconcile-before-retry",
+      "cancellation": "abort-signal-and-resource-close",
+      "lifetime": "explicit-owner-and-close",
+      "limits": {
+        "arguments": 1,
+        "graphNodes": 256,
+        "graphProperties": 4096,
+        "payloadBytes": 65536,
+        "callbackArguments": 32
+      }
+    },
+    {
+      "operation": "fs.openWrite",
+      "kind": "promise",
+      "signature": "fs.openWrite/1",
+      "arity": 1,
+      "key": 0,
+      "codec": "canonical-json/1",
+      "callbackIndices": [],
+      "callbackLifetime": "none",
+      "callbackReturn": "void",
+      "callbackProfile": "owned-deferred-job",
+      "resultCodec": "canonical-scalar/1",
+      "authority": {
+        "scope": "filesystem-root",
+        "grant": "host-established",
+        "ownership": "session-and-realm"
+      },
+      "replay": "recorded-observations-only",
+      "retry": "reconcile-before-retry",
+      "cancellation": "abort-signal-and-resource-close",
+      "lifetime": "explicit-owner-and-close",
+      "limits": {
+        "arguments": 1,
+        "graphNodes": 256,
+        "graphProperties": 4096,
+        "payloadBytes": 65536,
+        "callbackArguments": 32
+      }
+    },
+    {
+      "operation": "fs.readChunk",
+      "kind": "promise",
+      "signature": "fs.readChunk/1",
+      "arity": 1,
+      "key": 0,
+      "codec": "canonical-json/1",
+      "callbackIndices": [],
+      "callbackLifetime": "none",
+      "callbackReturn": "void",
+      "callbackProfile": "owned-deferred-job",
+      "resultCodec": "canonical-scalar/1",
+      "authority": {
+        "scope": "filesystem-root",
+        "grant": "host-established",
+        "ownership": "session-and-realm"
+      },
+      "replay": "recorded-observations-only",
+      "retry": "reconcile-before-retry",
+      "cancellation": "abort-signal-and-resource-close",
+      "lifetime": "invocation",
+      "limits": {
+        "arguments": 1,
+        "graphNodes": 256,
+        "graphProperties": 4096,
+        "payloadBytes": 65536,
+        "callbackArguments": 32
+      }
+    },
+    {
+      "operation": "fs.readText",
+      "kind": "promise",
+      "signature": "fs.readText/1",
+      "arity": 1,
+      "key": 0,
+      "codec": "canonical-json/1",
+      "callbackIndices": [],
+      "callbackLifetime": "none",
+      "callbackReturn": "void",
+      "callbackProfile": "owned-deferred-job",
+      "resultCodec": "canonical-scalar/1",
+      "authority": {
+        "scope": "filesystem-root",
+        "grant": "host-established",
+        "ownership": "session-and-realm"
+      },
+      "replay": "recorded-observations-only",
+      "retry": "host-policy",
+      "cancellation": "abort-signal-and-resource-close",
+      "lifetime": "invocation",
+      "limits": {
+        "arguments": 1,
+        "graphNodes": 256,
+        "graphProperties": 4096,
+        "payloadBytes": 65536,
+        "callbackArguments": 32
+      }
+    },
+    {
+      "operation": "fs.writeChunk",
+      "kind": "promise",
+      "signature": "fs.writeChunk/1",
+      "arity": 2,
+      "key": 0,
+      "codec": "canonical-json/1",
+      "callbackIndices": [],
+      "callbackLifetime": "none",
+      "callbackReturn": "void",
+      "callbackProfile": "owned-deferred-job",
+      "resultCodec": "canonical-scalar/1",
+      "authority": {
+        "scope": "filesystem-root",
+        "grant": "host-established",
+        "ownership": "session-and-realm"
+      },
+      "replay": "recorded-observations-only",
+      "retry": "reconcile-before-retry",
+      "cancellation": "abort-signal-and-resource-close",
+      "lifetime": "invocation",
+      "limits": {
+        "arguments": 2,
+        "graphNodes": 256,
+        "graphProperties": 4096,
+        "payloadBytes": 65536,
+        "callbackArguments": 32
+      }
+    },
+    {
+      "operation": "fs.writeText",
+      "kind": "promise",
+      "signature": "fs.writeText/1",
+      "arity": 2,
+      "key": 0,
+      "codec": "canonical-json/1",
+      "callbackIndices": [],
+      "callbackLifetime": "none",
+      "callbackReturn": "void",
+      "callbackProfile": "owned-deferred-job",
+      "resultCodec": "canonical-scalar/1",
+      "authority": {
+        "scope": "filesystem-root",
+        "grant": "host-established",
+        "ownership": "session-and-realm"
+      },
+      "replay": "recorded-observations-only",
+      "retry": "reconcile-before-retry",
+      "cancellation": "abort-signal-and-resource-close",
+      "lifetime": "invocation",
+      "limits": {
+        "arguments": 2,
+        "graphNodes": 256,
+        "graphProperties": 4096,
+        "payloadBytes": 65536,
+        "callbackArguments": 32
+      }
+    },
+    {
+      "operation": "http.abort",
+      "kind": "promise",
+      "signature": "http.abort/1",
+      "arity": 1,
+      "key": 0,
+      "codec": "canonical-json/1",
+      "callbackIndices": [],
+      "callbackLifetime": "none",
+      "callbackReturn": "void",
+      "callbackProfile": "owned-deferred-job",
+      "resultCodec": "canonical-scalar/1",
+      "authority": {
+        "scope": "origin",
+        "grant": "host-established",
+        "ownership": "session-and-realm"
+      },
+      "replay": "recorded-observations-only",
+      "retry": "reconcile-before-retry",
+      "cancellation": "abort-signal-and-resource-close",
+      "lifetime": "invocation",
+      "limits": {
+        "arguments": 1,
+        "graphNodes": 256,
+        "graphProperties": 4096,
+        "payloadBytes": 65536,
+        "callbackArguments": 32
+      }
+    },
+    {
+      "operation": "http.get",
+      "kind": "promise",
+      "signature": "http.get/1",
+      "arity": 1,
+      "key": 0,
+      "codec": "canonical-json/1",
+      "callbackIndices": [],
+      "callbackLifetime": "none",
+      "callbackReturn": "void",
+      "callbackProfile": "owned-deferred-job",
+      "resultCodec": "canonical-scalar/1",
+      "authority": {
+        "scope": "origin",
+        "grant": "host-established",
+        "ownership": "session-and-realm"
+      },
+      "replay": "recorded-observations-only",
+      "retry": "host-policy",
+      "cancellation": "abort-signal-and-resource-close",
+      "lifetime": "explicit-owner-and-close",
+      "limits": {
+        "arguments": 1,
+        "graphNodes": 256,
+        "graphProperties": 4096,
+        "payloadBytes": 65536,
+        "callbackArguments": 32
+      }
+    },
+    {
+      "operation": "http.post",
+      "kind": "promise",
+      "signature": "http.post/1",
+      "arity": 2,
+      "key": 0,
+      "codec": "canonical-json/1",
+      "callbackIndices": [],
+      "callbackLifetime": "none",
+      "callbackReturn": "void",
+      "callbackProfile": "owned-deferred-job",
+      "resultCodec": "canonical-scalar/1",
+      "authority": {
+        "scope": "origin",
+        "grant": "host-established",
+        "ownership": "session-and-realm"
+      },
+      "replay": "recorded-observations-only",
+      "retry": "reconcile-before-retry",
+      "cancellation": "abort-signal-and-resource-close",
+      "lifetime": "explicit-owner-and-close",
+      "limits": {
+        "arguments": 2,
+        "graphNodes": 256,
+        "graphProperties": 4096,
+        "payloadBytes": 65536,
+        "callbackArguments": 32
+      }
+    },
+    {
+      "operation": "http.request",
+      "kind": "promise",
+      "signature": "http.request/1",
+      "arity": 4,
+      "key": 0,
+      "codec": "canonical-json/1",
+      "callbackIndices": [],
+      "callbackLifetime": "none",
+      "callbackReturn": "void",
+      "callbackProfile": "owned-deferred-job",
+      "resultCodec": "canonical-scalar/1",
+      "authority": {
+        "scope": "origin",
+        "grant": "host-established",
+        "ownership": "session-and-realm"
+      },
+      "replay": "recorded-observations-only",
+      "retry": "reconcile-before-retry",
+      "cancellation": "abort-signal-and-resource-close",
+      "lifetime": "explicit-owner-and-close",
+      "limits": {
+        "arguments": 4,
+        "graphNodes": 256,
+        "graphProperties": 4096,
+        "payloadBytes": 65536,
+        "callbackArguments": 32
+      }
+    },
+    {
+      "operation": "http.responseClose",
+      "kind": "promise",
+      "signature": "http.responseClose/1",
+      "arity": 1,
+      "key": 0,
+      "codec": "canonical-json/1",
+      "callbackIndices": [],
+      "callbackLifetime": "none",
+      "callbackReturn": "void",
+      "callbackProfile": "owned-deferred-job",
+      "resultCodec": "canonical-scalar/1",
+      "authority": {
+        "scope": "origin",
+        "grant": "host-established",
+        "ownership": "session-and-realm"
+      },
+      "replay": "recorded-observations-only",
+      "retry": "reconcile-before-retry",
+      "cancellation": "abort-signal-and-resource-close",
+      "lifetime": "invocation",
+      "limits": {
+        "arguments": 1,
+        "graphNodes": 256,
+        "graphProperties": 4096,
+        "payloadBytes": 65536,
+        "callbackArguments": 32
+      }
+    },
+    {
+      "operation": "http.responseHeaders",
+      "kind": "promise",
+      "signature": "http.responseHeaders/1",
+      "arity": 1,
+      "key": 0,
+      "codec": "canonical-json/1",
+      "callbackIndices": [],
+      "callbackLifetime": "none",
+      "callbackReturn": "void",
+      "callbackProfile": "owned-deferred-job",
+      "resultCodec": "canonical-scalar/1",
+      "authority": {
+        "scope": "origin",
+        "grant": "host-established",
+        "ownership": "session-and-realm"
+      },
+      "replay": "recorded-observations-only",
+      "retry": "host-policy",
+      "cancellation": "abort-signal-and-resource-close",
+      "lifetime": "invocation",
+      "limits": {
+        "arguments": 1,
+        "graphNodes": 256,
+        "graphProperties": 4096,
+        "payloadBytes": 65536,
+        "callbackArguments": 32
+      }
+    },
+    {
+      "operation": "http.responseRead",
+      "kind": "promise",
+      "signature": "http.responseRead/1",
+      "arity": 1,
+      "key": 0,
+      "codec": "canonical-json/1",
+      "callbackIndices": [],
+      "callbackLifetime": "none",
+      "callbackReturn": "void",
+      "callbackProfile": "owned-deferred-job",
+      "resultCodec": "canonical-scalar/1",
+      "authority": {
+        "scope": "origin",
+        "grant": "host-established",
+        "ownership": "session-and-realm"
+      },
+      "replay": "recorded-observations-only",
+      "retry": "reconcile-before-retry",
+      "cancellation": "abort-signal-and-resource-close",
+      "lifetime": "invocation",
+      "limits": {
+        "arguments": 1,
+        "graphNodes": 256,
+        "graphProperties": 4096,
+        "payloadBytes": 65536,
+        "callbackArguments": 32
+      }
+    },
+    {
+      "operation": "http.responseReadChunk",
+      "kind": "promise",
+      "signature": "http.responseReadChunk/1",
+      "arity": 1,
+      "key": 0,
+      "codec": "canonical-json/1",
+      "callbackIndices": [],
+      "callbackLifetime": "none",
+      "callbackReturn": "void",
+      "callbackProfile": "owned-deferred-job",
+      "resultCodec": "canonical-scalar/1",
+      "authority": {
+        "scope": "origin",
+        "grant": "host-established",
+        "ownership": "session-and-realm"
+      },
+      "replay": "recorded-observations-only",
+      "retry": "reconcile-before-retry",
+      "cancellation": "abort-signal-and-resource-close",
+      "lifetime": "invocation",
+      "limits": {
+        "arguments": 1,
+        "graphNodes": 256,
+        "graphProperties": 4096,
+        "payloadBytes": 65536,
+        "callbackArguments": 32
+      }
+    },
+    {
+      "operation": "http.responseState",
+      "kind": "promise",
+      "signature": "http.responseState/1",
+      "arity": 1,
+      "key": 0,
+      "codec": "canonical-json/1",
+      "callbackIndices": [],
+      "callbackLifetime": "none",
+      "callbackReturn": "void",
+      "callbackProfile": "owned-deferred-job",
+      "resultCodec": "canonical-scalar/1",
+      "authority": {
+        "scope": "origin",
+        "grant": "host-established",
+        "ownership": "session-and-realm"
+      },
+      "replay": "recorded-observations-only",
+      "retry": "host-policy",
+      "cancellation": "abort-signal-and-resource-close",
+      "lifetime": "invocation",
+      "limits": {
+        "arguments": 1,
+        "graphNodes": 256,
+        "graphProperties": 4096,
+        "payloadBytes": 65536,
+        "callbackArguments": 32
+      }
+    },
+    {
+      "operation": "http.responseStatus",
+      "kind": "promise",
+      "signature": "http.responseStatus/1",
+      "arity": 1,
+      "key": 0,
+      "codec": "canonical-json/1",
+      "callbackIndices": [],
+      "callbackLifetime": "none",
+      "callbackReturn": "void",
+      "callbackProfile": "owned-deferred-job",
+      "resultCodec": "canonical-scalar/1",
+      "authority": {
+        "scope": "origin",
+        "grant": "host-established",
+        "ownership": "session-and-realm"
+      },
+      "replay": "recorded-observations-only",
+      "retry": "host-policy",
+      "cancellation": "abort-signal-and-resource-close",
+      "lifetime": "invocation",
+      "limits": {
+        "arguments": 1,
+        "graphNodes": 256,
+        "graphProperties": 4096,
+        "payloadBytes": 65536,
+        "callbackArguments": 32
+      }
+    },
+    {
+      "operation": "natlang.call",
+      "kind": "promise",
+      "signature": "natlang.call/1",
+      "arity": 3,
+      "key": 0,
+      "codec": "owned-graph/1",
+      "callbackGraph": true,
+      "callbackIndices": [],
+      "callbackLifetime": "none",
+      "callbackReturn": "promise",
+      "callbackProfile": "owned-async-reentry",
+      "resultCodec": "owned-graph/1",
+      "authority": {
+        "scope": "registered-resource",
+        "grant": "host-established",
+        "ownership": "session-and-realm"
+      },
+      "replay": "recorded-observations-only",
+      "retry": "reconcile-before-retry",
+      "cancellation": "abort-signal-and-resource-close",
+      "lifetime": "invocation",
+      "limits": {
+        "arguments": 3,
+        "graphNodes": 256,
+        "graphProperties": 4096,
+        "payloadBytes": 65536,
+        "callbackArguments": 32
+      }
+    },
+    {
+      "operation": "natlang.callSync",
+      "kind": "synchronous",
+      "signature": "natlang.callSync/1",
+      "arity": 3,
+      "key": 0,
+      "codec": "owned-graph/1",
+      "callbackGraph": true,
+      "callbackIndices": [],
+      "callbackLifetime": "none",
+      "callbackReturn": "promise",
+      "callbackProfile": "owned-async-reentry",
+      "resultCodec": "owned-graph/1",
+      "authority": {
+        "scope": "registered-resource",
+        "grant": "host-established",
+        "ownership": "session-and-realm"
+      },
+      "replay": "recorded-observations-only",
+      "retry": "reconcile-before-retry",
+      "cancellation": "receipt-only",
+      "lifetime": "invocation",
+      "limits": {
+        "arguments": 3,
+        "graphNodes": 256,
+        "graphProperties": 4096,
+        "payloadBytes": 65536,
+        "callbackArguments": 32
+      }
+    },
+    {
+      "operation": "natlang.readCell",
+      "kind": "synchronous",
+      "signature": "natlang.readCell/1",
+      "arity": 1,
+      "key": 0,
+      "codec": "owned-graph/1",
+      "callbackIndices": [],
+      "callbackLifetime": "none",
+      "callbackReturn": "void",
+      "callbackProfile": "owned-deferred-job",
+      "resultCodec": "owned-graph/1",
+      "authority": {
+        "scope": "registered-resource",
+        "grant": "host-established",
+        "ownership": "session-and-realm"
+      },
+      "replay": "recorded-observations-only",
+      "retry": "host-policy",
+      "cancellation": "receipt-only",
+      "lifetime": "invocation",
+      "limits": {
+        "arguments": 1,
+        "graphNodes": 256,
+        "graphProperties": 4096,
+        "payloadBytes": 65536,
+        "callbackArguments": 32
+      }
+    },
+    {
+      "operation": "natlang.writeCell",
+      "kind": "synchronous",
+      "signature": "natlang.writeCell/1",
+      "arity": 2,
+      "key": 0,
+      "codec": "owned-graph/1",
+      "callbackIndices": [],
+      "callbackLifetime": "none",
+      "callbackReturn": "void",
+      "callbackProfile": "owned-deferred-job",
+      "resultCodec": "owned-graph/1",
+      "authority": {
+        "scope": "registered-resource",
+        "grant": "host-established",
+        "ownership": "session-and-realm"
+      },
+      "replay": "recorded-observations-only",
+      "retry": "reconcile-before-retry",
+      "cancellation": "receipt-only",
+      "lifetime": "invocation",
+      "limits": {
+        "arguments": 2,
+        "graphNodes": 256,
+        "graphProperties": 4096,
+        "payloadBytes": 65536,
+        "callbackArguments": 32
+      }
+    },
+    {
+      "operation": "net.close",
+      "kind": "promise",
+      "signature": "net.close/1",
+      "arity": 1,
+      "key": 0,
+      "codec": "canonical-json/1",
+      "callbackIndices": [],
+      "callbackLifetime": "none",
+      "callbackReturn": "void",
+      "callbackProfile": "owned-deferred-job",
+      "resultCodec": "canonical-scalar/1",
+      "authority": {
+        "scope": "endpoint",
+        "grant": "host-established",
+        "ownership": "session-and-realm"
+      },
+      "replay": "recorded-observations-only",
+      "retry": "reconcile-before-retry",
+      "cancellation": "abort-signal-and-resource-close",
+      "lifetime": "invocation",
+      "limits": {
+        "arguments": 1,
+        "graphNodes": 256,
+        "graphProperties": 4096,
+        "payloadBytes": 65536,
+        "callbackArguments": 32
+      }
+    },
+    {
+      "operation": "net.connect",
+      "kind": "promise",
+      "signature": "net.connect/1",
+      "arity": 2,
+      "key": 0,
+      "codec": "canonical-json/1",
+      "callbackIndices": [],
+      "callbackLifetime": "none",
+      "callbackReturn": "void",
+      "callbackProfile": "owned-deferred-job",
+      "resultCodec": "canonical-scalar/1",
+      "authority": {
+        "scope": "endpoint",
+        "grant": "host-established",
+        "ownership": "session-and-realm"
+      },
+      "replay": "recorded-observations-only",
+      "retry": "reconcile-before-retry",
+      "cancellation": "abort-signal-and-resource-close",
+      "lifetime": "explicit-owner-and-close",
+      "limits": {
+        "arguments": 2,
+        "graphNodes": 256,
+        "graphProperties": 4096,
+        "payloadBytes": 65536,
+        "callbackArguments": 32
+      }
+    },
+    {
+      "operation": "net.read",
+      "kind": "promise",
+      "signature": "net.read/1",
+      "arity": 1,
+      "key": 0,
+      "codec": "canonical-json/1",
+      "callbackIndices": [],
+      "callbackLifetime": "none",
+      "callbackReturn": "void",
+      "callbackProfile": "owned-deferred-job",
+      "resultCodec": "canonical-scalar/1",
+      "authority": {
+        "scope": "endpoint",
+        "grant": "host-established",
+        "ownership": "session-and-realm"
+      },
+      "replay": "recorded-observations-only",
+      "retry": "reconcile-before-retry",
+      "cancellation": "abort-signal-and-resource-close",
+      "lifetime": "invocation",
+      "limits": {
+        "arguments": 1,
+        "graphNodes": 256,
+        "graphProperties": 4096,
+        "payloadBytes": 65536,
+        "callbackArguments": 32
+      }
+    },
+    {
+      "operation": "net.write",
+      "kind": "promise",
+      "signature": "net.write/1",
+      "arity": 2,
+      "key": 0,
+      "codec": "canonical-json/1",
+      "callbackIndices": [],
+      "callbackLifetime": "none",
+      "callbackReturn": "void",
+      "callbackProfile": "owned-deferred-job",
+      "resultCodec": "canonical-scalar/1",
+      "authority": {
+        "scope": "endpoint",
+        "grant": "host-established",
+        "ownership": "session-and-realm"
+      },
+      "replay": "recorded-observations-only",
+      "retry": "reconcile-before-retry",
+      "cancellation": "abort-signal-and-resource-close",
+      "lifetime": "invocation",
+      "limits": {
+        "arguments": 2,
+        "graphNodes": 256,
+        "graphProperties": 4096,
+        "payloadBytes": 65536,
+        "callbackArguments": 32
+      }
+    },
+    {
+      "operation": "platform.console.error",
+      "kind": "synchronous",
+      "signature": "platform.console.error/1",
+      "arity": 1,
+      "key": null,
+      "codec": "canonical-json/1",
+      "callbackIndices": [],
+      "callbackLifetime": "none",
+      "callbackReturn": "void",
+      "callbackProfile": "owned-deferred-job",
+      "resultCodec": "canonical-scalar/1",
+      "authority": {
+        "scope": "embedding",
+        "grant": "host-established",
+        "ownership": "session-and-realm"
+      },
+      "replay": "recorded-observations-only",
+      "retry": "reconcile-before-retry",
+      "cancellation": "receipt-only",
+      "lifetime": "invocation",
+      "limits": {
+        "arguments": 1,
+        "graphNodes": 256,
+        "graphProperties": 4096,
+        "payloadBytes": 65536,
+        "callbackArguments": 32
+      }
+    },
+    {
+      "operation": "platform.console.info",
+      "kind": "synchronous",
+      "signature": "platform.console.info/1",
+      "arity": 1,
+      "key": null,
+      "codec": "canonical-json/1",
+      "callbackIndices": [],
+      "callbackLifetime": "none",
+      "callbackReturn": "void",
+      "callbackProfile": "owned-deferred-job",
+      "resultCodec": "canonical-scalar/1",
+      "authority": {
+        "scope": "embedding",
+        "grant": "host-established",
+        "ownership": "session-and-realm"
+      },
+      "replay": "recorded-observations-only",
+      "retry": "reconcile-before-retry",
+      "cancellation": "receipt-only",
+      "lifetime": "invocation",
+      "limits": {
+        "arguments": 1,
+        "graphNodes": 256,
+        "graphProperties": 4096,
+        "payloadBytes": 65536,
+        "callbackArguments": 32
+      }
+    },
+    {
+      "operation": "platform.console.log",
+      "kind": "synchronous",
+      "signature": "platform.console.log/1",
+      "arity": 1,
+      "key": null,
+      "codec": "canonical-json/1",
+      "callbackIndices": [],
+      "callbackLifetime": "none",
+      "callbackReturn": "void",
+      "callbackProfile": "owned-deferred-job",
+      "resultCodec": "canonical-scalar/1",
+      "authority": {
+        "scope": "embedding",
+        "grant": "host-established",
+        "ownership": "session-and-realm"
+      },
+      "replay": "recorded-observations-only",
+      "retry": "reconcile-before-retry",
+      "cancellation": "receipt-only",
+      "lifetime": "invocation",
+      "limits": {
+        "arguments": 1,
+        "graphNodes": 256,
+        "graphProperties": 4096,
+        "payloadBytes": 65536,
+        "callbackArguments": 32
+      }
+    },
+    {
+      "operation": "platform.console.warn",
+      "kind": "synchronous",
+      "signature": "platform.console.warn/1",
+      "arity": 1,
+      "key": null,
+      "codec": "canonical-json/1",
+      "callbackIndices": [],
+      "callbackLifetime": "none",
+      "callbackReturn": "void",
+      "callbackProfile": "owned-deferred-job",
+      "resultCodec": "canonical-scalar/1",
+      "authority": {
+        "scope": "embedding",
+        "grant": "host-established",
+        "ownership": "session-and-realm"
+      },
+      "replay": "recorded-observations-only",
+      "retry": "reconcile-before-retry",
+      "cancellation": "receipt-only",
+      "lifetime": "invocation",
+      "limits": {
+        "arguments": 1,
+        "graphNodes": 256,
+        "graphProperties": 4096,
+        "payloadBytes": 65536,
+        "callbackArguments": 32
+      }
+    },
+    {
+      "operation": "platform.dateNow",
+      "kind": "synchronous",
+      "signature": "platform.dateNow/1",
+      "arity": 0,
+      "key": null,
+      "codec": "canonical-json/1",
+      "callbackIndices": [],
+      "callbackLifetime": "none",
+      "callbackReturn": "void",
+      "callbackProfile": "owned-deferred-job",
+      "resultCodec": "canonical-scalar/1",
+      "authority": {
+        "scope": "embedding",
+        "grant": "host-established",
+        "ownership": "session-and-realm"
+      },
+      "replay": "recorded-observations-only",
+      "retry": "host-policy",
+      "cancellation": "receipt-only",
+      "lifetime": "invocation",
+      "limits": {
+        "arguments": 0,
+        "graphNodes": 256,
+        "graphProperties": 4096,
+        "payloadBytes": 65536,
+        "callbackArguments": 32
+      }
+    }
+  ]
+}

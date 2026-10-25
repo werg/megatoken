@@ -154,12 +154,37 @@ class TrainConfig:
     model_overrides: dict[str, Any] = field(default_factory=dict)
     allow_byte_codec: bool = False
     allow_unverified_data: bool = False
+    semantic_experiment: dict[str, Any] | None = None
     use_stage_mixture: bool | None = None
     use_effort_mixture: bool | None = None
     engram_import: str | None = None
     engram_imports: list[str] | None = None
 
     def __post_init__(self) -> None:
+        if self.semantic_experiment is not None:
+            from .semantic_budget import SemanticExperimentConfig
+
+            experiment = SemanticExperimentConfig(**self.semantic_experiment)
+            if self.phase not in {"SE", "SC", "SO"}:
+                raise ValueError(
+                    "Semantic experiment budgets require their declared native training stage"
+                )
+            if (self.phase == "SO") != (experiment.representation == "outcome-only"):
+                raise ValueError(
+                    "Outcome-only representation requires SO; SE/SC require interactive semantics"
+                )
+            if self.microbatch_episodes != 1 or self.max_accumulation_windows != 1:
+                raise ValueError(
+                    "Comparable semantic runs use one atomic window per budget decision"
+                )
+            if experiment.regime == "fixed-tokens" and self.max_window_records != 1:
+                raise ValueError(
+                    "Fixed-token experiments require one physical record per atomic window"
+                )
+        elif self.phase in {"SE", "SC", "SO"}:
+            raise ValueError(
+                "Semantic training requires a frozen experiment and engineering-completion receipt"
+            )
         if self.purpose not in {"production", "diagnostic"}:
             raise ValueError("purpose must be production or diagnostic")
         recipe = stage_recipe(self.phase)
@@ -182,6 +207,12 @@ class TrainConfig:
             object.__setattr__(self, "decoupled", DecoupledConfig.from_dict(self.decoupled))
         if self.decoupled is not None and not isinstance(self.decoupled, DecoupledConfig):
             raise ValueError("decoupled must be a settings object or mapping")
+        if (
+            self.semantic_experiment is not None
+            and self.decoupled is not None
+            and self.decoupled.workers != 1
+        ):
+            raise ValueError("Semantic comparison budgets require one explicitly metered worker")
         if self.router_balance_mode != "global":
             raise ValueError(
                 "The local router fairness objective is removed; "

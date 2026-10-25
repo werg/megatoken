@@ -1,0 +1,43 @@
+# Bind admitted artifacts from scripts/prepare_semantic_experiments.py.
+# These examples do not admit launch assets or authorize training.
+# scripts/plan_semantic_training.py materializes the complete frozen comparison matrix.
+phase: SC
+model: 32x512
+datasets:
+- PIN_PREPARED_SEMANTIC_COMMON_EXPLICIT_ROOT
+output: /work/runs/semantic-common
+codec: PIN_PRODUCTION_CODEC_DIRECTORY
+seed: 17
+hindsight_targets: PIN_IMMUTABLE_TEACHER_STRUCTURE_TARGETS
+engram_imports:
+- PIN_DEEPSEEK_DONOR
+- PIN_QWEN_DONOR
+device: auto
+precision: bf16
+microbatch_episodes: 1
+max_accumulation_windows: 1
+max_history_tokens: 16384
+max_window_records: 1
+max_record_bytes: 16384
+generated_capacity: 1024
+checkpoint_every: 100
+eval_windows: 32
+deterministic: true
+decoupled:
+  coordinator_url: https://REPLACE-WITH-COORDINATOR-HOST
+  run_id: PIN_SC_RUN_ID
+  workers: 1
+  local_steps: 256
+  io_workers: 4
+  timeout_seconds: 120
+  max_offline_steps: 2048
+  wire_dtype: bf16
+  worker_id: 0
+semantic_experiment:
+  schema: semantic-training-experiment/4
+  regime: fixed-examples
+  limit: 10000
+  representation: explicit
+  cohort: PIN_FROZEN_COMMON_SUPPORT_COHORT
+  engineering_receipt: PIN_COMPLETE_CROSS_REPOSITORY_ENGINEERING_RECEIPT
+  max_token_overshoot: 65535

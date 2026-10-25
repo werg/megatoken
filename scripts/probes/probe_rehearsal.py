@@ -291,12 +291,15 @@ ROOT_ROLE_HINTS: dict[str, tuple[str, ...]] = {
         "scripts/accept_dynamic_tracks.py",
         "scripts/prepare_execution_traces.py",
     ),
+    "SEMANTIC_COMMON": ("megatoken.data.semantic_corpus:prepare_semantic_corpus",),
+    "SEMANTIC_EFFECTFUL": ("megatoken.data.semantic_corpus:prepare_semantic_corpus",),
+    "SEMANTIC_LIFECYCLE": ("scripts/collect_semantic_lifecycle.py",),
     "TIMED_MEDIA": ("scripts/prepare_timed_media.py", "scripts/prepare_meeting_prefix.py"),
     "CONTEXT_CURRICULUM": ("scripts/prepare_context_tasks.py",),
 }
 # Scripts that really write a prepared root (the others measure, verify or acquire).
 PRODUCER_PREFIXES = ("prepare_", "import_")
-PRODUCER_EXTRA = ("accept_dynamic_tracks.py",)
+PRODUCER_EXTRA = ("accept_dynamic_tracks.py", "collect_semantic_lifecycle.py")
 # Library modules that mention stream names without producing them.
 NOT_PRODUCERS = {
     "recipes.py",

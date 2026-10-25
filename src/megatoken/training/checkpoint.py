@@ -16,7 +16,7 @@ import torch
 
 from megatoken.io import fsync_directory, sha256_file, write_json
 
-FORMAT_VERSION = 16
+FORMAT_VERSION = 18
 
 
 def _pointer(root: Path) -> dict[str, Any] | None:
@@ -274,8 +274,8 @@ def load_checkpoint(
     metadata = json.loads((directory / "metadata.json").read_text())
     if metadata.get("format_version") != FORMAT_VERSION:
         raise ValueError(
-            "Unsupported checkpoint format: v10 carries the transducer bank; "
-            "earlier checkpoints are unsupported"
+            f"Unsupported checkpoint format: expected {FORMAT_VERSION}; "
+            "older checkpoint contracts must be regenerated"
         )
     state_path = directory / "state.pt"
     if sha256_file(state_path) != metadata["state_sha256"]:

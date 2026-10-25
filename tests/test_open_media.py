@@ -50,7 +50,12 @@ from megatoken.data.open_media import (
     video_edit,
     write_audio,
 )
-from megatoken.data.recipes import STREAM_PRODUCERS, resolve_stream_producer, stage_recipe
+from megatoken.data.recipes import (
+    STREAM_PRODUCERS,
+    load_recipes,
+    resolve_stream_producer,
+    stage_recipe,
+)
 from megatoken.data.sources import TermsReview
 
 ffmpeg = pytest.mark.skipif(shutil.which("ffmpeg") is None, reason="needs ffmpeg")
@@ -1039,7 +1044,13 @@ def test_unapproved_sources_are_refused(tmp_path, media):
 def test_every_stream_this_module_emits_is_in_the_stage_plan():
     assert STREAMS <= set(stage_recipe("P1").mixture)
     assert STREAMS <= TASK_FAMILIES | {"audio_identity", "image_identity", "video_identity"}
-    assert set(STREAM_PRODUCERS) <= set(stage_recipe("P1").mixture)
+
+
+def test_registered_producers_belong_to_their_declared_stages():
+    stages = {phase: set(stage_recipe(phase).mixture) for phase in load_recipes()["phases"]}
+    assert set(STREAM_PRODUCERS) <= set().union(*stages.values())
+    assert "semantic_execution" not in stages["P1"]
+    assert all(stages[phase] == {"semantic_execution"} for phase in ("SC", "SE", "SO"))
     assert all(callable(resolve_stream_producer(stream)) for stream in STREAM_PRODUCERS)
 
 

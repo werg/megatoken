@@ -8,6 +8,7 @@ an update.
 
 from __future__ import annotations
 
+import json
 import os
 import shutil
 import signal
@@ -133,6 +134,19 @@ def prepare_batches(
     }
     for item in windows:
         episode = item.episode
+        if config.semantic_experiment is not None:
+            from .semantic_budget import validate_semantic_episode, validate_semantic_geometry
+
+            validate_semantic_episode(
+                episode,
+                phase=config.phase,
+                representation=config.semantic_experiment["representation"],
+            )
+            validate_semantic_geometry(
+                episode,
+                max_history=model.config.max_history_chunks,
+                max_positions=model.config.max_capacity,
+            )
         if not episode.meridians:
             raise ValueError(
                 "Training requires causal native meridians; reprepare this old ungrouped episode"
@@ -274,6 +288,7 @@ def _resume_compatible(old: dict[str, Any], config: TrainConfig, phase_transitio
             "text_anchor_weight",
             "hindsight_targets",
             "hindsight_distill_weight",
+            "semantic_experiment",
         )
     for key in critical:
         if key not in old or old[key] != current[key]:
@@ -287,6 +302,19 @@ def train(
     config: TrainConfig, *, resume: str | None = None, phase_transition: bool = False
 ) -> dict[str, Any]:
     from megatoken.data.recipes import validate_training_donors
+    from megatoken.training.semantic_budget import (
+        SemanticExperimentConfig,
+        SemanticExposure,
+        restore_semantic_training_state,
+        semantic_training_state,
+    )
+
+    experiment = (
+        SemanticExperimentConfig(**config.semantic_experiment)
+        if config.semantic_experiment
+        else None
+    )
+    cohort_digest = experiment.preflight(phase=config.phase) if experiment else None
 
     validate_training_donors(config)
     if phase_transition and not resume:
@@ -299,6 +327,9 @@ def train(
             "Decoupled learners require one independent process per sandbox, not torchrun"
         )
     context = DistributedContext.initialize(config.device)
+    if experiment is not None and context.world_size != 1:
+        context.close()
+        raise ValueError("Semantic experiment budgets require one explicitly metered native rank")
     output = Path(config.output)
     if config.decoupled is not None:
         output = output / f"worker-{config.decoupled.resolved_worker_id:02d}"
@@ -358,6 +389,20 @@ def train(
         dataset = PreparedCorpus(config.datasets)
         if dataset.codec_fingerprint != codec.fingerprint:
             raise ValueError("Prepared datasets use a different codec")
+        if experiment is not None:
+            from .semantic_budget import validate_stage_supply
+
+            engineering = json.loads(Path(experiment.engineering_receipt).read_text())
+            validate_stage_supply(
+                config.datasets,
+                phase=config.phase,
+                representation=experiment.representation,
+                codec=codec,
+                producer_revision=engineering["repositories"]["tracing-js-self"],
+                consumer_revision=engineering["repositories"]["megatoken"],
+                max_history=model_config.max_history_chunks,
+                max_positions=model_config.max_capacity,
+            )
         if dataset.extractor not in (None, model_config.media_extractor):
             raise ValueError(
                 f"Prepared features come from teacher {dataset.extractor!r}, "
@@ -668,6 +713,7 @@ def train(
         global_step = 0
         consumed = 0
         counters = Counters()
+        exposure = SemanticExposure() if experiment is not None else None
         if payload is not None:
             optimizer.load_state_dict(payload["optimizer"], new=new_owners)
             if diloco is not None:
@@ -687,6 +733,7 @@ def train(
                 restore_rng(rank_state["rng"])
                 consumed = payload["phase_consumed"]
                 counters = Counters(**payload["counters"])
+                exposure = restore_semantic_training_state(payload, cohort_digest=cohort_digest)
             else:
                 seed_everything(config.seed + data_rank, config.deterministic)
         else:
@@ -760,6 +807,7 @@ def train(
                             "global_step": global_step,
                             "phase_consumed": consumed,
                             "counters": asdict(counters),
+                            **semantic_training_state(exposure, cohort_digest=cohort_digest),
                         }
                     )
                     metadata = {
@@ -811,6 +859,7 @@ def train(
             consumed < phase.budget
             and (diloco is None or not diloco.finished)
             and (config.max_steps is None or updates_this_run < config.max_steps)
+            and (experiment is None or not exposure.finished(experiment))
         ):
             started = time.perf_counter()
             selected = []
@@ -985,6 +1034,27 @@ def train(
             if context.device.type == "cuda":
                 torch.cuda.synchronize(context.device)
             elapsed = time.perf_counter() - started
+            if exposure is not None:
+                exposure.consume(
+                    **context.sum_counts(
+                        {
+                            "examples": sum(int(item.episode_end) for item in selected),
+                            "generatedTokens": sum(
+                                record.tokens
+                                for item in selected
+                                for record in item.window.records
+                                if record.record.policy_mask
+                            ),
+                            "observedTokens": sum(
+                                record.tokens
+                                for item in selected
+                                for record in item.window.records
+                                if not record.record.policy_mask
+                            ),
+                        }
+                    ),
+                    computeSeconds=elapsed,
+                )
             if global_step % config.log_every == 0:
                 gathered = context.all_gather_object(materialize_scalars(step_diagnostics))
                 diagnostics_global = {
@@ -1051,6 +1121,7 @@ def train(
                     generator=diagnostics_global,
                     experts=dispatch_summary(dispatch),
                     budget_overshoot=max(0, consumed - phase.budget),
+                    **semantic_training_state(exposure, cohort_digest=cohort_digest),
                     **rates(global_work, elapsed),
                     **step_metrics,
                 )
@@ -1120,7 +1191,14 @@ def train(
             else "step_limit",
             "checkpoint": last_checkpoint,
             "counters": asdict(counters),
+            **semantic_training_state(exposure, cohort_digest=cohort_digest),
         }
+        if experiment is not None:
+            result["experiment_budget"] = exposure.receipt(
+                experiment, seed=config.seed, checkpoint_identity=None, cohort_digest=cohort_digest
+            )
+            if exposure.finished(experiment):
+                result.update(complete=True, termination="experiment_budget")
         logger.log("finished", **result)
         return result
     finally:

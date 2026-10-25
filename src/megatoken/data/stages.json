@@ -562,6 +562,112 @@
         "qwen3.8-flash-next"
       ],
       "previous_phase": "S"
+    },
+    "SE": {
+      "meter": "P",
+      "limit": 200000000,
+      "mixture": {
+        "semantic_execution": 1.0
+      },
+      "effort_mix": {
+        "6": 0.6,
+        "3": 0.25,
+        "2": 0.1,
+        "1": 0.05
+      },
+      "constraints": {
+        "required_behaviors": {
+          "semantic_code_invocation": 1,
+          "semantic_tool_feedback": 1,
+          "semantic_async": 1,
+          "semantic_callback": 1,
+          "semantic_repeated_invocation": 1,
+          "semantic_child": 1,
+          "semantic_source_reread": 1,
+          "semantic_recovery": 1
+        }
+      },
+      "learning_rate": {
+        "peak_lr": 1e-05,
+        "warmup_fraction": 0.02,
+        "decay_fraction": 0.1,
+        "start_ratio": 0.1,
+        "final_ratio": 0.2
+      },
+      "training": {
+        "scored_decisions": 8
+      },
+      "required_donor_profiles": [
+        "deepseek-v4.1-flash-1017",
+        "qwen3.8-flash-next"
+      ],
+      "previous_phase": "S"
+    },
+    "SC": {
+      "meter": "P",
+      "limit": 200000000,
+      "mixture": {
+        "semantic_execution": 1.0
+      },
+      "effort_mix": {
+        "6": 0.6,
+        "3": 0.25,
+        "2": 0.1,
+        "1": 0.05
+      },
+      "constraints": {
+        "required_behaviors": {
+          "semantic_code_invocation": 1
+        }
+      },
+      "learning_rate": {
+        "peak_lr": 1e-05,
+        "warmup_fraction": 0.02,
+        "decay_fraction": 0.1,
+        "start_ratio": 0.1,
+        "final_ratio": 0.2
+      },
+      "training": {
+        "scored_decisions": 8
+      },
+      "required_donor_profiles": [
+        "deepseek-v4.1-flash-1017",
+        "qwen3.8-flash-next"
+      ],
+      "previous_phase": "S"
+    },
+    "SO": {
+      "meter": "P",
+      "limit": 200000000,
+      "mixture": {
+        "semantic_execution": 1.0
+      },
+      "effort_mix": {
+        "6": 0.6,
+        "3": 0.25,
+        "2": 0.1,
+        "1": 0.05
+      },
+      "constraints": {
+        "required_behaviors": {
+          "semantic_outcome_control": 1
+        }
+      },
+      "learning_rate": {
+        "peak_lr": 1e-05,
+        "warmup_fraction": 0.02,
+        "decay_fraction": 0.1,
+        "start_ratio": 0.1,
+        "final_ratio": 0.2
+      },
+      "training": {
+        "scored_decisions": 8
+      },
+      "required_donor_profiles": [
+        "deepseek-v4.1-flash-1017",
+        "qwen3.8-flash-next"
+      ],
+      "previous_phase": "S"
     }
   },
   "collection_pilot": {

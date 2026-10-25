@@ -6,6 +6,7 @@ pytorch-errorfile-*
 validation/
 .ruff_cache/
 .venv/
+.validation/
 *.egg-info/
 build/
 dist/

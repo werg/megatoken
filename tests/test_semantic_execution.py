@@ -1,4 +1,4 @@
-"""Native semantic-execution/3 importer and loss-boundary contract."""
+"""Native semantic-execution/4 importer and loss-boundary contract."""
 
 from __future__ import annotations
 
@@ -57,9 +57,9 @@ def fixture():
     ]
     return {
         "public": {
-            "schema": "semantic-execution/3",
-            "traceFormat": "semantic-trace/3",
-            "contextFormat": "semantic-context/3",
+            "schema": "semantic-execution/4",
+            "traceFormat": "semantic-trace/4",
+            "contextFormat": "semantic-context/4",
             "profile": "training-js/1",
             "completionPolicy": "immediate-root",
             "groups": [
