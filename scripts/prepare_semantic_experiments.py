@@ -6,6 +6,7 @@ The same selected-harness/2 reasoning trace is used for every source family,
 native admission, serving and training. No legacy representation comparisons.
 No optimizer is created.
 """
+
 from __future__ import annotations
 
 import argparse
