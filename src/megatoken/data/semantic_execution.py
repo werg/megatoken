@@ -81,11 +81,34 @@ def _host_request(fields: dict[str, Any]) -> tuple[list[Any], str]:
         "demo.readNumber": ("demo.readNumber/1", 1, 0),
         "demo.readAsync": ("demo.readAsync/1", 1, 0),
         "demo.store": ("demo.store/1", 2, 0),
+        "demo.withCallback": ("demo.withCallback/1", 2, 0),
+        "demo.listen": ("demo.listen/1", 2, 0),
+        "demo.unlisten": ("demo.unlisten/1", 1, 0),
         "platform.dateNow": ("platform.dateNow/1", 0, None),
         "platform.console.log": ("platform.console.log/1", 1, 0),
         "platform.console.info": ("platform.console.info/1", 1, 0),
         "platform.console.warn": ("platform.console.warn/1", 1, 0),
         "platform.console.error": ("platform.console.error/1", 1, 0),
+        "http.get": ("http.get/1", 1, 0),
+        "http.post": ("http.post/1", 2, 0),
+        "http.responseStatus": ("http.responseStatus/1", 1, 0),
+        "http.responseRead": ("http.responseRead/1", 1, 0),
+        "http.responseClose": ("http.responseClose/1", 1, 0),
+        "http.abort": ("http.abort/1", 1, 0),
+        "fs.readText": ("fs.readText/1", 1, 0),
+        "fs.writeText": ("fs.writeText/1", 2, 0),
+        "fs.list": ("fs.list/1", 1, 0),
+        "fs.openRead": ("fs.openRead/1", 1, 0),
+        "fs.readChunk": ("fs.readChunk/1", 1, 0),
+        "fs.close": ("fs.close/1", 1, 0),
+        "net.connect": ("net.connect/1", 2, 0),
+        "net.write": ("net.write/1", 2, 0),
+        "net.read": ("net.read/1", 1, 0),
+        "net.close": ("net.close/1", 1, 0),
+    }
+    callback_slots = {
+        "demo.withCallback": {1},
+        "demo.listen": {1},
     }
     if operation not in signatures:
         _fail("Unregistered v3 effect capability")
@@ -94,9 +117,19 @@ def _host_request(fields: dict[str, Any]) -> tuple[list[Any], str]:
     if not isinstance(supplied, list) or len(supplied) != count:
         _fail("Invalid v3 effect argument arity")
     values: list[Any] = []
-    for tag in supplied:
+    for index, tag in enumerate(supplied):
         if not isinstance(tag, list) or not tag:
             _fail("Invalid external scalar")
+        if index in callback_slots.get(operation, set()):
+            if (
+                len(tag) != 2
+                or tag[0] != "ref"
+                or not isinstance(tag[1], str)
+                or not re.fullmatch(r"[a-z][a-z0-9]*", tag[1])
+            ):
+                _fail("Callback slot must reference an owned guest closure")
+            values.append({"$ownedCallback": tag[1]})
+            continue
         if tag[0] == "str" and len(tag) == 2 and isinstance(tag[1], str):
             values.append(tag[1])
         elif tag[0] == "num" and len(tag) == 2 and type(tag[1]) in (int, float):
