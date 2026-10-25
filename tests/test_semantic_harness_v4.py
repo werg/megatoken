@@ -293,3 +293,82 @@ def test_no_unadmitted_trajectory_can_be_labeled_success():
     doc["sidecar"]["referenceStatus"] = "agreed"
     with pytest.raises(SelectedHarnessError):
         adapt_selected_harness_v4(doc, admission_verifier=lambda _: False)
+
+def event_fixture():
+    doc = fixture()
+    program = doc["public"]["timeline"][0]
+    timeline = [program]
+    owners = {"host": 1}
+
+    def add(kind, mode, track, **fields):
+        owners[track] = owners.get(track, 0) + 1
+        timeline.append({
+            "schema": "semantic-execution/4",
+            "session": "session1",
+            "sequence": len(timeline) + 1,
+            "ownerSequence": owners[track],
+            "track": track,
+            "mode": mode,
+            "kind": kind,
+            **fields,
+        })
+
+    add(
+        "handler", "observed", "host", subscriptionId="sub1",
+        programId="p", entry="run", realmId="realm1",
+        trackId="worker:0", realmPolicy="retained", queueLimit=8,
+    )
+    for index in (1, 2):
+        invocation_id = f"event{index}"
+        event_id = f"e{index}"
+        trigger = f"event:sub1:{event_id}"
+        add(
+            "event", "observed", "worker:0", subscriptionId="sub1",
+            eventId=event_id, invocationId=invocation_id,
+            triggerId=trigger, programId="p", realmId="realm1",
+        )
+        add(
+            "invocation", "observed", "worker:0", programId="p",
+            invocationId=invocation_id, realmId="realm1",
+            triggerId=trigger, entry="run", sourceDigest=program["digest"],
+            completionPolicy="immediate-root", realmPolicy="retained",
+            inputGraph={"roots": [["num", index]], "objects": []},
+        )
+        add(
+            "semantic", "generated", "worker:0", invocationId=invocation_id,
+            traceFormat="semantic-trace/3",
+            line=line("return", {"value": ["num", index]}),
+        )
+        add(
+            "semantic", "generated", "worker:0", invocationId=invocation_id,
+            traceFormat="semantic-trace/3",
+            line=line("end", {"kind": "return"}),
+        )
+    add("handler-close", "observed", "host", subscriptionId="sub1", discarded=[])
+    doc["public"]["timeline"] = timeline
+    return doc
+
+
+def test_subscription_events_are_distinct_observations_and_share_retained_realm():
+    episode, receipt = adapt_selected_harness_v4(event_fixture(), allow_local=True)
+    assert receipt.invocations == 2
+    assert receipt.observations == 7
+    assert receipt.actions == 0
+    assert sum(record.policy_mask for record in episode.records) == 4
+    assert [event.track_id for meridian in episode.meridians
+            for event in meridian.events].count("worker:0") == 8
+
+
+@pytest.mark.parametrize("change", [
+    lambda d: d["public"]["timeline"][6].update(eventId="e1"),
+    lambda d: d["public"]["timeline"][6].update(triggerId="forged"),
+    lambda d: d["public"]["timeline"][7].update(realmPolicy="fresh"),
+    lambda d: d["public"]["timeline"][7].update(sourceDigest="b" * 64),
+    lambda d: d["public"]["timeline"][7].update(programId="unknown"),
+    lambda d: d["public"]["timeline"][10].update(subscriptionId="wrong"),
+])
+def test_event_duplicate_wrong_owner_and_realm_changes_reject(change):
+    doc = event_fixture()
+    change(doc)
+    with pytest.raises(SelectedHarnessError):
+        adapt_selected_harness_v4(doc, allow_local=True)
