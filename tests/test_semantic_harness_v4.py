@@ -9,7 +9,8 @@ import pytest
 from megatoken.data import WindowConfig, iter_windows
 from megatoken.data.schema import Episode
 from megatoken.data.semantic_harness_v4 import (
-    SelectedHarnessError, adapt_selected_harness_v4,
+    SelectedHarnessError,
+    adapt_selected_harness_v4,
 )
 from megatoken.generation.codec import ByteCodec
 
@@ -137,7 +138,6 @@ def test_program_once_and_more_than_eight_lifetime_tracks():
     # Repeated independent invocations reuse exactly one source publication.
     original = rows[1].copy()
     rows[:] = [rows[0]]
-    owners = {"host": 1}
     for index in range(10):
         inv = f"call{index}"
         track = f"worker:{index}"
