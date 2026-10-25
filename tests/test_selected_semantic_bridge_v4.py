@@ -31,9 +31,7 @@ def group_and_session(line=None):
         meridian_id=3,
     )
     group = SimpleNamespace(tape=tape)
-    session = SimpleNamespace(
-        lock=RLock(), selected_groups={1: group}, tool_routes={}
-    )
+    session = SimpleNamespace(lock=RLock(), selected_groups={1: group}, tool_routes={})
     return group, session
 
 
@@ -68,36 +66,49 @@ def test_validated_selected_request_has_single_stable_native_action_and_route():
             and fields["site"] == {"start": 12, "end": 31}
         )
     submitted = runtime.dispatch_semantic_requests(
-        session, group, runner, {"demo.readAsync": adapter},
+        session,
+        group,
+        runner,
+        {"demo.readAsync": adapter},
         verify_source=verifier,
     )
     assert submitted == ("3:semantic-event1",)
-    assert session.tool_routes == {
-        "3:semantic-event1": ("worker:17", "semantic-event1")
-    }
+    assert session.tool_routes == {"3:semantic-event1": ("worker:17", "semantic-event1")}
     assert adapter.calls == []
     assert runner.submitted[submitted[0]]() == b'{"status":"fulfilled","value":7}'
     assert adapter.calls == [(submitted[0], witness())]
-    assert runtime.dispatch_semantic_requests(
-        session, group, runner, {"demo.readAsync": adapter},
-        verify_source=verifier,
-    ) == ()
+    assert (
+        runtime.dispatch_semantic_requests(
+            session,
+            group,
+            runner,
+            {"demo.readAsync": adapter},
+            verify_source=verifier,
+        )
+        == ()
+    )
     assert len(runner.submitted) == 1
     assert len(adapter.calls) == 1
 
 
-@pytest.mark.parametrize("line", [
-    witness(payload='["forged"]'),
-    b"request {\"effect\":",
-    witness(effect="fx1").replace(b'"invocation":"i1"', b'"invocation":"broken-name"'),
-])
+@pytest.mark.parametrize(
+    "line",
+    [
+        witness(payload='["forged"]'),
+        b'request {"effect":',
+        witness(effect="fx1").replace(b'"invocation":"i1"', b'"invocation":"broken-name"'),
+    ],
+)
 def test_malformed_or_ungrounded_request_cannot_submit(line):
     group, session = group_and_session(line)
     runner = Runner()
     runtime = object.__new__(MultiTrackRuntime)
     with pytest.raises(ValueError):
         runtime.dispatch_semantic_requests(
-            session, group, runner, {"demo.readAsync": SelectedAdapter()},
+            session,
+            group,
+            runner,
+            {"demo.readAsync": SelectedAdapter()},
             verify_source=lambda track, fields: True,
         )
     assert runner.submitted == {}
@@ -110,11 +121,18 @@ def test_untrusted_source_verification_and_missing_adapter_refuse_dispatch():
     runner = Runner()
     with pytest.raises(ValueError, match="source"):
         runtime.dispatch_semantic_requests(
-            session, group, runner, {"demo.readAsync": SelectedAdapter()},
+            session,
+            group,
+            runner,
+            {"demo.readAsync": SelectedAdapter()},
             verify_source=lambda track, fields: False,
         )
     with pytest.raises(ValueError, match="adapter"):
         runtime.dispatch_semantic_requests(
-            session, group, runner, {}, verify_source=lambda track, fields: True,
+            session,
+            group,
+            runner,
+            {},
+            verify_source=lambda track, fields: True,
         )
     assert runner.submitted == {}
