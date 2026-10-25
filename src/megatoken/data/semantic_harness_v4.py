@@ -51,8 +51,11 @@ def _fail(message: str) -> None:
 
 
 def _ident(value: Any) -> bool:
-    return isinstance(value, str) and bool(value) and value[0].islower() and all(
-        c.isascii() and (c.islower() or c.isdigit() or c in ":_-") for c in value
+    return (
+        isinstance(value, str)
+        and bool(value)
+        and value[0].islower()
+        and all(c.isascii() and (c.islower() or c.isdigit() or c in ":_-") for c in value)
     )
 
 
@@ -146,9 +149,7 @@ def adapt_selected_harness_v4(
         result_of = None
         execution_id = None
         if kind == "program":
-            name, source, digest = (
-                item.get("programId"), item.get("source"), item.get("digest")
-            )
+            name, source, digest = (item.get("programId"), item.get("source"), item.get("digest"))
             if (
                 track != "host"
                 or not _ident(name)
@@ -181,7 +182,9 @@ def adapt_selected_harness_v4(
             except WitnessV3Error as error:
                 raise SelectedHarnessError(str(error)) from error
             activations[invocation_id] = {
-                "program": program_id, "track": track, "terminal": False,
+                "program": program_id,
+                "track": track,
+                "terminal": False,
                 "returned": False,
             }
         elif kind == "semantic":
@@ -189,7 +192,14 @@ def adapt_selected_harness_v4(
             if not activation or activation["terminal"] or activation["track"] != track:
                 _fail("Selected record lacks a runnable invocation on its own track")
             semantic_kind, fields = _witness(item.get("line"))
-            if semantic_kind in ("code", "input", "observe", "value-open", "value-part", "value-close"):
+            if semantic_kind in (
+                "code",
+                "input",
+                "observe",
+                "value-open",
+                "value-part",
+                "value-close",
+            ):
                 _fail("Student cannot generate source, environment or partial request")
             if semantic_kind == "request":
                 if fields.get("invocation") != "i1":
@@ -214,23 +224,28 @@ def adapt_selected_harness_v4(
                 call_id = f"{session}:{invocation_id}:{fields['effect']}"
                 action_id = "semantic:" + call_id
                 requests[key] = {
-                    "id": action_id, "execution": action_id + ":execution",
-                    "line": item["line"], "index": index,
+                    "id": action_id,
+                    "execution": action_id + ":execution",
+                    "line": item["line"],
+                    "index": index,
                 }
                 execution_id = requests[key]["execution"]
-                actions.append(LogicalAction(
-                    action_id=action_id,
-                    call_id=call_id,
-                    tool_name=fields["operation"],
-                    arguments_json=json.dumps(
-                        {"args": json.loads(fields["payload"])},
-                        separators=(",", ":"), ensure_ascii=False,
-                    ),
-                    record_ids=("semantic:r" + str(index + 1),),
-                    serialized_sha256=digest_bytes(item["line"].encode("utf-8")),
-                    execution_id=execution_id,
-                    schema_id=_host_request(fields)[1],
-                ))
+                actions.append(
+                    LogicalAction(
+                        action_id=action_id,
+                        call_id=call_id,
+                        tool_name=fields["operation"],
+                        arguments_json=json.dumps(
+                            {"args": json.loads(fields["payload"])},
+                            separators=(",", ":"),
+                            ensure_ascii=False,
+                        ),
+                        record_ids=("semantic:r" + str(index + 1),),
+                        serialized_sha256=digest_bytes(item["line"].encode("utf-8")),
+                        execution_id=execution_id,
+                        schema_id=_host_request(fields)[1],
+                    )
+                )
             if semantic_kind in ("return", "throw"):
                 activation["returned"] = semantic_kind
             if semantic_kind == "end":
@@ -256,8 +271,11 @@ def adapt_selected_harness_v4(
             key = (invocation_id, item.get("effectId"))
             activation = activations.get(invocation_id)
             if (
-                key not in dispatched or key in settled or not activation
-                or activation["track"] != track or activation["terminal"]
+                key not in dispatched
+                or key in settled
+                or not activation
+                or activation["track"] != track
+                or activation["terminal"]
             ):
                 _fail("Duplicate or wrong-owner tool result")
             observed_kind, fields = _witness(item.get("line"))
@@ -273,24 +291,35 @@ def adapt_selected_harness_v4(
             execution_id = requests[key]["execution"]
 
         record_id = "semantic:r" + str(index + 1)
-        role = "assistant" if kind == "semantic" else (
-            "user" if kind in ("program", "invocation") else "environment"
+        role = (
+            "assistant"
+            if kind == "semantic"
+            else ("user" if kind in ("program", "invocation") else "environment")
         )
         payload = (
-            item["line"].encode("utf-8") if kind == "semantic" else
-            json.dumps(item, ensure_ascii=False, separators=(",", ":"), allow_nan=False).encode("utf-8")
+            item["line"].encode("utf-8")
+            if kind == "semantic"
+            else json.dumps(
+                item, ensure_ascii=False, separators=(",", ":"), allow_nan=False
+            ).encode("utf-8")
         )
         if codec is not None and len(codec.encode(payload)) > max_positions:
             _fail("Native tokenizer budget exceeded by physical observation/selection")
-        records.append(PhysicalRecord(
-            record_id, role, payload, turn_index=index,
-            policy_mask=kind == "semantic",
-            provenance="teacher" if kind == "semantic" else "executed",
-            action_id=action_id, result_of=result_of,
-            execution_id=execution_id if result_of else None,
-        ))
+        records.append(
+            PhysicalRecord(
+                record_id,
+                role,
+                payload,
+                turn_index=index,
+                policy_mask=kind == "semantic",
+                provenance="teacher" if kind == "semantic" else "executed",
+                action_id=action_id,
+                result_of=result_of,
+                execution_id=execution_id if result_of else None,
+            )
+        )
         meridians.append(Meridian(index, (TrackEvent(record_id, track, "text", index, role),)))
-        previous=last_by_track.get(track)
+        previous = last_by_track.get(track)
         if previous is not None and kind == "semantic":
             dependencies.append(Dependency(previous, record_id, "semantic"))
         # Result->request correlation lives in PhysicalRecord.result_of and
@@ -308,32 +337,47 @@ def adapt_selected_harness_v4(
             "".join(p["digest"] for p in programs.values()).encode()
         ).hexdigest()[:20]
     digest = hashlib.sha256(b"\n".join(record.payload for record in records)).hexdigest()
-    split=sidecar.get("split")
+    split = sidecar.get("split")
     if split not in (None, "train", "validation", "test", "quarantine"):
         _fail("Unknown frozen corpus split")
     lineage = Lineage(
         source_id="semantic-harness:" + digest[:16],
-        revision=digest, family_id=family,
+        revision=digest,
+        family_id=family,
         source_uri="https://github.com/werg/tracing-js-self",
         frozen_split=split,
     )
     supervision = Supervision(
         outcome="success" if admission == "admitted" else "unknown",
         verification="external_tests" if admission == "admitted" else "none",
-        annotations_json=json.dumps({"semantic_harness": {
-            "controlled_selections": True, "admission": admission,
-            "traceFormat": "semantic-trace/3",
-        }}, separators=(",", ":")),
+        annotations_json=json.dumps(
+            {
+                "semantic_harness": {
+                    "controlled_selections": True,
+                    "admission": admission,
+                    "traceFormat": "semantic-trace/3",
+                }
+            },
+            separators=(",", ":"),
+        ),
     )
     episode = Episode(
-        "semantic:harness:" + digest, tuple(records), lineage,
-        stream="semantic_execution", actions=tuple(actions),
-        supervision=supervision, dependencies=tuple(dependencies),
+        "semantic:harness:" + digest,
+        tuple(records),
+        lineage,
+        stream="semantic_execution",
+        actions=tuple(actions),
+        supervision=supervision,
+        dependencies=tuple(dependencies),
         tracks=tuple(TrackSpec(name, "assistant") for name in tracks),
         meridians=tuple(meridians),
     )
     return episode, SelectedHarnessReceipt(
-        records=len(records), invocations=len(activations), tracks=len(tracks),
-        actions=len(actions), observations=observed,
-        admission=admission, codec_fingerprint=getattr(codec, "fingerprint", None),
+        records=len(records),
+        invocations=len(activations),
+        tracks=len(tracks),
+        actions=len(actions),
+        observations=observed,
+        admission=admission,
+        codec_fingerprint=getattr(codec, "fingerprint", None),
     )
