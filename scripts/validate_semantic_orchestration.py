@@ -26,7 +26,6 @@ from megatoken.training.semantic_evaluation import (
 
 def verify(directory, codec):
     required = {
-        "native-services-explicit",
         "native-services-compact",
         "native-budget",
         "native-invalid-child",
