@@ -405,7 +405,14 @@ def prepare_meridian_batch(
     if config.use_effort_mixture:
         mixture = stage_recipe(config.phase).effort_mix
         levels = sorted(mixture)
-        effort = levels[int(torch.multinomial(torch.tensor([mixture[k] for k in levels]), 1))]
+        # Recipes are integer-valued, but multinomial requires floating weights.
+        effort = levels[
+            int(
+                torch.multinomial(
+                    torch.tensor([mixture[k] for k in levels], dtype=torch.float32), 1
+                )
+            )
+        ]
     retrieval = RetrievalAnnotation.of(episode)
     if retrieval is not None and _question_scored(prefix, steps):
         counts["query_alignment"] += 1

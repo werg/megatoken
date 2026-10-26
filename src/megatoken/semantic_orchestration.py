@@ -34,7 +34,7 @@ def validate_restored_orchestration(adapter, value):
             "decisions",
             "fixtureDigest",
         }
-        or value["representation"] not in {"explicit", "compact"}
+        or value["representation"] != "compact"
         or value["origin"] not in {"model", "controlled"}
         or (value["origin"] == "controlled" and not adapter.allow_controlled_lifecycle)
         or not isinstance(value["children"], list)
@@ -54,7 +54,7 @@ def validate_restored_orchestration(adapter, value):
 
 
 def open_orchestration(
-    adapter, *, session, proposals, maxActive=1, representation="explicit", origin="model"
+    adapter, *, session, proposals, maxActive=1, representation="compact", origin="model"
 ):
     if (
         not isinstance(session, str)
@@ -63,7 +63,7 @@ def open_orchestration(
         or not 1 <= len(proposals) <= 16
         or type(maxActive) is not int
         or not 1 <= maxActive <= 64
-        or representation not in {"explicit", "compact"}
+        or representation != "compact"
         or origin not in {"model", "controlled"}
         or (origin == "controlled" and not adapter.allow_controlled_lifecycle)
     ):

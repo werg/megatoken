@@ -165,14 +165,12 @@ class TrainConfig:
             from .semantic_budget import SemanticExperimentConfig
 
             experiment = SemanticExperimentConfig(**self.semantic_experiment)
-            if self.phase not in {"SE", "SC", "SO"}:
+            if self.phase not in {"SE", "SC"}:
                 raise ValueError(
                     "Semantic experiment budgets require their declared native training stage"
                 )
-            if (self.phase == "SO") != (experiment.representation == "outcome-only"):
-                raise ValueError(
-                    "Outcome-only representation requires SO; SE/SC require interactive semantics"
-                )
+            if experiment.representation != "compact":
+                raise ValueError("Only the canonical semantic representation is trainable")
             if self.microbatch_episodes != 1 or self.max_accumulation_windows != 1:
                 raise ValueError(
                     "Comparable semantic runs use one atomic window per budget decision"
@@ -181,7 +179,7 @@ class TrainConfig:
                 raise ValueError(
                     "Fixed-token experiments require one physical record per atomic window"
                 )
-        elif self.phase in {"SE", "SC", "SO"}:
+        elif self.phase in {"SE", "SC"}:
             raise ValueError(
                 "Semantic training requires a frozen experiment and engineering-completion receipt"
             )

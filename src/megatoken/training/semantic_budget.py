@@ -60,9 +60,9 @@ class SemanticExperimentConfig:
         cohort = json.loads(Path(self.cohort).read_text())
         verify_cohort(cohort)
         if phase is not None and (
-            phase not in {"SE", "SC", "SO"}
+            phase not in {"SE", "SC"}
             or cohort["name"] != ("effectful-tracks-events" if phase == "SE" else "common-support")
-            or (phase == "SO") != (self.representation == "outcome-only")
+            or self.representation != "compact"
         ):
             raise ValueError("Training phase, frozen cohort and declared representation disagree")
         evidence = json.loads(Path(self.engineering_receipt).read_text())
@@ -89,18 +89,18 @@ class SemanticExperimentConfig:
 
 def validate_semantic_episode(episode, *, phase, representation):
     """Bind actual native teaching records to the declared experiment arm."""
-    from megatoken.data.witness_v4 import graph, parse_record, value
+    from megatoken.data.witness_v5 import parse_record
     from megatoken.io import strict_json_loads
 
     annotation = json.loads(episode.supervision.annotations_json).get("semantic_execution", {})
     if (
         episode.stream != "semantic_execution"
         or not episode.supervision.verified_success
-        or annotation.get("schema") != "semantic-execution/4"
+        or annotation.get("schema") != "semantic-execution/5"
         or annotation.get("representation") != representation
         or annotation.get("continuation") != "teacher_conditioned"
-        or (phase == "SO") != (representation == "outcome-only")
-        or phase not in {"SE", "SC", "SO"}
+        or representation != "compact"
+        or phase not in {"SE", "SC"}
     ):
         raise ValueError(
             "Prepared episode differs from its certified training representation/stage"
@@ -118,33 +118,20 @@ def validate_semantic_episode(episode, *, phase, representation):
                     "Semantic training requires certified teacher generation provenance"
                 )
             generated += 1
-            if representation == "outcome-only":
-                answer = strict_json_loads(raw)
-                if (
-                    not isinstance(answer, dict)
-                    or set(answer) != {"schema", "completion", "state"}
-                    or answer["schema"] != "semantic-outcome/4"
-                    or set(answer["completion"]) != {"kind", "value"}
-                    or answer["completion"]["kind"] not in {"return", "throw"}
-                ):
-                    raise ValueError("Outcome-only training has non-outcome generation labels")
-                value(answer["completion"]["value"])
-                graph(answer["state"])
-            elif phase == "SC":
+            if phase == "SC":
                 kind, _ = parse_record(raw)
                 if kind in {"request", "promise", "await", "resume", "job"}:
                     raise ValueError("Common-support training contains interactive semantics")
         elif phase != "SE":
             event = strict_json_loads(raw)
             allowed = {"program", "invocation"}
-            if phase == "SC":
-                allowed.update({"source-read", "source-evict", "model-context"})
+            allowed.update({"source-read", "source-evict", "model-context"})
             if event.get("kind") not in allowed:
                 raise ValueError("Common-support training contains future external observations")
             if event["kind"] == "program" and event.get("capabilities"):
                 raise ValueError("Common-support training must declare no external capabilities")
             invocations += event["kind"] == "invocation"
-    if not generated or (phase != "SE" and invocations != 1) or (phase == "SO" and generated != 1):
+    if not generated or (phase != "SE" and invocations != 1):
         raise ValueError("Prepared native labels do not match the selected training control")
 
 
@@ -195,7 +182,7 @@ def validate_stage_supply(
     from megatoken.data.semantic_contract import FIXTURE_DIGEST, SCHEMA_DIGEST
     from megatoken.data.storage import PreparedCorpus
 
-    if phase not in {"SE", "SC", "SO"} or (phase == "SO") != (representation == "outcome-only"):
+    if phase not in {"SE", "SC"} or representation != "compact":
         raise ValueError("Semantic curriculum stage and representation disagree")
     pins = {
         "representation": representation,

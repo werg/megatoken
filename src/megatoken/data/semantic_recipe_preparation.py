@@ -23,7 +23,7 @@ def validate_recipe_manifest(
     manifest: dict[str, Any], *, recipe_name: str, representation: str, producer_revision: str
 ) -> dict[str, Any]:
     """Validate a source/native admitted corpus and return its family-level recipe summary."""
-    if recipe_name not in RECIPE_SCHEMAS or representation not in {"explicit", "compact"}:
+    if recipe_name not in RECIPE_SCHEMAS or representation != "compact":
         raise ValueError("Unsupported canonical recipe or representation")
     recipe = manifest.get("recipe")
     if (
@@ -195,31 +195,6 @@ def validate_recipe_manifest(
         },
         "lifecycleInputCount": len(lifecycle),
     }
-
-
-def validate_paired_recipe_manifests(left: dict[str, Any], right: dict[str, Any]) -> None:
-    """Require explicit/compact manifests to retain identical families, splits and roles."""
-    if left["recipe"]["name"] != right["recipe"]["name"]:
-        raise ValueError("Explicit and compact recipe names differ")
-    recipe = left["recipe"]["name"]
-    if recipe == "training-v4":
-        if left["recipe"].get("templateDigest") != right["recipe"].get("templateDigest"):
-            raise ValueError("Explicit and compact training-v4 template declarations differ")
-    elif recipe == "benchmark-v1":
-        left_algorithms = left["recipe"].get("algorithms")
-        right_algorithms = right["recipe"].get("algorithms")
-        if left_algorithms != right_algorithms:
-            raise ValueError("Explicit and compact benchmark algorithm catalogues differ")
-    else:
-        raise ValueError("Unsupported paired semantic recipe")
-
-    def case_keys(manifest):
-        return {
-            (case["id"], case["family"], case["split"], case["role"]) for case in manifest["cases"]
-        }
-
-    if case_keys(left) != case_keys(right):
-        raise ValueError("Explicit and compact recipe families, splits or roles are not paired")
 
 
 def benchmark_recipe_preparation_summary(manifest_summary, prepared_counts):

@@ -99,8 +99,8 @@ def test_launch_readiness_catches_the_known_configuration_gaps():
         assert config["unfilled_placeholders"], "PIN_ placeholders must be reported"
     assert findings["phases_without_an_example_config"] == []
     assert findings["configs_without_default_memory"] == []
-    semantic = {c["phase"]: c for c in result["configs"] if c["phase"] in {"SC", "SE", "SO"}}
-    assert set(semantic) == {"SC", "SE", "SO"}
+    semantic = {c["phase"]: c for c in result["configs"] if c["phase"] in {"SC", "SE"}}
+    assert set(semantic) == {"SC", "SE"}
     for config in semantic.values():
         assert config["loader_error"] is None
         assert config["missing_streams"] == []

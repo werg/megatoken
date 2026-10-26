@@ -16,7 +16,7 @@ class Counters:
     I: int = 0  # noqa: E741 - the specification's actual-ingestion meter
     P: int = 0
     G: int = 0  # Actual selected physical megatokens, including media.
-    Q: int = 0  # Whole supervised groups and verified outcome-only selections.
+    Q: int = 0  # Whole supervised native meridians.
     audio_samples: int = 0
     video_frames: int = 0
     image_events: int = 0

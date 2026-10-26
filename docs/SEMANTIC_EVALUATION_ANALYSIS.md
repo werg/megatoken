@@ -2,10 +2,10 @@
 
 `semantic-evaluation-analysis/1` is a read-only summary over one frozen
 `semantic-evaluation-cohort/4` and its matching
-`semantic-evaluation-report/4`. It verifies the frozen cohort digest, report
-identity, seed, origin/checkpoint identity, and an exact one-to-one match of
+`semantic-evaluation-report/5`. It verifies the frozen cohort digest, current shared
+execution-schema and fixture digests, host catalog identity, seed, origin/checkpoint identity, and an exact one-to-one match of
 case IDs and family identities before summarizing measurements. It does not
-modify the evaluator's v4 schema or feed any analysis labels into inference.
+modify the evaluator's v5 report schema or feed any analysis labels into inference.
 
 Run it after the ordinary evaluator has written its report:
 

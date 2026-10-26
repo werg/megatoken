@@ -13,7 +13,7 @@ import json
 from pathlib import Path
 
 from megatoken.data.host_operations import canonical_json
-from megatoken.data.semantic_harness_v4 import adapt_selected_harness_v4
+from megatoken.data.semantic_harness_v5 import adapt_selected_harness_v5
 from megatoken.generation.codec import LING_TOKENIZER_SHA256, ByteCodec
 from megatoken.io import write_json
 from megatoken.training.semantic_evaluation import (
@@ -26,7 +26,6 @@ from megatoken.training.semantic_evaluation import (
 
 def verify(directory, codec):
     required = {
-        "native-services-explicit",
         "native-services-compact",
         "native-budget",
         "native-invalid-child",
@@ -79,7 +78,7 @@ def verify(directory, codec):
                 )
             ):
                 raise ValueError(name + ": source reference receipt changed")
-            adapt_selected_harness_v4(
+            adapt_selected_harness_v5(
                 result["episode"],
                 codec=codec,
                 allow_local=True,

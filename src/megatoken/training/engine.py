@@ -749,6 +749,9 @@ def train(
             write_json(output / "config.json", asdict(config))
             write_json(output / "runtime.json", diagnostics)
             write_json(output / "parameters.json", parameter_report(model))
+            from megatoken.omni.accounting import resident_footprint
+
+            write_json(output / "tensor-accounting.json", resident_footprint(model, optimizer))
         logger.log(
             "start",
             phase=phase.name,
@@ -1199,6 +1202,10 @@ def train(
             )
             if exposure.finished(experiment):
                 result.update(complete=True, termination="experiment_budget")
+        if context.is_primary:
+            from megatoken.omni.accounting import resident_footprint
+
+            write_json(output / "tensor-accounting.json", resident_footprint(model, optimizer))
         logger.log("finished", **result)
         return result
     finally:

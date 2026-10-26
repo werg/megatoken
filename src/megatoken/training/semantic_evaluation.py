@@ -15,10 +15,11 @@ from collections import Counter
 
 from megatoken.data.host_operations import CONTRACT_DIGEST, canonical_json
 from megatoken.data.schema import encode_record
-from megatoken.data.semantic_harness_v4 import adapt_selected_harness_v4
+from megatoken.data.semantic_contract import FIXTURE_DIGEST, SCHEMA_DIGEST
+from megatoken.data.semantic_harness_v5 import adapt_selected_harness_v5
 
 SEEDS = (17, 29, 43)
-REPRESENTATIONS = ("explicit", "compact", "outcome-only")
+REPRESENTATIONS = ("compact",)
 HARD_GATES = (
     "futureObservationLeaks",
     "unauthorizedEffects",
@@ -41,63 +42,22 @@ def _digest(value):
     return hashlib.sha256(canonical_json(value).encode()).hexdigest()
 
 
-def _outcome_usage(evidence, codec):
-    """Count the exact answer bytes and the observations used by native serving."""
-    from megatoken.semantic_model_adapter import _canonical, _validate_prefix
-
-    prefix = evidence["servedPrefix"]
-    if CONTROLLED_FIELDS & set(prefix) or {"expected", "referenceReceipt"} & set(prefix):
-        raise ValueError("Outcome inference prefix contains private controlled/reference labels")
-    program, _invocation, events = _validate_prefix(prefix)
-    if len(events) != 2 or program["capabilities"]:
-        raise ValueError(
-            "Outcome inference must receive only pure source and invocation observations"
-        )
-    raw = evidence.get("record")
-    if raw is not None:
-        if not isinstance(raw, str):
-            raise ValueError("Generated outcome evidence must retain its original UTF-8 record")
-        raw = raw.encode()
-    else:
-        rejection = (evidence.get("failure") or {}).get("evidence") or {}
-        encoded = rejection.get("payloadHex")
-        if isinstance(encoded, str):
-            raw = bytes.fromhex(encoded)
-        elif isinstance(encoded, list) and all(
-            item is None or isinstance(item, str) for item in encoded
-        ):
-            raw = b"".join(bytes.fromhex(item) for item in encoded if item is not None)
-        elif evidence.get("failure"):
-            # A failure before native selection has no selected output bytes.
-            raw = b""
-        else:
-            raise ValueError("Outcome runner omitted the actual generated record")
-    observed = sum(len(codec.encode(_canonical(event))) for event in events)
-    return len(codec.encode(raw)), observed, raw
+def _current_execution_identity():
+    return {
+        "semanticExecutionSchemaDigest": SCHEMA_DIGEST,
+        "semanticExecutionFixtureDigest": FIXTURE_DIGEST,
+        "hostCatalogDigest": CONTRACT_DIGEST,
+    }
 
 
-def _validate_outcome_record(raw, actual):
-    from megatoken.data.witness_v4 import graph, value
-    from megatoken.io import strict_json_loads
-
-    answer = strict_json_loads(raw.decode("utf-8"))
-    if (
-        not isinstance(answer, dict)
-        or set(answer) != {"schema", "completion", "state"}
-        or answer["schema"] != "semantic-outcome/4"
-        or set(answer["completion"]) != {"kind", "value"}
-        or answer["completion"]["kind"] not in {"return", "throw"}
-        or answer["completion"] != actual["completion"]
-        or answer["state"] != actual["state"]
-    ):
-        raise ValueError("Outcome receipt does not match its actual generated record")
-    value(answer["completion"]["value"])
-    graph(answer["state"])
-    if (
-        not answer["state"]["roots"]
-        or answer["state"]["roots"][-1] != answer["completion"]["value"]
-    ):
-        raise ValueError("Outcome result is not its final observable graph root")
+def require_current_report(report):
+    if not isinstance(report, dict) or report.get("schema") != "semantic-evaluation-report/5":
+        raise ValueError("Expected a semantic-evaluation-report/5 input")
+    for key, value in _current_execution_identity().items():
+        if report.get(key) != value:
+            raise ValueError(f"Evaluation report has stale or missing {key}")
+    if report.get("catalogDigest") != CONTRACT_DIGEST:
+        raise ValueError("Evaluation report has stale or missing catalogDigest")
 
 
 def _interactive_usage(evidence, codec):
@@ -457,9 +417,7 @@ def _validate_orchestration(evidence, codec, origin):
             raise ValueError("Guest work escaped the native coordinator task tree")
 
 
-def freeze_cohort(
-    cases, *, name, thresholds, historical_baseline=None, historical_baseline_pending=False
-):
+def freeze_cohort(cases, *, name, thresholds):
     """Freeze task families, reference outcomes, thresholds and input bytes before runs."""
     if name not in {"common-support", "effectful-tracks-events"}:
         raise ValueError("Report the frozen common-support and effectful cohorts separately")
@@ -467,16 +425,6 @@ def freeze_cohort(
         type(x) not in (int, float) or not 0 <= x <= 1 for x in thresholds.values()
     ):
         raise ValueError("Declare whole-task and trace acceptance thresholds before evaluation")
-    if name == "common-support" and not isinstance(historical_baseline, dict):
-        raise ValueError("Common support must retain its pinned historical baseline identity")
-    if type(historical_baseline_pending) is not bool or (
-        historical_baseline_pending and name != "common-support"
-    ):
-        raise ValueError("Only the historical common-support baseline may be pending")
-    if historical_baseline_pending and not isinstance(
-        historical_baseline.get("sourceRunbook"), str
-    ):
-        raise ValueError("Pending historical work must preserve its exact source runbook")
     seen, families, normalized = set(), {}, []
     for case in cases:
         if not isinstance(case, dict) or set(case) != {
@@ -514,8 +462,6 @@ def freeze_cohort(
         "name": name,
         "cases": normalized,
         "thresholds": thresholds,
-        "historicalBaseline": historical_baseline,
-        "historicalBaselinePending": historical_baseline_pending,
         "seeds": list(SEEDS),
         "catalogDigest": CONTRACT_DIGEST,
     }
@@ -537,15 +483,13 @@ def verify_cohort(cohort):
         cohort["cases"],
         name=cohort["name"],
         thresholds=cohort["thresholds"],
-        historical_baseline=cohort["historicalBaseline"],
-        historical_baseline_pending=cohort["historicalBaselinePending"],
     )
     if rebuilt != cohort:
         raise ValueError("Cohort is not its canonical frozen declaration")
 
 
 def evaluate_cohort(
-    cohort, runner, *, codec, seed, origin, representation="explicit", checkpoint_identity=None
+    cohort, runner, *, codec, seed, origin, representation="compact", checkpoint_identity=None
 ):
     """Execute a supplied production runner with no access to private expected labels."""
     verify_cohort(cohort)
@@ -559,8 +503,6 @@ def evaluate_cohort(
         not isinstance(checkpoint_identity, str) or len(checkpoint_identity) != 64
     ):
         raise ValueError("Model evaluations require their immutable served model digest")
-    if representation == "outcome-only" and cohort["name"] != "common-support":
-        raise ValueError("Noninteractive outcome controls do not execute the effectful cohort")
     if origin == "trained" and any(case["split"] != "test" for case in cohort["cases"]):
         raise ValueError("Learned comparison reports require the frozen test-only cohort")
     rows = []
@@ -627,11 +569,8 @@ def evaluate_cohort(
                 raise ValueError(
                     "Runner must report measured compute, memory, dispatch and resource costs"
                 )
-            raw = None
             rejected_tokens = 0
-            if representation == "outcome-only":
-                generated, observed, raw = _outcome_usage(evidence, codec)
-            elif request.get("schema") == "selected-orchestration-evaluation-case/4":
+            if request.get("schema") == "selected-orchestration-evaluation-case/4":
                 generated, observed, physical = _orchestration_usage(evidence, codec)
             else:
                 generated, observed, rejected_tokens = _interactive_usage(evidence, codec)
@@ -654,26 +593,22 @@ def evaluate_cohort(
             if inconsistency is not None and not isinstance(inconsistency, dict):
                 raise ValueError("First semantic violation must be an exact failure receipt")
             trace_valid = inconsistency is None and not evidence.get("failure")
-            if representation != "outcome-only":
-                episode, _ = adapt_selected_harness_v4(
-                    evidence["episode"],
-                    codec=codec,
-                    allow_local=True,
-                    max_positions=1024,
-                    max_history=1024,
-                )
-                if request.get("schema") == "selected-orchestration-evaluation-case/4":
-                    _validate_orchestration(evidence, codec, origin)
-                else:
-                    generated, observed = rejected_tokens, 0
-                    for record in episode.records:
-                        count = encode_record(record, codec).tokens
-                        generated += count if record.policy_mask else 0
-                        observed += count if not record.policy_mask else 0
-                    physical = len(episode.records)
+            episode, _ = adapt_selected_harness_v5(
+                evidence["episode"],
+                codec=codec,
+                allow_local=True,
+                max_positions=1024,
+                max_history=1024,
+            )
+            if request.get("schema") == "selected-orchestration-evaluation-case/4":
+                _validate_orchestration(evidence, codec, origin)
             else:
-                if not evidence.get("failure"):
-                    _validate_outcome_record(raw, actual)
+                generated, observed = rejected_tokens, 0
+                for record in episode.records:
+                    count = encode_record(record, codec).tokens
+                    generated += count if record.policy_mask else 0
+                    observed += count if not record.policy_mask else 0
+                physical = len(episode.records)
             canonical_generated = generated
             if model_generated is not None:
                 generated = model_generated
@@ -778,18 +713,17 @@ def evaluate_cohort(
         summary["computeSeconds"] / correct if correct else None
     )
     return {
-        "schema": "semantic-evaluation-report/4",
+        "schema": "semantic-evaluation-report/5",
         "cohortDigest": cohort["digest"],
         "cohort": cohort["name"],
         "evaluationSplits": sorted({case["split"] for case in cohort["cases"]}),
-        "historicalBaseline": cohort["historicalBaseline"],
-        "historicalBaselinePending": cohort["historicalBaselinePending"],
         "seed": seed,
         "origin": origin,
         "representation": representation,
         "checkpointIdentity": checkpoint_identity,
         "tokenizerIdentity": codec.fingerprint,
         "catalogDigest": CONTRACT_DIGEST,
+        **_current_execution_identity(),
         "thresholds": cohort["thresholds"],
         "summary": summary,
         "cases": rows,
@@ -801,10 +735,12 @@ def evaluate_cohort(
     }
 
 
-def compare_experiments(reports, budgets, *, historical_receipt=None):
+def compare_experiments(reports, budgets):
     """Compare all seeds under declared equal-example/token or measured-compute budgets."""
     if len(reports) != len(budgets) or not reports:
         raise ValueError("Every evaluation needs its actual training budget receipt")
+    for report in reports:
+        require_current_report(report)
     cohorts = {report["cohortDigest"] for report in reports}
     origins = {report["origin"] for report in reports}
     if len(cohorts) != 1 or len(origins) != 1:
@@ -813,25 +749,6 @@ def compare_experiments(reports, budgets, *, historical_receipt=None):
         report.get("evaluationSplits") != ["test"] for report in reports
     ):
         raise ValueError("Learned budget comparisons must use the frozen test-only cohort")
-    if origins == {"trained"} and reports[0]["cohort"] == "common-support":
-        baseline = reports[0]["historicalBaseline"]
-        if any(report["historicalBaseline"] != baseline for report in reports):
-            raise ValueError("Historical comparison conditions changed between runs")
-        receipt = historical_receipt if reports[0]["historicalBaselinePending"] else baseline
-        if (
-            not isinstance(receipt, dict)
-            or receipt.get("schema") != "semantic-historical-baseline/4"
-            or receipt.get("referenceStatus") != "agreed"
-            or receipt.get("cohortDigest") != next(iter(cohorts))
-            or receipt.get("seeds") != list(SEEDS)
-            or receipt.get("sourceRunbook") != baseline.get("sourceRunbook")
-            or not isinstance(receipt.get("artifactSha256"), str)
-            or len(receipt["artifactSha256"]) != 64
-            or any(char not in "0123456789abcdef" for char in receipt["artifactSha256"])
-        ):
-            raise ValueError(
-                "Learned common-support comparison requires actual preserved historical baseline evidence"
-            )
     groups = {}
     for report, budget in zip(reports, budgets, strict=True):
         if (
@@ -855,16 +772,12 @@ def compare_experiments(reports, budgets, *, historical_receipt=None):
         groups.setdefault(regime, []).append((report, budget))
     result = {}
     for regime, group in groups.items():
-        representations = (
-            REPRESENTATIONS
-            if group[0][0]["cohort"] == "common-support"
-            else ("explicit", "compact")
-        )
+        representations = REPRESENTATIONS
         expected = {(seed, representation) for seed in SEEDS for representation in representations}
         pairs = [(report["seed"], report["representation"]) for report, _ in group]
         if len(pairs) != len(set(pairs)) or set(pairs) != expected:
             raise ValueError(
-                "Budget comparison requires each representation at seeds 17, 29 and 43"
+                "Budget reports require the one canonical representation at seeds 17, 29 and 43"
             )
         meter = {"fixed-examples": "examples", "fixed-tokens": "generatedTokens"}.get(regime)
         if meter == "examples" and len({budget[meter] for _, budget in group}) != 1:
@@ -902,10 +815,11 @@ def compare_experiments(reports, budgets, *, historical_receipt=None):
             for representation in representations
         }
     return {
-        "schema": "semantic-experiment-comparison/4",
+        "schema": "semantic-experiment-comparison/5",
         "cohortDigest": next(iter(cohorts)),
         "origin": next(iter(origins)),
+        "catalogDigest": CONTRACT_DIGEST,
+        **_current_execution_identity(),
         "regimes": result,
         "learnedEvidence": origins == {"trained"},
-        "historicalReceipt": historical_receipt,
     }

@@ -9,10 +9,10 @@ import re
 from importlib.resources import files
 
 from .host_operations import canonical_json
-from .witness_v4 import parse_record, value
+from .witness_v5 import parse_record, value
 
 CONTRACT = json.loads(
-    files("megatoken.data").joinpath("contracts/semantic-harness-v4.json").read_bytes()
+    files("megatoken.data").joinpath("contracts/semantic-harness-v5.json").read_bytes()
 )
 DEFINITION = CONTRACT["definition"]
 SCHEMA_DIGEST = CONTRACT["digest"]
@@ -55,6 +55,10 @@ def validate_envelope_record(item):
             raise ValueError("Envelope ordering requires positive integers")
     kind = item["kind"]
     if kind == "program":
+        if "randomSeed" in item and (
+            type(item["randomSeed"]) is not int or not 0 <= item["randomSeed"] <= 0xFFFFFFFF
+        ):
+            raise ValueError("Program deterministic seed must be an unsigned 32-bit integer")
         if (
             item["languageProfile"] != "owned-javascript/1"
             or type(item["module"]) is not bool
@@ -123,6 +127,11 @@ def validate_envelope_record(item):
                 or item["visibleThrough"] != item["sequence"] - 1
             ):
                 raise ValueError("Selected context requires exact state and prior public cutoff")
+            random_state = state.get("randomState")
+            if random_state is not None and (
+                type(random_state) is not int or not 0 <= random_state <= 0xFFFFFFFF
+            ):
+                raise ValueError("Selected-state deterministic RNG value must be null or uint32")
     elif kind == "dispatch" and "nativeAction" in item:
         native = item["nativeAction"]
         if native is not None and (

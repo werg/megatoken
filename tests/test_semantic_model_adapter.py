@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import copy
 import hashlib
+import json
 from threading import RLock
 from types import SimpleNamespace
 
@@ -16,7 +17,7 @@ from megatoken.semantic_model_adapter import SelectedSemanticInference, Semantic
 def fixture():
     source = "function run(){return 7;}"
     digest = hashlib.sha256(source.encode()).hexdigest()
-    common = {"schema": "semantic-execution/4", "session": "session1", "ownerSequence": 1}
+    common = {"schema": "semantic-execution/5", "session": "session1", "ownerSequence": 1}
     published = {
         **common,
         "sequence": 1,
@@ -156,7 +157,7 @@ def add(prefix, kind, mode="generated", **fields):
 
     required = {}
     if kind == "semantic":
-        required["traceFormat"] = "semantic-trace/4"
+        required["traceFormat"] = "semantic-trace/5"
     elif kind == "dispatch":
         required.update(key="session1/i1/" + fields["effectId"], attempt=1)
     elif kind == "result":
@@ -171,7 +172,7 @@ def add(prefix, kind, mode="generated", **fields):
         )
     prefix["committed"].append(
         {
-            "schema": "semantic-execution/4",
+            "schema": "semantic-execution/5",
             "session": "session1",
             "sequence": len(prefix["committed"]) + 1,
             "ownerSequence": len(prefix["committed"]),
@@ -183,6 +184,72 @@ def add(prefix, kind, mode="generated", **fields):
             **fields,
         }
     )
+
+
+def test_published_selected_bootstrap_checks_actual_rng_state_before_observing_it():
+    runtime = FakeRuntime()
+    adapter = SelectedSemanticInference(runtime, verify_context=False)
+    state = adapter._opened("session1")
+    prefix = fixture()
+    program, invocation = prefix["committed"]
+    program["randomSeed"] = 0
+    random_draw = {
+        "schema": "semantic-execution/5",
+        "session": "session1",
+        "sequence": 3,
+        "ownerSequence": 2,
+        "track": "worker1",
+        "mode": "generated",
+        "kind": "semantic",
+        "invocationId": "i1",
+        "traceFormat": "semantic-trace/5",
+        "line": 'compute {"expr":{"op":"random"},"result":["num",0.23606797284446657]}',
+    }
+    source_read = {
+        "schema": "semantic-execution/5",
+        "session": "session1",
+        "sequence": 4,
+        "ownerSequence": 3,
+        "track": "worker1",
+        "mode": "observed",
+        "kind": "source-read",
+        "programId": "p",
+        "digest": program["digest"],
+    }
+    realm = [program, invocation, random_draw, source_read]
+    work = SimpleNamespace(
+        invocation_id="i1", actual_track="worker1", state_bootstrap=None, selection_history=[]
+    )
+    snapshot = {
+        "schema": "semantic-continuation/5",
+        "heap": [],
+        "locals": [],
+        "captureAliases": [],
+        "stack": ["i1"],
+        "continuations": [],
+        "ready": [],
+        "callReturn": None,
+        "pending": None,
+        "completion": None,
+        "randomState": 1013904223,
+    }
+    prefix["selectedState"] = snapshot
+
+    for forged in (7, 0.5, True):
+        prefix["selectedState"] = {**snapshot, "randomState": forged}
+        with pytest.raises(SemanticSelectionError, match="RNG"):
+            adapter._publish_selected_state(
+                state, work, prefix, invocation, realm, reason="retained-activation"
+            )
+        assert not runtime.sessions[0].observations
+
+    prefix["selectedState"] = snapshot
+    adapter._publish_selected_state(
+        state, work, prefix, invocation, realm, reason="retained-activation"
+    )
+    observed = json.loads(runtime.sessions[0].observations[-1][1])
+    assert observed["schema"] == "semantic-selected-bootstrap/5"
+    assert observed["state"]["randomState"] == 1013904223
 
 
 def test_real_runtime_interface_commits_one_selection_before_any_future_observation():
@@ -247,28 +314,14 @@ def test_inference_initialization_attests_actual_checkpoint_and_seeds_rngs():
         adapter.initialize(seed=29, checkpointIdentity="a" * 64)
 
 
-def test_outcome_only_is_one_real_native_selection_without_semantic_stepping():
-    import json
-
-    expected = {
-        "schema": "semantic-outcome/4",
-        "completion": {"kind": "return", "value": ["num", 7]},
-        "state": {"roots": [["num", 7]], "objects": []},
-    }
-    runtime = FakeRuntime([json.dumps(expected).encode()])
+def test_unsupported_semantic_representations_fail_before_guest_execution():
+    runtime = FakeRuntime()
     adapter = SelectedSemanticInference(runtime, model_identity="a" * 64, verify_context=False)
-    prefix = fixture()
-    prefix["committed"][0]["capabilities"] = []
-    result = adapter.select_outcome(prefix)
-    assert result["schema"] == "selected-outcome-output/4"
-    assert result["representation"] == "outcome-only"
-    assert result["outcome"] == expected
-    assert len(runtime.generated_specs) == 1
-    assert len(runtime.sessions[0].observations) == 2
+    for obsolete in ("explicit", "outcome-only", "unknown"):
+        with pytest.raises(SemanticSelectionError, match="canonical semantic witness"):
+            adapter.select(fixture(), representation=obsolete)
     assert runtime.native_calls == 0
-    assert adapter.sessions["session1"].work["i1"].completed
-    with pytest.raises(SemanticSelectionError, match="pure source"):
-        SelectedSemanticInference(FakeRuntime(), verify_context=False).select_outcome(fixture())
+    assert len(runtime.generated_specs) == 0
 
 
 def test_rewinding_or_replacing_earlier_observation_never_changes_model_history():
@@ -292,7 +345,7 @@ def test_invocation_representation_cannot_change_before_or_after_checkpoint():
     prefix = fixture()
     selected = adapter.select(prefix, representation="compact")
     add(prefix, "semantic", line=selected["record"])
-    with pytest.raises(SemanticSelectionError, match="change its selected representation"):
+    with pytest.raises(SemanticSelectionError, match="canonical semantic witness"):
         adapter.select(prefix, representation="explicit")
     checkpoint = adapter.checkpoint("session1", [prefix])
     assert checkpoint["work"][0]["representation"] == "compact"
@@ -300,7 +353,7 @@ def test_invocation_representation_cannot_change_before_or_after_checkpoint():
         FakeRuntime(), verify_context=False, model_identity="a" * 64
     )
     restored.restore(checkpoint)
-    with pytest.raises(SemanticSelectionError, match="change its selected representation"):
+    with pytest.raises(SemanticSelectionError, match="canonical semantic witness"):
         restored.select(prefix, representation="explicit")
 
 
@@ -370,6 +423,7 @@ def test_model_restart_is_explicit_observed_bootstrap_and_never_reexecutes_tools
         adapter.checkpoint("session1", [prefix])
     add(prefix, "semantic", line=selected["record"])
     checkpoint = adapter.checkpoint("session1", [prefix])
+    assert checkpoint["schema"] == "semantic-model-checkpoint/5"
     restored_runtime = FakeRuntime(selections=[b'end {"kind":"return"}'])
     restored = SelectedSemanticInference(
         restored_runtime, verify_context=False, model_identity="fixed-fixture-model"
@@ -378,6 +432,12 @@ def test_model_restart_is_explicit_observed_bootstrap_and_never_reexecutes_tools
     assert receipt["equivalence"] == "observed-checkpoint-bootstrap"
     assert receipt["nativeEffects"] == 0
     assert b"checkpoint-bootstrap" in restored_runtime.sessions[0].observations[-1][1]
+    from megatoken.data.host_operations import CONTRACT_DIGEST
+    from megatoken.data.semantic_contract import FIXTURE_DIGEST, SCHEMA_DIGEST
+
+    assert checkpoint["semanticExecutionSchemaDigest"] == SCHEMA_DIGEST
+    assert checkpoint["semanticExecutionFixtureDigest"] == FIXTURE_DIGEST
+    assert checkpoint["hostCatalogDigest"] == CONTRACT_DIGEST
     final = restored.select(prefix)
     add(prefix, "semantic", line=final["record"])
     restored.close_invocation("session1", "i1", prefix)
@@ -388,6 +448,76 @@ def test_model_restart_is_explicit_observed_bootstrap_and_never_reexecutes_tools
         SelectedSemanticInference(
             FakeRuntime(), verify_context=False, model_identity="fixed-fixture-model"
         ).restore(tampered)
+
+
+@pytest.mark.parametrize(
+    "mutation",
+    [
+        lambda packet: packet.update(schema="semantic-model-checkpoint/4"),
+        lambda packet: packet.pop("semanticExecutionSchemaDigest"),
+        lambda packet: packet.update(semanticExecutionSchemaDigest="0" * 64),
+        lambda packet: packet.update(semanticExecutionFixtureDigest="0" * 64),
+        lambda packet: packet.update(hostCatalogDigest="0" * 64),
+    ],
+)
+def test_checkpoint_restore_rejects_stale_contract_even_with_recomputed_packet_digest(mutation):
+    from megatoken.semantic_model_adapter import _canonical
+
+    adapter = SelectedSemanticInference(
+        FakeRuntime(selections=[b'return {"value":["num",7]}']),
+        verify_context=False,
+        model_identity="fixed-fixture-model",
+    )
+    prefix = fixture()
+    selection = adapter.select(prefix)
+    add(prefix, "semantic", line=selection["record"])
+    packet = adapter.checkpoint("session1", [prefix])
+    mutation(packet)
+    packet["digest"] = hashlib.sha256(
+        _canonical({key: value for key, value in packet.items() if key != "digest"})
+    ).hexdigest()
+    with pytest.raises(SemanticSelectionError):
+        SelectedSemanticInference(
+            FakeRuntime(), verify_context=False, model_identity="fixed-fixture-model"
+        ).restore(packet)
+
+
+def test_current_checkpoint_roundtrips_with_actual_loaded_model_identity_and_fixture_output():
+    import torch
+
+    from megatoken.generation.codec import ByteCodec
+    from megatoken.generation.policy import FacetedGenerator
+    from megatoken.model import FacetedCore, ModelConfig
+
+    torch.set_num_threads(1)
+    torch.manual_seed(71)
+    model = FacetedGenerator(
+        FacetedCore(ModelConfig.tiny(max_history_chunks=64, max_capacity=512)),
+        ByteCodec.byte_fallback(),
+    )
+    runtime = FakeRuntime(selections=[b'return {"value":["num",7]}'])
+    runtime.generator.generator = model
+    adapter = SelectedSemanticInference(runtime, verify_context=False)
+    prefix = fixture()
+    selected = adapter.select(prefix)
+    add(prefix, "semantic", line=selected["record"])
+    packet = adapter.checkpoint("session1", [prefix])
+    assert packet["modelIdentity"] == adapter._identity()
+
+    restored_runtime = FakeRuntime(selections=[b'end {"kind":"return"}'])
+    restored_runtime.generator.generator = model
+    restored = SelectedSemanticInference(restored_runtime, verify_context=False)
+    assert restored.restore(packet)["nativeEffects"] == 0
+
+    # A learned weight change invalidates the actual loaded-model pin.
+    with torch.no_grad():
+        next(model.parameters()).add_(0.01)
+    changed_runtime = FakeRuntime()
+    changed_runtime.generator.generator = model
+    with pytest.raises(
+        SemanticSelectionError, match="Model, tokenizer or checkpoint bytes changed"
+    ):
+        SelectedSemanticInference(changed_runtime, verify_context=False).restore(packet)
 
 
 def test_actual_initialized_model_inference_and_source_reread_change_no_weights():
@@ -445,7 +575,7 @@ def test_actual_initialized_model_inference_and_source_reread_change_no_weights(
 
 
 def test_fragmented_model_request_reaches_real_native_commit_bridge_once():
-    from megatoken.data.witness_v4 import parse_record
+    from megatoken.data.witness_v5 import parse_record
 
     original = FakeRuntime().selections[0]
     boundary = original.index(b'"payload"')
@@ -487,7 +617,7 @@ def test_fragmented_model_request_reaches_real_native_commit_bridge_once():
 
 def test_native_request_authority_survives_later_prefix_acknowledgement():
     """Async dispatch may reach the bridge after the next selection consumed feedback."""
-    from megatoken.data.witness_v4 import parse_record
+    from megatoken.data.witness_v5 import parse_record
 
     runtime = FakeRuntime()
     adapter = SelectedSemanticInference(runtime, verify_context=False)

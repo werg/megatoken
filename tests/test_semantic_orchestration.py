@@ -60,7 +60,7 @@ def test_controlled_coordinator_and_child_share_actual_bootstrap_join_and_comple
         native_runtime, model_identity="a" * 64, allow_controlled_lifecycle=True
     )
     opened = adapter.open_orchestration(
-        session=session, proposals=[prefix], origin="controlled", representation="explicit"
+        session=session, proposals=[prefix], origin="controlled", representation="compact"
     )
     track = opened["track"]
 
@@ -97,7 +97,7 @@ def test_controlled_coordinator_and_child_share_actual_bootstrap_join_and_comple
         assert result["record"] == event["line"] and not result["selection"]["modelSelected"]
         prefix["committed"].append(event)
     prefix["selectedState"] = {
-        "schema": "semantic-continuation/4",
+        "schema": "semantic-continuation/5",
         "completion": {"kind": "return", "value": ["num", 7]},
     }
     adapter.close_invocation(session, prefix["invocationId"], prefix)
@@ -159,7 +159,7 @@ def test_persistent_subscription_owns_new_callbacks_after_registration_call_comp
     native_runtime,
 ):
     document = json.loads(
-        (Path(__file__).parent / "fixtures/semantic-v4/retained-events.json").read_text()
+        (Path(__file__).parent / "fixtures/semantic-v5/retained-events.json").read_text()
     )
     timeline = document["public"]["timeline"]
     program = timeline[0]

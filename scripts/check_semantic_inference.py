@@ -63,7 +63,7 @@ def main():
     source = "function run(){return 7;}"
     digest = hashlib.sha256(source.encode()).hexdigest()
     common = {
-        "schema": "semantic-execution/4",
+        "schema": "semantic-execution/5",
         "session": "fixedweights",
         "mode": "observed",
         "ownerSequence": 1,
@@ -139,7 +139,7 @@ def main():
             "seed": 17,
             "checkpointIdentity": manifest["model_sha256"],
         },
-        {"id": "outcome", "op": "outcome", "prefix": prefix},
+        {"id": "selection", "op": "select", "prefix": prefix, "representation": "compact"},
     ]
     completed = subprocess.run(
         command,
@@ -175,10 +175,13 @@ def main():
     selected = replies[1]
     if selected["ok"]:
         if (
-            selected["result"]["schema"] != "selected-outcome-output/4"
+            selected["result"]["schema"] != "selected-model-output/2"
+            or selected["result"].get("representation") != "compact"
             or not selected["result"]["selection"]["modelSelected"]
         ):
-            raise ValueError("Outcome path did not return an actual native model selection")
+            raise ValueError(
+                "Canonical semantic path did not return an actual native model selection"
+            )
     elif not selected["error"].get("evidence"):
         raise ValueError("Initialized-model failure lost its actual selected output evidence")
     if sha256_file(destination / "model.safetensors") != manifest["model_sha256"]:
@@ -188,7 +191,7 @@ def main():
         "origin": "initialized-fixed-weights",
         "inferenceIdentity": replies[0]["result"],
         "served": str(destination.resolve()),
-        "outcomeReply": selected,
+        "selectedReply": selected,
         "weightsUnchanged": True,
         "optimizerSteps": 0,
         "nativeEffects": 0,

@@ -61,6 +61,9 @@ class PendingGroup:
     base_revision: int
     result: GroupGeneration
     output_bytes: int = 0
+    selected_at_ns: int = 0
+    specs: tuple[ActionSpec | MediaOutputSpec, ...] = ()
+    visible_event_ids: tuple[str, ...] = ()
 
 
 @dataclass(frozen=True)
@@ -156,6 +159,9 @@ class TrackSession:
     execution_source_events: dict[str, tuple[str, ...]] = field(default_factory=dict)
     execution_receipts: list[dict] = field(default_factory=list)
     execution_delivered: set[str] = field(default_factory=set)
+    event_arrived_at_ns: dict[str, int] = field(default_factory=dict)
+    selection_at_ns: dict[int, int] = field(default_factory=dict)
+    selection_visible_event_ids: dict[int, frozenset[str]] = field(default_factory=dict)
 
     @property
     def state(self) -> MultiTrackState:
@@ -482,6 +488,7 @@ class MultiTrackRuntime:
         Each text event is one physical chunk, kept whole; ``observe_text`` cuts a
         longer message into chunks.
         """
+        arrived_at_ns = time.monotonic_ns()
         ready = tuple(events)
         if not ready:
             raise ValueError("A committed meridian must contain one or more events")
@@ -524,7 +531,17 @@ class MultiTrackRuntime:
         session.occupied_events.update(ids)
         for event in ready:
             session.context_archive.put(event)
+            session.event_arrived_at_ns[event.event_id] = arrived_at_ns
+        self._prune_event_arrival_times(session)
         return session.state
+
+    @staticmethod
+    def _prune_event_arrival_times(session: TrackSession) -> None:
+        retained = set(session.state.history_event_ids) | set(session.state.frontier_event_ids)
+        for visible in session.selection_visible_event_ids.values():
+            retained.update(visible)
+        for event_id in session.event_arrived_at_ns.keys() - retained:
+            session.event_arrived_at_ns.pop(event_id, None)
 
     def observe_text(
         self,
@@ -599,7 +616,10 @@ class MultiTrackRuntime:
                 address
             ].budget < tracks.count(address):
                 raise ValueError("Track work budget exhausted before selection")
-        result = self.generator.generate_group(
+        visible_event_ids = tuple(
+            dict.fromkeys((*session.state.history_event_ids, *session.state.frontier_event_ids))
+        )
+        selected = self.generator.select_group(
             session.state,
             tracks=tracks,
             event_ids=event_ids,
@@ -609,7 +629,16 @@ class MultiTrackRuntime:
             effort=effort,
             generator=generator,
         )
-        branch = PendingGroup(session.revision, result, output_bytes)
+        selected_at_ns = time.monotonic_ns()
+        result = self.generator.render_selected(selected)
+        branch = PendingGroup(
+            session.revision,
+            result,
+            output_bytes,
+            selected_at_ns,
+            selected.specs,
+            visible_event_ids,
+        )
         session.pending = branch
         return branch
 
@@ -638,6 +667,8 @@ class MultiTrackRuntime:
         session.events.append((session.revision, result.tape.tracks))
         session.selected_groups[session.revision] = result
         session.reserved_output_bytes[session.revision] = branch.output_bytes
+        session.selection_at_ns[session.revision] = branch.selected_at_ns or time.monotonic_ns()
+        session.selection_visible_event_ids[session.revision] = frozenset(branch.visible_event_ids)
         session.completed_events.update(result.tape.event_ids)
         session.occupied_events.update(result.tape.event_ids)
         session.history.extend(
@@ -715,7 +746,14 @@ class MultiTrackRuntime:
         session.scheduling_log.append(("queued", (work.event_id,)))
 
     @_commit_owner
-    def schedule_ready(self, session: TrackSession, *, max_events: int = 4, effort: int = 6):
+    def schedule_ready(
+        self,
+        session: TrackSession,
+        *,
+        max_events: int = 4,
+        effort: int = 6,
+        before_select: Callable[[Sequence[ReadyWork]], None] | None = None,
+    ):
         if not 1 <= max_events <= self.generator.generator.config.max_history_chunks:
             raise ValueError("Ready group exceeds the retained-history event capacity")
         candidates = []
@@ -754,6 +792,8 @@ class MultiTrackRuntime:
                 break
         if not chosen:
             return None
+        if before_select is not None:
+            before_select(tuple(w for _, w in chosen))
         revision = self.start_generation(
             session,
             tracks=tuple(w.track for w in chosen),
@@ -799,7 +839,11 @@ class MultiTrackRuntime:
         if not self.render_capacity.acquire(blocking=False):
             raise ValueError("Global rendering queue exhausted; wait for active decoders")
         try:
+            visible_event_ids = frozenset(
+                (*session.state.history_event_ids, *session.state.frontier_event_ids)
+            )
             selected = self.generator.select_group(session.state, **kwargs)
+            selected_at_ns = time.monotonic_ns()
             if set(selected.tape.event_ids) & session.occupied_events:
                 raise ValueError("Selected events reuse previously committed event addresses")
             lookup = self.memory.generated(
@@ -809,6 +853,8 @@ class MultiTrackRuntime:
             session.revision += 1
             session.pending = None
             revision = session.revision
+            session.selection_at_ns[revision] = selected_at_ns
+            session.selection_visible_event_ids[revision] = visible_event_ids
             session.reserved_output_bytes[revision] = output_bytes
             session.events.append((revision, selected.tape.tracks))
             session.occupied_events.update(selected.tape.event_ids)
@@ -903,6 +949,8 @@ class MultiTrackRuntime:
         work = self.poll_generation(session, revision)
         if work.status not in {"rendered", "delivered"}:
             raise ValueError("Only completed, uncancelled rendering can be delivered")
+        if len(set(event_ids)) != len(event_ids):
+            raise ValueError("Delivery must not repeat an event address")
         if not set(event_ids) <= set(work.selection.tape.event_ids):
             raise ValueError("Delivery must name original selected event addresses")
         if extents is not None and set(extents) != set(event_ids):
@@ -920,28 +968,89 @@ class MultiTrackRuntime:
             else:
                 bound, unit = len(work.result.tape.payloads[index]), "bytes"
             extent = bound if extents is None else extents[event_id]
+            previous = work.delivery_progress.get(event_id, 0)
             if (
                 type(extent) is not int
                 or not work.result.tape.valid[index]
-                or not work.delivery_progress.get(event_id, 0) <= extent <= bound
+                or not previous <= extent <= bound
             ):
-                raise ValueError("Delivery extent must advance within the actual rendered event")
-            updates.append((event_id, extent, bound, unit))
-        for event_id, extent, bound, unit in updates:
+                raise ValueError(
+                    "Delivery extent must not regress or exceed the actual rendered event"
+                )
+            updates.append((event_id, extent, bound, unit, extent > previous))
+        for event_id, extent, bound, unit, advanced in updates:
             work.delivery_progress[event_id] = extent
-            work.delivery_log.append(
-                {
-                    "event_id": event_id,
-                    "delivered": extent,
-                    "extent": bound,
-                    "unit": unit,
-                    "available_at_ns": time.monotonic_ns(),
-                }
-            )
+            if advanced:
+                work.delivery_log.append(
+                    {
+                        "event_id": event_id,
+                        "delivered": extent,
+                        "extent": bound,
+                        "unit": unit,
+                        "available_at_ns": time.monotonic_ns(),
+                    }
+                )
             if extent == bound:
                 work.delivered_events.add(event_id)
         if work.delivered_events == set(work.selection.tape.event_ids):
             work.status = "delivered"
+
+    @_commit_owner
+    def translation_timing_report(
+        self,
+        session: TrackSession,
+        revision: int,
+        source_event_ids: Sequence[str],
+        output_event_id: str,
+    ) -> dict:
+        """Measure elapsed source-ingest-to-selection/delivery clocks; never score quality."""
+        if not source_event_ids or len(set(source_event_ids)) != len(source_event_ids):
+            raise ValueError("Timing report requires distinct source event IDs")
+        if any(event_id not in session.event_arrived_at_ns for event_id in source_event_ids):
+            raise ValueError("Timing report references an unobserved source event")
+        group = session.selected_groups.get(revision)
+        work = session.rendering.get(revision)
+        tape = group.tape if group is not None else (None if work is None else work.selection.tape)
+        if tape is None or output_event_id not in tape.event_ids:
+            raise ValueError(
+                "Timing report output is absent, stale, or belongs to another selection"
+            )
+        selected_at = session.selection_at_ns.get(revision)
+        if selected_at is None:
+            raise ValueError("Timing report selection clock is unavailable")
+        source_arrival = max(session.event_arrived_at_ns[event_id] for event_id in source_event_ids)
+        visible = session.selection_visible_event_ids.get(revision, frozenset())
+        if not set(source_event_ids) <= visible:
+            raise ValueError("Timing report source evidence was not visible to the selected output")
+        if source_arrival > selected_at:
+            raise ValueError("Selected output predates its declared source evidence")
+        delivered_at = None
+        delivered_extent = None
+        if work is not None:
+            acknowledgements = [
+                row
+                for row in work.delivery_log
+                if row["event_id"] == output_event_id and row["delivered"] > 0
+            ]
+            if acknowledgements:
+                latest = max(acknowledgements, key=lambda row: row["available_at_ns"])
+                delivered_at = latest["available_at_ns"]
+                delivered_extent = latest["delivered"]
+        return {
+            "clock": "monotonic_elapsed_v1",
+            "source_event_ids": list(source_event_ids),
+            "output_event_id": output_event_id,
+            "selection_revision": revision,
+            "source_arrived_at_ns": source_arrival,
+            "selected_at_ns": selected_at,
+            "delivery_acknowledged_at_ns": delivered_at,
+            "delivery_acknowledged_extent": delivered_extent,
+            "source_to_selection_seconds": (selected_at - source_arrival) / 1e9,
+            "source_to_delivery_ack_seconds": None
+            if delivered_at is None
+            else (delivered_at - source_arrival) / 1e9,
+            "delivery_ack_is_client_ack_not_audio_playback": True,
+        }
 
     @_commit_owner
     def release_generation(self, session: TrackSession, revision: int):
@@ -965,6 +1074,9 @@ class MultiTrackRuntime:
             del session.rendering[revision]
         session.selected_groups.pop(revision, None)
         session.reserved_output_bytes.pop(revision, None)
+        session.selection_at_ns.pop(revision, None)
+        session.selection_visible_event_ids.pop(revision, None)
+        self._prune_event_arrival_times(session)
 
     def close(self):
         self.render_executor.shutdown(wait=True, cancel_futures=True)
@@ -1052,10 +1164,10 @@ class MultiTrackRuntime:
         if (
             not isinstance(program, dict)
             or not isinstance(invocation, dict)
-            or program.get("schema") != "semantic-execution/4"
+            or program.get("schema") != "semantic-execution/5"
             or program.get("kind") != "program"
             or program.get("mode") != "observed"
-            or invocation.get("schema") != "semantic-execution/4"
+            or invocation.get("schema") != "semantic-execution/5"
             or invocation.get("kind") != "invocation"
             or invocation.get("mode") != "observed"
             or not isinstance(program.get("source"), str)
@@ -1604,8 +1716,8 @@ class MultiTrackRuntime:
         all committed argument dependencies. This method never authors a new
         group, teacher tool payload, or predicted return.
         """
-        from megatoken.data.semantic_execution import _host_request
-        from megatoken.data.witness_v4 import WitnessV4Error, parse_record
+        from megatoken.data.semantic_request import _host_request
+        from megatoken.data.witness_v5 import WitnessV5Error, parse_record
 
         committed = dict(session.selected_groups)
         if allow_controlled_fixture:
@@ -1652,7 +1764,7 @@ class MultiTrackRuntime:
                 raise ValueError("Incomplete or invalid semantic requests cannot dispatch")
             try:
                 kind, fields = parse_record(raw.decode("utf-8", errors="strict"))
-            except (UnicodeDecodeError, WitnessV4Error) as error:
+            except (UnicodeDecodeError, WitnessV5Error) as error:
                 raise ValueError("Malformed committed semantic request") from error
             if kind != "request":
                 raise ValueError("Selected action must be a request witness")

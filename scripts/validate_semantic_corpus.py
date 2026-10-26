@@ -18,7 +18,6 @@ def main():
     parser.add_argument("--output", type=Path, required=True)
     parser.add_argument("--tracer-root", type=Path, required=True)
     parser.add_argument("--tokenizer-json", type=Path, required=True)
-    parser.add_argument("--representation", choices=("explicit", "compact"), default="explicit")
     options = parser.parse_args()
     manifest = json.loads((options.corpus / "manifest.json").read_text())
     if manifest["schema"] != "semantic-corpus-manifest/4" or not manifest["cases"]:
@@ -34,17 +33,12 @@ def main():
     documents = [
         json.loads((options.corpus / case["path"]).read_text()) for case in manifest["cases"]
     ]
-    selected = [
-        document
-        for document in documents
-        if document["sidecar"].get("representation") == options.representation
-    ]
-    if not selected:
-        raise ValueError(
-            "Manifest supplies no independently admitted cases of the requested representation"
-        )
+    if manifest.get("representation") != "compact" or any(
+        document["sidecar"].get("representation") != "compact" for document in documents
+    ):
+        raise ValueError("Only a complete canonical semantic collection is admissible")
     native, report = prepare_semantic_corpus(
-        selected,
+        documents,
         options.output,
         codec=codec,
         producer_revision=manifest["producerRevision"],
@@ -52,9 +46,8 @@ def main():
         source_verifier=source_verifier_for_checkout(
             options.tracer_root, manifest["producerRevision"]
         ),
-        representation=options.representation,
     )
-    if report["counts"].get("admitted") != len(selected) or report["refusals"]:
+    if report["counts"].get("admitted") != len(documents) or report["refusals"]:
         raise ValueError(
             "Native preparation refused an independently collected required source case"
         )

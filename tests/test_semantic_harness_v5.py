@@ -8,9 +8,9 @@ import pytest
 
 from megatoken.data import WindowConfig, iter_windows
 from megatoken.data.schema import Episode
-from megatoken.data.semantic_harness_v4 import (
+from megatoken.data.semantic_harness_v5 import (
     SelectedHarnessError,
-    adapt_selected_harness_v4,
+    adapt_selected_harness_v5,
 )
 from megatoken.generation.codec import ByteCodec
 
@@ -37,7 +37,7 @@ def fixture():
                 "module": False,
                 "sourceMetadata": None,
             },
-            "semantic": {"traceFormat": "semantic-trace/4"},
+            "semantic": {"traceFormat": "semantic-trace/5"},
             "result": {"errorOrigin": None},
             "handler": {"closureId": None, "lifetime": "subscription", "ownerInvocationId": None},
             "invocation": {"ingressKey": fields.get("triggerId")},
@@ -58,7 +58,7 @@ def fixture():
         owners[track] = owners.get(track, 0) + 1
         events.append(
             {
-                "schema": "semantic-execution/4",
+                "schema": "semantic-execution/5",
                 "session": "session1",
                 "sequence": len(events) + 1,
                 "ownerSequence": owners[track],
@@ -108,7 +108,7 @@ def fixture():
         "generated",
         "worker:0",
         invocationId="call1",
-        traceFormat="semantic-trace/4",
+        traceFormat="semantic-trace/5",
         line=line(
             "request",
             {
@@ -153,7 +153,7 @@ def fixture():
         "generated",
         "worker:0",
         invocationId="call1",
-        traceFormat="semantic-trace/4",
+        traceFormat="semantic-trace/5",
         line=line("return", {"value": ["num", 7]}),
     )
     add(
@@ -161,19 +161,20 @@ def fixture():
         "generated",
         "worker:0",
         invocationId="call1",
-        traceFormat="semantic-trace/4",
+        traceFormat="semantic-trace/5",
         line=line("end", {"kind": "return"}),
     )
     return {
         "public": {
-            "schema": "semantic-execution/4",
-            "traceFormat": "semantic-trace/4",
+            "schema": "semantic-execution/5",
+            "traceFormat": "semantic-trace/5",
             "profile": "selected-harness/2",
-            "contextFormat": "semantic-context/4",
+            "contextFormat": "semantic-context/5",
             "timeline": events,
         },
         "sidecar": {
             "schema": "semantic-supervision/2",
+            "representation": "compact",
             "admission": "locally_verified",
             "referenceStatus": "unverified",
         },
@@ -181,7 +182,7 @@ def fixture():
 
 
 def test_selected_harness_import_uses_actual_dynamic_track_and_one_bound_action():
-    episode, receipt = adapt_selected_harness_v4(
+    episode, receipt = adapt_selected_harness_v5(
         fixture(), allow_local=True, codec=ByteCodec.byte_fallback()
     )
     assert receipt.invocations == 1
@@ -255,7 +256,7 @@ def test_invalid_or_forged_public_provenance_is_rejected(mutation):
     doc = copy.deepcopy(fixture())
     mutation(doc)
     with pytest.raises(SelectedHarnessError):
-        adapt_selected_harness_v4(doc, allow_local=True)
+        adapt_selected_harness_v5(doc, allow_local=True)
 
 
 def test_future_result_cannot_be_placed_ahead_of_selected_request():
@@ -269,7 +270,7 @@ def test_future_result_cannot_be_placed_ahead_of_selected_request():
         if event["track"] == "worker:0":
             event["ownerSequence"] = i
     with pytest.raises(SelectedHarnessError):
-        adapt_selected_harness_v4(doc, allow_local=True)
+        adapt_selected_harness_v5(doc, allow_local=True)
 
 
 def test_program_once_and_more_than_eight_lifetime_tracks():
@@ -300,7 +301,7 @@ def test_program_once_and_more_than_eight_lifetime_tracks():
         ):
             rows.append(
                 {
-                    "schema": "semantic-execution/4",
+                    "schema": "semantic-execution/5",
                     "session": "session1",
                     "sequence": len(rows) + 1,
                     "ownerSequence": n,
@@ -308,11 +309,11 @@ def test_program_once_and_more_than_eight_lifetime_tracks():
                     "mode": "generated",
                     "kind": "semantic",
                     "invocationId": inv,
-                    "traceFormat": "semantic-trace/4",
+                    "traceFormat": "semantic-trace/5",
                     "line": line(kind, data),
                 }
             )
-    ep, receipt = adapt_selected_harness_v4(doc, allow_local=True)
+    ep, receipt = adapt_selected_harness_v5(doc, allow_local=True)
     assert receipt.invocations == 10
     assert receipt.tracks == 11
     assert receipt.actions == 0
@@ -321,12 +322,52 @@ def test_program_once_and_more_than_eight_lifetime_tracks():
 
 def test_no_unadmitted_trajectory_can_be_labeled_success():
     with pytest.raises(SelectedHarnessError):
-        adapt_selected_harness_v4(fixture())
+        adapt_selected_harness_v5(fixture())
     doc = fixture()
     doc["sidecar"]["admission"] = "admitted"
     doc["sidecar"]["referenceStatus"] = "agreed"
     with pytest.raises(SelectedHarnessError):
-        adapt_selected_harness_v4(doc, admission_verifier=lambda _: False)
+        adapt_selected_harness_v5(doc, admission_verifier=lambda _: False)
+
+
+def test_obsolete_v4_envelope_is_rejected_even_for_local_inspection():
+    doc = fixture()
+    doc["public"].update(
+        schema="semantic-execution/4",
+        traceFormat="semantic-trace/4",
+        contextFormat="semantic-context/4",
+    )
+    for record in doc["public"]["timeline"]:
+        record["schema"] = "semantic-execution/4"
+        if record["kind"] == "semantic":
+            record["traceFormat"] = "semantic-trace/4"
+    with pytest.raises(SelectedHarnessError, match="version"):
+        adapt_selected_harness_v5(doc, allow_local=True)
+
+
+def test_seeded_draws_and_selected_rng_context_are_replayed_independently():
+    from megatoken.data.semantic_contract import CONTRACT
+
+    seeded = copy.deepcopy(CONTRACT["fixtures"]["envelope"]["valid"][2])
+    adapt_selected_harness_v5(seeded, allow_local=True)
+    draw = next(
+        row
+        for row in seeded["public"]["timeline"]
+        if row["kind"] == "semantic" and '"op":"random"' in row["line"]
+    )
+    draw["line"] = line("compute", {"expr": {"op": "random"}, "result": ["num", 0.5]})
+    with pytest.raises(SelectedHarnessError, match="deterministic draw"):
+        adapt_selected_harness_v5(seeded, allow_local=True)
+
+    contextual = copy.deepcopy(CONTRACT["fixtures"]["envelope"]["valid"][1])
+    context = next(
+        row
+        for row in contextual["public"]["timeline"]
+        if row["kind"] == "model-context" and "selectedState" in row
+    )
+    context["selectedState"]["randomState"] = 7
+    with pytest.raises(ValueError, match="Selected-state random value"):
+        adapt_selected_harness_v5(contextual, allow_local=True)
 
 
 def event_fixture():
@@ -345,7 +386,7 @@ def event_fixture():
                 "module": False,
                 "sourceMetadata": None,
             },
-            "semantic": {"traceFormat": "semantic-trace/4"},
+            "semantic": {"traceFormat": "semantic-trace/5"},
             "result": {"errorOrigin": None},
             "handler": {"closureId": None, "lifetime": "subscription", "ownerInvocationId": None},
             "invocation": {"ingressKey": fields.get("triggerId")},
@@ -366,7 +407,7 @@ def event_fixture():
         owners[track] = owners.get(track, 0) + 1
         timeline.append(
             {
-                "schema": "semantic-execution/4",
+                "schema": "semantic-execution/5",
                 "session": "session1",
                 "sequence": len(timeline) + 1,
                 "ownerSequence": owners[track],
@@ -423,7 +464,7 @@ def event_fixture():
             "generated",
             "worker:0",
             invocationId=invocation_id,
-            traceFormat="semantic-trace/4",
+            traceFormat="semantic-trace/5",
             line=line("return", {"value": ["num", index]}),
         )
         add(
@@ -431,7 +472,7 @@ def event_fixture():
             "generated",
             "worker:0",
             invocationId=invocation_id,
-            traceFormat="semantic-trace/4",
+            traceFormat="semantic-trace/5",
             line=line("end", {"kind": "return"}),
         )
     add("handler-close", "observed", "host", subscriptionId="sub1", discarded=[])
@@ -440,7 +481,7 @@ def event_fixture():
 
 
 def test_subscription_events_are_distinct_observations_and_share_retained_realm():
-    episode, receipt = adapt_selected_harness_v4(event_fixture(), allow_local=True)
+    episode, receipt = adapt_selected_harness_v5(event_fixture(), allow_local=True)
     assert receipt.invocations == 2
     assert receipt.observations == 7
     assert receipt.actions == 0
@@ -465,4 +506,4 @@ def test_event_duplicate_wrong_owner_and_realm_changes_reject(change):
     doc = event_fixture()
     change(doc)
     with pytest.raises(SelectedHarnessError):
-        adapt_selected_harness_v4(doc, allow_local=True)
+        adapt_selected_harness_v5(doc, allow_local=True)

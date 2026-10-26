@@ -1,10 +1,10 @@
 # Bind admitted artifacts from scripts/prepare_semantic_experiments.py.
 # These examples do not admit launch assets or authorize training.
-# scripts/plan_semantic_training.py materializes the complete frozen comparison matrix.
+# scripts/plan_semantic_training.py materializes the canonical fixed-budget curriculum.
 phase: SC
 model: 32x512
 datasets:
-- PIN_PREPARED_SEMANTIC_COMMON_EXPLICIT_ROOT
+- PIN_PREPARED_SEMANTIC_COMMON_COMPACT_ROOT
 output: /work/runs/semantic-common
 codec: PIN_PRODUCTION_CODEC_DIRECTORY
 seed: 17
@@ -37,7 +37,7 @@ semantic_experiment:
   schema: semantic-training-experiment/4
   regime: fixed-examples
   limit: 10000
-  representation: explicit
+  representation: compact
   cohort: PIN_FROZEN_COMMON_SUPPORT_COHORT
   engineering_receipt: PIN_COMPLETE_CROSS_REPOSITORY_ENGINEERING_RECEIPT
   max_token_overshoot: 65535

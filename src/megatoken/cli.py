@@ -590,7 +590,6 @@ def _runtime(args, *, preparer=None):
 
 def _generate(args):
     """One-shot session: a prompt as one user message, then one assistant answer."""
-    from megatoken.controls import build_control_payload
     from megatoken.multitrack_service import MultiTrackService
 
     bundle, runtime = _runtime(args)
@@ -599,6 +598,16 @@ def _generate(args):
         runtime.memory.open_base(name, path)
         bases[name] = 1.0
     service = MultiTrackService(runtime)
+    try:
+        return _generate_one_shot(args, bundle, service, bases)
+    finally:
+        service.close()
+
+
+def _generate_one_shot(args, bundle, service, bases):
+    """Run the one-shot exchange inside ``_generate``'s service lifetime."""
+    from megatoken.controls import build_control_payload
+
     metadata = json.loads(args.metadata)
 
     retrieved = []

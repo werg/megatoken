@@ -130,8 +130,10 @@ def test_full_duplex_publication_snapshot_reads_and_late_cancelled_render(tmp_pa
     def blocked_render(selected):
         if selected.tape.event_ids == ("blocked-voice",):
             entered.set()
-            if not unblock.wait(10):
-                raise TimeoutError("test did not release blocked renderer")
+            # The main test thread or its finally cleanup always releases this
+            # barrier. Its later future.result(timeout=10) remains the bounded
+            # completion check; a wall-clock timeout here races slow CI setup.
+            unblock.wait()
         return render(selected)
 
     runtime.generator.render_selected = blocked_render

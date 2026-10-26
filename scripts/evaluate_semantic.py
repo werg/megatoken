@@ -35,9 +35,6 @@ def main():
     )
     evaluate.add_argument("--checkpoint-identity")
     evaluate.add_argument("--seed", type=int, choices=(17, 29, 43), required=True)
-    evaluate.add_argument(
-        "--representation", choices=("explicit", "compact", "outcome-only"), default="explicit"
-    )
     evaluate.add_argument("--tokenizer-json", type=Path, required=True)
     evaluate.add_argument("--timeout", type=float, default=60)
     evaluate.add_argument("--output", type=Path, required=True)
@@ -46,7 +43,6 @@ def main():
     compare.add_argument("--report", type=Path, action="append", required=True)
     compare.add_argument("--budget", type=Path, action="append", required=True)
     compare.add_argument("--output", type=Path, required=True)
-    compare.add_argument("--historical-receipt", type=Path)
     options = parser.parse_args()
     if options.command == "freeze":
         declaration = json.loads(options.declaration.read_text())
@@ -55,9 +51,6 @@ def main():
         result = compare_experiments(
             [json.loads(path.read_text()) for path in options.report],
             [json.loads(path.read_text()) for path in options.budget],
-            historical_receipt=json.loads(options.historical_receipt.read_text())
-            if options.historical_receipt
-            else None,
         )
     else:
         argv = json.loads(options.runner_argv)
@@ -93,7 +86,6 @@ def main():
             codec=codec,
             seed=options.seed,
             origin=options.origin,
-            representation=options.representation,
             checkpoint_identity=options.checkpoint_identity,
         )
     options.output.parent.mkdir(parents=True, exist_ok=True)

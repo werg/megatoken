@@ -8,24 +8,17 @@
   "cohorts": {
     "common-support": {
       "representations": [
-        "explicit",
-        "compact",
-        "outcome-only"
-      ],
-      "phases": {
-        "explicit": "SC",
-        "compact": "SC",
-        "outcome-only": "SO"
-      },
-      "historicalBaseline": "https://github.com/werg/tracing-js-self/blob/e31ae33d3ce4a7258d64393c7982445d40c0b297/docs/SEMANTIC_V3_MODEL_EXPERIMENTS.md"
-    },
-    "effectful-tracks-events": {
-      "representations": [
-        "explicit",
         "compact"
       ],
       "phases": {
-        "explicit": "SE",
+        "compact": "SC"
+      }
+    },
+    "effectful-tracks-events": {
+      "representations": [
+        "compact"
+      ],
+      "phases": {
         "compact": "SE"
       }
     }
@@ -48,7 +41,7 @@
   },
   "acceptanceThresholds": {
     "wholeTaskSuccess": 0.9,
-    "traceValid": 1.0
+    "traceValid": 1
   },
   "hardGates": {
     "futureObservationLeaks": 0,
@@ -57,6 +50,6 @@
     "falseAdmissions": 0,
     "replayNativeEffects": 0
   },
-  "trainingPrerequisite": "Pinned complete cross-repository engineering receipt; no optimizer step before that gate.",
-  "evaluation": "Free-running production selected runner; teacher-forced loss reported separately."
+  "trainingPrerequisite": "Only canonical semantic-trace/4 admission; a pinned, reverified cross-repository engineering receipt is required.",
+  "evaluation": "Independent free-running selected-harness/2 evaluation against observable output and effects; no alternative trace modes."
 }

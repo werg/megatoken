@@ -39,7 +39,7 @@
     "schema": "semantic-training-experiment/4",
     "regime": "fixed-examples",
     "limit": 10000,
-    "representation": "explicit",
+    "representation": "compact",
     "cohort": "PIN_FROZEN_SEMANTIC_COHORT",
     "engineering_receipt": "PIN_COMPLETE_CROSS_REPOSITORY_ENGINEERING_RECEIPT",
     "max_token_overshoot": 65535

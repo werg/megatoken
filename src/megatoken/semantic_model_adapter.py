@@ -24,6 +24,18 @@ class SemanticSelectionError(ValueError):
         self.evidence = evidence
 
 
+def _execution_contract_identity() -> dict[str, str]:
+    """Current shared execution schema, parity fixtures, and host catalog pins."""
+    from megatoken.data.host_operations import CONTRACT_DIGEST
+    from megatoken.data.semantic_contract import FIXTURE_DIGEST, SCHEMA_DIGEST
+
+    return {
+        "semanticExecutionSchemaDigest": SCHEMA_DIGEST,
+        "semanticExecutionFixtureDigest": FIXTURE_DIGEST,
+        "hostCatalogDigest": CONTRACT_DIGEST,
+    }
+
+
 def _canonical(value: Any) -> bytes:
     return json.dumps(
         value, sort_keys=True, ensure_ascii=False, separators=(",", ":"), allow_nan=False
@@ -109,7 +121,7 @@ def _validate_prefix(prefix: Any) -> tuple[dict, dict, list[dict]]:
             raise SemanticSelectionError(
                 "Model prefix violates the shared envelope contract: " + str(error)
             ) from error
-        if item.get("schema") != "semantic-execution/4":
+        if item.get("schema") != "semantic-execution/5":
             raise SemanticSelectionError("Model prefix mixes incompatible public contracts")
         mode = item.get("mode")
         if item.get("kind") in {
@@ -253,7 +265,7 @@ class SelectedSemanticInference:
             raise SemanticSelectionError("Selected session capacity exhausted")
         session = _Session(
             self.runtime.open(
-                metadata={"task": "semantic-execution/4", "modality": "text"},
+                metadata={"task": "semantic-execution/5", "modality": "text"},
                 effort=self.effort,
                 memory_writes=False,
             )
@@ -503,7 +515,7 @@ class SelectedSemanticInference:
                         "Model transcript does not match its previously committed selection"
                     )
                 work.selected.pop(0)
-                from megatoken.data.witness_v4 import parse_record
+                from megatoken.data.witness_v5 import parse_record
 
                 kind, fields = parse_record(event["line"])
                 if kind == "request" and "promise" in fields:
@@ -853,14 +865,30 @@ class SelectedSemanticInference:
                 "callReturn",
                 "pending",
                 "completion",
+                "randomState",
             }
-            or snapshot["schema"] != "semantic-continuation/4"
+            or snapshot["schema"] != "semantic-continuation/5"
         ):
             raise SemanticSelectionError(
                 "Retained execution requires its exact committed selected-state snapshot"
             )
+        random_state = snapshot["randomState"]
+        if random_state is not None and (
+            type(random_state) is not int or not 0 <= random_state <= 0xFFFFFFFF
+        ):
+            raise SemanticSelectionError("Selected-state RNG value must be null or uint32")
+        from megatoken.data.semantic_context import committed_random_state
+
+        try:
+            committed_state = committed_random_state(realm, work.invocation_id)
+        except ValueError as error:
+            raise SemanticSelectionError("Invalid committed RNG history: " + str(error)) from error
+        if random_state != committed_state:
+            raise SemanticSelectionError(
+                "Selected-state RNG value differs from the committed realm draws"
+            )
         bootstrap = {
-            "schema": "semantic-selected-bootstrap/4",
+            "schema": "semantic-selected-bootstrap/5",
             "kind": "selected-bootstrap",
             "reason": reason,
             "invocationId": work.invocation_id,
@@ -901,14 +929,10 @@ class SelectedSemanticInference:
             if group.tape.tracks == (work.actual_track,):
                 self.runtime.release_generation(session, revision)
 
-    def select(self, prefix: dict, *, representation="explicit", controlledRecord=None) -> dict:
-        if representation not in {"explicit", "compact", "outcome-only"}:
-            raise SemanticSelectionError("Unknown selected inference representation")
+    def select(self, prefix: dict, *, representation="compact", controlledRecord=None) -> dict:
+        if representation != "compact":
+            raise SemanticSelectionError("Only the canonical semantic witness is supported")
         program, invocation, events = _validate_prefix(prefix)
-        if representation == "outcome-only" and (program.get("capabilities") or len(events) != 2):
-            raise SemanticSelectionError(
-                "Noninteractive outcomes require only pure source and invocation input"
-            )
         with self.lock:
             session_key = _text(program["session"], "session")
             state = self._opened(session_key)
@@ -1033,7 +1057,7 @@ class SelectedSemanticInference:
             self._advance(state, work, events[len(work.seen) :])
             if work.waiting_promise is not None and prefix.get("selectedState") is not None:
                 snapshot = prefix["selectedState"]
-                if snapshot.get("schema") != "semantic-continuation/4":
+                if snapshot.get("schema") != "semantic-continuation/5":
                     raise SemanticSelectionError(
                         "Cannot wake from an incompatible selected-state snapshot"
                     )
@@ -1132,28 +1156,18 @@ class SelectedSemanticInference:
             config = self.runtime.generator.generator.config
             maximum = min(self.max_tokens, config.max_capacity)
             instruction = (
-                b"Emit exactly one complete canonical semantic-trace/4 witness. "
+                b"Emit exactly one complete canonical semantic-trace/5 witness. "
                 b"Use only the observed source, this invocation and prior selected "
                 b"semantics. An external call is a validated request with already "
                 b"evaluated arguments and source span. Never predict observations, "
                 b"events, native results or future tool receipts."
             )
-            if representation == "outcome-only":
-                instruction = (
-                    b"Predict the pure program outcome directly from the observed source and invocation. "
-                    b"Emit exactly one JSON object with schema semantic-outcome/4, completion {kind: return or throw, value: canonical tagged value}, "
-                    b"and state {roots: canonical tagged original argument roots followed by result, objects: complete reachable owned data graph}. "
-                    b"Do not emit semantic witness lines or call tools. Never predict observations."
-                )
-            elif representation == "compact":
-                instruction += (
-                    b" Use bounded compact expressions only for adjacent pure computation: "
-                    b"at most 8 operators and 32 expression nodes. Preserve source dependency order. "
-                    b"Never fuse across effects, mutation, binding, branches, calls, awaits, callbacks, "
-                    b"returns, throws, or cleanup boundaries."
-                )
-            else:
-                instruction += b" Emit each explicit source computation as its own witness record."
+            instruction += (
+                b" Use source-grounded, temporally evaluated pure expressions: "
+                b"at most 8 operators and 32 expression nodes. Preserve real "
+                b"lexical source bindings, aliases, effects, mutations, callbacks, "
+                b"await boundaries and completion. Avoid anonymous temporary cells."
+            )
             # A logical semantic record may span several real model meridians.
             # Native commitment waits for the final terminal; no peer result or
             # second generated tool envelope is inserted between fragments.
@@ -1255,9 +1269,7 @@ class SelectedSemanticInference:
                 original
             ).hexdigest()
             return {
-                "schema": "selected-outcome-output/4"
-                if representation == "outcome-only"
-                else "selected-model-output/2",
+                "schema": "selected-model-output/2",
                 "representation": representation,
                 "record": output,
                 "selection": {
@@ -1273,53 +1285,6 @@ class SelectedSemanticInference:
                     "stateBootstrap": work.state_bootstrap,
                 },
             }
-
-    def select_outcome(self, prefix: dict) -> dict:
-        """One actual noninteractive model answer for the pure common-support control."""
-        from megatoken.data.witness_v4 import graph, value
-        from megatoken.io import strict_json_loads
-
-        result = self.select(prefix, representation="outcome-only")
-        program, invocation, _ = _validate_prefix(prefix)
-        state = self.sessions[program["session"]]
-        work = state.work[invocation["invocationId"]]
-        try:
-            predicted = strict_json_loads(result["record"])
-            if (
-                not isinstance(predicted, dict)
-                or set(predicted) != {"schema", "completion", "state"}
-                or predicted["schema"] != "semantic-outcome/4"
-                or not isinstance(predicted["completion"], dict)
-                or set(predicted["completion"]) != {"kind", "value"}
-                or predicted["completion"]["kind"] not in {"return", "throw"}
-            ):
-                raise ValueError("Noninteractive model answer has an invalid completion schema")
-            value(predicted["completion"]["value"])
-            graph(predicted["state"])
-            if (
-                len(predicted["state"]["roots"]) != len(invocation["inputGraph"]["roots"]) + 1
-                or predicted["state"]["roots"][-1] != predicted["completion"]["value"]
-            ):
-                raise ValueError("Noninteractive result must be the last observable graph root")
-        except (ValueError, KeyError, TypeError) as error:
-            evidence = {
-                "reason": str(error),
-                "selection": result["selection"],
-                "payloadHex": result["record"].encode().hex(),
-                "representation": "outcome-only",
-            }
-            work.rejections.append(evidence)
-            state.runtime_session.tracks.change(work.actual_track, "cancel")
-            work.completed = True
-            self._release_selected_payloads(state, work)
-            raise SemanticSelectionError(
-                "Model emitted an invalid noninteractive outcome", evidence=evidence
-            ) from error
-        work.selected.clear()
-        work.completed = True
-        state.runtime_session.tracks.change(work.actual_track, "complete")
-        self._release_selected_payloads(state, work)
-        return {**result, "outcome": predicted}
 
     def open_orchestration(self, **options):
         from .semantic_orchestration import open_orchestration
@@ -1369,7 +1334,7 @@ class SelectedSemanticInference:
             self._advance(state, work, events[len(work.seen) :])
             if work.selected:
                 raise SemanticSelectionError("Cannot complete before last selection commits")
-            from megatoken.data.witness_v4 import parse_record
+            from megatoken.data.witness_v5 import parse_record
 
             terminal = []
             for event in events:
@@ -1386,11 +1351,11 @@ class SelectedSemanticInference:
             completion_kind, completion_fields = terminal[-1]
             snapshot = prefix.get("selectedState")
             if snapshot is not None and snapshot.get("completion") is not None:
-                from megatoken.data.witness_v4 import value as validate_value
+                from megatoken.data.witness_v5 import value as validate_value
 
                 completion = snapshot["completion"]
                 if (
-                    snapshot.get("schema") != "semantic-continuation/4"
+                    snapshot.get("schema") != "semantic-continuation/5"
                     or set(completion) != {"kind", "value"}
                     or completion["kind"] not in {"return", "throw"}
                 ):
@@ -1440,8 +1405,8 @@ class SelectedSemanticInference:
         It returns a typed dispatch descriptor; the registered JS adapter then
         performs that action. Nothing asks the model to describe it again.
         """
-        from megatoken.data.semantic_execution import _host_request
-        from megatoken.data.witness_v4 import parse_record
+        from megatoken.data.semantic_request import _host_request
+        from megatoken.data.witness_v5 import parse_record
 
         with self.lock:
             state = self.sessions.get(session)
@@ -1664,11 +1629,12 @@ class SelectedSemanticInference:
                 work_items[-1]["requestReceipts"] = work.request_receipts
                 work_items[-1]["rejections"] = work.rejections
             packet = {
-                "schema": "semantic-model-checkpoint/4",
+                "schema": "semantic-model-checkpoint/5",
                 "session": session,
                 "equivalence": "observed-checkpoint-bootstrap",
                 "modelIdentity": self._identity(),
                 "codecFingerprint": self.runtime.generator.generator.codec.fingerprint,
+                **_execution_contract_identity(),
                 "work": work_items,
                 "orchestration": state.orchestration,
                 "subscriptions": state.subscriptions,
@@ -1691,7 +1657,7 @@ class SelectedSemanticInference:
         with self.lock:
             if (
                 not isinstance(packet, dict)
-                or packet.get("schema") != "semantic-model-checkpoint/4"
+                or packet.get("schema") != "semantic-model-checkpoint/5"
             ):
                 raise SemanticSelectionError("Incompatible selected-model checkpoint")
             body = {key: value for key, value in packet.items() if key != "digest"}
@@ -1701,6 +1667,10 @@ class SelectedSemanticInference:
                 or packet.get("codecFingerprint")
                 != self.runtime.generator.generator.codec.fingerprint
                 or packet.get("equivalence") != "observed-checkpoint-bootstrap"
+                or any(
+                    packet.get(key) != value
+                    for key, value in _execution_contract_identity().items()
+                )
             ):
                 raise SemanticSelectionError("Model, tokenizer or checkpoint bytes changed")
             session_key = _text(packet.get("session"), "session")
@@ -1873,11 +1843,9 @@ class SelectedSemanticInference:
                         if publication == 2:
                             self._observe(session, address, invocation)
                 for item, program, invocation, events in prepared:
-                    if item["representation"] not in {
-                        "explicit",
-                        "compact",
-                        "outcome-only",
-                    } and not (item["representation"] is None and item["selections"] == 0):
+                    if item["representation"] != "compact" and not (
+                        item["representation"] is None and item["selections"] == 0
+                    ):
                         raise SemanticSelectionError(
                             "Restored invocation lacks its exact representation"
                         )

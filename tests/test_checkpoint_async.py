@@ -232,11 +232,14 @@ def test_the_transducer_bank_is_fsynced_before_it_is_published(tmp_path, monkeyp
 
     synced = []
     real = checkpoint.os.fsync
-    monkeypatch.setattr(
-        checkpoint.os,
-        "fsync",
-        lambda fd: (synced.append(Path(f"/proc/self/fd/{fd}").resolve().name), real(fd))[1],
-    )
+
+    def capture_fsynced_file(fd):
+        metadata = checkpoint.os.fstat(fd)
+        synced.append((metadata.st_dev, metadata.st_ino))
+        real(fd)
+
+    monkeypatch.setattr(checkpoint.os, "fsync", capture_fsynced_file)
     staged = stage_checkpoint(tmp_path / "checkpoints", "P1-000000001-periodic")
     checkpoint.transducer_attachment(lambda: {"bank": torch.zeros(2)})(staged)
-    assert "transducer.pt" in synced
+    transducer = (staged / "transducer.pt").stat()
+    assert (transducer.st_dev, transducer.st_ino) in synced

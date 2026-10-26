@@ -4,7 +4,7 @@ import hashlib
 
 from .host_operations import canonical_json
 from .semantic_contract import DEFINITION
-from .witness_v4 import value
+from .witness_v5 import parse_record, value
 
 
 def realm_prefix(timeline, invocation_id):
@@ -43,6 +43,27 @@ def realm_prefix(timeline, invocation_id):
     ]
 
 
+def committed_random_state(timeline, invocation_id):
+    """Replay the realm's public seeded draws through its exact observed prefix."""
+    prefix = realm_prefix(timeline, invocation_id)
+    seeds = {event.get("randomSeed") for event in prefix if event["kind"] == "program"}
+    if len(seeds) != 1:
+        raise ValueError("Retained realm programs changed their deterministic RNG seed")
+    state = next(iter(seeds))
+    for event in prefix:
+        if event["kind"] != "semantic":
+            continue
+        kind, fields = parse_record(event["line"])
+        if kind != "compute" or fields["expr"] != {"op": "random"}:
+            continue
+        if type(state) is not int or not 0 <= state <= 0xFFFFFFFF:
+            raise ValueError("Random draw has no observed deterministic seed")
+        state = (state * 1664525 + 1013904223) & 0xFFFFFFFF
+        if fields["result"] != ["num", state / 4294967296]:
+            raise ValueError("Random draw differs from its observed deterministic state")
+    return state
+
+
 def validate_selected_context(item, prior):
     """Validate exact public ancestry; the independent source replay proves values."""
     fields = {"selectedState", "realmPrefixDigest", "visibleThrough"}
@@ -68,6 +89,11 @@ def validate_selected_context(item, prior):
             for row in rows
         ) or len({row[0] for row in rows}) != len(rows):
             raise ValueError("Selected-state table contains malformed or duplicate identities")
+    random_state = state.get("randomState")
+    if random_state is not None and (
+        type(random_state) is not int or not 0 <= random_state <= 0xFFFFFFFF
+    ):
+        raise ValueError("Selected-state deterministic RNG value must be null or uint32")
     for _, selected in state["locals"]:
         value(selected)
     if any(not isinstance(identity, str) for identity in (*state["stack"], *state["ready"])):
@@ -92,4 +118,6 @@ def validate_selected_context(item, prior):
         )
     if hashlib.sha256(canonical_json(prefix).encode()).hexdigest() != item["realmPrefixDigest"]:
         raise ValueError("Selected-state observation changed its committed realm prefix")
+    if state["randomState"] != committed_random_state(prior, item["invocationId"]):
+        raise ValueError("Selected-state random value differs from the committed realm draws")
     return True

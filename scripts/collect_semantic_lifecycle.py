@@ -39,7 +39,6 @@ def main():
     parser.add_argument("--max-positions", type=int, default=1024)
     parser.add_argument("--max-history", type=int, default=1024)
     parser.add_argument("--max-active", type=int, default=1)
-    parser.add_argument("--representation", choices=("explicit", "compact"), default="explicit")
     options = parser.parse_args()
     codec = ByteCodec.from_tokenizer_json(
         options.tokenizer_json, expected_sha256=LING_TOKENIZER_SHA256
@@ -74,7 +73,6 @@ def main():
                 max_history=options.max_history,
                 max_positions=options.max_positions,
                 max_active=options.max_active,
-                representation=options.representation,
             )
     finally:
         runtime.close()

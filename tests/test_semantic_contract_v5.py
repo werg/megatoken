@@ -7,8 +7,8 @@ from pathlib import Path
 import pytest
 
 from megatoken.data.semantic_contract import CONTRACT, DEFINITION, validate_envelope_record
-from megatoken.data.semantic_harness_v4 import adapt_selected_harness_v4
-from megatoken.data.witness_v4 import FIELDS, REQUIRED, parse_record
+from megatoken.data.semantic_harness_v5 import adapt_selected_harness_v5
+from megatoken.data.witness_v5 import FIELDS, REQUIRED, parse_record
 
 
 def test_independent_parser_matches_frozen_shared_field_declaration():
@@ -22,10 +22,10 @@ def test_independent_parser_matches_frozen_shared_field_declaration():
     for document in CONTRACT["fixtures"]["envelope"]["valid"]:
         for item in document["public"]["timeline"]:
             assert validate_envelope_record(item)
-        adapt_selected_harness_v4(document, allow_local=True)
+        adapt_selected_harness_v5(document, allow_local=True)
     for document in CONTRACT["fixtures"]["envelope"]["invalid"]:
         with pytest.raises(ValueError):
-            adapt_selected_harness_v4(document, allow_local=True)
+            adapt_selected_harness_v5(document, allow_local=True)
 
 
 @pytest.mark.parametrize(
@@ -33,9 +33,9 @@ def test_independent_parser_matches_frozen_shared_field_declaration():
 )
 def test_actual_js_controlled_continuity_fixtures_import(name):
     document = json.loads(
-        (Path(__file__).parent / "fixtures/semantic-v4" / (name + ".json")).read_text()
+        (Path(__file__).parent / "fixtures/semantic-v5" / (name + ".json")).read_text()
     )
-    episode, receipt = adapt_selected_harness_v4(document, allow_local=True)
+    episode, receipt = adapt_selected_harness_v5(document, allow_local=True)
     assert receipt.invocations >= 1
     assert not episode.supervision.verified_success
     assert all(not record.policy_mask for record in episode.records if record.role != "assistant")
@@ -43,12 +43,12 @@ def test_actual_js_controlled_continuity_fixtures_import(name):
     generated = next(item for item in wrong["public"]["timeline"] if item["mode"] == "generated")
     generated["mode"] = "observed"
     with pytest.raises(ValueError, match="authority|contract"):
-        adapt_selected_harness_v4(wrong, allow_local=True)
+        adapt_selected_harness_v5(wrong, allow_local=True)
 
 
 def test_job_owner_and_promise_authority_cannot_be_forged():
     document = json.loads(
-        (Path(__file__).parent / "fixtures/semantic-v4/promise-finally.json").read_text()
+        (Path(__file__).parent / "fixtures/semantic-v5/promise-finally.json").read_text()
     )
     request = next(
         item
@@ -57,4 +57,4 @@ def test_job_owner_and_promise_authority_cannot_be_forged():
     )
     request["line"] = request["line"].replace('"invocation":"job:cleanup"', '"invocation":"call"')
     with pytest.raises(ValueError, match="invocation"):
-        adapt_selected_harness_v4(document, allow_local=True)
+        adapt_selected_harness_v5(document, allow_local=True)

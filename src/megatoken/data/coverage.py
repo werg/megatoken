@@ -13,15 +13,9 @@ def behaviors(episode) -> set[str]:
     if episode.stream == "semantic_execution":
         from .semantic_corpus import semantic_behaviors
 
-        if (
-            json.loads(episode.supervision.annotations_json)
-            .get("semantic_execution", {})
-            .get("representation")
-            == "outcome-only"
-        ):
-            result.add("semantic_outcome_control")
-        else:
-            result.update(semantic_behaviors(episode))
+        # Semantic-execution coverage is derived from actual canonical records,
+        # never from a claimed representation label.
+        result.update(semantic_behaviors(episode))
     actions = {a.action_id: a for a in episode.actions if a.execution_id}
     records = {r.record_id: r for r in episode.records}
     for action in actions.values():
