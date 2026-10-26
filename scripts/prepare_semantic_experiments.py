@@ -57,7 +57,9 @@ def main():
     if manifest.get("catalogDigest") != CONTRACT_DIGEST:
         raise ValueError("Prepared recipe uses a different host operation catalog")
     summary = validate_recipe_manifest(
-        manifest, recipe_name=options.recipe, representation="compact",
+        manifest,
+        recipe_name=options.recipe,
+        representation="compact",
         producer_revision=options.producer_revision,
     )
     datasets = {"common-support": {"compact": []}, "effectful-tracks-events": {"compact": []}}
