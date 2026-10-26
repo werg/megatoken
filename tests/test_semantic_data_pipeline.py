@@ -223,6 +223,30 @@ def cohort_fixture():
     )
 
 
+def test_pure_source_cohort_uses_only_canonical_labels_without_historical_targets():
+    from megatoken.data.recipes import stage_recipe
+
+    original = cohort_fixture()
+    pure = freeze_cohort(
+        original["cases"],
+        name="common-support",
+        thresholds=original["thresholds"],
+    )
+    verify_cohort(pure)
+    assert pure["name"] == "common-support"
+    assert "historicalBaseline" not in pure
+    assert "historicalBaselinePending" not in pure
+    with pytest.raises(ValueError, match="Unknown phase"):
+        stage_recipe("SO")
+    with pytest.raises(TypeError, match="historical_baseline"):
+        freeze_cohort(
+            original["cases"],
+            name="common-support",
+            thresholds=original["thresholds"],
+            historical_baseline={"sourceRunbook": "obsolete"},
+        )
+
+
 def test_frozen_cohort_cli_preserves_source_receipt_bytes(tmp_path):
     cohort = cohort_fixture()
     declaration = tmp_path / "declaration.json"
