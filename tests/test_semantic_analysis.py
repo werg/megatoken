@@ -2,11 +2,14 @@ import copy
 
 import pytest
 
+from megatoken.data.host_operations import CONTRACT_DIGEST
 from megatoken.generation.codec import ByteCodec
 from megatoken.training.semantic_analysis import analyze_semantic_evaluation
 from megatoken.training.semantic_evaluation import (
     HARD_GATES,
+    _current_execution_identity,
     _digest,
+    compare_experiments,
     evaluate_cohort,
     freeze_cohort,
 )
@@ -77,17 +80,21 @@ def _report(cohort):
             }
         )
     return {
-        "schema": "semantic-evaluation-report/4",
+        "schema": "semantic-evaluation-report/5",
         "cohortDigest": cohort["digest"],
         "cohort": cohort["name"],
         "origin": "controlled",
         "checkpointIdentity": None,
         "seed": 17,
         "representation": "compact",
+        "evaluationSplits": ["test"],
+        "catalogDigest": CONTRACT_DIGEST,
+        **_current_execution_identity(),
         "learnedSuccess": None,
         "summary": {
             "tasks": len(rows),
             "correctTasks": sum(row["wholeTaskSuccess"] for row in rows),
+            "wholeTaskSuccess": sum(row["wholeTaskSuccess"] for row in rows) / len(rows),
         },
         "cases": rows,
         "sourceLengthBands": [
@@ -140,6 +147,54 @@ def test_analysis_rejects_unmatched_or_unmeasured_reports(mutation, match):
     mutation(cohort, report)
     with pytest.raises(ValueError, match=match):
         analyze_semantic_evaluation(cohort, report)
+
+
+@pytest.mark.parametrize(
+    "mutation",
+    [
+        lambda report: report.update(schema="semantic-evaluation-report/4"),
+        lambda report: report.pop("semanticExecutionSchemaDigest"),
+        lambda report: report.update(semanticExecutionSchemaDigest="0" * 64),
+        lambda report: report.update(semanticExecutionFixtureDigest="0" * 64),
+        lambda report: report.update(hostCatalogDigest="0" * 64),
+        lambda report: report.update(catalogDigest="0" * 64),
+    ],
+)
+def test_analysis_rejects_old_or_unbound_semantic_evaluation_reports(mutation):
+    cohort = _cohort()
+    report = _report(cohort)
+    mutation(report)
+    with pytest.raises(ValueError, match="semantic-evaluation-report/5|stale or missing"):
+        analyze_semantic_evaluation(cohort, report)
+
+
+def test_current_reports_compare_at_registered_seeds_and_reject_stale_identity():
+    cohort = _cohort()
+    reports, budgets = [], []
+    for seed in (17, 29, 43):
+        report = _report(cohort)
+        report["seed"] = seed
+        reports.append(report)
+        budgets.append(
+            {
+                "schema": "semantic-experiment-budget/4",
+                "seed": seed,
+                "representation": "compact",
+                "checkpointIdentity": None,
+                "cohortDigest": cohort["digest"],
+                "regime": "fixed-examples",
+                "examples": 10,
+                "generatedTokens": 100,
+                "observedTokens": 200,
+                "computeSeconds": 3.0,
+            }
+        )
+    compared = compare_experiments(reports, budgets)
+    assert compared["schema"] == "semantic-experiment-comparison/5"
+    invalid = copy.deepcopy(reports)
+    invalid[0]["semanticExecutionFixtureDigest"] = "0" * 64
+    with pytest.raises(ValueError, match="stale or missing"):
+        compare_experiments(invalid, budgets)
 
 
 def test_analysis_marks_missing_behaviors_unknown_and_requires_model_identity():

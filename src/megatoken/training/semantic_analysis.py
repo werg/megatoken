@@ -10,7 +10,13 @@ import math
 from collections import Counter, defaultdict
 from typing import Any
 
-from megatoken.training.semantic_evaluation import HARD_GATES, OUTCOMES, SEEDS, verify_cohort
+from megatoken.training.semantic_evaluation import (
+    HARD_GATES,
+    OUTCOMES,
+    SEEDS,
+    require_current_report,
+    verify_cohort,
+)
 
 ANALYSIS_SCHEMA = "semantic-evaluation-analysis/1"
 COST_FIELDS = (
@@ -120,8 +126,7 @@ def _behavior(report, case_id):
 def analyze_semantic_evaluation(cohort: dict[str, Any], report: dict[str, Any]) -> dict[str, Any]:
     """Validate matched frozen inputs and emit a distinct descriptive report."""
     verify_cohort(cohort)
-    if not isinstance(report, dict) or report.get("schema") != "semantic-evaluation-report/4":
-        raise ValueError("Expected a semantic-evaluation-report/4 input")
+    require_current_report(report)
     if report.get("cohortDigest") != cohort["digest"] or report.get("cohort") != cohort["name"]:
         raise ValueError("Evaluation report does not match this frozen cohort")
     if report.get("origin") not in {"controlled", "fixed-weights", "trained"}:

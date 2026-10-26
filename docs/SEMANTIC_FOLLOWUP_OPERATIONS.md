@@ -42,16 +42,61 @@ immutable teacher structure targets, donor imports, and coordinator
 endpoint. Do not substitute historical experiment settings for
 current data.
 
+First freeze each held-out cohort from the same admitted recipe. These
+commands use the default test-only split; validation families remain
+available for training-time model selection.
+
+```sh
+node /work/tracing-js-self/tools/freeze-selected-evaluation.mjs \
+  /work/semantic-recipe /work/common-support-declaration.json --common-support
+node /work/tracing-js-self/tools/freeze-selected-evaluation.mjs \
+  /work/semantic-recipe /work/effectful-declaration.json
+python scripts/evaluate_semantic.py freeze \
+  --declaration /work/common-support-declaration.json --output /work/common-support-cohort.json
+python scripts/evaluate_semantic.py freeze \
+  --declaration /work/effectful-declaration.json --output /work/effectful-cohort.json
+```
+
+Preparation writes `/work/benchmark-prepared/dataset-bindings.json` with
+only `datasets` and `codec`. Combine it with the frozen cohort paths and
+the actual production inputs before invoking the planner. In the example
+below, `/work/production-launch.json` is an existing deployment-specific
+training configuration containing the immutable `hindsight_targets` path,
+ordered `engram_imports` paths, and full `decoupled` coordinator settings.
+Use the real imported assets and coordinator URL; the `PIN_*` values in
+the checked-in seed templates are unconfigured declarations.
+
+```sh
+python - <<'PY'
+import json
+from pathlib import Path
+
+prepared = json.loads(Path('/work/benchmark-prepared/dataset-bindings.json').read_text())
+production = json.loads(Path('/work/production-launch.json').read_text())
+bindings = {
+    'datasets': prepared['datasets'],
+    'codec': prepared['codec'],
+    'cohorts': {
+        'common-support': '/work/common-support-cohort.json',
+        'effectful-tracks-events': '/work/effectful-cohort.json',
+    },
+    **{key: production[key] for key in ('hindsight_targets', 'engram_imports', 'decoupled')},
+}
+Path('/work/complete-semantic-bindings.json').write_text(json.dumps(bindings, indent=2) + '\n')
+PY
+```
+
 ```sh
 python scripts/plan_semantic_training.py \
-  --bindings /work/semantic-experiment/dataset-bindings.json \
+  --bindings /work/complete-semantic-bindings.json \
   --engineering-receipt /work/cross-repo-engineering.json \
   --output /work/semantic-training-plan
 ```
 
-The supplied bindings must also contain the referenced frozen
-cohorts and production launch inputs; the dataset-bindings file
-created by preparation alone is **not sufficient** to start training.
+The planner checks the frozen cohort identities, stage supply, tokenizer,
+and configuration shape. The preparation file alone cannot satisfy this
+interface. Keep the combined binding file and `matrix.json` with the
+engineering receipt so every planned run has inspectable inputs.
 
 `scripts/qualify_semantic_launch.py` performs the existing
 read-only launch qualification, including immutable checkpoint and

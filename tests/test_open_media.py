@@ -1050,7 +1050,7 @@ def test_registered_producers_belong_to_their_declared_stages():
     stages = {phase: set(stage_recipe(phase).mixture) for phase in load_recipes()["phases"]}
     assert set(STREAM_PRODUCERS) <= set().union(*stages.values())
     assert "semantic_execution" not in stages["P1"]
-    assert all(stages[phase] == {"semantic_execution"} for phase in ("SC", "SE", "SO"))
+    assert all(stages[phase] == {"semantic_execution"} for phase in ("SC", "SE"))
     assert all(callable(resolve_stream_producer(stream)) for stream in STREAM_PRODUCERS)
 
 

@@ -55,6 +55,10 @@ def validate_envelope_record(item):
             raise ValueError("Envelope ordering requires positive integers")
     kind = item["kind"]
     if kind == "program":
+        if "randomSeed" in item and (
+            type(item["randomSeed"]) is not int or not 0 <= item["randomSeed"] <= 0xFFFFFFFF
+        ):
+            raise ValueError("Program deterministic seed must be an unsigned 32-bit integer")
         if (
             item["languageProfile"] != "owned-javascript/1"
             or type(item["module"]) is not bool

@@ -356,6 +356,7 @@ def test_model_restart_is_explicit_observed_bootstrap_and_never_reexecutes_tools
         adapter.checkpoint("session1", [prefix])
     add(prefix, "semantic", line=selected["record"])
     checkpoint = adapter.checkpoint("session1", [prefix])
+    assert checkpoint["schema"] == "semantic-model-checkpoint/5"
     restored_runtime = FakeRuntime(selections=[b'end {"kind":"return"}'])
     restored = SelectedSemanticInference(
         restored_runtime, verify_context=False, model_identity="fixed-fixture-model"
@@ -364,6 +365,12 @@ def test_model_restart_is_explicit_observed_bootstrap_and_never_reexecutes_tools
     assert receipt["equivalence"] == "observed-checkpoint-bootstrap"
     assert receipt["nativeEffects"] == 0
     assert b"checkpoint-bootstrap" in restored_runtime.sessions[0].observations[-1][1]
+    from megatoken.data.host_operations import CONTRACT_DIGEST
+    from megatoken.data.semantic_contract import FIXTURE_DIGEST, SCHEMA_DIGEST
+
+    assert checkpoint["semanticExecutionSchemaDigest"] == SCHEMA_DIGEST
+    assert checkpoint["semanticExecutionFixtureDigest"] == FIXTURE_DIGEST
+    assert checkpoint["hostCatalogDigest"] == CONTRACT_DIGEST
     final = restored.select(prefix)
     add(prefix, "semantic", line=final["record"])
     restored.close_invocation("session1", "i1", prefix)
@@ -374,6 +381,76 @@ def test_model_restart_is_explicit_observed_bootstrap_and_never_reexecutes_tools
         SelectedSemanticInference(
             FakeRuntime(), verify_context=False, model_identity="fixed-fixture-model"
         ).restore(tampered)
+
+
+@pytest.mark.parametrize(
+    "mutation",
+    [
+        lambda packet: packet.update(schema="semantic-model-checkpoint/4"),
+        lambda packet: packet.pop("semanticExecutionSchemaDigest"),
+        lambda packet: packet.update(semanticExecutionSchemaDigest="0" * 64),
+        lambda packet: packet.update(semanticExecutionFixtureDigest="0" * 64),
+        lambda packet: packet.update(hostCatalogDigest="0" * 64),
+    ],
+)
+def test_checkpoint_restore_rejects_stale_contract_even_with_recomputed_packet_digest(mutation):
+    from megatoken.semantic_model_adapter import _canonical
+
+    adapter = SelectedSemanticInference(
+        FakeRuntime(selections=[b'return {"value":["num",7]}']),
+        verify_context=False,
+        model_identity="fixed-fixture-model",
+    )
+    prefix = fixture()
+    selection = adapter.select(prefix)
+    add(prefix, "semantic", line=selection["record"])
+    packet = adapter.checkpoint("session1", [prefix])
+    mutation(packet)
+    packet["digest"] = hashlib.sha256(
+        _canonical({key: value for key, value in packet.items() if key != "digest"})
+    ).hexdigest()
+    with pytest.raises(SemanticSelectionError):
+        SelectedSemanticInference(
+            FakeRuntime(), verify_context=False, model_identity="fixed-fixture-model"
+        ).restore(packet)
+
+
+def test_current_checkpoint_roundtrips_with_actual_loaded_model_identity_and_fixture_output():
+    import torch
+
+    from megatoken.generation.codec import ByteCodec
+    from megatoken.generation.policy import FacetedGenerator
+    from megatoken.model import FacetedCore, ModelConfig
+
+    torch.set_num_threads(1)
+    torch.manual_seed(71)
+    model = FacetedGenerator(
+        FacetedCore(ModelConfig.tiny(max_history_chunks=64, max_capacity=512)),
+        ByteCodec.byte_fallback(),
+    )
+    runtime = FakeRuntime(selections=[b'return {"value":["num",7]}'])
+    runtime.generator.generator = model
+    adapter = SelectedSemanticInference(runtime, verify_context=False)
+    prefix = fixture()
+    selected = adapter.select(prefix)
+    add(prefix, "semantic", line=selected["record"])
+    packet = adapter.checkpoint("session1", [prefix])
+    assert packet["modelIdentity"] == adapter._identity()
+
+    restored_runtime = FakeRuntime(selections=[b'end {"kind":"return"}'])
+    restored_runtime.generator.generator = model
+    restored = SelectedSemanticInference(restored_runtime, verify_context=False)
+    assert restored.restore(packet)["nativeEffects"] == 0
+
+    # A learned weight change invalidates the actual loaded-model pin.
+    with torch.no_grad():
+        next(model.parameters()).add_(0.01)
+    changed_runtime = FakeRuntime()
+    changed_runtime.generator.generator = model
+    with pytest.raises(
+        SemanticSelectionError, match="Model, tokenizer or checkpoint bytes changed"
+    ):
+        SelectedSemanticInference(changed_runtime, verify_context=False).restore(packet)
 
 
 def test_actual_initialized_model_inference_and_source_reread_change_no_weights():

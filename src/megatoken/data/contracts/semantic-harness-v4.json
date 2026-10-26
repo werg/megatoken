@@ -278,7 +278,9 @@
           "module",
           "sourceMetadata"
         ],
-        "optional": []
+        "optional": [
+          "randomSeed"
+        ]
       },
       "invocation": {
         "mode": "observed",
@@ -486,11 +488,13 @@
       "requestsPerCommittedSelection": 1
     }
   },
-  "digest": "83036b29b7c117e6d947b1b5e5b8b30acb773efeeb538f33c8862966bb086206",
-  "fixtureDigest": "741d2626262f3d71324d5bfac59273a23da35cacae6d571ae5dd023673057567",
+  "digest": "6c606fe9238aa08cefd8fa80cf367d35a01fb6494984f2a80cd6462a522482ba",
+  "fixtureDigest": "0f54a45e30a3f93fab8a4419ccdc76e691fc80fca177d8ddb3e21549eca29dbd",
   "fixtures": {
     "witness": {
       "valid": [
+        "code {\"entry\":\"run\",\"source\":\"function run(){return Math.random();}\",\"sites\":[],\"randomSeed\":0}",
+        "compute {\"expr\":{\"op\":\"random\"},\"result\":[\"num\",0.23606797284446657]}",
         "input {\"graph\":{\"roots\":[[\"ref\",\"retained\"]],\"objects\":[]},\"retained\":[\"retained\"]}",
         "promise {\"action\":\"create\",\"promise\":\"result\"}",
         "promise {\"action\":\"react\",\"promise\":\"source\",\"reaction\":\"then\",\"closure\":\"fulfilled\",\"rejectionClosure\":\"rejected\",\"target\":\"result\",\"job\":\"reaction\"}",
@@ -501,6 +505,7 @@
         "observe {\"effect\":\"effect\",\"status\":\"fulfilled\",\"result\":[\"ref\",\"o0\"],\"graph\":{\"roots\":[[\"ref\",\"o0\"]],\"objects\":[{\"id\":\"o0\",\"kind\":\"object\",\"properties\":[{\"key\":\"self\",\"value\":[\"ref\",\"o0\"]}]}]}}"
       ],
       "invalid": [
+        "compute {\"expr\":{\"op\":\"binary\",\"operator\":\"+\",\"left\":{\"op\":\"random\"},\"right\":{\"op\":\"random\"}},\"result\":[\"num\",0]}",
         "request {\"effect\":\"effect\",\"operation\":\"demo.readAsync\",\"arguments\":[],\"invocation\":\"i1\",\"payload\":\"[]\"}",
         "promise {\"action\":\"react\",\"promise\":\"p\",\"reaction\":\"catch\",\"job\":\"j\",\"rejectionClosure\":\"f\"}",
         "resume {\"continuation\":\"c\",\"invocation\":\"i\",\"status\":\"pending\",\"result\":[\"undefined\"]}",
@@ -828,6 +833,164 @@
                 "mode": "generated",
                 "kind": "semantic",
                 "invocationId": "outside:1",
+                "traceFormat": "semantic-trace/4",
+                "line": "end {\"kind\":\"return\"}"
+              }
+            ]
+          },
+          "sidecar": {
+            "schema": "semantic-supervision/2",
+            "admission": "locally_verified",
+            "representation": "compact",
+            "referenceStatus": "unverified",
+            "sourceLineage": null,
+            "split": null,
+            "selectionOrigin": "controlled-or-model-output-unverified"
+          }
+        },
+        {
+          "public": {
+            "schema": "semantic-execution/4",
+            "profile": "selected-harness/2",
+            "traceFormat": "semantic-trace/4",
+            "contextFormat": "semantic-context/4",
+            "timeline": [
+              {
+                "schema": "semantic-execution/4",
+                "session": "seedcontract",
+                "sequence": 1,
+                "ownerSequence": 1,
+                "track": "host",
+                "mode": "observed",
+                "kind": "program",
+                "programId": "random",
+                "digest": "b25c7fedb980c3bfd9f29a84a2a18426252b32c90ec6ba8ec16a62036b73f57a",
+                "entry": "run",
+                "source": "function run(){return Math.random();}",
+                "sites": [
+                  {
+                    "id": "s1",
+                    "start": 0,
+                    "end": 37,
+                    "role": "FunctionDeclaration"
+                  },
+                  {
+                    "id": "s2",
+                    "start": 9,
+                    "end": 12,
+                    "role": "Identifier"
+                  },
+                  {
+                    "id": "s3",
+                    "start": 15,
+                    "end": 36,
+                    "role": "ReturnStatement"
+                  },
+                  {
+                    "id": "s4",
+                    "start": 22,
+                    "end": 26,
+                    "role": "Identifier"
+                  },
+                  {
+                    "id": "s5",
+                    "start": 22,
+                    "end": 33,
+                    "role": "MemberExpression"
+                  },
+                  {
+                    "id": "s6",
+                    "start": 22,
+                    "end": 35,
+                    "role": "CallExpression"
+                  },
+                  {
+                    "id": "s7",
+                    "start": 27,
+                    "end": 33,
+                    "role": "Identifier"
+                  }
+                ],
+                "functions": [
+                  {
+                    "start": 0,
+                    "end": 37,
+                    "name": "run",
+                    "params": []
+                  }
+                ],
+                "capabilities": [],
+                "dependencies": [],
+                "sourceMap": null,
+                "languageProfile": "owned-javascript/1",
+                "module": false,
+                "sourceMetadata": null,
+                "randomSeed": 0
+              },
+              {
+                "schema": "semantic-execution/4",
+                "session": "seedcontract",
+                "sequence": 2,
+                "ownerSequence": 1,
+                "track": "worker",
+                "mode": "observed",
+                "kind": "invocation",
+                "programId": "random",
+                "invocationId": "sample",
+                "realmId": "realm",
+                "triggerId": "caller",
+                "completionPolicy": "call-return",
+                "realmPolicy": "fresh",
+                "inputGraph": {
+                  "roots": [],
+                  "objects": []
+                },
+                "entry": "run",
+                "sourceDigest": "b25c7fedb980c3bfd9f29a84a2a18426252b32c90ec6ba8ec16a62036b73f57a",
+                "receiver": [
+                  "undefined"
+                ],
+                "closureId": null,
+                "activation": "call",
+                "parentInvocationId": null,
+                "taskRevision": 1,
+                "deadline": null,
+                "bindings": {},
+                "ingressKey": "caller"
+              },
+              {
+                "schema": "semantic-execution/4",
+                "session": "seedcontract",
+                "sequence": 3,
+                "ownerSequence": 2,
+                "track": "worker",
+                "mode": "generated",
+                "kind": "semantic",
+                "invocationId": "sample",
+                "traceFormat": "semantic-trace/4",
+                "line": "compute {\"expr\":{\"op\":\"random\"},\"result\":[\"num\",0.23606797284446657]}"
+              },
+              {
+                "schema": "semantic-execution/4",
+                "session": "seedcontract",
+                "sequence": 4,
+                "ownerSequence": 3,
+                "track": "worker",
+                "mode": "generated",
+                "kind": "semantic",
+                "invocationId": "sample",
+                "traceFormat": "semantic-trace/4",
+                "line": "return {\"value\":[\"num\",0.23606797284446657]}"
+              },
+              {
+                "schema": "semantic-execution/4",
+                "session": "seedcontract",
+                "sequence": 5,
+                "ownerSequence": 4,
+                "track": "worker",
+                "mode": "generated",
+                "kind": "semantic",
+                "invocationId": "sample",
                 "traceFormat": "semantic-trace/4",
                 "line": "end {\"kind\":\"return\"}"
               }
@@ -1823,6 +1986,796 @@
                 "mode": "generated",
                 "kind": "semantic",
                 "invocationId": "outside:1",
+                "traceFormat": "semantic-trace/4",
+                "line": "end {\"kind\":\"return\"}"
+              }
+            ]
+          },
+          "sidecar": {
+            "schema": "semantic-supervision/2",
+            "admission": "locally_verified",
+            "representation": "compact",
+            "referenceStatus": "unverified",
+            "sourceLineage": null,
+            "split": null,
+            "selectionOrigin": "controlled-or-model-output-unverified"
+          }
+        },
+        {
+          "public": {
+            "schema": "semantic-execution/4",
+            "profile": "selected-harness/2",
+            "traceFormat": "semantic-trace/4",
+            "contextFormat": "semantic-context/4",
+            "timeline": [
+              {
+                "schema": "semantic-execution/4",
+                "session": "seedcontract",
+                "sequence": 1,
+                "ownerSequence": 1,
+                "track": "host",
+                "mode": "observed",
+                "kind": "program",
+                "programId": "random",
+                "digest": "b25c7fedb980c3bfd9f29a84a2a18426252b32c90ec6ba8ec16a62036b73f57a",
+                "entry": "run",
+                "source": "function run(){return Math.random();}",
+                "sites": [
+                  {
+                    "id": "s1",
+                    "start": 0,
+                    "end": 37,
+                    "role": "FunctionDeclaration"
+                  },
+                  {
+                    "id": "s2",
+                    "start": 9,
+                    "end": 12,
+                    "role": "Identifier"
+                  },
+                  {
+                    "id": "s3",
+                    "start": 15,
+                    "end": 36,
+                    "role": "ReturnStatement"
+                  },
+                  {
+                    "id": "s4",
+                    "start": 22,
+                    "end": 26,
+                    "role": "Identifier"
+                  },
+                  {
+                    "id": "s5",
+                    "start": 22,
+                    "end": 33,
+                    "role": "MemberExpression"
+                  },
+                  {
+                    "id": "s6",
+                    "start": 22,
+                    "end": 35,
+                    "role": "CallExpression"
+                  },
+                  {
+                    "id": "s7",
+                    "start": 27,
+                    "end": 33,
+                    "role": "Identifier"
+                  }
+                ],
+                "functions": [
+                  {
+                    "start": 0,
+                    "end": 37,
+                    "name": "run",
+                    "params": []
+                  }
+                ],
+                "capabilities": [],
+                "dependencies": [],
+                "sourceMap": null,
+                "languageProfile": "owned-javascript/1",
+                "module": false,
+                "sourceMetadata": null,
+                "randomSeed": -1
+              },
+              {
+                "schema": "semantic-execution/4",
+                "session": "seedcontract",
+                "sequence": 2,
+                "ownerSequence": 1,
+                "track": "worker",
+                "mode": "observed",
+                "kind": "invocation",
+                "programId": "random",
+                "invocationId": "sample",
+                "realmId": "realm",
+                "triggerId": "caller",
+                "completionPolicy": "call-return",
+                "realmPolicy": "fresh",
+                "inputGraph": {
+                  "roots": [],
+                  "objects": []
+                },
+                "entry": "run",
+                "sourceDigest": "b25c7fedb980c3bfd9f29a84a2a18426252b32c90ec6ba8ec16a62036b73f57a",
+                "receiver": [
+                  "undefined"
+                ],
+                "closureId": null,
+                "activation": "call",
+                "parentInvocationId": null,
+                "taskRevision": 1,
+                "deadline": null,
+                "bindings": {},
+                "ingressKey": "caller"
+              },
+              {
+                "schema": "semantic-execution/4",
+                "session": "seedcontract",
+                "sequence": 3,
+                "ownerSequence": 2,
+                "track": "worker",
+                "mode": "generated",
+                "kind": "semantic",
+                "invocationId": "sample",
+                "traceFormat": "semantic-trace/4",
+                "line": "compute {\"expr\":{\"op\":\"random\"},\"result\":[\"num\",0.23606797284446657]}"
+              },
+              {
+                "schema": "semantic-execution/4",
+                "session": "seedcontract",
+                "sequence": 4,
+                "ownerSequence": 3,
+                "track": "worker",
+                "mode": "generated",
+                "kind": "semantic",
+                "invocationId": "sample",
+                "traceFormat": "semantic-trace/4",
+                "line": "return {\"value\":[\"num\",0.23606797284446657]}"
+              },
+              {
+                "schema": "semantic-execution/4",
+                "session": "seedcontract",
+                "sequence": 5,
+                "ownerSequence": 4,
+                "track": "worker",
+                "mode": "generated",
+                "kind": "semantic",
+                "invocationId": "sample",
+                "traceFormat": "semantic-trace/4",
+                "line": "end {\"kind\":\"return\"}"
+              }
+            ]
+          },
+          "sidecar": {
+            "schema": "semantic-supervision/2",
+            "admission": "locally_verified",
+            "representation": "compact",
+            "referenceStatus": "unverified",
+            "sourceLineage": null,
+            "split": null,
+            "selectionOrigin": "controlled-or-model-output-unverified"
+          }
+        },
+        {
+          "public": {
+            "schema": "semantic-execution/4",
+            "profile": "selected-harness/2",
+            "traceFormat": "semantic-trace/4",
+            "contextFormat": "semantic-context/4",
+            "timeline": [
+              {
+                "schema": "semantic-execution/4",
+                "session": "seedcontract",
+                "sequence": 1,
+                "ownerSequence": 1,
+                "track": "host",
+                "mode": "observed",
+                "kind": "program",
+                "programId": "random",
+                "digest": "b25c7fedb980c3bfd9f29a84a2a18426252b32c90ec6ba8ec16a62036b73f57a",
+                "entry": "run",
+                "source": "function run(){return Math.random();}",
+                "sites": [
+                  {
+                    "id": "s1",
+                    "start": 0,
+                    "end": 37,
+                    "role": "FunctionDeclaration"
+                  },
+                  {
+                    "id": "s2",
+                    "start": 9,
+                    "end": 12,
+                    "role": "Identifier"
+                  },
+                  {
+                    "id": "s3",
+                    "start": 15,
+                    "end": 36,
+                    "role": "ReturnStatement"
+                  },
+                  {
+                    "id": "s4",
+                    "start": 22,
+                    "end": 26,
+                    "role": "Identifier"
+                  },
+                  {
+                    "id": "s5",
+                    "start": 22,
+                    "end": 33,
+                    "role": "MemberExpression"
+                  },
+                  {
+                    "id": "s6",
+                    "start": 22,
+                    "end": 35,
+                    "role": "CallExpression"
+                  },
+                  {
+                    "id": "s7",
+                    "start": 27,
+                    "end": 33,
+                    "role": "Identifier"
+                  }
+                ],
+                "functions": [
+                  {
+                    "start": 0,
+                    "end": 37,
+                    "name": "run",
+                    "params": []
+                  }
+                ],
+                "capabilities": [],
+                "dependencies": [],
+                "sourceMap": null,
+                "languageProfile": "owned-javascript/1",
+                "module": false,
+                "sourceMetadata": null,
+                "randomSeed": 4294967296
+              },
+              {
+                "schema": "semantic-execution/4",
+                "session": "seedcontract",
+                "sequence": 2,
+                "ownerSequence": 1,
+                "track": "worker",
+                "mode": "observed",
+                "kind": "invocation",
+                "programId": "random",
+                "invocationId": "sample",
+                "realmId": "realm",
+                "triggerId": "caller",
+                "completionPolicy": "call-return",
+                "realmPolicy": "fresh",
+                "inputGraph": {
+                  "roots": [],
+                  "objects": []
+                },
+                "entry": "run",
+                "sourceDigest": "b25c7fedb980c3bfd9f29a84a2a18426252b32c90ec6ba8ec16a62036b73f57a",
+                "receiver": [
+                  "undefined"
+                ],
+                "closureId": null,
+                "activation": "call",
+                "parentInvocationId": null,
+                "taskRevision": 1,
+                "deadline": null,
+                "bindings": {},
+                "ingressKey": "caller"
+              },
+              {
+                "schema": "semantic-execution/4",
+                "session": "seedcontract",
+                "sequence": 3,
+                "ownerSequence": 2,
+                "track": "worker",
+                "mode": "generated",
+                "kind": "semantic",
+                "invocationId": "sample",
+                "traceFormat": "semantic-trace/4",
+                "line": "compute {\"expr\":{\"op\":\"random\"},\"result\":[\"num\",0.23606797284446657]}"
+              },
+              {
+                "schema": "semantic-execution/4",
+                "session": "seedcontract",
+                "sequence": 4,
+                "ownerSequence": 3,
+                "track": "worker",
+                "mode": "generated",
+                "kind": "semantic",
+                "invocationId": "sample",
+                "traceFormat": "semantic-trace/4",
+                "line": "return {\"value\":[\"num\",0.23606797284446657]}"
+              },
+              {
+                "schema": "semantic-execution/4",
+                "session": "seedcontract",
+                "sequence": 5,
+                "ownerSequence": 4,
+                "track": "worker",
+                "mode": "generated",
+                "kind": "semantic",
+                "invocationId": "sample",
+                "traceFormat": "semantic-trace/4",
+                "line": "end {\"kind\":\"return\"}"
+              }
+            ]
+          },
+          "sidecar": {
+            "schema": "semantic-supervision/2",
+            "admission": "locally_verified",
+            "representation": "compact",
+            "referenceStatus": "unverified",
+            "sourceLineage": null,
+            "split": null,
+            "selectionOrigin": "controlled-or-model-output-unverified"
+          }
+        },
+        {
+          "public": {
+            "schema": "semantic-execution/4",
+            "profile": "selected-harness/2",
+            "traceFormat": "semantic-trace/4",
+            "contextFormat": "semantic-context/4",
+            "timeline": [
+              {
+                "schema": "semantic-execution/4",
+                "session": "seedcontract",
+                "sequence": 1,
+                "ownerSequence": 1,
+                "track": "host",
+                "mode": "observed",
+                "kind": "program",
+                "programId": "random",
+                "digest": "b25c7fedb980c3bfd9f29a84a2a18426252b32c90ec6ba8ec16a62036b73f57a",
+                "entry": "run",
+                "source": "function run(){return Math.random();}",
+                "sites": [
+                  {
+                    "id": "s1",
+                    "start": 0,
+                    "end": 37,
+                    "role": "FunctionDeclaration"
+                  },
+                  {
+                    "id": "s2",
+                    "start": 9,
+                    "end": 12,
+                    "role": "Identifier"
+                  },
+                  {
+                    "id": "s3",
+                    "start": 15,
+                    "end": 36,
+                    "role": "ReturnStatement"
+                  },
+                  {
+                    "id": "s4",
+                    "start": 22,
+                    "end": 26,
+                    "role": "Identifier"
+                  },
+                  {
+                    "id": "s5",
+                    "start": 22,
+                    "end": 33,
+                    "role": "MemberExpression"
+                  },
+                  {
+                    "id": "s6",
+                    "start": 22,
+                    "end": 35,
+                    "role": "CallExpression"
+                  },
+                  {
+                    "id": "s7",
+                    "start": 27,
+                    "end": 33,
+                    "role": "Identifier"
+                  }
+                ],
+                "functions": [
+                  {
+                    "start": 0,
+                    "end": 37,
+                    "name": "run",
+                    "params": []
+                  }
+                ],
+                "capabilities": [],
+                "dependencies": [],
+                "sourceMap": null,
+                "languageProfile": "owned-javascript/1",
+                "module": false,
+                "sourceMetadata": null,
+                "randomSeed": 0.5
+              },
+              {
+                "schema": "semantic-execution/4",
+                "session": "seedcontract",
+                "sequence": 2,
+                "ownerSequence": 1,
+                "track": "worker",
+                "mode": "observed",
+                "kind": "invocation",
+                "programId": "random",
+                "invocationId": "sample",
+                "realmId": "realm",
+                "triggerId": "caller",
+                "completionPolicy": "call-return",
+                "realmPolicy": "fresh",
+                "inputGraph": {
+                  "roots": [],
+                  "objects": []
+                },
+                "entry": "run",
+                "sourceDigest": "b25c7fedb980c3bfd9f29a84a2a18426252b32c90ec6ba8ec16a62036b73f57a",
+                "receiver": [
+                  "undefined"
+                ],
+                "closureId": null,
+                "activation": "call",
+                "parentInvocationId": null,
+                "taskRevision": 1,
+                "deadline": null,
+                "bindings": {},
+                "ingressKey": "caller"
+              },
+              {
+                "schema": "semantic-execution/4",
+                "session": "seedcontract",
+                "sequence": 3,
+                "ownerSequence": 2,
+                "track": "worker",
+                "mode": "generated",
+                "kind": "semantic",
+                "invocationId": "sample",
+                "traceFormat": "semantic-trace/4",
+                "line": "compute {\"expr\":{\"op\":\"random\"},\"result\":[\"num\",0.23606797284446657]}"
+              },
+              {
+                "schema": "semantic-execution/4",
+                "session": "seedcontract",
+                "sequence": 4,
+                "ownerSequence": 3,
+                "track": "worker",
+                "mode": "generated",
+                "kind": "semantic",
+                "invocationId": "sample",
+                "traceFormat": "semantic-trace/4",
+                "line": "return {\"value\":[\"num\",0.23606797284446657]}"
+              },
+              {
+                "schema": "semantic-execution/4",
+                "session": "seedcontract",
+                "sequence": 5,
+                "ownerSequence": 4,
+                "track": "worker",
+                "mode": "generated",
+                "kind": "semantic",
+                "invocationId": "sample",
+                "traceFormat": "semantic-trace/4",
+                "line": "end {\"kind\":\"return\"}"
+              }
+            ]
+          },
+          "sidecar": {
+            "schema": "semantic-supervision/2",
+            "admission": "locally_verified",
+            "representation": "compact",
+            "referenceStatus": "unverified",
+            "sourceLineage": null,
+            "split": null,
+            "selectionOrigin": "controlled-or-model-output-unverified"
+          }
+        },
+        {
+          "public": {
+            "schema": "semantic-execution/4",
+            "profile": "selected-harness/2",
+            "traceFormat": "semantic-trace/4",
+            "contextFormat": "semantic-context/4",
+            "timeline": [
+              {
+                "schema": "semantic-execution/4",
+                "session": "seedcontract",
+                "sequence": 1,
+                "ownerSequence": 1,
+                "track": "host",
+                "mode": "observed",
+                "kind": "program",
+                "programId": "random",
+                "digest": "b25c7fedb980c3bfd9f29a84a2a18426252b32c90ec6ba8ec16a62036b73f57a",
+                "entry": "run",
+                "source": "function run(){return Math.random();}",
+                "sites": [
+                  {
+                    "id": "s1",
+                    "start": 0,
+                    "end": 37,
+                    "role": "FunctionDeclaration"
+                  },
+                  {
+                    "id": "s2",
+                    "start": 9,
+                    "end": 12,
+                    "role": "Identifier"
+                  },
+                  {
+                    "id": "s3",
+                    "start": 15,
+                    "end": 36,
+                    "role": "ReturnStatement"
+                  },
+                  {
+                    "id": "s4",
+                    "start": 22,
+                    "end": 26,
+                    "role": "Identifier"
+                  },
+                  {
+                    "id": "s5",
+                    "start": 22,
+                    "end": 33,
+                    "role": "MemberExpression"
+                  },
+                  {
+                    "id": "s6",
+                    "start": 22,
+                    "end": 35,
+                    "role": "CallExpression"
+                  },
+                  {
+                    "id": "s7",
+                    "start": 27,
+                    "end": 33,
+                    "role": "Identifier"
+                  }
+                ],
+                "functions": [
+                  {
+                    "start": 0,
+                    "end": 37,
+                    "name": "run",
+                    "params": []
+                  }
+                ],
+                "capabilities": [],
+                "dependencies": [],
+                "sourceMap": null,
+                "languageProfile": "owned-javascript/1",
+                "module": false,
+                "sourceMetadata": null,
+                "randomSeed": true
+              },
+              {
+                "schema": "semantic-execution/4",
+                "session": "seedcontract",
+                "sequence": 2,
+                "ownerSequence": 1,
+                "track": "worker",
+                "mode": "observed",
+                "kind": "invocation",
+                "programId": "random",
+                "invocationId": "sample",
+                "realmId": "realm",
+                "triggerId": "caller",
+                "completionPolicy": "call-return",
+                "realmPolicy": "fresh",
+                "inputGraph": {
+                  "roots": [],
+                  "objects": []
+                },
+                "entry": "run",
+                "sourceDigest": "b25c7fedb980c3bfd9f29a84a2a18426252b32c90ec6ba8ec16a62036b73f57a",
+                "receiver": [
+                  "undefined"
+                ],
+                "closureId": null,
+                "activation": "call",
+                "parentInvocationId": null,
+                "taskRevision": 1,
+                "deadline": null,
+                "bindings": {},
+                "ingressKey": "caller"
+              },
+              {
+                "schema": "semantic-execution/4",
+                "session": "seedcontract",
+                "sequence": 3,
+                "ownerSequence": 2,
+                "track": "worker",
+                "mode": "generated",
+                "kind": "semantic",
+                "invocationId": "sample",
+                "traceFormat": "semantic-trace/4",
+                "line": "compute {\"expr\":{\"op\":\"random\"},\"result\":[\"num\",0.23606797284446657]}"
+              },
+              {
+                "schema": "semantic-execution/4",
+                "session": "seedcontract",
+                "sequence": 4,
+                "ownerSequence": 3,
+                "track": "worker",
+                "mode": "generated",
+                "kind": "semantic",
+                "invocationId": "sample",
+                "traceFormat": "semantic-trace/4",
+                "line": "return {\"value\":[\"num\",0.23606797284446657]}"
+              },
+              {
+                "schema": "semantic-execution/4",
+                "session": "seedcontract",
+                "sequence": 5,
+                "ownerSequence": 4,
+                "track": "worker",
+                "mode": "generated",
+                "kind": "semantic",
+                "invocationId": "sample",
+                "traceFormat": "semantic-trace/4",
+                "line": "end {\"kind\":\"return\"}"
+              }
+            ]
+          },
+          "sidecar": {
+            "schema": "semantic-supervision/2",
+            "admission": "locally_verified",
+            "representation": "compact",
+            "referenceStatus": "unverified",
+            "sourceLineage": null,
+            "split": null,
+            "selectionOrigin": "controlled-or-model-output-unverified"
+          }
+        },
+        {
+          "public": {
+            "schema": "semantic-execution/4",
+            "profile": "selected-harness/2",
+            "traceFormat": "semantic-trace/4",
+            "contextFormat": "semantic-context/4",
+            "timeline": [
+              {
+                "schema": "semantic-execution/4",
+                "session": "seedcontract",
+                "sequence": 1,
+                "ownerSequence": 1,
+                "track": "host",
+                "mode": "observed",
+                "kind": "program",
+                "programId": "random",
+                "digest": "b25c7fedb980c3bfd9f29a84a2a18426252b32c90ec6ba8ec16a62036b73f57a",
+                "entry": "run",
+                "source": "function run(){return Math.random();}",
+                "sites": [
+                  {
+                    "id": "s1",
+                    "start": 0,
+                    "end": 37,
+                    "role": "FunctionDeclaration"
+                  },
+                  {
+                    "id": "s2",
+                    "start": 9,
+                    "end": 12,
+                    "role": "Identifier"
+                  },
+                  {
+                    "id": "s3",
+                    "start": 15,
+                    "end": 36,
+                    "role": "ReturnStatement"
+                  },
+                  {
+                    "id": "s4",
+                    "start": 22,
+                    "end": 26,
+                    "role": "Identifier"
+                  },
+                  {
+                    "id": "s5",
+                    "start": 22,
+                    "end": 33,
+                    "role": "MemberExpression"
+                  },
+                  {
+                    "id": "s6",
+                    "start": 22,
+                    "end": 35,
+                    "role": "CallExpression"
+                  },
+                  {
+                    "id": "s7",
+                    "start": 27,
+                    "end": 33,
+                    "role": "Identifier"
+                  }
+                ],
+                "functions": [
+                  {
+                    "start": 0,
+                    "end": 37,
+                    "name": "run",
+                    "params": []
+                  }
+                ],
+                "capabilities": [],
+                "dependencies": [],
+                "sourceMap": null,
+                "languageProfile": "owned-javascript/1",
+                "module": false,
+                "sourceMetadata": null,
+                "randomSeed": null
+              },
+              {
+                "schema": "semantic-execution/4",
+                "session": "seedcontract",
+                "sequence": 2,
+                "ownerSequence": 1,
+                "track": "worker",
+                "mode": "observed",
+                "kind": "invocation",
+                "programId": "random",
+                "invocationId": "sample",
+                "realmId": "realm",
+                "triggerId": "caller",
+                "completionPolicy": "call-return",
+                "realmPolicy": "fresh",
+                "inputGraph": {
+                  "roots": [],
+                  "objects": []
+                },
+                "entry": "run",
+                "sourceDigest": "b25c7fedb980c3bfd9f29a84a2a18426252b32c90ec6ba8ec16a62036b73f57a",
+                "receiver": [
+                  "undefined"
+                ],
+                "closureId": null,
+                "activation": "call",
+                "parentInvocationId": null,
+                "taskRevision": 1,
+                "deadline": null,
+                "bindings": {},
+                "ingressKey": "caller"
+              },
+              {
+                "schema": "semantic-execution/4",
+                "session": "seedcontract",
+                "sequence": 3,
+                "ownerSequence": 2,
+                "track": "worker",
+                "mode": "generated",
+                "kind": "semantic",
+                "invocationId": "sample",
+                "traceFormat": "semantic-trace/4",
+                "line": "compute {\"expr\":{\"op\":\"random\"},\"result\":[\"num\",0.23606797284446657]}"
+              },
+              {
+                "schema": "semantic-execution/4",
+                "session": "seedcontract",
+                "sequence": 4,
+                "ownerSequence": 3,
+                "track": "worker",
+                "mode": "generated",
+                "kind": "semantic",
+                "invocationId": "sample",
+                "traceFormat": "semantic-trace/4",
+                "line": "return {\"value\":[\"num\",0.23606797284446657]}"
+              },
+              {
+                "schema": "semantic-execution/4",
+                "session": "seedcontract",
+                "sequence": 5,
+                "ownerSequence": 4,
+                "track": "worker",
+                "mode": "generated",
+                "kind": "semantic",
+                "invocationId": "sample",
                 "traceFormat": "semantic-trace/4",
                 "line": "end {\"kind\":\"return\"}"
               }

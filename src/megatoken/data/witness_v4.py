@@ -158,6 +158,8 @@ def expression(expr: Any) -> dict[str, int]:
             _fail("Expression node limit")
         op = node.get("op")
         if op == "random" and set(node) == {"op"}:
+            if node is not expr:
+                _fail("Random transition requires a standalone computation")
             operators += 1
         elif op == "literal" and set(node) == {"op", "value"}:
             value(node["value"])
@@ -287,7 +289,7 @@ def parse_record(line: Any) -> tuple[str, dict[str, Any]]:
         ):
             _fail("Missing static code bundle")
         seed = fields.get("randomSeed")
-        if seed is not None and (type(seed) is not int or not 0 <= seed <= 0xFFFFFFFF):
+        if "randomSeed" in fields and (type(seed) is not int or not 0 <= seed <= 0xFFFFFFFF):
             _fail("Invalid published deterministic source seed")
     elif kind == "input":
         retained = fields.get("retained", [])

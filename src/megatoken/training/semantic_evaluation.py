@@ -15,6 +15,7 @@ from collections import Counter
 
 from megatoken.data.host_operations import CONTRACT_DIGEST, canonical_json
 from megatoken.data.schema import encode_record
+from megatoken.data.semantic_contract import FIXTURE_DIGEST, SCHEMA_DIGEST
 from megatoken.data.semantic_harness_v4 import adapt_selected_harness_v4
 
 SEEDS = (17, 29, 43)
@@ -39,6 +40,24 @@ CONTROLLED_FIELDS = frozenset(
 
 def _digest(value):
     return hashlib.sha256(canonical_json(value).encode()).hexdigest()
+
+
+def _current_execution_identity():
+    return {
+        "semanticExecutionSchemaDigest": SCHEMA_DIGEST,
+        "semanticExecutionFixtureDigest": FIXTURE_DIGEST,
+        "hostCatalogDigest": CONTRACT_DIGEST,
+    }
+
+
+def require_current_report(report):
+    if not isinstance(report, dict) or report.get("schema") != "semantic-evaluation-report/5":
+        raise ValueError("Expected a semantic-evaluation-report/5 input")
+    for key, value in _current_execution_identity().items():
+        if report.get(key) != value:
+            raise ValueError(f"Evaluation report has stale or missing {key}")
+    if report.get("catalogDigest") != CONTRACT_DIGEST:
+        raise ValueError("Evaluation report has stale or missing catalogDigest")
 
 
 def _interactive_usage(evidence, codec):
@@ -694,7 +713,7 @@ def evaluate_cohort(
         summary["computeSeconds"] / correct if correct else None
     )
     return {
-        "schema": "semantic-evaluation-report/4",
+        "schema": "semantic-evaluation-report/5",
         "cohortDigest": cohort["digest"],
         "cohort": cohort["name"],
         "evaluationSplits": sorted({case["split"] for case in cohort["cases"]}),
@@ -704,6 +723,7 @@ def evaluate_cohort(
         "checkpointIdentity": checkpoint_identity,
         "tokenizerIdentity": codec.fingerprint,
         "catalogDigest": CONTRACT_DIGEST,
+        **_current_execution_identity(),
         "thresholds": cohort["thresholds"],
         "summary": summary,
         "cases": rows,
@@ -719,6 +739,8 @@ def compare_experiments(reports, budgets):
     """Compare all seeds under declared equal-example/token or measured-compute budgets."""
     if len(reports) != len(budgets) or not reports:
         raise ValueError("Every evaluation needs its actual training budget receipt")
+    for report in reports:
+        require_current_report(report)
     cohorts = {report["cohortDigest"] for report in reports}
     origins = {report["origin"] for report in reports}
     if len(cohorts) != 1 or len(origins) != 1:
@@ -793,9 +815,11 @@ def compare_experiments(reports, budgets):
             for representation in representations
         }
     return {
-        "schema": "semantic-experiment-comparison/4",
+        "schema": "semantic-experiment-comparison/5",
         "cohortDigest": next(iter(cohorts)),
         "origin": next(iter(origins)),
+        "catalogDigest": CONTRACT_DIGEST,
+        **_current_execution_identity(),
         "regimes": result,
         "learnedEvidence": origins == {"trained"},
     }

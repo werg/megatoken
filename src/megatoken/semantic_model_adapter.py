@@ -24,6 +24,18 @@ class SemanticSelectionError(ValueError):
         self.evidence = evidence
 
 
+def _execution_contract_identity() -> dict[str, str]:
+    """Current shared execution schema, parity fixtures, and host catalog pins."""
+    from megatoken.data.host_operations import CONTRACT_DIGEST
+    from megatoken.data.semantic_contract import FIXTURE_DIGEST, SCHEMA_DIGEST
+
+    return {
+        "semanticExecutionSchemaDigest": SCHEMA_DIGEST,
+        "semanticExecutionFixtureDigest": FIXTURE_DIGEST,
+        "hostCatalogDigest": CONTRACT_DIGEST,
+    }
+
+
 def _canonical(value: Any) -> bytes:
     return json.dumps(
         value, sort_keys=True, ensure_ascii=False, separators=(",", ":"), allow_nan=False
@@ -1601,11 +1613,12 @@ class SelectedSemanticInference:
                 work_items[-1]["requestReceipts"] = work.request_receipts
                 work_items[-1]["rejections"] = work.rejections
             packet = {
-                "schema": "semantic-model-checkpoint/4",
+                "schema": "semantic-model-checkpoint/5",
                 "session": session,
                 "equivalence": "observed-checkpoint-bootstrap",
                 "modelIdentity": self._identity(),
                 "codecFingerprint": self.runtime.generator.generator.codec.fingerprint,
+                **_execution_contract_identity(),
                 "work": work_items,
                 "orchestration": state.orchestration,
                 "subscriptions": state.subscriptions,
@@ -1628,7 +1641,7 @@ class SelectedSemanticInference:
         with self.lock:
             if (
                 not isinstance(packet, dict)
-                or packet.get("schema") != "semantic-model-checkpoint/4"
+                or packet.get("schema") != "semantic-model-checkpoint/5"
             ):
                 raise SemanticSelectionError("Incompatible selected-model checkpoint")
             body = {key: value for key, value in packet.items() if key != "digest"}
@@ -1638,6 +1651,10 @@ class SelectedSemanticInference:
                 or packet.get("codecFingerprint")
                 != self.runtime.generator.generator.codec.fingerprint
                 or packet.get("equivalence") != "observed-checkpoint-bootstrap"
+                or any(
+                    packet.get(key) != value
+                    for key, value in _execution_contract_identity().items()
+                )
             ):
                 raise SemanticSelectionError("Model, tokenizer or checkpoint bytes changed")
             session_key = _text(packet.get("session"), "session")

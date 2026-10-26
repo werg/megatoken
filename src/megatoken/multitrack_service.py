@@ -23,6 +23,29 @@ an output is ``control_seed``, ``control_reference`` with its ``reference_origin
 its tools, or the raw bytes ``control_b64`` (the tools then only describe the output).
 A text answer carries ``text`` when its bytes are valid UTF-8.
 
+Media outputs use ``media_ref`` version 1 with ``dtype``, shape, exact byte length,
+SHA256 and a session/selection-scoped handle. Fetch exact bytes with ``read_media``
+(``selection_revision``, ``handle``, optional byte ``offset`` and ``length`` up to
+1 MiB); concatenate in offset order and verify the descriptor hash. Transport reads
+do not acknowledge delivery. ``delivered`` is the separate client acknowledgement,
+and its clock means acknowledged bytes/samples/frames, not audible playback.
+``translation_timing`` reports monotonic time from observed source-event arrival to
+selection and, when acknowledged, delivery. It is a timing diagnostic, not a quality
+score. The report accepts explicit ``source_event_ids``, ``output_event_id`` and
+``selection_revision`` and rejects unknown or future source evidence.
+Reported source events must have been retained in the model history at selection;
+the caller still chooses which visible source event IDs to compare, so this does not
+claim semantic grounding or translation quality.
+``fetch_generation`` replays descriptors for a retained committed selection if a
+client lost its response.
+The service does not resolve arbitrary stored feature paths or accept output handles
+as observations. An observation still requires the exact pinned teacher-feature
+payload and extractor identity; generated waveform/image bytes are not that feature
+representation. The current prepared-feature store is an offline dataset asset store,
+not a store mounted with per-session serving authority. Callers that already own a
+verified feature asset may resolve it through that store and use the existing pinned
+feature observation input.
+
 Knowledge bases (only when served with a ``kb_root`` directory, which every path
 must lie inside): ``kb_open`` mounts a base file built for this model under a name,
 ``kb_create`` starts an empty base a user can fill, ``kb_save`` writes a base to a file,
@@ -64,6 +87,7 @@ from megatoken.io import strict_json_loads
 from megatoken.model.media import MediaOutputSpec
 from megatoken.model.multitrack import ObservedEvent
 from megatoken.multitrack_runtime import MultiTrackRuntime, TrackSession
+from megatoken.output_store import FileOutputStore
 from megatoken.tool_schema import compile_tool_spec, recent_copy_sources
 
 
@@ -273,7 +297,7 @@ def _retrieved(session: TrackSession, delivered: int) -> tuple[list[dict], int]:
     return items, len(log)
 
 
-def _output_response(group, specs):
+def _output_response(group, specs, store: FileOutputStore, owner: str, cache: dict | None = None):
     outputs = []
     for i, spec in enumerate(specs):
         item = {
@@ -291,11 +315,22 @@ def _output_response(group, specs):
             except UnicodeError:
                 pass
         else:
-            tensor = group.media_outputs[i]
-            assert tensor is not None
-            media = tensor[0].detach().float().contiguous().cpu().numpy().astype("<f4")
-            item["payload_f32_b64"] = base64.b64encode(media.tobytes()).decode("ascii")
-            item["shape"] = list(media.shape)
+            cached = None if cache is None else cache.get((owner, item["event_id"]))
+            if cached is None:
+                tensor = group.media_outputs[i]
+                assert tensor is not None
+                media = tensor[0].detach().float().contiguous().cpu().numpy().astype("<f4")
+                raw = media.tobytes()
+                cached = {
+                    "version": 1,
+                    "dtype": "<f4",
+                    "shape": list(media.shape),
+                    **store.put(owner, raw),
+                }
+                if cache is not None:
+                    cache[(owner, item["event_id"])] = cached
+            item["shape"] = list(cached["shape"])
+            item["media_ref"] = {**cached, "shape": list(cached["shape"])}
             # The tape binds the realized bytes by SHA256 and realizer identity.
             item["tape_payload"] = group.tape.payloads[i].decode("utf-8")
         outputs.append(item)
@@ -435,6 +470,7 @@ class MultiTrackService:
         kb_root: str | Path | None = None,
         tools: Sequence[dict] = (),
         adapters: Mapping[str, Any] | None = None,
+        output_store: FileOutputStore | None = None,
     ) -> None:
         """``kb_root`` enables the knowledge base operations: every path lies inside it."""
         if max_sessions < 1:
@@ -453,6 +489,9 @@ class MultiTrackService:
         self.execution_tools = tuple(tools)
         self.execution_adapters = dict(adapters or {})
         self.executors = {}
+        self.output_store = output_store or FileOutputStore()
+        self.media_references = {}
+        self.generation_specs = {}
 
     def serve(self, input_stream: TextIO, output_stream: TextIO) -> None:
         # Undecodable bytes become U+FFFD, so a bad line fails as its own malformed request
@@ -469,6 +508,17 @@ class MultiTrackService:
                 response = {"ok": False, "error": f"{type(exc).__name__}: {exc}"}
             output_stream.write(self.encode(response) + "\n")
             output_stream.flush()
+
+    def close(self) -> None:
+        self.output_store.close()
+        self.media_references.clear()
+        self.generation_specs.clear()
+
+    def _delete_media_owner(self, owner: str) -> None:
+        self.output_store.delete_owner(owner)
+        self.output_store.release_reservation(owner)
+        for key in [key for key in self.media_references if key[0] == owner]:
+            self.media_references.pop(key, None)
 
     @staticmethod
     def encode(response: dict[str, Any]) -> str:
@@ -513,6 +563,34 @@ class MultiTrackService:
         if op == "open":
             answer = self._open(request)
             session_id = answer["session"]
+        elif op == "read_media":
+            session_id = request.get("session")
+            if session_id not in self.sessions:
+                raise ValueError("Unknown or closed session")
+            handle = request.get("handle")
+            selected = request.get("selection_revision")
+            owner_session = self.sessions[session_id]
+            work = owner_session.rendering.get(selected)
+            if not (selected in owner_session.selected_groups and work is None) and (
+                work is None or work.status not in {"rendered", "delivered"}
+            ):
+                raise ValueError("Media reference is stale, cancelled, or not yet rendered")
+            owner = f"{session_id}:{selected}"
+            try:
+                data = self.output_store.read(
+                    owner, handle, request.get("offset", 0), request.get("length", 1 << 20)
+                )
+            except (FileNotFoundError, ValueError) as exc:
+                if "integrity" in str(exc) or isinstance(exc, FileNotFoundError):
+                    self._delete_media_owner(owner)
+                raise
+            answer = {
+                "session": session_id,
+                "handle": handle,
+                "offset": request.get("offset", 0),
+                "data_b64": base64.b64encode(data).decode("ascii"),
+                "next_offset": request.get("offset", 0) + len(data),
+            }
         elif op == "add_files":
             return _add_files(runtime, self.root, request)
         elif isinstance(op, str) and op.startswith("kb_"):
@@ -541,6 +619,21 @@ class MultiTrackService:
                 answer = {
                     "session": session_id,
                     **runtime.context_status(session, track=request.get("track")),
+                }
+            elif op == "translation_timing":
+                source_ids = request.get("source_event_ids")
+                if not isinstance(source_ids, list) or any(
+                    not isinstance(x, str) for x in source_ids
+                ):
+                    raise ValueError("source_event_ids must be a list of event IDs")
+                answer = {
+                    "session": session_id,
+                    **runtime.translation_timing_report(
+                        session,
+                        int(request["selection_revision"]),
+                        source_ids,
+                        request["output_event_id"],
+                    ),
                 }
             elif op == "fetch_context":
                 answer = {
@@ -622,19 +715,60 @@ class MultiTrackService:
                 )
                 answer = {"session": session_id, "queued": len(session.queue)}
             elif op == "schedule_ready":
-                selected_revision = runtime.schedule_ready(
-                    session,
-                    max_events=int(request.get("max_events", 4)),
-                    effort=int(request.get("effort", 6)),
-                )
+                reservation = {"owner": None}
+
+                def reserve_chosen(chosen):
+                    owner = f"{session_id}:{session.revision + 1}"
+                    self._reserve_media(
+                        owner, tuple(work.modality_options or (work.spec,) for work in chosen)
+                    )
+                    reservation["owner"] = owner
+
+                try:
+                    selected_revision = runtime.schedule_ready(
+                        session,
+                        max_events=int(request.get("max_events", 4)),
+                        effort=int(request.get("effort", 6)),
+                        before_select=reserve_chosen,
+                    )
+                except Exception:
+                    if reservation["owner"] is not None:
+                        self.output_store.release_reservation(reservation["owner"])
+                    raise
                 answer = {
                     "session": session_id,
                     "selection_revision": selected_revision,
                     "queued": len(session.queue),
                 }
             elif op == "release_generation":
-                runtime.release_generation(session, int(request["selection_revision"]))
+                revision = int(request["selection_revision"])
+                runtime.release_generation(session, revision)
+                self._delete_media_owner(f"{session_id}:{revision}")
+                self.generation_specs.pop((session_id, revision), None)
                 answer = {"session": session_id, "revision": session.revision}
+            elif op == "fetch_generation":
+                revision = int(request["selection_revision"])
+                group = session.selected_groups.get(revision)
+                specs = self.generation_specs.get((session_id, revision))
+                work = session.rendering.get(revision)
+                if (
+                    group is None
+                    or specs is None
+                    or work is not None
+                    and work.status not in {"rendered", "delivered"}
+                ):
+                    raise ValueError("Unknown, released, or uncommitted selection")
+                owner = f"{session_id}:{revision}"
+                outputs = _output_response(
+                    group, specs, self.output_store, owner, self.media_references
+                )
+                answer = {
+                    "session": session_id,
+                    "selection_revision": revision,
+                    "outputs": outputs,
+                    "tape": json.loads(group.tape.to_json()),
+                }
+                self.output_store.release_reservation(owner)
             elif op == "lifecycle_tools":
                 answer = {
                     "session": session_id,
@@ -651,6 +785,7 @@ class MultiTrackService:
                 selected_revision = int(request["selection_revision"])
                 if op == "stop_delivery":
                     work = runtime.stop_delivery(session, selected_revision)
+                    self._delete_media_owner(f"{session_id}:{selected_revision}")
                 elif op == "delivered":
                     runtime.delivered(
                         session,
@@ -672,20 +807,47 @@ class MultiTrackService:
                     "selection": json.loads(work.selection.tape.to_json()),
                 }
                 if work.result is not None and work.status in {"rendered", "delivered"}:
-                    answer["outputs"] = _output_response(work.result, work.selection.specs)
+                    answer["outputs"] = _output_response(
+                        work.result,
+                        work.selection.specs,
+                        self.output_store,
+                        f"{session_id}:{selected_revision}",
+                        self.media_references,
+                    )
+                    self.output_store.release_reservation(f"{session_id}:{selected_revision}")
                     answer["tape"] = json.loads(work.result.tape.to_json())
+                elif work.status in {"failed", "cancelled"}:
+                    self._delete_media_owner(f"{session_id}:{selected_revision}")
             elif op in {"generate", "speculate", "start_generation"}:
                 answer = self._generate(session_id, session, request, speculative=op == "speculate")
             elif op == "accept":
                 pending = session.pending
                 if pending is None:
                     raise ValueError("No speculative group is pending")
-                group = runtime.accept(session, pending)
+                owner = f"{session_id}:{session.revision + 1}"
+                self._reserve_media(owner, tuple((spec,) for spec in pending.specs))
+                try:
+                    group = runtime.accept(session, pending)
+                except Exception:
+                    self.output_store.release_reservation(owner)
+                    raise
+                self.generation_specs[(session_id, session.revision)] = pending.specs
+                outputs = _output_response(
+                    group,
+                    pending.specs,
+                    self.output_store,
+                    owner,
+                    self.media_references,
+                )
                 answer = {
                     "session": session_id,
                     "revision": session.revision,
                     "meridian_id": group.tape.meridian_id,
+                    "selection_revision": session.revision,
+                    "outputs": outputs,
+                    "tape": json.loads(group.tape.to_json()),
                 }
+                self.output_store.release_reservation(owner)
             elif op == "cancel":
                 runtime.cancel(session)
                 answer = {"session": session_id, "revision": session.revision}
@@ -709,6 +871,9 @@ class MultiTrackService:
                 if executor is not None:
                     executor.close()
                 self.runtime.memory.close_session(session.memory)
+                for revision in set(session.selected_groups) | set(session.rendering):
+                    self._delete_media_owner(f"{session_id}:{revision}")
+                    self.generation_specs.pop((session_id, revision), None)
                 del self.sessions[session_id]
                 self.delivered.pop(session_id, None)
                 return {"closed": session_id}
@@ -827,22 +992,54 @@ class MultiTrackService:
             effort=int(request.get("effort", 6)),
             generator=rng,
         )
+        owner = f"{session_id}:{session.revision + 1}"
+        if not speculative:
+            self._reserve_media(owner, options)
         if request.get("op") == "start_generation":
-            revision = self.runtime.start_generation(session, **arguments)
+            try:
+                revision = self.runtime.start_generation(session, **arguments)
+            except Exception:
+                self.output_store.release_reservation(owner)
+                raise
+            self.generation_specs[(session_id, revision)] = session.rendering[
+                revision
+            ].selection.specs
             return {
                 "session": session_id,
                 "revision": session.revision,
                 "selection_revision": revision,
                 "status": "rendering",
             }
-        if speculative:
-            group = self.runtime.speculate(session, **arguments).result
-        else:
-            group = self.runtime.generate(session, **arguments)
+        try:
+            if speculative:
+                group = self.runtime.speculate(session, **arguments).result
+            else:
+                group = self.runtime.generate(session, **arguments)
+        except Exception:
+            if not speculative:
+                self.output_store.release_reservation(owner)
+            raise
         specs = tuple(
             next(p for p in choices if self.runtime.generator._spec_id(p) == fingerprint)
             for choices, fingerprint in zip(options, group.tape.spec_fingerprints, strict=True)
         )
+        if not speculative:
+            self.generation_specs[(session_id, session.revision)] = specs
+        output_data = (
+            {}
+            if speculative
+            else {
+                "outputs": _output_response(
+                    group,
+                    specs,
+                    self.output_store,
+                    f"{session_id}:{session.revision}",
+                    self.media_references,
+                )
+            }
+        )
+        if not speculative:
+            self.output_store.release_reservation(f"{session_id}:{session.revision}")
         return {
             "session": session_id,
             "revision": session.revision,
@@ -850,9 +1047,29 @@ class MultiTrackService:
             # The key `release_generation` frees; a committed answer is retained until then.
             **({} if speculative else {"selection_revision": session.revision}),
             "log_prob": float(group.log_prob),
-            "outputs": _output_response(group, specs),
+            **output_data,
             "tape": json.loads(group.tape.to_json()),
         }
+
+    def _reserve_media(
+        self, owner: str, choices: Sequence[Sequence[ActionSpec | MediaOutputSpec]]
+    ) -> None:
+        byte_count = 0
+        for specs in choices:
+            byte_count += max(
+                (
+                    4
+                    * (
+                        spec.sample_count
+                        if spec.modality == "audio"
+                        else spec.frames * 3 * spec.height * spec.width
+                    )
+                    for spec in specs
+                    if isinstance(spec, MediaOutputSpec)
+                ),
+                default=0,
+            )
+        self.output_store.reserve(owner, byte_count)
 
 
 def serve_multitrack_jsonl(
@@ -864,6 +1081,8 @@ def serve_multitrack_jsonl(
     kb_root: str | Path | None = None,
 ) -> None:
     """Serve ``runtime`` over JSON lines; it never opens a listening socket."""
-    MultiTrackService(runtime, max_sessions=max_sessions, kb_root=kb_root).serve(
-        input_stream, output_stream
-    )
+    service = MultiTrackService(runtime, max_sessions=max_sessions, kb_root=kb_root)
+    try:
+        service.serve(input_stream, output_stream)
+    finally:
+        service.close()
