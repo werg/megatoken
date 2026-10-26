@@ -33,7 +33,7 @@ from .schema import (
 from .semantic_admission import native_admission, validate_native_visibility
 from .semantic_contract import FIXTURE_DIGEST, SCHEMA_DIGEST
 from .semantic_corpus import public_digest, verify_admission
-from .semantic_harness_v4 import adapt_selected_harness_v4
+from .semantic_harness_v5 import adapt_selected_harness_v5
 
 ORCHESTRATION_POLICY = {
     "schema": "semantic-orchestration-policy/4",
@@ -163,7 +163,7 @@ def collect_semantic_lifecycle(
             consumer_revision=consumer_revision,
             codec=codec,
         )
-        episode, imported = adapt_selected_harness_v4(
+        episode, imported = adapt_selected_harness_v5(
             document,
             codec=codec,
             max_positions=max_positions,
@@ -439,7 +439,7 @@ def collect_semantic_lifecycle(
             "maxHistory": max_history,
         },
         "semantic_execution": {
-            "schema": "semantic-execution/4",
+            "schema": "semantic-execution/5",
             "continuation": "teacher_conditioned",
             "representation": "compact",
             "orchestration": "runtime-certified",

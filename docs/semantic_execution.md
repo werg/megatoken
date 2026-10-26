@@ -1,7 +1,7 @@
 # Canonical semantic execution
 
 Megatoken consumes **one** model-facing JavaScript execution representation:
-`semantic-execution/4` / `semantic-trace/4` in the `selected-harness/2`
+`semantic-execution/5` / `semantic-trace/5` in the `selected-harness/2`
 envelope. It is produced by the source-grounded `tracing-js-self` teacher
 and interpreted by the selected state controller. There is no grouped
 v3 importer, explicit step-for-step learner, or output-only answer mode.
@@ -29,11 +29,11 @@ meridian/tape framing is a transport and loss-mask mechanism, not another
 trace grammar.
 
 The native importer is
-`megatoken.data.semantic_harness_v4.adapt_selected_harness_v4`.
+`megatoken.data.semantic_harness_v5.adapt_selected_harness_v5`.
 `megatoken.data.semantic_request` validates the authorized external
 request without importing a historical group-shaped corpus.
 `SelectedSemanticInference.select` always selects exactly one complete
-`semantic-trace/4` record with the source-grounded compact expression
+`semantic-trace/5` record with the source-grounded compact expression
 budget (up to eight operators and 32 expression nodes). Obsolete
 `explicit`, `outcome-only` and unknown representations fail closed.
 
@@ -48,12 +48,19 @@ whole-source-family split integrity.
 
 The shared contract is checked byte-for-byte between the pinned
 tracer and Megatoken:
-`src/megatoken/data/contracts/semantic-harness-v4.json` and
+`src/megatoken/data/contracts/semantic-harness-v5.json` and
 `src/megatoken/data/contracts/host-operations-v4.json`.
 Changing the witness or fixture digest requires regenerating the
 producer declaration, updating the paired consumer, and recollecting
 teacher data. Old model checkpoints and data are never silently
 reinterpreted.
+
+The v5 execution contract binds an optional unsigned 32-bit seed to program
+publication and carries the committed random-generator state in every selected
+context snapshot. Each standalone random witness must match the next seeded
+draw, and a retained realm must preserve the same seed. A snapshot's random
+state is checked against the program seed and all preceding selected draws;
+well-formed but forged state is rejected.
 
 ## Prepare one source curriculum
 
@@ -100,8 +107,8 @@ and effects.
 ## Verify
 
 ```sh
-python -m pytest -q tests/test_semantic_contract_v4.py \
-  tests/test_semantic_harness_v4.py \
+python -m pytest -q tests/test_semantic_contract_v5.py \
+  tests/test_semantic_harness_v5.py \
   tests/test_semantic_data_pipeline.py \
   tests/test_semantic_model_adapter.py \
   tests/test_semantic_orchestration.py

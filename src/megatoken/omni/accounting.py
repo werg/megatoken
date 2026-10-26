@@ -153,11 +153,22 @@ def resident_footprint(model: nn.Module, optimizer: Any | None = None) -> dict[s
     master_upper = sum(p.numel() * 4 for p in trainable)
     adam_upper = sum(p.numel() * 12 for p in trainable)
     masters = getattr(optimizer, "masters", None) if optimizer is not None else None
-    actual_master = (
-        sum(t.numel() * t.element_size() for t in masters.values())
-        if isinstance(masters, dict)
-        else "unmeasured"
-    )
+    if isinstance(masters, dict):
+        # MasterAdamW stores FP32 model parameters directly as their own
+        # masters. Count only additional allocations, deduplicated by physical
+        # storage against both the model and other master views.
+        model_storage_keys = set(storage_entries)
+        master_storage_keys: set[tuple[str, int, int]] = set()
+        for tensor in masters.values():
+            if not isinstance(tensor, torch.Tensor) or tensor.device.type == "meta":
+                continue
+            storage = tensor.untyped_storage()
+            key = (str(tensor.device), storage.data_ptr(), storage.nbytes())
+            if key not in model_storage_keys:
+                master_storage_keys.add(key)
+        actual_master = sum(key[2] for key in master_storage_keys)
+    else:
+        actual_master = "unmeasured"
     state_bytes: int | str = "unmeasured"
     if optimizer is not None:
         supported = False

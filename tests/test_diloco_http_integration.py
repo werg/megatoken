@@ -180,6 +180,7 @@ def test_diloco_local_http_train_checkpoint_resume(tmp_path, monkeypatch, purpos
             assert footprint["schema"] == "megatoken.training.tensor-accounting/1"
             assert footprint["gpu_fit"] == "not_claimed"
             assert isinstance(footprint["fp32_optimizer_master_bytes_upper_bound"], int)
+            assert footprint["optimizer_master_bytes_actual"] == 0
             metrics = [
                 json.loads(line)
                 for line in (tmp_path / "production/run/worker-00/metrics.jsonl")
@@ -197,7 +198,7 @@ def test_diloco_local_http_train_checkpoint_resume(tmp_path, monkeypatch, purpos
             final_footprint = json.loads(
                 (tmp_path / "production/run/worker-00/tensor-accounting.json").read_text()
             )
-            assert final_footprint["optimizer_master_bytes_actual"] > 0
+            assert final_footprint["optimizer_master_bytes_actual"] == 0
             assert final_footprint["optimizer_state_bytes_actual"] > 0
     finally:
         server.terminate()

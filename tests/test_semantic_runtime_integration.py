@@ -32,7 +32,7 @@ def test_actual_committed_child_creation_bootstrap_capacity_join_and_completion(
     source = "function run(){return 7;}"
     digest = hashlib.sha256(source.encode()).hexdigest()
     program = {
-        "schema": "semantic-execution/4",
+        "schema": "semantic-execution/5",
         "session": "lifecycle",
         "sequence": 1,
         "ownerSequence": 1,
@@ -55,7 +55,7 @@ def test_actual_committed_child_creation_bootstrap_capacity_join_and_completion(
 
     def invocation(identity, parent=None):
         return {
-            "schema": "semantic-execution/4",
+            "schema": "semantic-execution/5",
             "session": "lifecycle",
             "sequence": 2,
             "ownerSequence": 1,

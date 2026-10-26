@@ -1,4 +1,4 @@
-"""Strict, independent semantic-trace/4 record validation.
+"""Strict, independent semantic-trace/5 record validation.
 
 Unlike the archival version-two event projection this grammar describes bounded
 public computations. All source/journal/certificate evidence stays outside
@@ -13,7 +13,7 @@ import re
 from typing import Any
 
 
-class WitnessV4Error(ValueError):
+class WitnessV5Error(ValueError):
     pass
 
 
@@ -105,7 +105,7 @@ UNARY = {"!", "+", "-", "~", "typeof", "void"}
 
 
 def _fail(reason: str) -> None:
-    raise WitnessV4Error("Invalid semantic-trace/4: " + reason)
+    raise WitnessV5Error("Invalid semantic-trace/5: " + reason)
 
 
 def _pairs(pairs: list[tuple[str, Any]]) -> dict[str, Any]:
@@ -272,7 +272,7 @@ def parse_record(line: Any) -> tuple[str, dict[str, Any]]:
             parse_constant=lambda value: _fail("Nonfinite JSON literal"),
         )
     except (ValueError, TypeError) as error:
-        raise WitnessV4Error("Malformed semantic-trace/4 JSON") from error
+        raise WitnessV5Error("Malformed semantic-trace/5 JSON") from error
     if not isinstance(fields, dict) or not REQUIRED[kind] <= set(fields) <= FIELDS[kind]:
         _fail("Unknown or missing typed operation fields")
     if kind == "code":
@@ -360,7 +360,7 @@ def parse_record(line: Any) -> tuple[str, dict[str, Any]]:
                 parse_constant=lambda _: _fail("Nonfinite external JSON"),
             )
         except (TypeError, ValueError) as error:
-            raise WitnessV4Error("Malformed external request payload") from error
+            raise WitnessV5Error("Malformed external request payload") from error
         from .host_operations import canonical_json
 
         if (

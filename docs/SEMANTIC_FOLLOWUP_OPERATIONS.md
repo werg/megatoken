@@ -1,7 +1,7 @@
 # Operational semantic execution qualification
 
-This runbook uses the **sole canonical source-grounded v4 witness**.
-All evaluation and training use `semantic-trace/4` selected execution.
+This runbook uses the **sole canonical source-grounded v5 witness**.
+All evaluation and training use `semantic-trace/5` selected execution.
 Different source families or seeds are useful, but changing the trace
 representation is not an experimental parameter.
 

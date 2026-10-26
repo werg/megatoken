@@ -5,6 +5,7 @@ from torch import nn
 
 from megatoken.omni.accounting import resident_footprint
 from megatoken.omni.realizers import Realizer
+from megatoken.training.optimizer import MasterAdamW
 
 
 class Model(nn.Module):
@@ -181,3 +182,20 @@ def test_shared_storage_preserves_logical_parameter_counts_and_meta_tensors():
         for row in report["logical_tensors"]
     )
     assert any(row["owner"] == "shared_storage_alias" for row in report["physical_storage"])
+
+
+def test_actual_master_bytes_count_only_distinct_fp32_master_storage():
+    fp32_model = nn.Linear(3, 2, bias=False)
+    fp32_optimizer = MasterAdamW(fp32_model, lr=1e-3)
+    fp32_report = resident_footprint(fp32_model, fp32_optimizer)
+    assert fp32_report["optimizer_master_bytes_actual"] == 0
+    assert fp32_report["fp32_optimizer_master_bytes_upper_bound"] == 24
+    assert fp32_optimizer.masters["weight"] is fp32_model.weight
+
+    bf16_model = nn.Linear(3, 2, bias=False).to(dtype=torch.bfloat16)
+    bf16_optimizer = MasterAdamW(bf16_model, lr=1e-3)
+    bf16_report = resident_footprint(bf16_model, bf16_optimizer)
+    assert bf16_optimizer.masters["weight"] is not bf16_model.weight
+    assert bf16_optimizer.masters["weight"].dtype == torch.float32
+    assert bf16_report["optimizer_master_bytes_actual"] == 24
+    assert bf16_report["fp32_optimizer_master_bytes_upper_bound"] == 24

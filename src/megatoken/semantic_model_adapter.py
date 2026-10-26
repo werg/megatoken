@@ -121,7 +121,7 @@ def _validate_prefix(prefix: Any) -> tuple[dict, dict, list[dict]]:
             raise SemanticSelectionError(
                 "Model prefix violates the shared envelope contract: " + str(error)
             ) from error
-        if item.get("schema") != "semantic-execution/4":
+        if item.get("schema") != "semantic-execution/5":
             raise SemanticSelectionError("Model prefix mixes incompatible public contracts")
         mode = item.get("mode")
         if item.get("kind") in {
@@ -265,7 +265,7 @@ class SelectedSemanticInference:
             raise SemanticSelectionError("Selected session capacity exhausted")
         session = _Session(
             self.runtime.open(
-                metadata={"task": "semantic-execution/4", "modality": "text"},
+                metadata={"task": "semantic-execution/5", "modality": "text"},
                 effort=self.effort,
                 memory_writes=False,
             )
@@ -515,7 +515,7 @@ class SelectedSemanticInference:
                         "Model transcript does not match its previously committed selection"
                     )
                 work.selected.pop(0)
-                from megatoken.data.witness_v4 import parse_record
+                from megatoken.data.witness_v5 import parse_record
 
                 kind, fields = parse_record(event["line"])
                 if kind == "request" and "promise" in fields:
@@ -865,14 +865,30 @@ class SelectedSemanticInference:
                 "callReturn",
                 "pending",
                 "completion",
+                "randomState",
             }
-            or snapshot["schema"] != "semantic-continuation/4"
+            or snapshot["schema"] != "semantic-continuation/5"
         ):
             raise SemanticSelectionError(
                 "Retained execution requires its exact committed selected-state snapshot"
             )
+        random_state = snapshot["randomState"]
+        if random_state is not None and (
+            type(random_state) is not int or not 0 <= random_state <= 0xFFFFFFFF
+        ):
+            raise SemanticSelectionError("Selected-state RNG value must be null or uint32")
+        from megatoken.data.semantic_context import committed_random_state
+
+        try:
+            committed_state = committed_random_state(realm, work.invocation_id)
+        except ValueError as error:
+            raise SemanticSelectionError("Invalid committed RNG history: " + str(error)) from error
+        if random_state != committed_state:
+            raise SemanticSelectionError(
+                "Selected-state RNG value differs from the committed realm draws"
+            )
         bootstrap = {
-            "schema": "semantic-selected-bootstrap/4",
+            "schema": "semantic-selected-bootstrap/5",
             "kind": "selected-bootstrap",
             "reason": reason,
             "invocationId": work.invocation_id,
@@ -1041,7 +1057,7 @@ class SelectedSemanticInference:
             self._advance(state, work, events[len(work.seen) :])
             if work.waiting_promise is not None and prefix.get("selectedState") is not None:
                 snapshot = prefix["selectedState"]
-                if snapshot.get("schema") != "semantic-continuation/4":
+                if snapshot.get("schema") != "semantic-continuation/5":
                     raise SemanticSelectionError(
                         "Cannot wake from an incompatible selected-state snapshot"
                     )
@@ -1140,7 +1156,7 @@ class SelectedSemanticInference:
             config = self.runtime.generator.generator.config
             maximum = min(self.max_tokens, config.max_capacity)
             instruction = (
-                b"Emit exactly one complete canonical semantic-trace/4 witness. "
+                b"Emit exactly one complete canonical semantic-trace/5 witness. "
                 b"Use only the observed source, this invocation and prior selected "
                 b"semantics. An external call is a validated request with already "
                 b"evaluated arguments and source span. Never predict observations, "
@@ -1318,7 +1334,7 @@ class SelectedSemanticInference:
             self._advance(state, work, events[len(work.seen) :])
             if work.selected:
                 raise SemanticSelectionError("Cannot complete before last selection commits")
-            from megatoken.data.witness_v4 import parse_record
+            from megatoken.data.witness_v5 import parse_record
 
             terminal = []
             for event in events:
@@ -1335,11 +1351,11 @@ class SelectedSemanticInference:
             completion_kind, completion_fields = terminal[-1]
             snapshot = prefix.get("selectedState")
             if snapshot is not None and snapshot.get("completion") is not None:
-                from megatoken.data.witness_v4 import value as validate_value
+                from megatoken.data.witness_v5 import value as validate_value
 
                 completion = snapshot["completion"]
                 if (
-                    snapshot.get("schema") != "semantic-continuation/4"
+                    snapshot.get("schema") != "semantic-continuation/5"
                     or set(completion) != {"kind", "value"}
                     or completion["kind"] not in {"return", "throw"}
                 ):
@@ -1390,7 +1406,7 @@ class SelectedSemanticInference:
         performs that action. Nothing asks the model to describe it again.
         """
         from megatoken.data.semantic_request import _host_request
-        from megatoken.data.witness_v4 import parse_record
+        from megatoken.data.witness_v5 import parse_record
 
         with self.lock:
             state = self.sessions.get(session)

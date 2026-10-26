@@ -16,7 +16,7 @@ from collections import Counter
 from megatoken.data.host_operations import CONTRACT_DIGEST, canonical_json
 from megatoken.data.schema import encode_record
 from megatoken.data.semantic_contract import FIXTURE_DIGEST, SCHEMA_DIGEST
-from megatoken.data.semantic_harness_v4 import adapt_selected_harness_v4
+from megatoken.data.semantic_harness_v5 import adapt_selected_harness_v5
 
 SEEDS = (17, 29, 43)
 REPRESENTATIONS = ("compact",)
@@ -593,7 +593,7 @@ def evaluate_cohort(
             if inconsistency is not None and not isinstance(inconsistency, dict):
                 raise ValueError("First semantic violation must be an exact failure receipt")
             trace_valid = inconsistency is None and not evidence.get("failure")
-            episode, _ = adapt_selected_harness_v4(
+            episode, _ = adapt_selected_harness_v5(
                 evidence["episode"],
                 codec=codec,
                 allow_local=True,

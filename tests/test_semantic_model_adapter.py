@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import copy
 import hashlib
+import json
 from threading import RLock
 from types import SimpleNamespace
 
@@ -16,7 +17,7 @@ from megatoken.semantic_model_adapter import SelectedSemanticInference, Semantic
 def fixture():
     source = "function run(){return 7;}"
     digest = hashlib.sha256(source.encode()).hexdigest()
-    common = {"schema": "semantic-execution/4", "session": "session1", "ownerSequence": 1}
+    common = {"schema": "semantic-execution/5", "session": "session1", "ownerSequence": 1}
     published = {
         **common,
         "sequence": 1,
@@ -156,7 +157,7 @@ def add(prefix, kind, mode="generated", **fields):
 
     required = {}
     if kind == "semantic":
-        required["traceFormat"] = "semantic-trace/4"
+        required["traceFormat"] = "semantic-trace/5"
     elif kind == "dispatch":
         required.update(key="session1/i1/" + fields["effectId"], attempt=1)
     elif kind == "result":
@@ -171,7 +172,7 @@ def add(prefix, kind, mode="generated", **fields):
         )
     prefix["committed"].append(
         {
-            "schema": "semantic-execution/4",
+            "schema": "semantic-execution/5",
             "session": "session1",
             "sequence": len(prefix["committed"]) + 1,
             "ownerSequence": len(prefix["committed"]),
@@ -183,6 +184,72 @@ def add(prefix, kind, mode="generated", **fields):
             **fields,
         }
     )
+
+
+def test_published_selected_bootstrap_checks_actual_rng_state_before_observing_it():
+    runtime = FakeRuntime()
+    adapter = SelectedSemanticInference(runtime, verify_context=False)
+    state = adapter._opened("session1")
+    prefix = fixture()
+    program, invocation = prefix["committed"]
+    program["randomSeed"] = 0
+    random_draw = {
+        "schema": "semantic-execution/5",
+        "session": "session1",
+        "sequence": 3,
+        "ownerSequence": 2,
+        "track": "worker1",
+        "mode": "generated",
+        "kind": "semantic",
+        "invocationId": "i1",
+        "traceFormat": "semantic-trace/5",
+        "line": 'compute {"expr":{"op":"random"},"result":["num",0.23606797284446657]}',
+    }
+    source_read = {
+        "schema": "semantic-execution/5",
+        "session": "session1",
+        "sequence": 4,
+        "ownerSequence": 3,
+        "track": "worker1",
+        "mode": "observed",
+        "kind": "source-read",
+        "programId": "p",
+        "digest": program["digest"],
+    }
+    realm = [program, invocation, random_draw, source_read]
+    work = SimpleNamespace(
+        invocation_id="i1", actual_track="worker1", state_bootstrap=None, selection_history=[]
+    )
+    snapshot = {
+        "schema": "semantic-continuation/5",
+        "heap": [],
+        "locals": [],
+        "captureAliases": [],
+        "stack": ["i1"],
+        "continuations": [],
+        "ready": [],
+        "callReturn": None,
+        "pending": None,
+        "completion": None,
+        "randomState": 1013904223,
+    }
+    prefix["selectedState"] = snapshot
+
+    for forged in (7, 0.5, True):
+        prefix["selectedState"] = {**snapshot, "randomState": forged}
+        with pytest.raises(SemanticSelectionError, match="RNG"):
+            adapter._publish_selected_state(
+                state, work, prefix, invocation, realm, reason="retained-activation"
+            )
+        assert not runtime.sessions[0].observations
+
+    prefix["selectedState"] = snapshot
+    adapter._publish_selected_state(
+        state, work, prefix, invocation, realm, reason="retained-activation"
+    )
+    observed = json.loads(runtime.sessions[0].observations[-1][1])
+    assert observed["schema"] == "semantic-selected-bootstrap/5"
+    assert observed["state"]["randomState"] == 1013904223
 
 
 def test_real_runtime_interface_commits_one_selection_before_any_future_observation():
@@ -508,7 +575,7 @@ def test_actual_initialized_model_inference_and_source_reread_change_no_weights(
 
 
 def test_fragmented_model_request_reaches_real_native_commit_bridge_once():
-    from megatoken.data.witness_v4 import parse_record
+    from megatoken.data.witness_v5 import parse_record
 
     original = FakeRuntime().selections[0]
     boundary = original.index(b'"payload"')
@@ -550,7 +617,7 @@ def test_fragmented_model_request_reaches_real_native_commit_bridge_once():
 
 def test_native_request_authority_survives_later_prefix_acknowledgement():
     """Async dispatch may reach the bridge after the next selection consumed feedback."""
-    from megatoken.data.witness_v4 import parse_record
+    from megatoken.data.witness_v5 import parse_record
 
     runtime = FakeRuntime()
     adapter = SelectedSemanticInference(runtime, verify_context=False)

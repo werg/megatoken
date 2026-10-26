@@ -1164,10 +1164,10 @@ class MultiTrackRuntime:
         if (
             not isinstance(program, dict)
             or not isinstance(invocation, dict)
-            or program.get("schema") != "semantic-execution/4"
+            or program.get("schema") != "semantic-execution/5"
             or program.get("kind") != "program"
             or program.get("mode") != "observed"
-            or invocation.get("schema") != "semantic-execution/4"
+            or invocation.get("schema") != "semantic-execution/5"
             or invocation.get("kind") != "invocation"
             or invocation.get("mode") != "observed"
             or not isinstance(program.get("source"), str)
@@ -1717,7 +1717,7 @@ class MultiTrackRuntime:
         group, teacher tool payload, or predicted return.
         """
         from megatoken.data.semantic_request import _host_request
-        from megatoken.data.witness_v4 import WitnessV4Error, parse_record
+        from megatoken.data.witness_v5 import WitnessV5Error, parse_record
 
         committed = dict(session.selected_groups)
         if allow_controlled_fixture:
@@ -1764,7 +1764,7 @@ class MultiTrackRuntime:
                 raise ValueError("Incomplete or invalid semantic requests cannot dispatch")
             try:
                 kind, fields = parse_record(raw.decode("utf-8", errors="strict"))
-            except (UnicodeDecodeError, WitnessV4Error) as error:
+            except (UnicodeDecodeError, WitnessV5Error) as error:
                 raise ValueError("Malformed committed semantic request") from error
             if kind != "request":
                 raise ValueError("Selected action must be a request witness")

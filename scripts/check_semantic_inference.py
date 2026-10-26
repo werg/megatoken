@@ -63,7 +63,7 @@ def main():
     source = "function run(){return 7;}"
     digest = hashlib.sha256(source.encode()).hexdigest()
     common = {
-        "schema": "semantic-execution/4",
+        "schema": "semantic-execution/5",
         "session": "fixedweights",
         "mode": "observed",
         "ownerSequence": 1,

@@ -25,7 +25,7 @@ jobs:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           repository: werg/tracing-js-self
-          ref: 5dffd38f7320c72d84fa120b0ea97d4607aeacc9 # canonical v4 witness with public seeded RNG
+          ref: b4fce2bd17490933efccd835d6573a57f2e91a92 # canonical v5 witness with replayable seeded RNG state
           path: tracing-js-self
           persist-credentials: false
       - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
@@ -44,7 +44,7 @@ jobs:
           import urllib.request
           from pathlib import Path
 
-          from megatoken.data.semantic_harness_v4 import adapt_selected_harness_v4
+          from megatoken.data.semantic_harness_v5 import adapt_selected_harness_v5
           from megatoken.data.semantic_admission import native_admission
           from megatoken.generation.codec import ByteCodec, LING_REVISION, LING_TOKENIZER_SHA256
 
@@ -53,7 +53,7 @@ jobs:
           codec = ByteCodec.from_tokenizer_json(tokenizer, expected_sha256=LING_TOKENIZER_SHA256)
 
           document = json.loads((Path(os.environ["RUNNER_TEMP"]) / "harness.json").read_text())
-          episode, receipt = adapt_selected_harness_v4(document, codec=codec, allow_local=True)
+          episode, receipt = adapt_selected_harness_v5(document, codec=codec, allow_local=True)
           assert receipt.invocations == 2
           assert receipt.actions == 4
           assert receipt.observations == sum(event['kind'] != 'semantic' for event in document['public']['timeline'])
@@ -76,5 +76,5 @@ jobs:
           PY
       - name: Validate lightweight native import and lifecycle regressions
         run: |
-          python -m pytest -q tests/test_semantic_harness_v4.py \
+          python -m pytest -q tests/test_semantic_harness_v5.py \
             tests/test_semantic_harness_lifecycle_v4.py
