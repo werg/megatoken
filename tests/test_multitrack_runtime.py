@@ -4,6 +4,8 @@ import base64
 import hashlib
 import io
 import json
+import time
+from types import SimpleNamespace
 
 import pytest
 import torch
@@ -83,6 +85,69 @@ def test_translation_timing_uses_observed_arrival_and_selection_clocks():
     assert revision not in session.selection_visible_event_ids
     retained_ids = set(session.state.history_event_ids) | set(session.state.frontier_event_ids)
     assert set(session.event_arrived_at_ns) <= retained_ids
+
+
+def test_empty_text_delivery_and_retries_do_not_invent_progress_clocks():
+    _, runtime = _runtime()
+    session = runtime.open()
+    event_ids = ("empty-text", "partial-text")
+    tape = SimpleNamespace(event_ids=event_ids)
+    selection = SimpleNamespace(tape=tape, specs=(ActionSpec(max_tokens=1),) * 2)
+    result = SimpleNamespace(tape=SimpleNamespace(payloads=(b"", b"abc"), valid=(True, True)))
+    work = SimpleNamespace(
+        status="rendered",
+        selection=selection,
+        result=result,
+        delivery_progress={},
+        delivery_log=[],
+        delivered_events=set(),
+    )
+    revision = 77
+    session.rendering[revision] = work
+    session.event_arrived_at_ns["source"] = time.monotonic_ns()
+    session.selection_at_ns[revision] = time.monotonic_ns()
+    session.selection_visible_event_ids[revision] = frozenset({"source"})
+
+    runtime.delivered(
+        session,
+        revision,
+        event_ids,
+        extents={"empty-text": 0, "partial-text": 2},
+    )
+    assert work.delivery_progress == {"empty-text": 0, "partial-text": 2}
+    assert work.delivered_events == {"empty-text"}
+    assert [row["event_id"] for row in work.delivery_log] == ["partial-text"]
+    first_clock = work.delivery_log[0]["available_at_ns"]
+
+    runtime.delivered(
+        session,
+        revision,
+        event_ids,
+        extents={"empty-text": 0, "partial-text": 2},
+    )
+    assert len(work.delivery_log) == 1
+    assert work.delivery_log[0]["available_at_ns"] == first_clock
+    timing = runtime.translation_timing_report(session, revision, ("source",), "empty-text")
+    assert timing["delivery_acknowledged_at_ns"] is None
+    assert timing["delivery_acknowledged_extent"] is None
+    assert timing["source_to_delivery_ack_seconds"] is None
+
+    runtime.delivered(session, revision, ("partial-text",), extents={"partial-text": 3})
+    assert [row["delivered"] for row in work.delivery_log if row["event_id"] == "partial-text"] == [
+        2,
+        3,
+    ]
+    assert work.delivered_events == set(event_ids)
+    assert work.status == "delivered"
+
+    for invalid in (-1, 4, True, 1):
+        with pytest.raises(ValueError, match="Delivery extent"):
+            runtime.delivered(
+                session,
+                revision,
+                ("partial-text",),
+                extents={"partial-text": invalid},
+            )
 
 
 def test_output_store_budget_is_reserved_before_committing_media_selection(tmp_path):

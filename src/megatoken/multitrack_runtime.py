@@ -949,6 +949,8 @@ class MultiTrackRuntime:
         work = self.poll_generation(session, revision)
         if work.status not in {"rendered", "delivered"}:
             raise ValueError("Only completed, uncancelled rendering can be delivered")
+        if len(set(event_ids)) != len(event_ids):
+            raise ValueError("Delivery must not repeat an event address")
         if not set(event_ids) <= set(work.selection.tape.event_ids):
             raise ValueError("Delivery must name original selected event addresses")
         if extents is not None and set(extents) != set(event_ids):
@@ -966,24 +968,28 @@ class MultiTrackRuntime:
             else:
                 bound, unit = len(work.result.tape.payloads[index]), "bytes"
             extent = bound if extents is None else extents[event_id]
+            previous = work.delivery_progress.get(event_id, 0)
             if (
                 type(extent) is not int
                 or not work.result.tape.valid[index]
-                or not work.delivery_progress.get(event_id, 0) < extent <= bound
+                or not previous <= extent <= bound
             ):
-                raise ValueError("Delivery extent must advance within the actual rendered event")
-            updates.append((event_id, extent, bound, unit))
-        for event_id, extent, bound, unit in updates:
+                raise ValueError(
+                    "Delivery extent must not regress or exceed the actual rendered event"
+                )
+            updates.append((event_id, extent, bound, unit, extent > previous))
+        for event_id, extent, bound, unit, advanced in updates:
             work.delivery_progress[event_id] = extent
-            work.delivery_log.append(
-                {
-                    "event_id": event_id,
-                    "delivered": extent,
-                    "extent": bound,
-                    "unit": unit,
-                    "available_at_ns": time.monotonic_ns(),
-                }
-            )
+            if advanced:
+                work.delivery_log.append(
+                    {
+                        "event_id": event_id,
+                        "delivered": extent,
+                        "extent": bound,
+                        "unit": unit,
+                        "available_at_ns": time.monotonic_ns(),
+                    }
+                )
             if extent == bound:
                 work.delivered_events.add(event_id)
         if work.delivered_events == set(work.selection.tape.event_ids):
