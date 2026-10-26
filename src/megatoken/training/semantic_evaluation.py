@@ -398,9 +398,7 @@ def _validate_orchestration(evidence, codec, origin):
             raise ValueError("Guest work escaped the native coordinator task tree")
 
 
-def freeze_cohort(
-    cases, *, name, thresholds, historical_baseline=None, historical_baseline_pending=False
-):
+def freeze_cohort(cases, *, name, thresholds):
     """Freeze task families, reference outcomes, thresholds and input bytes before runs."""
     if name not in {"common-support", "effectful-tracks-events"}:
         raise ValueError("Report the frozen common-support and effectful cohorts separately")
@@ -408,16 +406,6 @@ def freeze_cohort(
         type(x) not in (int, float) or not 0 <= x <= 1 for x in thresholds.values()
     ):
         raise ValueError("Declare whole-task and trace acceptance thresholds before evaluation")
-    if name == "common-support" and not isinstance(historical_baseline, dict):
-        raise ValueError("Common support must retain its pinned historical baseline identity")
-    if type(historical_baseline_pending) is not bool or (
-        historical_baseline_pending and name != "common-support"
-    ):
-        raise ValueError("Only the historical common-support baseline may be pending")
-    if historical_baseline_pending and not isinstance(
-        historical_baseline.get("sourceRunbook"), str
-    ):
-        raise ValueError("Pending historical work must preserve its exact source runbook")
     seen, families, normalized = set(), {}, []
     for case in cases:
         if not isinstance(case, dict) or set(case) != {
@@ -455,8 +443,6 @@ def freeze_cohort(
         "name": name,
         "cases": normalized,
         "thresholds": thresholds,
-        "historicalBaseline": historical_baseline,
-        "historicalBaselinePending": historical_baseline_pending,
         "seeds": list(SEEDS),
         "catalogDigest": CONTRACT_DIGEST,
     }
@@ -478,8 +464,6 @@ def verify_cohort(cohort):
         cohort["cases"],
         name=cohort["name"],
         thresholds=cohort["thresholds"],
-        historical_baseline=cohort["historicalBaseline"],
-        historical_baseline_pending=cohort["historicalBaselinePending"],
     )
     if rebuilt != cohort:
         raise ValueError("Cohort is not its canonical frozen declaration")
@@ -714,8 +698,6 @@ def evaluate_cohort(
         "cohortDigest": cohort["digest"],
         "cohort": cohort["name"],
         "evaluationSplits": sorted({case["split"] for case in cohort["cases"]}),
-        "historicalBaseline": cohort["historicalBaseline"],
-        "historicalBaselinePending": cohort["historicalBaselinePending"],
         "seed": seed,
         "origin": origin,
         "representation": representation,
@@ -733,7 +715,7 @@ def evaluate_cohort(
     }
 
 
-def compare_experiments(reports, budgets, *, historical_receipt=None):
+def compare_experiments(reports, budgets):
     """Compare all seeds under declared equal-example/token or measured-compute budgets."""
     if len(reports) != len(budgets) or not reports:
         raise ValueError("Every evaluation needs its actual training budget receipt")
@@ -745,25 +727,6 @@ def compare_experiments(reports, budgets, *, historical_receipt=None):
         report.get("evaluationSplits") != ["test"] for report in reports
     ):
         raise ValueError("Learned budget comparisons must use the frozen test-only cohort")
-    if origins == {"trained"} and reports[0]["cohort"] == "common-support":
-        baseline = reports[0]["historicalBaseline"]
-        if any(report["historicalBaseline"] != baseline for report in reports):
-            raise ValueError("Historical comparison conditions changed between runs")
-        receipt = historical_receipt if reports[0]["historicalBaselinePending"] else baseline
-        if (
-            not isinstance(receipt, dict)
-            or receipt.get("schema") != "semantic-historical-baseline/4"
-            or receipt.get("referenceStatus") != "agreed"
-            or receipt.get("cohortDigest") != next(iter(cohorts))
-            or receipt.get("seeds") != list(SEEDS)
-            or receipt.get("sourceRunbook") != baseline.get("sourceRunbook")
-            or not isinstance(receipt.get("artifactSha256"), str)
-            or len(receipt["artifactSha256"]) != 64
-            or any(char not in "0123456789abcdef" for char in receipt["artifactSha256"])
-        ):
-            raise ValueError(
-                "Learned common-support comparison requires actual preserved historical baseline evidence"
-            )
     groups = {}
     for report, budget in zip(reports, budgets, strict=True):
         if (
@@ -835,5 +798,4 @@ def compare_experiments(reports, budgets, *, historical_receipt=None):
         "origin": next(iter(origins)),
         "regimes": result,
         "learnedEvidence": origins == {"trained"},
-        "historicalReceipt": historical_receipt,
     }

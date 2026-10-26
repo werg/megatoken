@@ -182,7 +182,7 @@ def validate_stage_supply(
     from megatoken.data.semantic_contract import FIXTURE_DIGEST, SCHEMA_DIGEST
     from megatoken.data.storage import PreparedCorpus
 
-    if phase not in {"SE", "SC", "SO"} or (phase == "SO") != (representation == "outcome-only"):
+    if phase not in {"SE", "SC"} or representation != "compact":
         raise ValueError("Semantic curriculum stage and representation disagree")
     pins = {
         "representation": representation,
