@@ -132,7 +132,6 @@ def collect_semantic_lifecycle(
     max_history=1024,
     max_positions=1024,
     max_active=1,
-    representation="explicit",
 ):
     """Execute an authored coordinator against separately certified guest episodes.
 
@@ -144,11 +143,9 @@ def collect_semantic_lifecycle(
         raise ValueError("Collector runtime and native admission must use the same tokenizer")
     if not callable(source_verifier) or not documents:
         raise ValueError("Lifecycle collection requires independently verified guest children")
-    if representation not in {"explicit", "compact"}:
-        raise ValueError("Interactive lifecycle teaching requires explicit or compact semantics")
     prepared, audits, identities = [], [], set()
     for document in documents:
-        if document.get("sidecar", {}).get("representation") != representation:
+        if document.get("sidecar", {}).get("representation") != "compact":
             raise ValueError("Lifecycle child differs from the declared certified representation")
         source = source_verifier(document)
         native = native_admission(
@@ -444,7 +441,7 @@ def collect_semantic_lifecycle(
         "semantic_execution": {
             "schema": "semantic-execution/4",
             "continuation": "teacher_conditioned",
-            "representation": representation,
+            "representation": "compact",
             "orchestration": "runtime-certified",
         },
         "orchestration_policy": {"digest": POLICY_DIGEST, "definition": ORCHESTRATION_POLICY},
@@ -489,7 +486,7 @@ def collect_semantic_lifecycle(
         "episodeId": episode_id,
         "episodeDigest": digest_bytes(canonical_json(episode.to_dict()).encode()),
         "policyDigest": POLICY_DIGEST,
-        "representation": representation,
+        "representation": "compact",
         "producerRevision": producer_revision,
         "consumerRevision": consumer_revision,
         "catalogDigest": CONTRACT_DIGEST,

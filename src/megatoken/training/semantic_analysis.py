@@ -128,7 +128,7 @@ def analyze_semantic_evaluation(cohort: dict[str, Any], report: dict[str, Any]) 
         raise ValueError("Evaluation origin is missing or unsupported")
     if report.get("seed") not in SEEDS:
         raise ValueError("Evaluation seed is not registered")
-    if report.get("representation") not in {"explicit", "compact", "outcome-only"}:
+    if report.get("representation") != "compact":
         raise ValueError("Evaluation representation is missing or unsupported")
     checkpoint = report.get("checkpointIdentity")
     if report["origin"] == "trained" or report["origin"] == "fixed-weights":

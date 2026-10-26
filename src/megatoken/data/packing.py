@@ -52,7 +52,7 @@ class TrainingWindow:
 
     @property
     def Q(self) -> int:
-        """Whole supervised groups and verified outcome-only selections."""
+        """Actual selected physical groups, without alternate answer-only targets."""
         import json
 
         selected_ids = {r.record.record_id for r in self.records if r.record.policy_mask}

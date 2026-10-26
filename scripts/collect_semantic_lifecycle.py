@@ -73,7 +73,6 @@ def main():
                 max_history=options.max_history,
                 max_positions=options.max_positions,
                 max_active=options.max_active,
-                representation="compact",
             )
     finally:
         runtime.close()

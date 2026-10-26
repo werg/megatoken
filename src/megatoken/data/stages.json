@@ -11,7 +11,7 @@
     "trainable": "all",
     "scored_decisions": 4,
     "effort": 6,
-    "grad_clip": 1.0,
+    "grad_clip": 1,
     "weight_decay": 0.1,
     "text_anchor_weight": 0.1
   },
@@ -20,16 +20,16 @@
       "meter": "I",
       "limit": 250000000,
       "mixture": {
-        "bootstrap": 1.0
+        "bootstrap": 1
       },
       "effort_mix": {
-        "6": 1.0
+        "6": 1
       },
       "constraints": {},
       "learning_rate": {
         "peak_lr": 0.0002,
         "warmup_fraction": 0.1,
-        "decay_fraction": 0.0,
+        "decay_fraction": 0,
         "start_ratio": 0.1,
         "final_ratio": 0.2
       },
@@ -50,7 +50,7 @@
         "video_identity": 0.2
       },
       "effort_mix": {
-        "6": 1.0
+        "6": 1
       },
       "constraints": {
         "autoencode": {
@@ -116,10 +116,10 @@
         "context_management": 0.005
       },
       "effort_mix": {
-        "6": 0.8,
-        "3": 0.15,
+        "1": 0.01,
         "2": 0.04,
-        "1": 0.01
+        "3": 0.15,
+        "6": 0.8
       },
       "constraints": {
         "autoencode": {
@@ -157,7 +157,7 @@
       },
       "learning_rate": {
         "peak_lr": 0.0002,
-        "warmup_fraction": 0.0,
+        "warmup_fraction": 0,
         "decay_fraction": 0.2,
         "start_ratio": 0.1,
         "final_ratio": 0.2
@@ -209,10 +209,10 @@
         "context_management": 0.005
       },
       "effort_mix": {
-        "6": 0.8,
-        "3": 0.15,
+        "1": 0.01,
         "2": 0.04,
-        "1": 0.01
+        "3": 0.15,
+        "6": 0.8
       },
       "constraints": {
         "autoencode": {
@@ -249,7 +249,7 @@
         }
       },
       "learning_rate": {
-        "peak_lr": 8e-05,
+        "peak_lr": 0.00008,
         "warmup_fraction": 0.02,
         "decay_fraction": 0.1,
         "start_ratio": 0.1,
@@ -302,10 +302,10 @@
         "context_management": 0.005
       },
       "effort_mix": {
-        "6": 0.8,
-        "3": 0.15,
+        "1": 0.01,
         "2": 0.04,
-        "1": 0.01
+        "3": 0.15,
+        "6": 0.8
       },
       "constraints": {
         "autoencode": {
@@ -342,7 +342,7 @@
         }
       },
       "learning_rate": {
-        "peak_lr": 5e-05,
+        "peak_lr": 0.00005,
         "warmup_fraction": 0.02,
         "decay_fraction": 0.1,
         "start_ratio": 0.1,
@@ -382,10 +382,10 @@
         "context_management": 0.005
       },
       "effort_mix": {
-        "6": 0.8,
-        "3": 0.15,
+        "1": 0.01,
         "2": 0.04,
-        "1": 0.01
+        "3": 0.15,
+        "6": 0.8
       },
       "constraints": {
         "autoencode": {
@@ -422,7 +422,7 @@
         }
       },
       "learning_rate": {
-        "peak_lr": 2e-05,
+        "peak_lr": 0.00002,
         "warmup_fraction": 0.02,
         "decay_fraction": 0.1,
         "start_ratio": 0.1,
@@ -464,10 +464,10 @@
         "context_management": 0.01
       },
       "effort_mix": {
-        "6": 0.6,
-        "3": 0.25,
+        "1": 0.05,
         "2": 0.1,
-        "1": 0.05
+        "3": 0.25,
+        "6": 0.6
       },
       "constraints": {
         "autoencode": {
@@ -504,7 +504,7 @@
         }
       },
       "learning_rate": {
-        "peak_lr": 1e-05,
+        "peak_lr": 0.00001,
         "warmup_fraction": 0.02,
         "decay_fraction": 0.1,
         "start_ratio": 0.1,
@@ -528,10 +528,10 @@
         "student_rollout_failures": 0.2
       },
       "effort_mix": {
-        "6": 0.6,
-        "3": 0.25,
+        "1": 0.05,
         "2": 0.1,
-        "1": 0.05
+        "3": 0.25,
+        "6": 0.6
       },
       "constraints": {
         "required_behaviors": {
@@ -548,7 +548,7 @@
         }
       },
       "learning_rate": {
-        "peak_lr": 5e-06,
+        "peak_lr": 0.000005,
         "warmup_fraction": 0.02,
         "decay_fraction": 0.1,
         "start_ratio": 0.1,
@@ -567,13 +567,13 @@
       "meter": "P",
       "limit": 200000000,
       "mixture": {
-        "semantic_execution": 1.0
+        "semantic_execution": 1
       },
       "effort_mix": {
-        "6": 0.6,
-        "3": 0.25,
+        "1": 0.05,
         "2": 0.1,
-        "1": 0.05
+        "3": 0.25,
+        "6": 0.6
       },
       "constraints": {
         "required_behaviors": {
@@ -588,7 +588,7 @@
         }
       },
       "learning_rate": {
-        "peak_lr": 1e-05,
+        "peak_lr": 0.00001,
         "warmup_fraction": 0.02,
         "decay_fraction": 0.1,
         "start_ratio": 0.1,
@@ -607,13 +607,13 @@
       "meter": "P",
       "limit": 200000000,
       "mixture": {
-        "semantic_execution": 1.0
+        "semantic_execution": 1
       },
       "effort_mix": {
-        "6": 0.6,
-        "3": 0.25,
+        "1": 0.05,
         "2": 0.1,
-        "1": 0.05
+        "3": 0.25,
+        "6": 0.6
       },
       "constraints": {
         "required_behaviors": {
@@ -621,40 +621,7 @@
         }
       },
       "learning_rate": {
-        "peak_lr": 1e-05,
-        "warmup_fraction": 0.02,
-        "decay_fraction": 0.1,
-        "start_ratio": 0.1,
-        "final_ratio": 0.2
-      },
-      "training": {
-        "scored_decisions": 8
-      },
-      "required_donor_profiles": [
-        "deepseek-v4.1-flash-1017",
-        "qwen3.8-flash-next"
-      ],
-      "previous_phase": "S"
-    },
-    "SO": {
-      "meter": "P",
-      "limit": 200000000,
-      "mixture": {
-        "semantic_execution": 1.0
-      },
-      "effort_mix": {
-        "6": 0.6,
-        "3": 0.25,
-        "2": 0.1,
-        "1": 0.05
-      },
-      "constraints": {
-        "required_behaviors": {
-          "semantic_outcome_control": 1
-        }
-      },
-      "learning_rate": {
-        "peak_lr": 1e-05,
+        "peak_lr": 0.00001,
         "warmup_fraction": 0.02,
         "decay_fraction": 0.1,
         "start_ratio": 0.1,
