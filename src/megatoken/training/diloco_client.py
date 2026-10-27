@@ -798,9 +798,11 @@ class DecoupledWorker:
         Fragment rounds go out every ``local_steps`` steps, so without this the final
         window of a phase would never be merged. Waits at most two merge grace periods plus
         one request timeout; returns whether everything was handed over (anything left
-        stays in the final checkpoint's outbox). A delivered round still waiting for its
-        quorum counts as handed over: the coordinator's ``close`` merges queued rounds
-        however few, and progress since that round cannot be sent before its merge.
+        stays in the final checkpoint's outbox). Progress made after a round that still
+        awaits its merge can be sent only once that merge installs, so this waits for it.
+        Past the deadline (its peers have finished, so the quorum cannot form), a delivered
+        round counts as handed over: the coordinator's ``close`` merges queued rounds
+        however few, and only the steps trained after it stay local.
         """
         deadline = (
             time.monotonic() + 2 * self.manifest["grace_seconds"] + self.settings.timeout_seconds
@@ -817,15 +819,21 @@ class DecoupledWorker:
                 self._settle_transducer_upload()
                 if sync.pending is None and sync.steps_since > 0:
                     self._start_transducer_round(trainer, self.local_steps)
-            done = not self.pending and not any(
-                self._flushable(index, optimizer) and index not in self.awaiting_global
-                for index in range(len(self.fragments))
-            )
+            expired = time.monotonic() > deadline
+            unsent = {
+                index for index in range(len(self.fragments)) if self._flushable(index, optimizer)
+            }
+            done = not self.pending and (not unsent or expired and unsent <= self.awaiting_global)
             if sync is not None:
                 done = done and sync.pending is None and sync.steps_since == 0
             if done:
+                if unsent:
+                    print(
+                        f"DiLoCo: steps after {len(unsent)} rounds awaiting a quorum stay local",
+                        flush=True,
+                    )
                 return True
-            if time.monotonic() > deadline:
+            if expired:
                 print("DiLoCo final round not fully delivered before the deadline", flush=True)
                 return False
             time.sleep(0.2)
