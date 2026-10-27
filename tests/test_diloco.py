@@ -628,6 +628,49 @@ def test_finish_hands_over_the_last_partial_window(served, tmp_path, monkeypatch
         optimizer.close()
 
 
+def test_finish_does_not_wait_for_a_quorum_that_peers_already_left(served, tmp_path, monkeypatch):
+    from megatoken.training.config import DecoupledConfig
+    from megatoken.training.diloco_client import DecoupledWorker
+
+    url, token = served(workers=2, quorum=2, lease_seconds=30.0)
+    monkeypatch.setenv("MEGATOKEN_DILOCO_TOKEN", token)
+    settings = DecoupledConfig(
+        coordinator_url=url,
+        run_id="unit-run",
+        workers=2,
+        worker_id=0,
+        local_steps=1,
+        timeout_seconds=10,
+    )
+    model = nn.Module()
+    model.linear = nn.Linear(8, 8, bias=False)
+    optimizer = MasterAdamW(model, lr=0.01, inner_optimizer="adamw")
+    worker = DecoupledWorker(
+        settings,
+        model_config={"test": True},
+        codec_fingerprint="codec",
+        masters=optimizer.masters,
+        output=tmp_path / "worker",
+        token_budget=0,
+        train_identity="objective",
+        dataset_fingerprint="",
+    )
+    try:
+        worker.bootstrap(model, optimizer)
+        # The only peer already finished: this learner's round waits for a quorum of two.
+        for step in range(1, 4):
+            with torch.no_grad():
+                optimizer.masters["linear.weight"].add_(0.5)
+            worker.after_step(optimizer, steps=step, tokens=10)
+        started = time.monotonic()
+        assert worker.finish(optimizer)
+        assert time.monotonic() - started < settings.timeout_seconds
+        assert worker.transport.json("GET", "/v1/status")["pending"]["0"] == 1
+    finally:
+        worker.close()
+        optimizer.close()
+
+
 def test_fully_frozen_fragments_are_never_sent():
     from megatoken.training.diloco_client import DecoupledWorker
 

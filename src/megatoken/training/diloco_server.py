@@ -354,7 +354,7 @@ class Coordinator:
             if sequence <= last_seq.get(str(worker), 0):
                 return {"status": "already_merged", "version": version}
             if base_version > version or version - base_version > self.manifest["max_staleness"]:
-                raise Conflict("Stale fragment baseline; fetch current global weights")
+                raise Conflict("Stale fragment baseline; fetch current global weights", stale=True)
             try:
                 tensors = load_tensors(incoming)
             except Exception as exc:

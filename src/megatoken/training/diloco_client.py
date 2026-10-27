@@ -656,15 +656,22 @@ class DecoupledWorker:
             if future is None or not future.done():
                 continue
             try:
-                future.result()
+                response = future.result()
                 Path(entry["filename"]).unlink(missing_ok=True)
                 del self.pending[index]
                 self.awaiting_global.add(index)
                 self.offline_steps = 0
+                # This upload completed a quorum: fetch the merge now, not at the next heartbeat.
+                if (
+                    isinstance(response, dict)
+                    and int(response.get("version", -1)) > self.versions[index]
+                    and index not in self.downloads
+                ):
+                    self.downloads[index] = self.io.submit(self._fetch, index, self.versions[index])
             except RemoteError as exc:
                 # Stale proposals are invalidated; the next pull overwrites
                 # this fragment and reestablishes a legitimate baseline.
-                if exc.status == 409 and "Stale" in str(exc):
+                if exc.status == 409 and exc.detail.get("stale"):
                     Path(entry["filename"]).unlink(missing_ok=True)
                     del self.pending[index]
                     self.downloads[index] = self.io.submit(self._fetch, index, -1)
@@ -791,7 +798,9 @@ class DecoupledWorker:
         Fragment rounds go out every ``local_steps`` steps, so without this the final
         window of a phase would never be merged. Waits at most two merge grace periods plus
         one request timeout; returns whether everything was handed over (anything left
-        stays in the final checkpoint's outbox).
+        stays in the final checkpoint's outbox). A delivered round still waiting for its
+        quorum counts as handed over: the coordinator's ``close`` merges queued rounds
+        however few, and progress since that round cannot be sent before its merge.
         """
         deadline = (
             time.monotonic() + 2 * self.manifest["grace_seconds"] + self.settings.timeout_seconds
@@ -809,7 +818,8 @@ class DecoupledWorker:
                 if sync.pending is None and sync.steps_since > 0:
                     self._start_transducer_round(trainer, self.local_steps)
             done = not self.pending and not any(
-                self._flushable(index, optimizer) for index in range(len(self.fragments))
+                self._flushable(index, optimizer) and index not in self.awaiting_global
+                for index in range(len(self.fragments))
             )
             if sync is not None:
                 done = done and sync.pending is None and sync.steps_since == 0
