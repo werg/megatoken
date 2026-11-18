@@ -11,7 +11,7 @@ import json
 from collections import Counter
 from pathlib import Path
 
-from megatoken.io import atomic_binary_writer
+from megatoken.io import atomic_json_array_writer
 
 from .chunking import ChunkingConfig
 from .dedup import DedupConfig, DedupStore
@@ -207,13 +207,7 @@ def prepare_semantic_corpus(
         max_descendants_per_parent=1024,
     )
     with DedupStore(root / "semantic-dedup.sqlite", config) as store:
-        # Private journals can dwarf the learner records. Flush each admitted
-        # audit while its candidate is live, and publish the complete array
-        # atomically before the prepared manifest can become visible.
-        with atomic_binary_writer(root / "semantic-audit.json") as audit_handle:
-            audit_handle.write(b"[")
-            audit_count = 0
-            encoder = json.JSONEncoder(sort_keys=True, allow_nan=False)
+        with atomic_json_array_writer(root / "semantic-audit.json") as write_audit:
             for number, candidate in enumerate(candidates):
                 counts["attempted"] += 1
                 document = candidate.get("exported", candidate)
@@ -264,29 +258,19 @@ def prepare_semantic_corpus(
                 except (ValueError, KeyError, TypeError) as error:
                     counts["admission_rejected"] += 1
                     reasons.append(
-                        {
-                            "candidate": number,
-                            "status": "admission_rejected",
-                            "reason": str(error),
-                        }
+                        {"candidate": number, "status": "admission_rejected", "reason": str(error)}
                     )
                 else:
-                    # Serialization and IO failures must abort publication;
-                    # treating a partially written audit as a refused row
-                    # would leave an invalid supposedly complete JSON array.
-                    if audit_count:
-                        audit_handle.write(b",")
-                    audit = {
-                        "episodeId": episode.episode_id,
-                        "source": source,
-                        "native": native,
-                        "supervision": document["sidecar"],
-                    }
-                    for chunk in encoder.iterencode(audit):
-                        audit_handle.write(chunk.encode("utf-8"))
-                    del audit
-                    audit_count += 1
-            audit_handle.write(b"]\n")
+                    # Serialization failures abort the atomic audit, rather than
+                    # being mistaken for a rejected candidate after a partial row.
+                    write_audit(
+                        {
+                            "episodeId": episode.episode_id,
+                            "source": source,
+                            "native": native,
+                            "supervision": document["sidecar"],
+                        }
+                    )
         store.freeze()
         accepted_count = 0
         family_splits = {}

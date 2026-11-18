@@ -1,171 +1,147 @@
-"""Production preparation retains complete private audits without retaining every candidate."""
+"""Bound private evidence retention without changing its JSON contents.
 
-import copy
+Storage integration tests replace external admission gates; native/source
+semantics are exercised separately by the harness and producer integration.
+"""
+
 import gc
 import json
-import os
 import weakref
-from contextlib import contextmanager
-from pathlib import Path
 
 import pytest
+from test_semantic_harness_v5 import fixture
 
 from megatoken.data import semantic_corpus
-from megatoken.data.host_operations import CONTRACT_DIGEST
-from megatoken.data.semantic_admission import native_admission
-from megatoken.data.semantic_contract import CONTRACT
-from megatoken.generation.codec import LING_TOKENIZER_SHA256, ByteCodec
-
-PRODUCER = "a" * 40
-CONSUMER = "b" * 40
+from megatoken.data.semantic_harness_v5 import adapt_selected_harness_v5
+from megatoken.generation.codec import ByteCodec
+from megatoken.io import atomic_json_array_writer, sha256_file, write_json
 
 
-class PrivateProbe(dict):
-    pass
+@pytest.mark.parametrize(
+    "items",
+    [
+        [],
+        [{"unicode": "café\n雪", "nested": [[], {"b": 2, "a": [True, None]}]}],
+        [None, 1, 'quoted"value', [1, 2], {"z": -0.0, "a": False}],
+    ],
+)
+def test_streamed_array_matches_existing_json_bytes_and_hashes(tmp_path, items):
+    streamed, expected = tmp_path / "streamed.json", tmp_path / "expected.json"
+    with atomic_json_array_writer(streamed) as append:
+        for item in items:
+            append(item)
+        assert not streamed.exists()
+    write_json(expected, items)
+    assert streamed.read_bytes() == expected.read_bytes()
+    assert sha256_file(streamed) == sha256_file(expected)
 
 
-@pytest.fixture
-def production_codec():
-    path = Path(os.environ.get("MEGATOKEN_TOKENIZER_JSON", ".validation/tokenizer.json"))
-    if not path.is_file():
-        pytest.skip("Dedicated semantic CI downloads the exact production tokenizer")
-    return ByteCodec.from_tokenizer_json(path, expected_sha256=LING_TOKENIZER_SHA256)
+def test_interrupted_or_invalid_append_preserves_complete_evidence(tmp_path):
+    path = tmp_path / "audit.json"
+    write_json(path, [{"previous": "complete"}])
+    previous = path.read_bytes()
+    with pytest.raises(RuntimeError, match="interrupted"):
+        with atomic_json_array_writer(path) as append:
+            append({"first": "valid"})
+            raise RuntimeError("interrupted")
+    assert path.read_bytes() == previous
+    with pytest.raises(ValueError, match="incomplete JSON"):
+        with atomic_json_array_writer(path) as append:
+            # Catching a failed item cannot accidentally publish partial JSON.
+            with pytest.raises(ValueError):
+                append({"bad": float("nan")})
+    assert path.read_bytes() == previous
+    assert sorted(item.name for item in tmp_path.iterdir()) == ["audit.json"]
 
 
-def admitted_document(codec, index):
-    document = copy.deepcopy(CONTRACT["fixtures"]["envelope"]["valid"][0])
-    for row in document["public"]["timeline"]:
-        row["session"] = f"session{index}"
-    document["sidecar"].update(
-        admission="admitted",
-        representation="compact",
-        selectionOrigin="certified_teacher",
-        referenceStatus="agreed",
-        catalogDigest=CONTRACT_DIGEST,
-        sourceLineage=f"streaming-fixture-{index}",
-        sourceProvenance={"license": "test-fixture", "trustTier": "repository-fixture"},
+def controlled_storage_pipeline(monkeypatch):
+    codec = ByteCodec.byte_fallback()
+    episode, _ = adapt_selected_harness_v5(fixture(), allow_local=True, codec=codec)
+    monkeypatch.setattr(
+        semantic_corpus,
+        "native_admission",
+        lambda document, **_: {"native": document["sidecar"]["number"]},
     )
-    document["sidecar"]["nativeAdmission"] = native_admission(
-        document, codec=codec, consumer_revision=CONSUMER
+    monkeypatch.setattr(semantic_corpus, "verify_admission", lambda *args, **kwargs: True)
+    monkeypatch.setattr(
+        semantic_corpus, "adapt_selected_harness_v5", lambda *args, **kwargs: (episode, None)
     )
-    return document
+    return codec, episode
 
 
-def unit_source_receipt(document):
-    # This unit fixture isolates preparation and lifetime behavior. Actual
-    # source checks are exercised by the separately pinned native corpus CI.
-    return {
-        "schema": semantic_corpus.SOURCE_SCHEMA,
-        "episodeDigest": semantic_corpus.public_digest(document),
-        "producerRevision": PRODUCER,
-        "catalogDigest": CONTRACT_DIGEST,
-        "referenceStatus": "agreed",
-        "optimizerSteps": 0,
-        "journalValidated": True,
-        "replayValidated": True,
-        "sourceValidated": True,
-    }
+def test_preparation_releases_previous_private_sidecars_and_keeps_full_audit(tmp_path, monkeypatch):
+    codec, episode = controlled_storage_pipeline(monkeypatch)
+    references = []
 
-
-def prepare(candidates, output, codec):
-    return semantic_corpus.prepare_semantic_corpus(
-        candidates,
-        output,
-        codec=codec,
-        producer_revision=PRODUCER,
-        consumer_revision=CONSUMER,
-        source_verifier=unit_source_receipt,
-    )
-
-
-def test_preparation_releases_old_private_evidence_and_publishes_complete_audit_first(
-    tmp_path, monkeypatch, production_codec
-):
-    codec = production_codec
-    probes = []
-    original_rows = semantic_corpus.DedupStore.accepted_rows
-
-    def bounded_rows(store):
-        previous = []
-        for row in original_rows(store):
-            if len(previous) >= 2:
-                gc.collect()
-                assert previous[-2]() is None
-            current = PrivateProbe(dict(row))
-            previous.append(weakref.ref(current))
-            yield current
-
-    monkeypatch.setattr(semantic_corpus.DedupStore, "accepted_rows", bounded_rows)
+    class TrackedSidecar(dict):
+        pass
 
     def candidates():
-        for index in range(6):
+        for number in range(8):
             gc.collect()
-            # One prior candidate can be held by the caller's loop variables;
-            # earlier private evidence must already have been released.
-            if index >= 2:
-                assert probes[index - 2]() is None
-            document = admitted_document(codec, index)
-            probe = PrivateProbe(index=index, payload="x" * 65536)
-            probes.append(weakref.ref(probe))
-            document["sidecar"]["privateLifetimeProbe"] = probe
-            yield document
+            # The caller's current loop variable may retain its preceding row;
+            # a growing audit list would keep every previous row alive here.
+            assert sum(reference() is not None for reference in references) <= 1
+            side = TrackedSidecar(
+                admission="admitted",
+                representation="compact",
+                number=number,
+                privateEvidence=("evidence-" + str(number)) * 8192,
+            )
+            references.append(weakref.ref(side))
+            yield {"public": {}, "sidecar": side}
+            del side
 
-    original_export = semantic_corpus.export_prepared
-
-    def export_after_audit(store, root, **kwargs):
-        audits = json.loads((root / "semantic-audit.json").read_text())
-        assert [row["supervision"]["privateLifetimeProbe"]["index"] for row in audits] == list(
-            range(6)
-        )
-        assert "semantic-audit.json" not in kwargs["sidecars"]
-        assert not (root / "manifest.json").exists()
-        return original_export(store, root, **kwargs)
-
-    monkeypatch.setattr(semantic_corpus, "export_prepared", export_after_audit)
-    manifest, report = prepare(candidates(), tmp_path, codec)
-    assert report["counts"]["admitted"] == 6
-    assert report["accepted"] == 6
+    manifest, report = semantic_corpus.prepare_semantic_corpus(
+        candidates(),
+        tmp_path,
+        codec=codec,
+        producer_revision="a" * 40,
+        consumer_revision="b" * 40,
+        source_verifier=lambda document: {"source": document["sidecar"]["number"]},
+    )
     assert manifest["complete"] is True
-    assert json.loads((tmp_path / "semantic-report.json").read_text()) == report
+    assert report["counts"]["admitted"] == 8
+    assert report["accepted"] == 1  # Repeated controlled episode, eight audits.
+    gc.collect()
+    assert all(reference() is None for reference in references)
+    expected = [
+        dict(
+            episodeId=episode.episode_id,
+            source={"source": number},
+            native={"native": number},
+            supervision=dict(
+                admission="admitted",
+                representation="compact",
+                number=number,
+                privateEvidence=("evidence-" + str(number)) * 8192,
+            ),
+        )
+        for number in range(8)
+    ]
+    assert json.loads((tmp_path / "semantic-audit.json").read_text()) == expected
+    write_json(tmp_path / "expected-audit.json", expected)
+    assert sha256_file(tmp_path / "semantic-audit.json") == sha256_file(
+        tmp_path / "expected-audit.json"
+    )
 
 
-def test_audit_write_failure_does_not_publish_partial_audit_or_manifest(
-    tmp_path, monkeypatch, production_codec
-):
-    codec = production_codec
-    previous = b'["previous complete evidence"]\n'
-    (tmp_path / "semantic-audit.json").write_bytes(previous)
-    original_writer = semantic_corpus.atomic_binary_writer
+def test_preparation_failure_does_not_publish_partial_audit_or_manifest(tmp_path, monkeypatch):
+    codec, _ = controlled_storage_pipeline(monkeypatch)
 
-    @contextmanager
-    def failing_writer(path):
-        with original_writer(path) as handle:
+    def interrupted():
+        yield {"sidecar": {"admission": "admitted", "representation": "compact", "number": 0}}
+        raise RuntimeError("candidate source interrupted")
 
-            class FailingOutput:
-                writes = 0
-
-                def write(self, value):
-                    self.writes += 1
-                    if self.writes == 10:
-                        raise OSError("simulated audit storage failure")
-                    return handle.write(value)
-
-            yield FailingOutput()
-
-    monkeypatch.setattr(semantic_corpus, "atomic_binary_writer", failing_writer)
-    with pytest.raises(OSError, match="audit storage failure"):
-        prepare([admitted_document(codec, 0)], tmp_path, codec)
-    assert (tmp_path / "semantic-audit.json").read_bytes() == previous
+    with pytest.raises(RuntimeError, match="source interrupted"):
+        semantic_corpus.prepare_semantic_corpus(
+            interrupted(),
+            tmp_path,
+            codec=codec,
+            producer_revision="a" * 40,
+            consumer_revision="b" * 40,
+            source_verifier=lambda _: {},
+        )
+    assert not (tmp_path / "semantic-audit.json").exists()
     assert not (tmp_path / "manifest.json").exists()
     assert not list(tmp_path.glob(".semantic-audit.json.*"))
-
-
-def test_all_refusals_retain_report_and_empty_complete_audit(tmp_path):
-    codec = ByteCodec.byte_fallback()
-    with pytest.raises(ValueError, match="No admitted native episodes"):
-        prepare([{"status": "unsupported", "reason": "outside declared profile"}], tmp_path, codec)
-    assert json.loads((tmp_path / "semantic-audit.json").read_text()) == []
-    report = json.loads((tmp_path / "semantic-report.json").read_text())
-    assert report["counts"] == {"attempted": 1, "unsupported": 1}
-    assert report["refusals"][0]["reason"] == "outside declared profile"
-    assert not (tmp_path / "manifest.json").exists()

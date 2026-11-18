@@ -6,7 +6,7 @@ import hashlib
 import json
 import os
 import tempfile
-from collections.abc import Iterator, Mapping
+from collections.abc import Callable, Iterator, Mapping
 from contextlib import contextmanager
 from pathlib import Path
 from typing import Any, BinaryIO
@@ -83,6 +83,38 @@ def write_json(path: str | Path, value: Any) -> None:
     with atomic_binary_writer(path) as handle:
         handle.write(json.dumps(value, indent=2, sort_keys=True, allow_nan=False).encode())
         handle.write(b"\n")
+
+
+@contextmanager
+def atomic_json_array_writer(path: str | Path) -> Iterator[Callable[[Any], None]]:
+    """Append one JSON value at a time, committing exactly ``write_json`` bytes.
+
+    No appended object is retained. A failed append or interrupted caller
+    removes the temporary file and preserves any previously complete array.
+    """
+    encoder = json.JSONEncoder(indent=2, sort_keys=True, allow_nan=False)
+    with atomic_binary_writer(path) as handle:
+        handle.write(b"[")
+        count = 0
+        failed = False
+
+        def append(value: Any) -> None:
+            nonlocal count, failed
+            if failed:
+                raise ValueError("Cannot append after an incomplete JSON array item")
+            try:
+                handle.write(b"\n  " if count == 0 else b",\n  ")
+                for part in encoder.iterencode(value):
+                    handle.write(part.replace("\n", "\n  ").encode())
+                count += 1
+            except BaseException:
+                failed = True
+                raise
+
+        yield append
+        if failed:
+            raise ValueError("Cannot commit an incomplete JSON array item")
+        handle.write(b"\n]\n" if count else b"]\n")
 
 
 def read_mapping(path: str | Path) -> dict[str, Any]:
