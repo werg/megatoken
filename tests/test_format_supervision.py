@@ -26,7 +26,7 @@ def public_spec():
 
 def test_text_format_loss_is_the_actual_serving_choice_and_updates_its_logits(model):
     model.eval()
-    spec = public_spec()
+    spec = replace(public_spec(), max_tokens=model.config.max_capacity)
     raw = torch.randn(1, model.config.n_facets, model.config.facet_dim)
     plain = model.prepare_target(target_bytes=b"hi")
     labeled = model.prepare_target(target_bytes=b"hi", mode_specs=[spec])
@@ -71,7 +71,7 @@ def test_impossible_tool_wire_is_not_a_competing_format(model):
     plan = model.prepare_target(target_bytes=b"x", mode_specs=[spec])
     raw = torch.randn(1, model.config.n_facets, model.config.facet_dim)
     labeled = model.decoder.teacher_raw(model.core, raw, plan)["structure"]
-    assert model.decoder._public_support(spec)[3] == (0,)
+    assert model.decoder._public_support(spec)[3] == [0]
     text_only = replace(spec, schemas=())
     baseline = model.prepare_target(target_bytes=b"x", mode_specs=[text_only])
     old = model.decoder.teacher_raw(model.core, raw, baseline)["structure"]
