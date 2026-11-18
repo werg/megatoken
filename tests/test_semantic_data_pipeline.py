@@ -109,7 +109,8 @@ def test_native_admission_keeps_input_graph_semantics_and_canonical_observation_
     assert receipt["fragmentationValidated"] is True
     episode, _ = adapt_selected_harness_v5(document, codec=production_codec, allow_local=True)
     logical = [
-        parts for parts in episode.iter_logical_records()
+        parts
+        for parts in episode.iter_logical_records()
         if not parts[0].logical_id.startswith("semantic:context:")
     ]
     assert len(logical) == len(original["public"]["timeline"])
