@@ -11,6 +11,8 @@ import json
 from collections import Counter
 from pathlib import Path
 
+from megatoken.io import atomic_json_array_writer
+
 from .chunking import ChunkingConfig
 from .dedup import DedupConfig, DedupStore
 from .host_operations import CONTRACT_DIGEST, canonical_json
@@ -197,7 +199,7 @@ def prepare_semantic_corpus(
             )
     root = Path(output)
     root.mkdir(parents=True, exist_ok=True)
-    counts, reasons, audits = Counter(), [], []
+    counts, reasons = Counter(), []
     config = DedupConfig(
         train_fraction=0.8,
         validation_fraction=0.1,
@@ -205,67 +207,78 @@ def prepare_semantic_corpus(
         max_descendants_per_parent=1024,
     )
     with DedupStore(root / "semantic-dedup.sqlite", config) as store:
-        for number, candidate in enumerate(candidates):
-            counts["attempted"] += 1
-            document = candidate.get("exported", candidate)
-            status = candidate.get(
-                "status", document.get("sidecar", {}).get("admission", "unsupported")
-            )
-            if status != "admitted":
-                counts[status] += 1
-                reasons.append(
-                    {
-                        "candidate": number,
-                        "status": status,
-                        "reason": candidate.get("reason", "not admitted"),
-                    }
+        with atomic_json_array_writer(root / "semantic-audit.json") as write_audit:
+            for number, candidate in enumerate(candidates):
+                counts["attempted"] += 1
+                document = candidate.get("exported", candidate)
+                status = candidate.get(
+                    "status", document.get("sidecar", {}).get("admission", "unsupported")
                 )
-                continue
-            try:
-                source = source_verifier(document)
-                native = native_admission(
-                    document,
-                    codec=codec,
-                    consumer_revision=consumer_revision,
-                    max_positions=max_positions,
-                    max_history=max_history,
-                )
-                verify_admission(
-                    document,
-                    source,
-                    native,
-                    producer_revision=producer_revision,
-                    consumer_revision=consumer_revision,
-                    codec=codec,
-                )
-                episode, _ = adapt_selected_harness_v5(
-                    document,
-                    codec=codec,
-                    max_positions=max_positions,
-                    max_history=max_history,
-                    admission_verifier=lambda _: True,
-                )
-                if document["sidecar"].get("representation") != "compact":
-                    raise ValueError("Only source-grounded semantic traces may enter the corpus")
-                disposition = store.add(episode, codec)
-                counts[disposition] += 1
-                counts["admitted"] += 1
-                audits.append(
-                    {
-                        "episodeId": episode.episode_id,
-                        "source": source,
-                        "native": native,
-                        "supervision": document["sidecar"],
-                    }
-                )
-            except (ValueError, KeyError, TypeError) as error:
-                counts["admission_rejected"] += 1
-                reasons.append(
-                    {"candidate": number, "status": "admission_rejected", "reason": str(error)}
-                )
+                if status != "admitted":
+                    counts[status] += 1
+                    reasons.append(
+                        {
+                            "candidate": number,
+                            "status": status,
+                            "reason": candidate.get("reason", "not admitted"),
+                        }
+                    )
+                    continue
+                try:
+                    source = source_verifier(document)
+                    native = native_admission(
+                        document,
+                        codec=codec,
+                        consumer_revision=consumer_revision,
+                        max_positions=max_positions,
+                        max_history=max_history,
+                    )
+                    verify_admission(
+                        document,
+                        source,
+                        native,
+                        producer_revision=producer_revision,
+                        consumer_revision=consumer_revision,
+                        codec=codec,
+                    )
+                    episode, _ = adapt_selected_harness_v5(
+                        document,
+                        codec=codec,
+                        max_positions=max_positions,
+                        max_history=max_history,
+                        admission_verifier=lambda _: True,
+                    )
+                    if document["sidecar"].get("representation") != "compact":
+                        raise ValueError("Only source-grounded semantic traces may enter the corpus")
+                    disposition = store.add(episode, codec)
+                    counts[disposition] += 1
+                    counts["admitted"] += 1
+                except (ValueError, KeyError, TypeError) as error:
+                    counts["admission_rejected"] += 1
+                    reasons.append(
+                        {"candidate": number, "status": "admission_rejected", "reason": str(error)}
+                    )
+                else:
+                    # Serialization failures abort the atomic audit, rather than
+                    # being mistaken for a rejected candidate after a partial row.
+                    write_audit(
+                        {
+                            "episodeId": episode.episode_id,
+                            "source": source,
+                            "native": native,
+                            "supervision": document["sidecar"],
+                        }
+                    )
         store.freeze()
-        accepted = list(store.accepted_rows())
-        if not accepted:
+        accepted_count = 0
+        family_splits = {}
+        for row in store.accepted_rows():
+            accepted_count += 1
+            family = row["resolved_family"]
+            if family in family_splits and family_splits[family] != row["split"]:
+                raise ValueError("Source ancestry leaked across frozen corpus splits")
+            family_splits[family] = row["split"]
+        if not accepted_count:
             from megatoken.io import write_json
 
             report = {
@@ -276,12 +289,6 @@ def prepare_semantic_corpus(
             }
             write_json(root / "semantic-report.json", report)
             raise ValueError("No admitted native episodes; refusal report was retained")
-        family_splits = {}
-        for row in accepted:
-            family = row["resolved_family"]
-            if family in family_splits and family_splits[family] != row["split"]:
-                raise ValueError("Source ancestry leaked across frozen corpus splits")
-            family_splits[family] = row["split"]
         pins = {
             "schema": "semantic-preparation/4",
             "producerRevision": producer_revision,
@@ -298,7 +305,7 @@ def prepare_semantic_corpus(
         report = {
             **pins,
             "counts": dict(counts),
-            "accepted": len(accepted),
+            "accepted": accepted_count,
             "familySplits": family_splits,
             "refusals": reasons,
             "optimizerSteps": 0,
@@ -310,6 +317,6 @@ def prepare_semantic_corpus(
             source_receipts=[pins],
             pipeline_fingerprint=hashlib.sha256(canonical_json(pins).encode()).hexdigest(),
             chunking=ChunkingConfig(hard_max_tokens=max_positions),
-            sidecars={"semantic-report.json": report, "semantic-audit.json": audits},
+            sidecars={"semantic-report.json": report},
         )
     return manifest, report
