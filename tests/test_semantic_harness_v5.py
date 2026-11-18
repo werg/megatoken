@@ -190,6 +190,11 @@ def test_selected_harness_import_uses_actual_dynamic_track_and_one_bound_action(
     assert receipt.actions == 1
     assert receipt.observations == 4
     assert receipt.tracks == 2
+    from megatoken.controls import semantic_execution_track_purpose
+
+    assert {track.track_id: track.description for track in episode.tracks}["worker:0"] == (
+        semantic_execution_track_purpose("p", "run")
+    )
     assert episode.actions[0].call_id == "session1:call1:fx1"
     assert episode.actions[0].tool_name == "demo.readAsync"
     assert json.loads(episode.actions[0].arguments_json) == {"args": ["counter"]}
@@ -215,6 +220,108 @@ def test_selected_harness_import_uses_actual_dynamic_track_and_one_bound_action(
     assert episode.supervision.outcome == "unknown"
 
 
+def test_selected_harness_declares_the_same_semantic_selection_control():
+    from megatoken.controls import (
+        build_request_control,
+        resolve_event_control,
+        semantic_selection_instruction,
+    )
+
+    episode, _ = adapt_selected_harness_v5(
+        fixture(), allow_local=True, codec=ByteCodec.byte_fallback()
+    )
+    target = next(
+        (meridian, event)
+        for meridian in episode.meridians
+        for event in meridian.events
+        if episode.records[event.meridian_id].policy_mask
+    )
+    meridian, event = target
+    trained = resolve_event_control(episode, event)
+    assert event.instruction == semantic_selection_instruction()
+    assert trained == build_request_control(instruction=semantic_selection_instruction())
+    assert meridian.meridian_id == event.meridian_id
+
+
+def test_physical_fragmentation_preserves_declared_selection_control():
+    from megatoken.controls import (
+        resolve_event_control,
+        semantic_selection_instruction,
+    )
+    from megatoken.data.schema import (
+        Episode,
+        Lineage,
+        Meridian,
+        PhysicalRecord,
+        TrackEvent,
+        TrackSpec,
+    )
+    from megatoken.data.semantic_physical import physical_semantic_episode
+
+    record = PhysicalRecord("target", "assistant", b"x" * 2048, policy_mask=True)
+    episode = Episode(
+        "fragmented-selection",
+        (record,),
+        Lineage("fixture", "v1", "fragmented-selection"),
+        meridians=(
+            Meridian(
+                0,
+                (
+                    TrackEvent(
+                        "target",
+                        "worker",
+                        "text",
+                        0,
+                        "assistant",
+                        instruction=semantic_selection_instruction(),
+                    ),
+                ),
+            ),
+        ),
+        tracks=(TrackSpec("worker", "assistant"),),
+    )
+    episode = physical_semantic_episode(
+        episode, codec=ByteCodec.byte_fallback(), max_positions=512, max_history=32
+    )
+    targets = [
+        (episode.records[event.meridian_id], event)
+        for meridian in episode.meridians
+        for event in meridian.events
+        if episode.records[event.meridian_id].policy_mask
+    ]
+    assert targets
+    assert len(targets) > 1
+    for index, (_, event) in enumerate(targets):
+        expected_instruction = semantic_selection_instruction(continuation=index > 0)
+        assert event.instruction == expected_instruction
+        assert resolve_event_control(episode, event)
+
+
+@pytest.mark.parametrize(
+    ("activation", "realm_policy", "prior_history", "expected"),
+    [
+        ("call", "retained", False, False),
+        ("call", "retained", True, True),
+        ("callback", "fresh", False, True),
+        ("call", "fresh", True, False),
+    ],
+)
+def test_selected_state_bootstrap_requires_real_prior_history(
+    activation, realm_policy, prior_history, expected
+):
+    from megatoken.semantic_model_adapter import requires_semantic_state_bootstrap
+
+    assert (
+        requires_semantic_state_bootstrap(
+            new_work=True,
+            activation=activation,
+            realm_policy=realm_policy,
+            prior_realm_history=prior_history,
+        )
+        is expected
+    )
+
+
 def test_replaying_input_mutations_preserves_original_observation_bytes():
     document = json.loads(
         (Path(__file__).parent / "fixtures/semantic-v5/input-array-mutation.json").read_text()
@@ -228,7 +335,10 @@ def test_replaying_input_mutations_preserves_original_observation_bytes():
         item for item in original["public"]["timeline"] if item["kind"] == "invocation"
     )
     assert any(
-        record.payload == json.dumps(invocation, ensure_ascii=False, separators=(",", ":")).encode()
+        record.payload
+        == json.dumps(
+            invocation, sort_keys=True, ensure_ascii=False, separators=(",", ":")
+        ).encode()
         for record in first.records
     )
     second, _ = adapt_selected_harness_v5(
@@ -236,6 +346,14 @@ def test_replaying_input_mutations_preserves_original_observation_bytes():
     )
     assert document == original
     assert first == second
+
+
+def test_prepared_episode_schema_rejects_previous_conditioning_version():
+    episode, _ = adapt_selected_harness_v5(fixture(), allow_local=True)
+    stale = episode.to_dict()
+    stale["schema_version"] = 6
+    with pytest.raises(ValueError, match="schema"):
+        type(episode).from_dict(stale)
 
 
 @pytest.mark.parametrize(

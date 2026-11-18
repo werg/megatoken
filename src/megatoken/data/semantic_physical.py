@@ -8,7 +8,7 @@ bytes. Token counts use the same codec and chunk planner as model serving.
 import json
 from dataclasses import replace
 
-from .schema import Dependency, Episode, Meridian, TrackEvent, make_records
+from .schema import Dependency, Episode, Meridian, make_records
 
 
 def physical_semantic_episode(episode: Episode, *, codec, max_positions: int, max_history: int):
@@ -26,13 +26,12 @@ def physical_semantic_episode(episode: Episode, *, codec, max_positions: int, ma
             Meridian(
                 len(meridians),
                 (
-                    TrackEvent(
-                        chunk.record_id,
-                        event.track_id,
-                        "text",
-                        len(meridians),
-                        chunk.role,
-                        request_revision=event.request_revision,
+                    replace(
+                        event,
+                        record_id=chunk.record_id,
+                        modality="text",
+                        meridian_id=len(meridians),
+                        role=chunk.role,
                     ),
                 ),
             )
@@ -57,8 +56,15 @@ def physical_semantic_episode(episode: Episode, *, codec, max_positions: int, ma
             content_kind="text",
         )
         spans[record.record_id] = tuple(chunk.record_id for chunk in chunks)
-        for chunk in chunks:
-            append_chunk(chunk, event)
+        for chunk_index, chunk in enumerate(chunks):
+            chunk_event = event
+            if record.policy_mask and chunk_index > 0:
+                from megatoken.controls import semantic_selection_instruction
+
+                chunk_event = replace(
+                    event, instruction=semantic_selection_instruction(continuation=True)
+                )
+            append_chunk(chunk, chunk_event)
         if not record.policy_mask:
             observation = json.loads(record.payload)
             kind = observation.get("kind")

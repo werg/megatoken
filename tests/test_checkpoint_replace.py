@@ -6,7 +6,7 @@ import shutil
 import pytest
 import torch
 
-from megatoken.training.checkpoint import resolve_checkpoint, save_checkpoint
+from megatoken.training.checkpoint import load_checkpoint, resolve_checkpoint, save_checkpoint
 
 
 def _save(root, marker, *, pinned=False):
@@ -65,3 +65,13 @@ def test_replacement_does_not_guess_missing_saved_fields(tmp_path, field):
         _save(tmp_path, 2)
     assert path.read_bytes() == before and _marker(live) == 1
     assert not list(tmp_path.glob(".superseded-*"))
+
+
+def test_checkpoint_from_previous_conditioning_contract_is_rejected(tmp_path):
+    live = _save(tmp_path, 1)
+    path = live / "metadata.json"
+    metadata = json.loads(path.read_text())
+    metadata["format_version"] = 18
+    path.write_text(json.dumps(metadata))
+    with pytest.raises(ValueError, match="Unsupported checkpoint format"):
+        load_checkpoint(tmp_path)

@@ -87,7 +87,7 @@ def test_uncommitted_data_and_symlinks_cannot_enter_a_prepared_backup(tmp_path):
     (data / "media").mkdir(parents=True)
     (data / "index.sqlite").write_bytes(b"in progress")
     assert not capture(work, root)["files"]
-    (data / "manifest.json").write_text('{"schema_version":6,"shards":[]}')
+    (data / "manifest.json").write_text('{"schema_version":7,"shards":[]}')
     (data / "episodes-000000.jsonl").write_bytes(b"{}\n")
     outside = work / "secret"
     outside.write_bytes(b"private credentials")
