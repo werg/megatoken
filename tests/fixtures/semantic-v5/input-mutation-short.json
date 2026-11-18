@@ -1,0 +1,442 @@
+{
+  "public": {
+    "schema": "semantic-execution/5",
+    "profile": "selected-harness/2",
+    "traceFormat": "semantic-trace/5",
+    "contextFormat": "semantic-context/5",
+    "timeline": [
+      {
+        "schema": "semantic-execution/5",
+        "session": "teacher1",
+        "sequence": 1,
+        "ownerSequence": 1,
+        "track": "host",
+        "mode": "observed",
+        "kind": "program",
+        "programId": "program1",
+        "digest": "453cfcd1c6d41828734322a4727913a943f2bfeaaf18d6c6b709f3f590840cf5",
+        "entry": "run",
+        "source": "\"use strict\";function run(a,b){a.n=a.n+1;return [a===b,a.self===a,a];}",
+        "sites": [
+          {
+            "id": "s1",
+            "start": 0,
+            "end": 12,
+            "role": "Literal"
+          },
+          {
+            "id": "s2",
+            "start": 13,
+            "end": 70,
+            "role": "FunctionDeclaration"
+          },
+          {
+            "id": "s3",
+            "start": 22,
+            "end": 25,
+            "role": "Identifier"
+          },
+          {
+            "id": "s4",
+            "start": 26,
+            "end": 27,
+            "role": "Identifier"
+          },
+          {
+            "id": "s5",
+            "start": 28,
+            "end": 29,
+            "role": "Identifier"
+          },
+          {
+            "id": "s6",
+            "start": 31,
+            "end": 32,
+            "role": "Identifier"
+          },
+          {
+            "id": "s7",
+            "start": 31,
+            "end": 34,
+            "role": "MemberExpression"
+          },
+          {
+            "id": "s8",
+            "start": 31,
+            "end": 40,
+            "role": "AssignmentExpression"
+          },
+          {
+            "id": "s9",
+            "start": 33,
+            "end": 34,
+            "role": "Identifier"
+          },
+          {
+            "id": "s10",
+            "start": 35,
+            "end": 36,
+            "role": "Identifier"
+          },
+          {
+            "id": "s11",
+            "start": 35,
+            "end": 38,
+            "role": "MemberExpression"
+          },
+          {
+            "id": "s12",
+            "start": 35,
+            "end": 40,
+            "role": "BinaryExpression"
+          },
+          {
+            "id": "s13",
+            "start": 37,
+            "end": 38,
+            "role": "Identifier"
+          },
+          {
+            "id": "s14",
+            "start": 39,
+            "end": 40,
+            "role": "Literal"
+          },
+          {
+            "id": "s15",
+            "start": 41,
+            "end": 69,
+            "role": "ReturnStatement"
+          },
+          {
+            "id": "s16",
+            "start": 48,
+            "end": 68,
+            "role": "ArrayExpression"
+          },
+          {
+            "id": "s17",
+            "start": 49,
+            "end": 50,
+            "role": "Identifier"
+          },
+          {
+            "id": "s18",
+            "start": 49,
+            "end": 54,
+            "role": "BinaryExpression"
+          },
+          {
+            "id": "s19",
+            "start": 53,
+            "end": 54,
+            "role": "Identifier"
+          },
+          {
+            "id": "s20",
+            "start": 55,
+            "end": 56,
+            "role": "Identifier"
+          },
+          {
+            "id": "s21",
+            "start": 55,
+            "end": 61,
+            "role": "MemberExpression"
+          },
+          {
+            "id": "s22",
+            "start": 55,
+            "end": 65,
+            "role": "BinaryExpression"
+          },
+          {
+            "id": "s23",
+            "start": 57,
+            "end": 61,
+            "role": "Identifier"
+          },
+          {
+            "id": "s24",
+            "start": 64,
+            "end": 65,
+            "role": "Identifier"
+          },
+          {
+            "id": "s25",
+            "start": 66,
+            "end": 67,
+            "role": "Identifier"
+          }
+        ],
+        "functions": [
+          {
+            "start": 13,
+            "end": 70,
+            "name": "run",
+            "params": [
+              "a",
+              "b"
+            ]
+          }
+        ],
+        "capabilities": [],
+        "dependencies": [],
+        "sourceMap": null,
+        "languageProfile": "owned-javascript/1",
+        "module": false,
+        "sourceMetadata": null
+      },
+      {
+        "schema": "semantic-execution/5",
+        "session": "teacher1",
+        "sequence": 2,
+        "ownerSequence": 1,
+        "track": "worker1",
+        "mode": "observed",
+        "kind": "invocation",
+        "programId": "program1",
+        "invocationId": "invocation1",
+        "realmId": "realm1",
+        "triggerId": "teacher-entry",
+        "completionPolicy": "await-returned-promise",
+        "realmPolicy": "retained",
+        "inputGraph": {
+          "roots": [
+            [
+              "ref",
+              "o2"
+            ],
+            [
+              "ref",
+              "o2"
+            ]
+          ],
+          "objects": [
+            {
+              "id": "o2",
+              "kind": "object",
+              "properties": [
+                {
+                  "key": "n",
+                  "value": [
+                    "num",
+                    1
+                  ]
+                },
+                {
+                  "key": "self",
+                  "value": [
+                    "ref",
+                    "o2"
+                  ]
+                }
+              ]
+            }
+          ]
+        },
+        "entry": "run",
+        "sourceDigest": "453cfcd1c6d41828734322a4727913a943f2bfeaaf18d6c6b709f3f590840cf5",
+        "receiver": [
+          "undefined"
+        ],
+        "closureId": null,
+        "activation": "call",
+        "parentInvocationId": null,
+        "taskRevision": 1,
+        "deadline": null,
+        "bindings": {},
+        "ingressKey": "teacher-entry"
+      },
+      {
+        "schema": "semantic-execution/5",
+        "session": "teacher1",
+        "sequence": 3,
+        "ownerSequence": 2,
+        "track": "worker1",
+        "mode": "generated",
+        "kind": "semantic",
+        "invocationId": "invocation1",
+        "traceFormat": "semantic-trace/5",
+        "line": "bind {\"name\":\"a\",\"value\":[\"ref\",\"o2\"]}"
+      },
+      {
+        "schema": "semantic-execution/5",
+        "session": "teacher1",
+        "sequence": 4,
+        "ownerSequence": 3,
+        "track": "worker1",
+        "mode": "generated",
+        "kind": "semantic",
+        "invocationId": "invocation1",
+        "traceFormat": "semantic-trace/5",
+        "line": "bind {\"name\":\"b\",\"value\":[\"ref\",\"o2\"]}"
+      },
+      {
+        "schema": "semantic-execution/5",
+        "session": "teacher1",
+        "sequence": 5,
+        "ownerSequence": 4,
+        "track": "worker1",
+        "mode": "generated",
+        "kind": "semantic",
+        "invocationId": "invocation1",
+        "traceFormat": "semantic-trace/5",
+        "line": "read {\"object\":\"o2\",\"key\":\"n\",\"present\":true,\"value\":[\"num\",1]}"
+      },
+      {
+        "schema": "semantic-execution/5",
+        "session": "teacher1",
+        "sequence": 6,
+        "ownerSequence": 5,
+        "track": "worker1",
+        "mode": "generated",
+        "kind": "semantic",
+        "invocationId": "invocation1",
+        "traceFormat": "semantic-trace/5",
+        "line": "compute {\"expr\":{\"op\":\"binary\",\"operator\":\"+\",\"left\":{\"op\":\"read\",\"object\":\"o2\",\"key\":\"n\"},\"right\":{\"op\":\"literal\",\"value\":[\"num\",1]}},\"result\":[\"num\",2],\"invocation\":\"invocation1\"}"
+      },
+      {
+        "schema": "semantic-execution/5",
+        "session": "teacher1",
+        "sequence": 7,
+        "ownerSequence": 6,
+        "track": "worker1",
+        "mode": "generated",
+        "kind": "semantic",
+        "invocationId": "invocation1",
+        "traceFormat": "semantic-trace/5",
+        "line": "write {\"object\":\"o2\",\"key\":\"n\",\"present\":true,\"value\":[\"num\",2]}"
+      },
+      {
+        "schema": "semantic-execution/5",
+        "session": "teacher1",
+        "sequence": 8,
+        "ownerSequence": 7,
+        "track": "worker1",
+        "mode": "generated",
+        "kind": "semantic",
+        "invocationId": "invocation1",
+        "traceFormat": "semantic-trace/5",
+        "line": "allocate {\"name\":\"o3\",\"kind\":\"array\",\"properties\":[],\"length\":0}"
+      },
+      {
+        "schema": "semantic-execution/5",
+        "session": "teacher1",
+        "sequence": 9,
+        "ownerSequence": 8,
+        "track": "worker1",
+        "mode": "generated",
+        "kind": "semantic",
+        "invocationId": "invocation1",
+        "traceFormat": "semantic-trace/5",
+        "line": "write {\"object\":\"o3\",\"key\":\"length\",\"present\":true,\"value\":[\"num\",1]}"
+      },
+      {
+        "schema": "semantic-execution/5",
+        "session": "teacher1",
+        "sequence": 10,
+        "ownerSequence": 9,
+        "track": "worker1",
+        "mode": "generated",
+        "kind": "semantic",
+        "invocationId": "invocation1",
+        "traceFormat": "semantic-trace/5",
+        "line": "write {\"object\":\"o3\",\"key\":\"0\",\"present\":true,\"value\":[\"bool\",true]}"
+      },
+      {
+        "schema": "semantic-execution/5",
+        "session": "teacher1",
+        "sequence": 11,
+        "ownerSequence": 10,
+        "track": "worker1",
+        "mode": "generated",
+        "kind": "semantic",
+        "invocationId": "invocation1",
+        "traceFormat": "semantic-trace/5",
+        "line": "read {\"object\":\"o2\",\"key\":\"self\",\"present\":true,\"value\":[\"ref\",\"o2\"]}"
+      },
+      {
+        "schema": "semantic-execution/5",
+        "session": "teacher1",
+        "sequence": 12,
+        "ownerSequence": 11,
+        "track": "worker1",
+        "mode": "generated",
+        "kind": "semantic",
+        "invocationId": "invocation1",
+        "traceFormat": "semantic-trace/5",
+        "line": "write {\"object\":\"o3\",\"key\":\"length\",\"present\":true,\"value\":[\"num\",2]}"
+      },
+      {
+        "schema": "semantic-execution/5",
+        "session": "teacher1",
+        "sequence": 13,
+        "ownerSequence": 12,
+        "track": "worker1",
+        "mode": "generated",
+        "kind": "semantic",
+        "invocationId": "invocation1",
+        "traceFormat": "semantic-trace/5",
+        "line": "write {\"object\":\"o3\",\"key\":\"1\",\"present\":true,\"value\":[\"bool\",true]}"
+      },
+      {
+        "schema": "semantic-execution/5",
+        "session": "teacher1",
+        "sequence": 14,
+        "ownerSequence": 13,
+        "track": "worker1",
+        "mode": "generated",
+        "kind": "semantic",
+        "invocationId": "invocation1",
+        "traceFormat": "semantic-trace/5",
+        "line": "write {\"object\":\"o3\",\"key\":\"length\",\"present\":true,\"value\":[\"num\",3]}"
+      },
+      {
+        "schema": "semantic-execution/5",
+        "session": "teacher1",
+        "sequence": 15,
+        "ownerSequence": 14,
+        "track": "worker1",
+        "mode": "generated",
+        "kind": "semantic",
+        "invocationId": "invocation1",
+        "traceFormat": "semantic-trace/5",
+        "line": "write {\"object\":\"o3\",\"key\":\"2\",\"present\":true,\"value\":[\"ref\",\"o2\"]}"
+      },
+      {
+        "schema": "semantic-execution/5",
+        "session": "teacher1",
+        "sequence": 16,
+        "ownerSequence": 15,
+        "track": "worker1",
+        "mode": "generated",
+        "kind": "semantic",
+        "invocationId": "invocation1",
+        "traceFormat": "semantic-trace/5",
+        "line": "return {\"value\":[\"ref\",\"o3\"],\"invocation\":\"invocation1\"}"
+      },
+      {
+        "schema": "semantic-execution/5",
+        "session": "teacher1",
+        "sequence": 17,
+        "ownerSequence": 16,
+        "track": "worker1",
+        "mode": "generated",
+        "kind": "semantic",
+        "invocationId": "invocation1",
+        "traceFormat": "semantic-trace/5",
+        "line": "end {\"kind\":\"return\"}"
+      }
+    ]
+  },
+  "sidecar": {
+    "schema": "semantic-supervision/2",
+    "admission": "locally_verified",
+    "representation": "compact",
+    "referenceStatus": "unverified",
+    "sourceLineage": "controlled:immutable-graph:input-mutation-short",
+    "split": null,
+    "selectionOrigin": "controlled-or-model-output-unverified"
+  }
+}

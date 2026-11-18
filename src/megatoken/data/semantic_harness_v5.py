@@ -6,6 +6,7 @@ and uses discovered dynamic track addresses rather than eight fixed lanes.
 
 from __future__ import annotations
 
+import copy
 import hashlib
 import json
 from collections.abc import Callable, Mapping
@@ -528,7 +529,10 @@ def adapt_selected_harness_v5(
                 "refs": refs,
                 "heap": {
                     **(existing["heap"] if existing else {}),
-                    **{node["id"]: node for node in item["inputGraph"]["objects"]},
+                    # The public invocation is immutable evidence. Guest
+                    # writes update this private simulation, never the graph
+                    # already serialized or hashed in the committed prefix.
+                    **{node["id"]: copy.deepcopy(node) for node in item["inputGraph"]["objects"]},
                 },
                 "promises": existing["promises"] if existing else {},
                 "randomSeed": (
@@ -961,7 +965,7 @@ def adapt_selected_harness_v5(
                     if node["id"] in realm["refs"]:
                         _fail("Observed resource graph cannot replace an existing owned identity")
                     realm["refs"].add(node["id"])
-                    realm["heap"][node["id"]] = node
+                    realm["heap"][node["id"]] = copy.deepcopy(node)
             promise_id = requests[key].get("promise")
             if promise_id is not None:
                 promise = activation["promises"][promise_id]
