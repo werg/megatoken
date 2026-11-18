@@ -22,9 +22,7 @@ def allocation(captures):
     return "allocate " + json.dumps(fields, ensure_ascii=False, separators=(",", ":"))
 
 
-@pytest.mark.parametrize(
-    "name", ["keyFn", "_key", "key_fn", "keyFn_2", "$key", "key$Fn", "$"]
-)
+@pytest.mark.parametrize("name", ["keyFn", "_key", "key_fn", "keyFn_2", "$key", "key$Fn", "$"])
 def test_capture_aliases_and_cells_use_the_existing_source_name_grammar(name):
     captures = [
         {"binding": name, "cell": "outerCell"},
@@ -32,9 +30,7 @@ def test_capture_aliases_and_cells_use_the_existing_source_name_grammar(name):
     ]
     assert parse_record(allocation(captures))[1]["captures"] == captures
     assert (
-        parse_record(
-            "bind " + json.dumps({"name": name, "from": name, "value": ["num", 1]})
-        )[0]
+        parse_record("bind " + json.dumps({"name": name, "from": name, "value": ["num", 1]}))[0]
         == "bind"
     )
 
@@ -74,23 +70,16 @@ def test_source_names_do_not_relax_heap_reference_identity(name):
         value(["ref", name])
     with pytest.raises(WitnessV5Error, match="Invalid witness identity"):
         parse_record(
-            "read "
-            + json.dumps(
-                {"object": name, "key": "x", "value": ["num", 1], "present": True}
-            )
+            "read " + json.dumps({"object": name, "key": "x", "value": ["num", 1], "present": True})
         )
 
 
 def test_pinned_vscode_distinct_capture_passes_production_tokenizer_admission():
-    tokenizer = Path(
-        os.environ.get("MEGATOKEN_TOKENIZER_JSON", ".validation/tokenizer.json")
-    )
+    tokenizer = Path(os.environ.get("MEGATOKEN_TOKENIZER_JSON", ".validation/tokenizer.json"))
     if not tokenizer.is_file():
         pytest.skip("Dedicated semantic CI supplies the pinned production tokenizer")
     document = json.loads(
-        (
-            Path(__file__).parent / "fixtures/semantic-v5/source-binding-capture.json"
-        ).read_text()
+        (Path(__file__).parent / "fixtures/semantic-v5/source-binding-capture.json").read_text()
     )
     before = json.dumps(document, ensure_ascii=False, separators=(",", ":"))
     assert any(
@@ -99,9 +88,7 @@ def test_pinned_vscode_distinct_capture_passes_production_tokenizer_admission():
         if row["kind"] == "semantic"
         for _, fields in [parse_record(row["line"])]
     )
-    codec = ByteCodec.from_tokenizer_json(
-        tokenizer, expected_sha256=LING_TOKENIZER_SHA256
-    )
+    codec = ByteCodec.from_tokenizer_json(tokenizer, expected_sha256=LING_TOKENIZER_SHA256)
     receipt = native_admission(document, codec=codec, consumer_revision="a" * 40)
     assert receipt["admitted"] and receipt["visibilityValidated"]
     assert receipt["lossMaskValidated"] and receipt["fragmentationValidated"]
