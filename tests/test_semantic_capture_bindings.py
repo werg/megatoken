@@ -82,7 +82,9 @@ def test_source_names_do_not_relax_heap_reference_identity(name):
 
 
 def test_pinned_vscode_distinct_capture_passes_production_tokenizer_admission():
-    tokenizer = Path(os.environ.get("MEGATOKEN_TOKENIZER_JSON", ".validation/tokenizer.json"))
+    tokenizer = Path(
+        os.environ.get("MEGATOKEN_TOKENIZER_JSON", ".validation/tokenizer.json")
+    )
     if not tokenizer.is_file():
         pytest.skip("Dedicated semantic CI supplies the pinned production tokenizer")
     document = json.loads(
@@ -97,9 +99,12 @@ def test_pinned_vscode_distinct_capture_passes_production_tokenizer_admission():
         if row["kind"] == "semantic"
         for _, fields in [parse_record(row["line"])]
     )
-    codec = ByteCodec.from_tokenizer_json(tokenizer, expected_sha256=LING_TOKENIZER_SHA256)
+    codec = ByteCodec.from_tokenizer_json(
+        tokenizer, expected_sha256=LING_TOKENIZER_SHA256
+    )
     receipt = native_admission(document, codec=codec, consumer_revision="a" * 40)
-    assert receipt["admitted"] and receipt["visibilityValidated"] and receipt["lossMaskValidated"]
-    assert receipt["fragmentationValidated"] and receipt["generatedTokens"] > 0
+    assert receipt["admitted"] and receipt["visibilityValidated"]
+    assert receipt["lossMaskValidated"] and receipt["fragmentationValidated"]
+    assert receipt["generatedTokens"] > 0
     assert receipt["optimizerSteps"] == 0
     assert json.dumps(document, ensure_ascii=False, separators=(",", ":")) == before
