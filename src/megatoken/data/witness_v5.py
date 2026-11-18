@@ -108,6 +108,10 @@ def _fail(reason: str) -> None:
     raise WitnessV5Error("Invalid semantic-trace/5: " + reason)
 
 
+def _source_binding(name: Any) -> bool:
+    return isinstance(name, str) and name.replace("$", "_").isidentifier()
+
+
 def _pairs(pairs: list[tuple[str, Any]]) -> dict[str, Any]:
     result: dict[str, Any] = {}
     for key, value in pairs:
@@ -325,10 +329,11 @@ def parse_record(line: Any) -> tuple[str, dict[str, Any]]:
                 if (
                     not isinstance(relation, dict)
                     or set(relation) != {"binding", "cell"}
-                    or not isinstance(relation["binding"], str)
+                    or not _source_binding(relation["binding"])
                     or relation["binding"] in used
-                    or not isinstance(relation["cell"], str)
-                    or not IDENTITY.fullmatch(relation["cell"])
+                    # Captured cells use the same source binding names as
+                    # name/bind/from, not heap reference identities.
+                    or not _source_binding(relation["cell"])
                 ):
                     _fail("Malformed shared cell capture relation")
                 used.add(relation["binding"])
@@ -435,8 +440,6 @@ def parse_record(line: Any) -> tuple[str, dict[str, Any]]:
         ):
             _fail("Invalid dynamic invocation identity")
     for key in ("name", "bind", "from"):
-        if key in fields and (
-            not isinstance(fields[key], str) or not fields[key].replace("$", "_").isidentifier()
-        ):
+        if key in fields and not _source_binding(fields[key]):
             _fail("Invalid source binding name")
     return kind, fields
