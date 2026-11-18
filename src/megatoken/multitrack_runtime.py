@@ -1121,11 +1121,8 @@ class MultiTrackRuntime:
                 description = registry.change(address, operation, **values)
             # Publish only semantic fields. The address attaches the event to
             # its task through attention equality, never instruction bytes.
-            public = {
-                k: v
-                for k, v in asdict(description).items()
-                if k not in {"address", "parent", "prerequisites"}
-            }
+            from megatoken.lifecycle import track_description_observation
+
             window = None
             if description.status in {"completed", "cancelled"}:
                 window = {
@@ -1140,7 +1137,7 @@ class MultiTrackRuntime:
                     "cross_events": min(config.context_cross_events, config.max_history_chunks),
                     "pinned_events": [],
                 }
-            payload = json.dumps(public, sort_keys=True).encode()
+            payload = track_description_observation(description)
             self.observe_text(session, description.address, payload, role="system", effort=1)
             session.memory.state = self.generator.tracks.describe_track(
                 session.state, description.address, description.purpose, description.revision

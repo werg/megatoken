@@ -192,14 +192,22 @@ def test_selected_harness_import_uses_actual_dynamic_track_and_one_bound_action(
     assert receipt.tracks == 2
     from megatoken.controls import semantic_execution_track_purpose
 
-    assert {track.track_id: track.description for track in episode.tracks}["worker:0"] == (
-        semantic_execution_track_purpose("p", "run")
-    )
+    assert {track.track_id: track.description for track in episode.tracks} == {
+        "host": "",
+        "track:0": "",
+    }
+    assert len(episode.track_revisions) == 1
+    revision = episode.track_revisions[0]
+    assert revision.track_id == "track:0"
+    assert revision.purpose == semantic_execution_track_purpose("p", "run")
+    assert next(r for r in episode.records if r.record_id == revision.record_id).role == "system"
     assert episode.actions[0].call_id == "session1:call1:fx1"
     assert episode.actions[0].tool_name == "demo.readAsync"
     assert json.loads(episode.actions[0].arguments_json) == {"args": ["counter"]}
     public_records = [
-        r for r in episode.records if not r.logical_id.startswith("semantic:context:")
+        r
+        for r in episode.records
+        if not r.logical_id.startswith(("semantic:context:", "semantic:lifecycle:"))
     ]
     assert [r.policy_mask for r in public_records] == [
         False,
@@ -241,6 +249,27 @@ def test_selected_harness_declares_the_same_semantic_selection_control():
     assert event.instruction == semantic_selection_instruction()
     assert trained == build_request_control(instruction=semantic_selection_instruction())
     assert meridian.meridian_id == event.meridian_id
+
+
+def test_native_creation_receipt_cannot_carry_hidden_future_fields():
+    from dataclasses import replace
+
+    from megatoken.data.semantic_physical import validate_semantic_creation_observations
+
+    episode, _ = adapt_selected_harness_v5(fixture(), allow_local=True)
+    validate_semantic_creation_observations(episode)
+    announcement = next(
+        record for record in episode.records if record.logical_id.startswith("semantic:lifecycle:")
+    )
+    forged = json.loads(announcement.payload)
+    forged["future_result"] = ["num", 7]
+    changed = replace(announcement, payload=json.dumps(forged, sort_keys=True).encode())
+    altered = replace(
+        episode,
+        records=tuple(changed if row is announcement else row for row in episode.records),
+    )
+    with pytest.raises(ValueError, match="exact public ingress receipt"):
+        validate_semantic_creation_observations(altered)
 
 
 def test_physical_fragmentation_preserves_declared_selection_control():
@@ -355,7 +384,9 @@ def test_replaying_input_mutations_preserves_original_observation_bytes():
 def test_prepared_episode_schema_rejects_previous_conditioning_version():
     episode, _ = adapt_selected_harness_v5(fixture(), allow_local=True)
     stale = episode.to_dict()
-    stale["schema_version"] = 6
+    from megatoken.data.schema import SCHEMA_VERSION
+
+    stale["schema_version"] = SCHEMA_VERSION - 1
     with pytest.raises(ValueError, match="schema"):
         type(episode).from_dict(stale)
 
@@ -632,9 +663,13 @@ def test_subscription_events_are_distinct_observations_and_share_retained_realm(
     assert receipt.observations == 7
     assert receipt.actions == 0
     assert sum(record.policy_mask for record in episode.records) == 4
-    assert [event.track_id for meridian in episode.meridians for event in meridian.events].count(
-        "worker:0"
-    ) == 8
+    generated = {record.record_id for record in episode.records if record.policy_mask}
+    assert [
+        event.track_id
+        for meridian in episode.meridians
+        for event in meridian.events
+        if event.record_id in generated
+    ] == ["track:0", "track:0", "track:1", "track:1"]
 
 
 @pytest.mark.parametrize(

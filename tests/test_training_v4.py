@@ -139,7 +139,9 @@ def test_direct_encoder_auxiliary_cannot_change_main_gradients_or_clipped_update
 
 
 def test_canonical_presets_and_legacy_architecture_rejection():
+    from megatoken.model.config import ARCHITECTURE_VERSION
+
     assert load_model_config("32x512").name == "32x512"
     assert load_model_config("32x256").name == "32x256"
-    with pytest.raises(ValueError, match="architecture_version=16"):
+    with pytest.raises(ValueError, match=f"architecture_version={ARCHITECTURE_VERSION}"):
         ModelConfig.from_dict({**ModelConfig.tiny().to_dict(), "architecture_version": 3})

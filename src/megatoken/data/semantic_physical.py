@@ -11,6 +11,69 @@ from dataclasses import replace
 from .schema import Dependency, Episode, Meridian, make_records
 
 
+def validate_semantic_creation_observations(episode: Episode) -> None:
+    """A creation receipt derives from code and the adjacent available request.
+
+    No generated decision may intervene between creation and its invocation.
+    Exact reconstruction prevents a private target or later result being
+    smuggled into an otherwise unscored system observation.
+    """
+    from megatoken.lifecycle import (
+        TrackDescription,
+        semantic_execution_creation,
+        track_description_observation,
+    )
+
+    groups = tuple(episode.iter_logical_records())
+    events = {event.record_id: event for group in episode.meridians for event in group.events}
+    revisions = {revision.record_id: revision for revision in episode.track_revisions}
+    programs = {}
+    for index, parts in enumerate(groups):
+        creation = parts[0].logical_id.startswith("semantic:lifecycle:")
+        if parts[0].policy_mask:
+            if creation:
+                raise ValueError("Semantic creation must remain an unscored observation")
+            continue
+        payload = b"".join(part.payload for part in parts)
+        item = json.loads(payload)
+        if item.get("kind") == "program":
+            programs[item["programId"]] = item
+        if not creation:
+            continue
+        if index + 1 >= len(groups) or any(
+            part.policy_mask or part.role != "system" for part in parts
+        ):
+            raise ValueError("Semantic creation needs an adjacent observed invocation")
+        following = groups[index + 1]
+        if any(part.policy_mask or part.role != "user" for part in following):
+            raise ValueError("Semantic creation cannot expose a future generated target")
+        invocation = json.loads(b"".join(part.payload for part in following))
+        program = programs.get(invocation.get("programId"))
+        budget = item.get("budget")
+        address = events[parts[0].record_id].track_id
+        if (
+            invocation.get("kind") != "invocation"
+            or program is None
+            or type(budget) is not int
+            or not 1 <= budget <= 100000
+            or events[following[0].record_id].track_id != address
+        ):
+            raise ValueError("Semantic creation differs from its available invocation")
+        description = TrackDescription(
+            address,
+            status="waiting",
+            **semantic_execution_creation(program, invocation, budget=budget),
+        )
+        revision = revisions.get(parts[-1].record_id)
+        if payload != track_description_observation(description) or (
+            revision is None
+            or revision.track_id != address
+            or revision.purpose != description.purpose
+            or revision.revision != description.revision
+        ):
+            raise ValueError("Semantic creation must match its exact public ingress receipt")
+
+
 def physical_semantic_episode(episode: Episode, *, codec, max_positions: int, max_history: int):
     if type(max_positions) is not int or max_positions < 1:
         raise ValueError("Semantic physical token budget must be positive")
@@ -117,6 +180,10 @@ def physical_semantic_episode(episode: Episode, *, codec, max_positions: int, ma
         actions=actions,
         dependencies=dependencies,
         meridians=tuple(meridians),
+        track_revisions=tuple(
+            replace(revision, record_id=spans[revision.record_id][-1])
+            for revision in episode.track_revisions
+        ),
         supervision=replace(
             episode.supervision, annotations_json=json.dumps(annotations, separators=(",", ":"))
         ),

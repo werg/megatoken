@@ -21,6 +21,12 @@ if TYPE_CHECKING:
 
 
 CONTROL_SCHEMA_VERSION = 3
+SEMANTIC_EXECUTION_WORK_BUDGET = 4096
+
+
+def semantic_execution_metadata() -> dict[str, object]:
+    """Session facts known before any semantic execution observation."""
+    return {"task": "semantic-execution/5", "modality": "text"}
 
 
 def canonical_semantic_observation(value: object) -> bytes:

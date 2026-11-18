@@ -24,6 +24,7 @@ from .schema import (
     PhysicalRecord,
     Supervision,
     TrackEvent,
+    TrackRevision,
     TrackSpec,
     canonical_json,
     digest_bytes,
@@ -55,6 +56,7 @@ class _Recorder:
         self.seen = set()
         self.records, self.meridians, self.metadata = [], [], {}
         self.actions, self.dependencies = [], []
+        self.track_revisions = []
         self.roles = {number: name for name, number in ROLE_TO_ID.items()}
 
     def drain(self):
@@ -118,6 +120,17 @@ class _Recorder:
                 )
                 self.seen.add(identity)
                 result.append(row)
+            if self.roles[message[0].role_id] == "system":
+                public = json.loads(raw)
+                if "purpose" in public and "revision" in public:
+                    self.track_revisions.append(
+                        TrackRevision(
+                            message[-1].event_id,
+                            message[-1].track,
+                            public["purpose"],
+                            public["revision"],
+                        )
+                    )
         return result
 
 
@@ -345,6 +358,10 @@ def collect_semantic_lifecycle(
         # Source/input were actually published by execute_lifecycle after the
         # creation acknowledgement. All later child bytes remain byte exact.
         for parts in episode.iter_logical_records():
+            # The coordinator already emitted its own actual child creation
+            # acknowledgement. Do not replay the standalone ingress version.
+            if parts[0].logical_id.startswith("semantic:lifecycle:"):
+                continue
             raw = b"".join(part.payload for part in parts)
             item = None if parts[0].policy_mask else json.loads(raw)
             if item is not None and item.get("kind") in {"program", "invocation"}:
@@ -433,6 +450,7 @@ def collect_semantic_lifecycle(
         sorted({key for _, episode, _, _, _ in prepared for key in episode.lineage.family_keys})
     )
     annotations = {
+        "session_metadata": {"task": "semantic-orchestration/4", "modality": "text"},
         "semantic_geometry": {
             "schema": "semantic-native-geometry/4",
             "maxPositions": max_positions,
@@ -465,9 +483,9 @@ def collect_semantic_lifecycle(
         dependencies=tuple(recorder.dependencies),
         meridians=tuple(recorder.meridians),
         tracks=tuple(
-            TrackSpec(track.address, "assistant", description=track.purpose)
-            for track in session.tracks.tracks.values()
+            TrackSpec(track.address, "assistant") for track in session.tracks.tracks.values()
         ),
+        track_revisions=tuple(recorder.track_revisions),
         stream="semantic_execution",
         tools_json=canonical_json(lifecycle_tools()),
         supervision=Supervision(

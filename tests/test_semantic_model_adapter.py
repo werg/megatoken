@@ -214,93 +214,99 @@ def add(prefix, kind, mode="generated", **fields):
     )
 
 
-def test_first_serving_call_matches_canonical_multi_record_training_inputs():
-    from megatoken.controls import (
-        build_request_control,
-        canonical_semantic_observation,
-        resolve_event_control,
-        semantic_execution_track_purpose,
-        semantic_selection_instruction,
-    )
-    from megatoken.data.schema import (
-        Episode,
-        Lineage,
-        Meridian,
-        PhysicalRecord,
-        TrackEvent,
-        TrackSpec,
-    )
+def test_real_serving_bootstrap_matches_prepared_bytes_roles_tracks_and_metadata(monkeypatch):
+    import torch
 
-    runtime = CaptureRuntime()
-    adapter = SelectedSemanticInference(runtime, max_tokens=8, verify_context=False)
+    from megatoken.contracts import ROLE_TO_ID
+    from megatoken.controls import semantic_execution_metadata
+    from megatoken.data.knowledge import episode_metadata
+    from megatoken.data.semantic_harness_v5 import adapt_selected_harness_v5
+    from megatoken.generation.codec import ByteCodec
+    from megatoken.generation.policy import FacetedGenerator
+    from megatoken.model import FacetedCore, ModelConfig
+    from megatoken.model.multitrack import MultiTrackGenerator
+    from megatoken.model.transducer import metadata_payload
+    from megatoken.multitrack_runtime import MultiTrackRuntime
+    from megatoken.training.meridians import _metadata
+
+    torch.set_num_threads(1)
+    torch.manual_seed(71)
+    model = FacetedGenerator(
+        FacetedCore(ModelConfig.tiny(max_history_chunks=64, max_capacity=1024)),
+        ByteCodec.byte_fallback(),
+    )
+    model.eval()
+    runtime = MultiTrackRuntime(MultiTrackGenerator.of(model))
+    adapter = SelectedSemanticInference(runtime, max_tokens=64)
     prefix = fixture()
-    with pytest.raises(CapturedGeneration):
-        adapter.select(prefix)
+    complete = copy.deepcopy(prefix)
+    add(complete, "semantic", line='return {"value":["num",7]}')
+    add(complete, "semantic", line='end {"kind":"return"}')
+    document = {
+        "public": {
+            "schema": "semantic-execution/5",
+            "traceFormat": "semantic-trace/5",
+            "profile": "selected-harness/2",
+            "contextFormat": "semantic-context/5",
+            "timeline": complete["committed"],
+        },
+        "sidecar": {"schema": "semantic-supervision/2", "representation": "compact"},
+    }
+    episode, _ = adapt_selected_harness_v5(
+        document, codec=model.codec, max_positions=1024, max_history=64, allow_local=True
+    )
+    captured = {}
 
-    captured = runtime.captured_generation
-    assert captured is not None
-    assert len(captured["controls"]) == 1
-    assert captured["controls"][0] == build_request_control(
-        instruction=semantic_selection_instruction()
-    )
-    assert len(runtime.sessions[0].observations) == 2
-    expected = [canonical_semantic_observation(row) for row in prefix["committed"]]
-    actual = [payload for _, payload, _ in runtime.sessions[0].observations]
-    assert actual == expected
-    assert captured["track_purposes"] == (semantic_execution_track_purpose("p", "run"),)
-    training_records = tuple(
-        PhysicalRecord(
-            f"input-{index}",
-            "user",
-            canonical_semantic_observation(row),
-            turn_index=index,
-        )
-        for index, row in enumerate(prefix["committed"])
-    ) + (PhysicalRecord("target", "assistant", b"target", turn_index=2, policy_mask=True),)
-    training_meridians = tuple(
-        Meridian(
-            index,
-            (
-                TrackEvent(
-                    record.record_id,
-                    row["track"] if index < len(prefix["committed"]) else "worker1",
-                    "text",
-                    index,
-                    record.role,
-                    instruction=(
-                        semantic_selection_instruction()
-                        if index == len(prefix["committed"])
-                        else ""
-                    ),
-                ),
-            ),
-        )
-        for index, (record, row) in enumerate(
-            zip(
-                training_records,
-                (*prefix["committed"], {"track": "worker1"}),
-                strict=True,
+    def stop(session, **kwargs):
+        captured["session"] = session
+        captured["request"] = kwargs
+        raise CapturedGeneration
+
+    monkeypatch.setattr(runtime, "generate", stop)
+    try:
+        with torch.inference_mode(), pytest.raises(CapturedGeneration):
+            adapter.select(prefix)
+        session = captured["session"]
+        served = [
+            (event.track, event.role_id, event.payload, event.terminal)
+            for event, _ in session.context_archive.events.values()
+        ]
+        events = {event.record_id: event for group in episode.meridians for event in group.events}
+        trained = []
+        for record in episode.records:
+            if record.policy_mask:
+                break
+            trained.append(
+                (
+                    events[record.record_id].track_id,
+                    ROLE_TO_ID[record.role],
+                    record.payload,
+                    record.part_index + 1 == record.part_count,
+                )
             )
+        assert served == trained
+        assert captured["request"]["tracks"] == ("track:0",)
+        assert [json.loads(payload).get("kind") for _, _, payload, _ in served] == [
+            "program",
+            None,
+            "invocation",
+            None,
+        ]
+        expected_metadata = metadata_payload(semantic_execution_metadata())
+        assert episode_metadata(episode) == semantic_execution_metadata()
+        assert _metadata(episode, None) == expected_metadata
+        assert all(_metadata(episode, seed) == expected_metadata for seed in range(8))
+        # No future execution purpose is installed from whole-episode metadata.
+        assert all(not track.description for track in episode.tracks)
+        revision = episode.track_revisions[0]
+        announcement = next(
+            record for record in episode.records if record.record_id == revision.record_id
         )
-    )
-    training = Episode(
-        "capture-parity",
-        training_records,
-        Lineage("capture", "v1", "capture-parity"),
-        tracks=tuple(
-            TrackSpec(
-                track,
-                "assistant",
-                description=(
-                    semantic_execution_track_purpose("p", "run") if track == "worker1" else ""
-                ),
-            )
-            for track in ("host", "worker1")
-        ),
-        meridians=training_meridians,
-    )
-    training_control = resolve_event_control(training, training.meridians[-1].events[0])
-    assert captured["controls"][0] == training_control
+        assert not announcement.policy_mask
+        assert json.loads(announcement.payload)["purpose"] == revision.purpose
+        assert revision.track_id == "track:0"
+    finally:
+        runtime.close()
 
 
 def test_first_and_continuation_control_bytes_are_declared_once():

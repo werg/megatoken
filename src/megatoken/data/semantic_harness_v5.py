@@ -13,6 +13,8 @@ from copy import deepcopy
 from dataclasses import dataclass
 from typing import Any
 
+from megatoken.controls import SEMANTIC_EXECUTION_WORK_BUDGET, semantic_execution_metadata
+
 from .host_operations import HOST_OPERATIONS
 from .schema import (
     Dependency,
@@ -23,6 +25,7 @@ from .schema import (
     PhysicalRecord,
     Supervision,
     TrackEvent,
+    TrackRevision,
     TrackSpec,
     digest_bytes,
 )
@@ -147,6 +150,7 @@ def adapt_selected_harness_v5(
     max_history: int = 1024,
     allow_local: bool = False,
     admission_verifier: Callable[[Mapping[str, Any]], bool] | None = None,
+    work_budget: int = SEMANTIC_EXECUTION_WORK_BUDGET,
 ) -> tuple[Episode, SelectedHarnessReceipt]:
     """Import complete, controlled selected trajectories (not learned-success evidence)."""
     public = export.get("public") if isinstance(export, Mapping) else None
@@ -197,6 +201,11 @@ def adapt_selected_harness_v5(
     uncertain: set[tuple[str, str]] = set()
     reconciliations: dict[tuple[str, str], str] = {}
     observed = 0
+    native_tracks: dict[str, str] = {}
+    native_owners: dict[str, str] = {}
+    native_track_order: dict[str, None] = {}
+    native_revisions: list[TrackRevision] = []
+    native_sequence = 0
     # A controlled, locally verified action is not an admitted teacher
     # projection. Its origin must not be relabeled to manufacture authority.
     selected_provenance = (
@@ -975,6 +984,53 @@ def adapt_selected_harness_v5(
             result_of = requests[key]["id"]
             execution_id = requests[key]["execution"]
 
+        # The serving bridge publishes code on its original owner, then
+        # allocates one native execution track for each available invocation.
+        # Nothing is derived from a later record or its eventual outcome.
+        if kind == "invocation":
+            from megatoken.lifecycle import (
+                TrackDescription,
+                semantic_execution_creation,
+                track_description_observation,
+            )
+
+            while f"track:{native_sequence}" in native_track_order:
+                native_sequence += 1
+            address = f"track:{native_sequence}"
+            native_sequence += 1
+            creation = semantic_execution_creation(
+                programs[item["programId"]], item, budget=work_budget
+            )
+            description = TrackDescription(address, status="waiting", **creation)
+            native_tracks[invocation_id] = address
+            native_owners[track] = address
+            native_track_order[address] = None
+            announcement_id = "semantic:lifecycle:" + invocation_id
+            announcement = PhysicalRecord(
+                announcement_id,
+                "system",
+                track_description_observation(description),
+                turn_index=index,
+                logical_id=announcement_id,
+                provenance="executed",
+            )
+            records.append(announcement)
+            meridian_id = len(meridians)
+            meridians.append(
+                Meridian(
+                    meridian_id,
+                    (TrackEvent(announcement_id, address, "text", meridian_id, "system"),),
+                )
+            )
+            native_revisions.append(
+                TrackRevision(announcement_id, address, description.purpose, description.revision)
+            )
+        native_track = (
+            track
+            if kind == "program"
+            else native_tracks.get(invocation_id, native_owners.get(track, track))
+        )
+        native_track_order[native_track] = None
         record_id = "semantic:r" + str(index + 1)
         role = (
             "assistant"
@@ -1005,15 +1061,16 @@ def adapt_selected_harness_v5(
             from megatoken.controls import semantic_selection_instruction
 
             instruction = semantic_selection_instruction()
+        meridian_id = len(meridians)
         meridians.append(
             Meridian(
-                index,
+                meridian_id,
                 (
                     TrackEvent(
                         record_id,
-                        track,
+                        native_track,
                         "text",
-                        index,
+                        meridian_id,
                         role,
                         instruction=instruction,
                     ),
@@ -1064,6 +1121,7 @@ def adapt_selected_harness_v5(
         verification="external_tests" if admission == "admitted" else "none",
         annotations_json=json.dumps(
             {
+                "session_metadata": semantic_execution_metadata(),
                 "semantic_execution": {
                     "schema": "semantic-execution/5",
                     "representation": sidecar.get("representation"),
@@ -1081,15 +1139,6 @@ def adapt_selected_harness_v5(
             separators=(",", ":"),
         ),
     )
-    from megatoken.controls import semantic_execution_track_purpose
-
-    track_purposes = {}
-    for item in timeline:
-        if item["kind"] == "invocation":
-            track_purposes.setdefault(
-                item["track"],
-                semantic_execution_track_purpose(item["programId"], item["entry"]),
-            )
     episode = Episode(
         "semantic:harness:" + digest,
         tuple(records),
@@ -1098,10 +1147,8 @@ def adapt_selected_harness_v5(
         actions=tuple(actions),
         supervision=supervision,
         dependencies=tuple(dependencies),
-        tracks=tuple(
-            TrackSpec(name, "assistant", description=track_purposes.get(name, ""))
-            for name in tracks
-        ),
+        tracks=tuple(TrackSpec(name, "assistant") for name in native_track_order),
+        track_revisions=tuple(native_revisions),
         meridians=tuple(meridians),
     )
     try:

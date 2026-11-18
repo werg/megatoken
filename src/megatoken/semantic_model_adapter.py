@@ -14,8 +14,9 @@ from dataclasses import dataclass, field
 from threading import RLock
 from typing import Any
 
+from megatoken.controls import SEMANTIC_EXECUTION_WORK_BUDGET, semantic_execution_metadata
 from megatoken.generation.structure import ActionSpec
-from megatoken.lifecycle import ExecutionBinding
+from megatoken.lifecycle import semantic_execution_creation
 
 
 class SemanticSelectionError(ValueError):
@@ -190,6 +191,7 @@ class _Session:
     runtime_session: Any
     work: dict[str, _Work] = field(default_factory=dict)
     programs: dict[str, str] = field(default_factory=dict)
+    program_events: dict[str, tuple[str, ...]] = field(default_factory=dict)
     orchestration: dict | None = None
     subscriptions: dict[str, dict] = field(default_factory=dict)
 
@@ -208,7 +210,7 @@ class SelectedSemanticInference:
         *,
         effort: int = 1,
         max_tokens: int = 512,
-        work_budget: int = 4096,
+        work_budget: int = SEMANTIC_EXECUTION_WORK_BUDGET,
         max_sessions: int = 32,
         model_identity: str | None = None,
         verify_context: bool = True,
@@ -274,7 +276,7 @@ class SelectedSemanticInference:
             raise SemanticSelectionError("Selected session capacity exhausted")
         session = _Session(
             self.runtime.open(
-                metadata={"task": "semantic-execution/5", "modality": "text"},
+                metadata=semantic_execution_metadata(),
                 effort=self.effort,
                 memory_writes=False,
             )
@@ -326,20 +328,10 @@ class SelectedSemanticInference:
             raise SemanticSelectionError(
                 "A program revision cannot rewrite an existing source identity"
             )
-        data_ref = hashlib.sha256(_canonical(invocation["inputGraph"])).hexdigest()
+        creation = semantic_execution_creation(program, invocation, budget=self.work_budget)
+        binding = creation["execution"]
+        data_ref = binding.input_ref
         grants = tuple(program.get("capabilities", []))
-        binding = ExecutionBinding(
-            program_id=program_id,
-            source_digest=digest,
-            entry=_text(invocation["entry"], "invocation entry"),
-            invocation_id=invocation_id,
-            realm_id=_text(invocation["realmId"], "realm"),
-            trigger_id=_text(invocation["triggerId"], "trigger"),
-            input_ref=data_ref,
-            realm_policy=invocation.get("realmPolicy", "fresh"),
-            completion_mode=invocation["completionPolicy"],
-            capability_grants=grants,
-        )
         parent = invocation.get("parentInvocationId")
         parent_track = state.work[parent].actual_track if parent in state.work else None
         if parent is not None and parent_track is None:
@@ -428,30 +420,31 @@ class SelectedSemanticInference:
                         source_events = published
                 state.runtime_session.execution_source_events[description.address] = source_events
         else:
-            from megatoken.controls import semantic_execution_track_purpose
-
+            # The original owner publishes code before this request allocates
+            # an execution track. Reusing a program does not re-observe its
+            # bytes unless the checked context path needs a source reread.
+            source_events = state.program_events.get(program_id, ())
+            if program_id not in state.programs:
+                source_events = self._observe(state.runtime_session, program["track"], program)
+                state.program_events[program_id] = source_events
             description = self.runtime.track_action(
                 state.runtime_session,
                 "create",
-                purpose=semantic_execution_track_purpose(program_id, invocation["entry"]),
-                completion=f"Invocation {invocation_id} completion",
-                capabilities=("text", *grants),
-                budget=self.work_budget,
-                execution=binding,
+                **creation,
                 **({"parent": parent_track} if parent_track else {}),
             )
             if not isinstance(description, TrackDescription) or description.status != "waiting":
                 raise SemanticSelectionError(
                     "Dynamic execution track must await observed bootstrap"
                 )
-            # Immutable program is observed on this newly allocated execution track
-            # before input and invocation; its digest must match the binding.
+            # Creation acknowledges the already supplied ingress request. Its
+            # invocation and prior callback observations then attach to the
+            # allocated track, while code keeps its original owner.
             if external_ingress is not None:
                 self._observe(state.runtime_session, description.address, external_ingress)
             for event in bootstrap_events:
-                published = self._observe(state.runtime_session, description.address, event)
-                if event is program:
-                    source_events = published
+                if event["kind"] != "program":
+                    self._observe(state.runtime_session, description.address, event)
             state.runtime_session.tracks.activate_execution(
                 description.address,
                 source_digest=digest,

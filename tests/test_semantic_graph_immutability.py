@@ -34,7 +34,7 @@ def test_selected_graph_import_preserves_original_document_and_record_bytes(name
     logical = [
         parts
         for parts in episode.iter_logical_records()
-        if not parts[0].logical_id.startswith("semantic:context:")
+        if not parts[0].logical_id.startswith(("semantic:context:", "semantic:lifecycle:"))
     ]
     assert len(logical) == len(original["public"]["timeline"])
     for item, parts in zip(original["public"]["timeline"], logical, strict=True):

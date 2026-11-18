@@ -205,6 +205,10 @@ def _target_plan(
                         else candidate
                     )
     mode_spec = spec if tape is None else None
+    if item.episode.stream == "semantic_execution" and spec is None:
+        from megatoken.generation.structure import ActionSpec
+
+        mode_spec = ActionSpec(text_kind="utf8", min_tokens=1, max_tokens=config.generated_capacity)
     return model.prepare_target(
         [entry.token_ids],
         free_mask=[entry.free_mask],
@@ -432,32 +436,54 @@ def _actual_raw(
     encoder_grad: bool,
     descriptions=(),
     prefer_native=True,
+    state=None,
 ) -> torch.Tensor:
     """Rebuild selected raw blocks, preserving pinned modality and native identity."""
     from megatoken.controls import encode_controls
+    from megatoken.model.expert_pools import expert_scope
 
     purposes = {t.track_id: t.description for t in descriptions}
+    track_ids = semantics = adapters = None
+    if state is not None:
+        tracks = MultiTrackGenerator.of(model).tracks
+        track_ids, _ = tracks._track_indices(state, step.tracks)
+        semantics = tracks.description_controls(state, step.tracks)
+        adapters = model.core.adapters.plan("e", state.adapters, track_ids, semantics)
     values = []
-    for track, cursor, entry, modality in zip(
-        step.tracks, step.offsets, step.records, step.modalities, strict=True
+    for index, (track, cursor, entry, modality) in enumerate(
+        zip(step.tracks, step.offsets, step.records, step.modalities, strict=True)
     ):
         tape = native.paired_tape(cursor) if prefer_native else None
         if tape is not None:
             raw = tape.single_raw(device)
         else:
-            with torch.set_grad_enabled(torch.is_grad_enabled() and encoder_grad):
-                semantic = encode_controls(
-                    model.core, [purposes.get(track, "").encode()], encoder_grad=False
+            weights = None if adapters is None else adapters.weights[0, :, index]
+            with (
+                torch.set_grad_enabled(torch.is_grad_enabled() and encoder_grad),
+                expert_scope(weights),
+            ):
+                semantic = (
+                    (None if semantics is None else semantics[:, index])
+                    if state is not None
+                    else encode_controls(
+                        model.core, [purposes.get(track, "").encode()], encoder_grad=False
+                    )
                 )
+                identity = None if track_ids is None else track_ids[:, index]
                 if modality in FEATURE_MODALITIES:
                     source = MediaRecord.from_bytes(entry.payload).source
                     features = torch.from_numpy(store.load(source)).to(device)[None]
                     raw = model.core.encode_media(
-                        features, extractor=source.extractor, track_semantics=semantic
+                        features,
+                        extractor=source.extractor,
+                        track_ids=identity,
+                        track_semantics=semantic,
                     )
                 else:
                     ids, lengths = byte_tensor([entry.payload], device)
-                    raw = model.core.encode_chunk(ids, lengths, track_semantics=semantic)
+                    raw = model.core.encode_chunk(
+                        ids, lengths, track_ids=identity, track_semantics=semantic
+                    )
         values.append(raw)
     return torch.stack(values, dim=1)
 
@@ -527,12 +553,13 @@ METADATA_KEEP = 0.5
 def _metadata(episode: Any, seed: int | None) -> bytes:
     """The compact metadata prefix available before the first event.
 
-    In training each field is kept or dropped at random, so a session opened
+    In general training each field is kept or dropped at random, so a session opened
     with partial or no metadata (as serving may) is in distribution; held-out
-    evaluation (``seed=None``) sees every field.
+    evaluation (``seed=None``) sees every field. Semantic sessions use their
+    exact recorded serving metadata in both modes.
     """
     fields = episode_metadata(episode)
-    if seed is not None:
+    if seed is not None and episode.stream != "semantic_execution":
         keep = torch.rand(len(fields), generator=torch.Generator().manual_seed(seed + 1))
         fields = {
             k: v for (k, v), kept in zip(fields.items(), keep < METADATA_KEEP, strict=True) if kept
@@ -754,6 +781,10 @@ def forward_meridian_batch(
         _metadata(episode, seed if transducer.native.training else None),
         encoder_grad=config.representation_training == "bootstrap",
     )
+    if episode.stream == "semantic_execution":
+        from megatoken.contracts import MAIN_TRACK, MAIN_TRACK_PURPOSE
+
+        state = multi.tracks.describe_track(state, MAIN_TRACK, MAIN_TRACK_PURPOSE)
     metrics["transducer_lookups"] = sequence.planned
     meridian_index = 0
     with torch.no_grad():
@@ -779,6 +810,7 @@ def forward_meridian_batch(
                         device,
                         encoder_grad=False,
                         descriptions=episode.tracks,
+                        state=state,
                     ),
                     tracks=step.tracks if native_group is None else native_group.tracks,
                     event_ids=tuple(r.record.record_id for r in step.records)
@@ -952,6 +984,7 @@ def forward_meridian_batch(
                     device,
                     encoder_grad=config.representation_training == "bootstrap",
                     descriptions=episode.tracks,
+                    state=state,
                 )
             )
             state = (

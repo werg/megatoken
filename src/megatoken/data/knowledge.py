@@ -182,6 +182,11 @@ def episode_metadata(episode: Episode) -> dict[str, object]:
 
     Declared session tracks only: the modalities later events happen to use are future.
     """
+    if episode.stream == "semantic_execution":
+        metadata = json.loads(episode.supervision.annotations_json).get("session_metadata")
+        if not isinstance(metadata, dict):
+            raise ValueError("Semantic episodes require their exact serving session metadata")
+        return metadata
     modalities = sorted({track.default_modality for track in episode.tracks})
     return {"task": episode.stream, "modality": modalities, "version": "v12"}
 

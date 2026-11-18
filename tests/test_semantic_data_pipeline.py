@@ -133,7 +133,7 @@ def test_native_admission_keeps_input_graph_semantics_and_canonical_observation_
     logical = [
         parts
         for parts in episode.iter_logical_records()
-        if not parts[0].logical_id.startswith("semantic:context:")
+        if not parts[0].logical_id.startswith(("semantic:context:", "semantic:lifecycle:"))
     ]
     assert len(logical) == len(original["public"]["timeline"])
     for item, parts in zip(original["public"]["timeline"], logical, strict=True):

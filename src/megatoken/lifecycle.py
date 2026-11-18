@@ -19,8 +19,8 @@ class ExecutionBinding:
     """Runtime-validated invocation identity attached to a created work track.
 
     This is a typed ingress intent, not a generated JS source string or a
-    completed invocation. Code and input must be published *after* creating
-    the track and *before* activate_execution marks it runnable.
+    completed invocation. Code and input must be available in the causal
+    observation history before activate_execution marks it runnable.
     """
 
     program_id: str
@@ -115,6 +115,43 @@ class TrackDescription:
             raise ValueError("Unknown track lifecycle state")
         if not self.capabilities or len(set(self.capabilities)) != len(self.capabilities):
             raise ValueError("Track capabilities must be distinct and nonempty")
+
+
+def track_description_observation(description: TrackDescription) -> bytes:
+    """The exact runtime acknowledgement, excluding attention-only addresses."""
+    public = {
+        key: value
+        for key, value in asdict(description).items()
+        if key not in {"address", "parent", "prerequisites"}
+    }
+    return json.dumps(public, sort_keys=True).encode()
+
+
+def semantic_execution_creation(program: dict, invocation: dict, *, budget: int) -> dict:
+    """Creation fields derived only from an already available ingress request."""
+    from megatoken.controls import canonical_semantic_observation, semantic_execution_track_purpose
+
+    binding = ExecutionBinding(
+        program_id=program["programId"],
+        source_digest=program["digest"],
+        entry=invocation["entry"],
+        invocation_id=invocation["invocationId"],
+        realm_id=invocation["realmId"],
+        trigger_id=invocation["triggerId"],
+        input_ref=hashlib.sha256(
+            canonical_semantic_observation(invocation["inputGraph"])
+        ).hexdigest(),
+        realm_policy=invocation["realmPolicy"],
+        completion_mode=invocation["completionPolicy"],
+        capability_grants=tuple(program["capabilities"]),
+    )
+    return {
+        "purpose": semantic_execution_track_purpose(program["programId"], invocation["entry"]),
+        "completion": f"Invocation {invocation['invocationId']} completion",
+        "capabilities": ("text", *binding.capability_grants),
+        "budget": budget,
+        "execution": binding,
+    }
 
 
 @dataclass
