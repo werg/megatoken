@@ -25,6 +25,7 @@ def public_spec():
 
 
 def test_text_format_loss_is_the_actual_serving_choice_and_updates_its_logits(model):
+    model.eval()
     spec = public_spec()
     raw = torch.randn(1, model.config.n_facets, model.config.facet_dim)
     plain = model.prepare_target(target_bytes=b"hi")
@@ -45,6 +46,7 @@ def test_text_format_loss_is_the_actual_serving_choice_and_updates_its_logits(mo
 
 
 def test_tool_format_competes_with_text_instead_of_a_target_derived_singleton(model):
+    model.eval()
     spec = public_spec()
     plan = model.prepare_action_target(b'{"value":"a"}', spec=spec)
     raw = torch.randn(1, model.config.n_facets, model.config.facet_dim)
@@ -64,11 +66,15 @@ def test_tool_format_competes_with_text_instead_of_a_target_derived_singleton(mo
 
 
 def test_impossible_tool_wire_is_not_a_competing_format(model):
+    model.eval()
     spec = replace(public_spec(), max_tokens=1)
     plan = model.prepare_target(target_bytes=b"x", mode_specs=[spec])
     raw = torch.randn(1, model.config.n_facets, model.config.facet_dim)
     labeled = model.decoder.teacher_raw(model.core, raw, plan)["structure"]
-    old = model.decoder.teacher_raw(model.core, raw, replace(plan, mode_specs=()))["structure"]
+    assert model.decoder._public_support(spec)[3] == (0,)
+    text_only = replace(spec, schemas=())
+    baseline = model.prepare_target(target_bytes=b"x", mode_specs=[text_only])
+    old = model.decoder.teacher_raw(model.core, raw, baseline)["structure"]
     torch.testing.assert_close(labeled[0], old[0])
     with pytest.raises(ValueError, match="text-permitting"):
         model.prepare_target(
@@ -98,7 +104,9 @@ def test_imported_envelopes_preserve_serving_tool_indices_for_both_target_kinds(
             for name in ("first", "second")
         ]
     )
-    item = SimpleNamespace(episode=SimpleNamespace(tools_json=tools, records=[]))
+    item = SimpleNamespace(
+        episode=SimpleNamespace(tools_json=tools, records=[], stream="dynamic_execution")
+    )
     native = SimpleNamespace(paired_tape=lambda _: None)
     config = SimpleNamespace(generated_capacity=128, representation_training="bootstrap")
     expected = compile_tool_spec(tools, 128).schemas
