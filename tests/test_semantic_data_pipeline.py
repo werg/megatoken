@@ -104,7 +104,10 @@ def test_native_admission_keeps_input_graph_observations_byte_exact(production_c
     assert document == original
     assert receipt["admitted"] is True
     assert receipt["fragmentationValidated"] is True
-    assert receipt["episodeDigest"] == hashlib.sha256(canonical_json(original["public"]).encode()).hexdigest()
+    assert (
+        receipt["episodeDigest"]
+        == hashlib.sha256(canonical_json(original["public"]).encode()).hexdigest()
+    )
 
 
 def test_source_visibility_alone_does_not_admit_evicted_captured_state(production_codec):

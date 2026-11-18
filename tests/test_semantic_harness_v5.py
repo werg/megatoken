@@ -224,7 +224,9 @@ def test_replaying_input_mutations_preserves_original_observation_bytes():
         document, allow_local=True, codec=ByteCodec.byte_fallback()
     )
     assert document == original
-    invocation = next(item for item in original["public"]["timeline"] if item["kind"] == "invocation")
+    invocation = next(
+        item for item in original["public"]["timeline"] if item["kind"] == "invocation"
+    )
     assert any(
         record.payload == json.dumps(invocation, ensure_ascii=False, separators=(",", ":")).encode()
         for record in first.records
