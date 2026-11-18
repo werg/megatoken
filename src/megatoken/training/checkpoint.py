@@ -14,9 +14,8 @@ from typing import Any
 
 import torch
 
+from megatoken.artifact_versions import CHECKPOINT_FORMAT_VERSION as FORMAT_VERSION
 from megatoken.io import fsync_directory, sha256_file, write_json
-
-FORMAT_VERSION = 19
 
 
 def _pointer(root: Path) -> dict[str, Any] | None:
