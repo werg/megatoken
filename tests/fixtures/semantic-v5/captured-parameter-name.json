@@ -1,0 +1,1009 @@
+{
+  "public": {
+    "schema": "semantic-execution/5",
+    "profile": "selected-harness/2",
+    "traceFormat": "semantic-trace/5",
+    "contextFormat": "semantic-context/5",
+    "timeline": [
+      {
+        "schema": "semantic-execution/5",
+        "session": "teacher1",
+        "sequence": 1,
+        "ownerSequence": 1,
+        "track": "host",
+        "mode": "observed",
+        "kind": "program",
+        "programId": "program1",
+        "digest": "9ef8658633eae503e4e4cf924e716990ca5b7eaa89df6b174bff9899aeba9036",
+        "entry": "distinct",
+        "source": "\"use strict\"; function distinct(array,keyFn=value=>value){const seen=new Set();return array.filter(element=>{const key=keyFn(element);if(seen.has(key)){return false;}seen.add(key);return true;});}",
+        "sites": [
+          {
+            "id": "s1",
+            "start": 0,
+            "end": 12,
+            "role": "Literal"
+          },
+          {
+            "id": "s2",
+            "start": 14,
+            "end": 196,
+            "role": "FunctionDeclaration"
+          },
+          {
+            "id": "s3",
+            "start": 23,
+            "end": 31,
+            "role": "Identifier"
+          },
+          {
+            "id": "s4",
+            "start": 32,
+            "end": 37,
+            "role": "Identifier"
+          },
+          {
+            "id": "s5",
+            "start": 38,
+            "end": 43,
+            "role": "Identifier"
+          },
+          {
+            "id": "s6",
+            "start": 44,
+            "end": 49,
+            "role": "Identifier"
+          },
+          {
+            "id": "s7",
+            "start": 44,
+            "end": 56,
+            "role": "ArrowFunctionExpression"
+          },
+          {
+            "id": "s8",
+            "start": 51,
+            "end": 56,
+            "role": "Identifier"
+          },
+          {
+            "id": "s9",
+            "start": 64,
+            "end": 68,
+            "role": "Identifier"
+          },
+          {
+            "id": "s10",
+            "start": 64,
+            "end": 78,
+            "role": "VariableDeclarator"
+          },
+          {
+            "id": "s11",
+            "start": 69,
+            "end": 78,
+            "role": "NewExpression"
+          },
+          {
+            "id": "s12",
+            "start": 73,
+            "end": 76,
+            "role": "Identifier"
+          },
+          {
+            "id": "s13",
+            "start": 79,
+            "end": 195,
+            "role": "ReturnStatement"
+          },
+          {
+            "id": "s14",
+            "start": 86,
+            "end": 91,
+            "role": "Identifier"
+          },
+          {
+            "id": "s15",
+            "start": 86,
+            "end": 98,
+            "role": "MemberExpression"
+          },
+          {
+            "id": "s16",
+            "start": 86,
+            "end": 194,
+            "role": "CallExpression"
+          },
+          {
+            "id": "s17",
+            "start": 92,
+            "end": 98,
+            "role": "Identifier"
+          },
+          {
+            "id": "s18",
+            "start": 99,
+            "end": 106,
+            "role": "Identifier"
+          },
+          {
+            "id": "s19",
+            "start": 99,
+            "end": 193,
+            "role": "ArrowFunctionExpression"
+          },
+          {
+            "id": "s20",
+            "start": 115,
+            "end": 118,
+            "role": "Identifier"
+          },
+          {
+            "id": "s21",
+            "start": 115,
+            "end": 133,
+            "role": "VariableDeclarator"
+          },
+          {
+            "id": "s22",
+            "start": 119,
+            "end": 124,
+            "role": "Identifier"
+          },
+          {
+            "id": "s23",
+            "start": 119,
+            "end": 133,
+            "role": "CallExpression"
+          },
+          {
+            "id": "s24",
+            "start": 125,
+            "end": 132,
+            "role": "Identifier"
+          },
+          {
+            "id": "s25",
+            "start": 134,
+            "end": 166,
+            "role": "IfStatement"
+          },
+          {
+            "id": "s26",
+            "start": 137,
+            "end": 141,
+            "role": "Identifier"
+          },
+          {
+            "id": "s27",
+            "start": 137,
+            "end": 145,
+            "role": "MemberExpression"
+          },
+          {
+            "id": "s28",
+            "start": 137,
+            "end": 150,
+            "role": "CallExpression"
+          },
+          {
+            "id": "s29",
+            "start": 142,
+            "end": 145,
+            "role": "Identifier"
+          },
+          {
+            "id": "s30",
+            "start": 146,
+            "end": 149,
+            "role": "Identifier"
+          },
+          {
+            "id": "s31",
+            "start": 152,
+            "end": 165,
+            "role": "ReturnStatement"
+          },
+          {
+            "id": "s32",
+            "start": 159,
+            "end": 164,
+            "role": "Literal"
+          },
+          {
+            "id": "s33",
+            "start": 166,
+            "end": 170,
+            "role": "Identifier"
+          },
+          {
+            "id": "s34",
+            "start": 166,
+            "end": 174,
+            "role": "MemberExpression"
+          },
+          {
+            "id": "s35",
+            "start": 166,
+            "end": 179,
+            "role": "CallExpression"
+          },
+          {
+            "id": "s36",
+            "start": 171,
+            "end": 174,
+            "role": "Identifier"
+          },
+          {
+            "id": "s37",
+            "start": 175,
+            "end": 178,
+            "role": "Identifier"
+          },
+          {
+            "id": "s38",
+            "start": 180,
+            "end": 192,
+            "role": "ReturnStatement"
+          },
+          {
+            "id": "s39",
+            "start": 187,
+            "end": 191,
+            "role": "Literal"
+          }
+        ],
+        "functions": [
+          {
+            "start": 14,
+            "end": 196,
+            "name": "distinct",
+            "params": [
+              "array",
+              null
+            ]
+          },
+          {
+            "start": 44,
+            "end": 56,
+            "name": null,
+            "params": [
+              "value"
+            ]
+          },
+          {
+            "start": 99,
+            "end": 193,
+            "name": null,
+            "params": [
+              "element"
+            ]
+          }
+        ],
+        "capabilities": [],
+        "dependencies": [],
+        "sourceMap": null,
+        "languageProfile": "owned-javascript/1",
+        "module": false,
+        "sourceMetadata": null
+      },
+      {
+        "schema": "semantic-execution/5",
+        "session": "teacher1",
+        "sequence": 2,
+        "ownerSequence": 1,
+        "track": "worker1",
+        "mode": "observed",
+        "kind": "invocation",
+        "programId": "program1",
+        "invocationId": "invocation1",
+        "realmId": "realm1",
+        "triggerId": "teacher-entry",
+        "completionPolicy": "await-returned-promise",
+        "realmPolicy": "retained",
+        "inputGraph": {
+          "roots": [
+            [
+              "ref",
+              "o2"
+            ]
+          ],
+          "objects": [
+            {
+              "id": "o2",
+              "kind": "array",
+              "properties": [
+                {
+                  "key": "0",
+                  "value": [
+                    "num",
+                    1
+                  ]
+                },
+                {
+                  "key": "1",
+                  "value": [
+                    "num",
+                    2
+                  ]
+                },
+                {
+                  "key": "2",
+                  "value": [
+                    "num",
+                    1
+                  ]
+                },
+                {
+                  "key": "length",
+                  "value": [
+                    "num",
+                    3
+                  ]
+                }
+              ]
+            }
+          ]
+        },
+        "entry": "distinct",
+        "sourceDigest": "9ef8658633eae503e4e4cf924e716990ca5b7eaa89df6b174bff9899aeba9036",
+        "receiver": [
+          "undefined"
+        ],
+        "closureId": null,
+        "activation": "call",
+        "parentInvocationId": null,
+        "taskRevision": 1,
+        "deadline": null,
+        "bindings": {},
+        "ingressKey": "teacher-entry"
+      },
+      {
+        "schema": "semantic-execution/5",
+        "session": "teacher1",
+        "sequence": 3,
+        "ownerSequence": 2,
+        "track": "worker1",
+        "mode": "generated",
+        "kind": "semantic",
+        "invocationId": "invocation1",
+        "traceFormat": "semantic-trace/5",
+        "line": "bind {\"name\":\"array\",\"value\":[\"ref\",\"o2\"]}"
+      },
+      {
+        "schema": "semantic-execution/5",
+        "session": "teacher1",
+        "sequence": 4,
+        "ownerSequence": 3,
+        "track": "worker1",
+        "mode": "generated",
+        "kind": "semantic",
+        "invocationId": "invocation1",
+        "traceFormat": "semantic-trace/5",
+        "line": "allocate {\"name\":\"o3\",\"kind\":\"closure\",\"properties\":[],\"code\":\"function:44\",\"captures\":[]}"
+      },
+      {
+        "schema": "semantic-execution/5",
+        "session": "teacher1",
+        "sequence": 5,
+        "ownerSequence": 4,
+        "track": "worker1",
+        "mode": "generated",
+        "kind": "semantic",
+        "invocationId": "invocation1",
+        "traceFormat": "semantic-trace/5",
+        "line": "bind {\"name\":\"keyFn\",\"value\":[\"ref\",\"o3\"]}"
+      },
+      {
+        "schema": "semantic-execution/5",
+        "session": "teacher1",
+        "sequence": 6,
+        "ownerSequence": 5,
+        "track": "worker1",
+        "mode": "generated",
+        "kind": "semantic",
+        "invocationId": "invocation1",
+        "traceFormat": "semantic-trace/5",
+        "line": "allocate {\"name\":\"o4\",\"kind\":\"set\",\"properties\":[{\"key\":\"[[Size]]\",\"value\":[\"num\",0]}]}"
+      },
+      {
+        "schema": "semantic-execution/5",
+        "session": "teacher1",
+        "sequence": 7,
+        "ownerSequence": 6,
+        "track": "worker1",
+        "mode": "generated",
+        "kind": "semantic",
+        "invocationId": "invocation1",
+        "traceFormat": "semantic-trace/5",
+        "line": "bind {\"name\":\"seen\",\"value\":[\"ref\",\"o4\"]}"
+      },
+      {
+        "schema": "semantic-execution/5",
+        "session": "teacher1",
+        "sequence": 8,
+        "ownerSequence": 7,
+        "track": "worker1",
+        "mode": "generated",
+        "kind": "semantic",
+        "invocationId": "invocation1",
+        "traceFormat": "semantic-trace/5",
+        "line": "allocate {\"name\":\"o5\",\"kind\":\"closure\",\"properties\":[],\"code\":\"function:99\",\"captures\":[{\"binding\":\"seen\",\"cell\":\"seen\"},{\"binding\":\"keyFn\",\"cell\":\"keyFn\"}]}"
+      },
+      {
+        "schema": "semantic-execution/5",
+        "session": "teacher1",
+        "sequence": 9,
+        "ownerSequence": 8,
+        "track": "worker1",
+        "mode": "generated",
+        "kind": "semantic",
+        "invocationId": "invocation1",
+        "traceFormat": "semantic-trace/5",
+        "line": "allocate {\"name\":\"o6\",\"kind\":\"array\",\"properties\":[],\"length\":0}"
+      },
+      {
+        "schema": "semantic-execution/5",
+        "session": "teacher1",
+        "sequence": 10,
+        "ownerSequence": 9,
+        "track": "worker1",
+        "mode": "generated",
+        "kind": "semantic",
+        "invocationId": "invocation1",
+        "traceFormat": "semantic-trace/5",
+        "line": "call {\"child\":\"guest1\",\"callee\":\"function:99\",\"receiver\":[\"undefined\"],\"arguments\":[[\"num\",1]]}"
+      },
+      {
+        "schema": "semantic-execution/5",
+        "session": "teacher1",
+        "sequence": 11,
+        "ownerSequence": 10,
+        "track": "worker1",
+        "mode": "generated",
+        "kind": "semantic",
+        "invocationId": "invocation1",
+        "traceFormat": "semantic-trace/5",
+        "line": "call {\"child\":\"guest2\",\"callee\":\"function:44\",\"receiver\":[\"undefined\"],\"arguments\":[[\"num\",1]]}"
+      },
+      {
+        "schema": "semantic-execution/5",
+        "session": "teacher1",
+        "sequence": 12,
+        "ownerSequence": 11,
+        "track": "worker1",
+        "mode": "generated",
+        "kind": "semantic",
+        "invocationId": "invocation1",
+        "traceFormat": "semantic-trace/5",
+        "line": "return {\"value\":[\"num\",1],\"invocation\":\"guest2\"}"
+      },
+      {
+        "schema": "semantic-execution/5",
+        "session": "teacher1",
+        "sequence": 13,
+        "ownerSequence": 12,
+        "track": "worker1",
+        "mode": "generated",
+        "kind": "semantic",
+        "invocationId": "invocation1",
+        "traceFormat": "semantic-trace/5",
+        "line": "bind {\"name\":\"key\",\"value\":[\"num\",1]}"
+      },
+      {
+        "schema": "semantic-execution/5",
+        "session": "teacher1",
+        "sequence": 14,
+        "ownerSequence": 13,
+        "track": "worker1",
+        "mode": "generated",
+        "kind": "semantic",
+        "invocationId": "invocation1",
+        "traceFormat": "semantic-trace/5",
+        "line": "choose {\"expr\":{\"op\":\"literal\",\"value\":[\"bool\",false]},\"decision\":[\"bool\",false],\"path\":\"else\",\"invocation\":\"guest1\"}"
+      },
+      {
+        "schema": "semantic-execution/5",
+        "session": "teacher1",
+        "sequence": 15,
+        "ownerSequence": 14,
+        "track": "worker1",
+        "mode": "generated",
+        "kind": "semantic",
+        "invocationId": "invocation1",
+        "traceFormat": "semantic-trace/5",
+        "line": "write {\"object\":\"o4\",\"key\":\"[[Size]]\",\"present\":true,\"value\":[\"num\",1]}"
+      },
+      {
+        "schema": "semantic-execution/5",
+        "session": "teacher1",
+        "sequence": 16,
+        "ownerSequence": 15,
+        "track": "worker1",
+        "mode": "generated",
+        "kind": "semantic",
+        "invocationId": "invocation1",
+        "traceFormat": "semantic-trace/5",
+        "line": "write {\"object\":\"o4\",\"key\":\"0\",\"present\":true,\"value\":[\"num\",1]}"
+      },
+      {
+        "schema": "semantic-execution/5",
+        "session": "teacher1",
+        "sequence": 17,
+        "ownerSequence": 16,
+        "track": "worker1",
+        "mode": "generated",
+        "kind": "semantic",
+        "invocationId": "invocation1",
+        "traceFormat": "semantic-trace/5",
+        "line": "write {\"object\":\"o6\",\"key\":\"length\",\"present\":true,\"value\":[\"num\",1]}"
+      },
+      {
+        "schema": "semantic-execution/5",
+        "session": "teacher1",
+        "sequence": 18,
+        "ownerSequence": 17,
+        "track": "worker1",
+        "mode": "generated",
+        "kind": "semantic",
+        "invocationId": "invocation1",
+        "traceFormat": "semantic-trace/5",
+        "line": "write {\"object\":\"o6\",\"key\":\"0\",\"present\":true,\"value\":[\"num\",1]}"
+      },
+      {
+        "schema": "semantic-execution/5",
+        "session": "teacher1",
+        "sequence": 19,
+        "ownerSequence": 18,
+        "track": "worker1",
+        "mode": "generated",
+        "kind": "semantic",
+        "invocationId": "invocation1",
+        "traceFormat": "semantic-trace/5",
+        "line": "return {\"value\":[\"bool\",true],\"invocation\":\"guest1\"}"
+      },
+      {
+        "schema": "semantic-execution/5",
+        "session": "teacher1",
+        "sequence": 20,
+        "ownerSequence": 19,
+        "track": "worker1",
+        "mode": "generated",
+        "kind": "semantic",
+        "invocationId": "invocation1",
+        "traceFormat": "semantic-trace/5",
+        "line": "call {\"child\":\"guest3\",\"callee\":\"function:99\",\"receiver\":[\"undefined\"],\"arguments\":[[\"num\",2]]}"
+      },
+      {
+        "schema": "semantic-execution/5",
+        "session": "teacher1",
+        "sequence": 21,
+        "ownerSequence": 20,
+        "track": "worker1",
+        "mode": "generated",
+        "kind": "semantic",
+        "invocationId": "invocation1",
+        "traceFormat": "semantic-trace/5",
+        "line": "call {\"child\":\"guest4\",\"callee\":\"function:44\",\"receiver\":[\"undefined\"],\"arguments\":[[\"num\",2]]}"
+      },
+      {
+        "schema": "semantic-execution/5",
+        "session": "teacher1",
+        "sequence": 22,
+        "ownerSequence": 21,
+        "track": "worker1",
+        "mode": "generated",
+        "kind": "semantic",
+        "invocationId": "invocation1",
+        "traceFormat": "semantic-trace/5",
+        "line": "return {\"value\":[\"num\",2],\"invocation\":\"guest4\"}"
+      },
+      {
+        "schema": "semantic-execution/5",
+        "session": "teacher1",
+        "sequence": 23,
+        "ownerSequence": 22,
+        "track": "worker1",
+        "mode": "generated",
+        "kind": "semantic",
+        "invocationId": "invocation1",
+        "traceFormat": "semantic-trace/5",
+        "line": "bind {\"name\":\"key_1\",\"value\":[\"num\",2]}"
+      },
+      {
+        "schema": "semantic-execution/5",
+        "session": "teacher1",
+        "sequence": 24,
+        "ownerSequence": 23,
+        "track": "worker1",
+        "mode": "generated",
+        "kind": "semantic",
+        "invocationId": "invocation1",
+        "traceFormat": "semantic-trace/5",
+        "line": "choose {\"expr\":{\"op\":\"literal\",\"value\":[\"bool\",false]},\"decision\":[\"bool\",false],\"path\":\"else\",\"invocation\":\"guest3\"}"
+      },
+      {
+        "schema": "semantic-execution/5",
+        "session": "teacher1",
+        "sequence": 25,
+        "ownerSequence": 24,
+        "track": "worker1",
+        "mode": "generated",
+        "kind": "semantic",
+        "invocationId": "invocation1",
+        "traceFormat": "semantic-trace/5",
+        "line": "write {\"object\":\"o4\",\"key\":\"[[Size]]\",\"present\":true,\"value\":[\"num\",2]}"
+      },
+      {
+        "schema": "semantic-execution/5",
+        "session": "teacher1",
+        "sequence": 26,
+        "ownerSequence": 25,
+        "track": "worker1",
+        "mode": "generated",
+        "kind": "semantic",
+        "invocationId": "invocation1",
+        "traceFormat": "semantic-trace/5",
+        "line": "write {\"object\":\"o4\",\"key\":\"1\",\"present\":true,\"value\":[\"num\",2]}"
+      },
+      {
+        "schema": "semantic-execution/5",
+        "session": "teacher1",
+        "sequence": 27,
+        "ownerSequence": 26,
+        "track": "worker1",
+        "mode": "generated",
+        "kind": "semantic",
+        "invocationId": "invocation1",
+        "traceFormat": "semantic-trace/5",
+        "line": "write {\"object\":\"o6\",\"key\":\"length\",\"present\":true,\"value\":[\"num\",2]}"
+      },
+      {
+        "schema": "semantic-execution/5",
+        "session": "teacher1",
+        "sequence": 28,
+        "ownerSequence": 27,
+        "track": "worker1",
+        "mode": "generated",
+        "kind": "semantic",
+        "invocationId": "invocation1",
+        "traceFormat": "semantic-trace/5",
+        "line": "write {\"object\":\"o6\",\"key\":\"1\",\"present\":true,\"value\":[\"num\",2]}"
+      },
+      {
+        "schema": "semantic-execution/5",
+        "session": "teacher1",
+        "sequence": 29,
+        "ownerSequence": 28,
+        "track": "worker1",
+        "mode": "generated",
+        "kind": "semantic",
+        "invocationId": "invocation1",
+        "traceFormat": "semantic-trace/5",
+        "line": "return {\"value\":[\"bool\",true],\"invocation\":\"guest3\"}"
+      },
+      {
+        "schema": "semantic-execution/5",
+        "session": "teacher1",
+        "sequence": 30,
+        "ownerSequence": 29,
+        "track": "worker1",
+        "mode": "generated",
+        "kind": "semantic",
+        "invocationId": "invocation1",
+        "traceFormat": "semantic-trace/5",
+        "line": "call {\"child\":\"guest5\",\"callee\":\"function:99\",\"receiver\":[\"undefined\"],\"arguments\":[[\"num\",1]]}"
+      },
+      {
+        "schema": "semantic-execution/5",
+        "session": "teacher1",
+        "sequence": 31,
+        "ownerSequence": 30,
+        "track": "worker1",
+        "mode": "generated",
+        "kind": "semantic",
+        "invocationId": "invocation1",
+        "traceFormat": "semantic-trace/5",
+        "line": "call {\"child\":\"guest6\",\"callee\":\"function:44\",\"receiver\":[\"undefined\"],\"arguments\":[[\"num\",1]]}"
+      },
+      {
+        "schema": "semantic-execution/5",
+        "session": "teacher1",
+        "sequence": 32,
+        "ownerSequence": 31,
+        "track": "worker1",
+        "mode": "generated",
+        "kind": "semantic",
+        "invocationId": "invocation1",
+        "traceFormat": "semantic-trace/5",
+        "line": "return {\"value\":[\"num\",1],\"invocation\":\"guest6\"}"
+      },
+      {
+        "schema": "semantic-execution/5",
+        "session": "teacher1",
+        "sequence": 33,
+        "ownerSequence": 32,
+        "track": "worker1",
+        "mode": "generated",
+        "kind": "semantic",
+        "invocationId": "invocation1",
+        "traceFormat": "semantic-trace/5",
+        "line": "bind {\"name\":\"key_2\",\"value\":[\"num\",1]}"
+      },
+      {
+        "schema": "semantic-execution/5",
+        "session": "teacher1",
+        "sequence": 34,
+        "ownerSequence": 33,
+        "track": "worker1",
+        "mode": "generated",
+        "kind": "semantic",
+        "invocationId": "invocation1",
+        "traceFormat": "semantic-trace/5",
+        "line": "choose {\"expr\":{\"op\":\"literal\",\"value\":[\"bool\",true]},\"decision\":[\"bool\",true],\"path\":\"then\",\"invocation\":\"guest5\"}"
+      },
+      {
+        "schema": "semantic-execution/5",
+        "session": "teacher1",
+        "sequence": 35,
+        "ownerSequence": 34,
+        "track": "worker1",
+        "mode": "observed",
+        "kind": "source-read",
+        "programId": "program1",
+        "digest": "9ef8658633eae503e4e4cf924e716990ca5b7eaa89df6b174bff9899aeba9036",
+        "source": "\"use strict\"; function distinct(array,keyFn=value=>value){const seen=new Set();return array.filter(element=>{const key=keyFn(element);if(seen.has(key)){return false;}seen.add(key);return true;});}"
+      },
+      {
+        "schema": "semantic-execution/5",
+        "session": "teacher1",
+        "sequence": 36,
+        "ownerSequence": 35,
+        "track": "worker1",
+        "mode": "observed",
+        "kind": "model-context",
+        "invocationId": "invocation1",
+        "sourceReads": [],
+        "selectedState": {
+          "schema": "semantic-continuation/5",
+          "heap": [
+            [
+              "o2",
+              {
+                "kind": "array",
+                "prototype": "ordinary",
+                "properties": [
+                  [
+                    "0",
+                    [
+                      "num",
+                      1
+                    ]
+                  ],
+                  [
+                    "1",
+                    [
+                      "num",
+                      2
+                    ]
+                  ],
+                  [
+                    "2",
+                    [
+                      "num",
+                      1
+                    ]
+                  ],
+                  [
+                    "length",
+                    [
+                      "num",
+                      3
+                    ]
+                  ]
+                ]
+              }
+            ],
+            [
+              "o3",
+              {
+                "kind": "closure",
+                "code": "function:44",
+                "captures": [],
+                "prototype": "ordinary",
+                "properties": []
+              }
+            ],
+            [
+              "o4",
+              {
+                "kind": "set",
+                "code": null,
+                "captures": [],
+                "prototype": "ordinary",
+                "properties": [
+                  [
+                    "[[Size]]",
+                    [
+                      "num",
+                      2
+                    ]
+                  ],
+                  [
+                    "0",
+                    [
+                      "num",
+                      1
+                    ]
+                  ],
+                  [
+                    "1",
+                    [
+                      "num",
+                      2
+                    ]
+                  ]
+                ]
+              }
+            ],
+            [
+              "o5",
+              {
+                "kind": "closure",
+                "code": "function:99",
+                "captures": [
+                  {
+                    "binding": "seen",
+                    "cell": "seen"
+                  },
+                  {
+                    "binding": "keyFn",
+                    "cell": "keyFn"
+                  }
+                ],
+                "prototype": "ordinary",
+                "properties": []
+              }
+            ],
+            [
+              "o6",
+              {
+                "kind": "array",
+                "code": null,
+                "captures": [],
+                "prototype": "ordinary",
+                "properties": [
+                  [
+                    "length",
+                    [
+                      "num",
+                      2
+                    ]
+                  ],
+                  [
+                    "0",
+                    [
+                      "num",
+                      1
+                    ]
+                  ],
+                  [
+                    "1",
+                    [
+                      "num",
+                      2
+                    ]
+                  ]
+                ]
+              }
+            ]
+          ],
+          "locals": [
+            [
+              "a0b0",
+              [
+                "ref",
+                "o2"
+              ]
+            ],
+            [
+              "keyFn",
+              [
+                "ref",
+                "o3"
+              ]
+            ],
+            [
+              "seen",
+              [
+                "ref",
+                "o4"
+              ]
+            ],
+            [
+              "key",
+              [
+                "num",
+                1
+              ]
+            ],
+            [
+              "key_1",
+              [
+                "num",
+                2
+              ]
+            ],
+            [
+              "key_2",
+              [
+                "num",
+                1
+              ]
+            ]
+          ],
+          "captureAliases": [
+            [
+              "array",
+              "a0b0"
+            ]
+          ],
+          "stack": [
+            "invocation1",
+            "guest5"
+          ],
+          "continuations": [],
+          "ready": [],
+          "callReturn": null,
+          "pending": null,
+          "completion": null,
+          "randomState": null
+        },
+        "realmPrefixDigest": "cc44c824d350342cc107fa918428d34a51841a0f36d63b9bccdf11a8360e3427",
+        "visibleThrough": 35
+      },
+      {
+        "schema": "semantic-execution/5",
+        "session": "teacher1",
+        "sequence": 37,
+        "ownerSequence": 36,
+        "track": "worker1",
+        "mode": "generated",
+        "kind": "semantic",
+        "invocationId": "invocation1",
+        "traceFormat": "semantic-trace/5",
+        "line": "return {\"value\":[\"bool\",false],\"invocation\":\"guest5\"}"
+      },
+      {
+        "schema": "semantic-execution/5",
+        "session": "teacher1",
+        "sequence": 38,
+        "ownerSequence": 37,
+        "track": "worker1",
+        "mode": "generated",
+        "kind": "semantic",
+        "invocationId": "invocation1",
+        "traceFormat": "semantic-trace/5",
+        "line": "return {\"value\":[\"ref\",\"o6\"],\"invocation\":\"invocation1\"}"
+      },
+      {
+        "schema": "semantic-execution/5",
+        "session": "teacher1",
+        "sequence": 39,
+        "ownerSequence": 38,
+        "track": "worker1",
+        "mode": "generated",
+        "kind": "semantic",
+        "invocationId": "invocation1",
+        "traceFormat": "semantic-trace/5",
+        "line": "end {\"kind\":\"return\"}"
+      }
+    ]
+  },
+  "sidecar": {
+    "schema": "semantic-supervision/2",
+    "representation": "compact",
+    "admission": "locally_verified",
+    "referenceStatus": "agreed"
+  }
+}
