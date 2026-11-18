@@ -124,6 +124,14 @@ class FakeRuntime:
         assert len(tracks) == len(specs) == len(controls) == 1
         assert session.tracks.selectable(tracks[0], session.completed_events)
         assert b"Never predict observations" in controls[0]
+        # Training resolves the same structured request frame for both first
+        # records and physical continuations; raw instruction bytes are invalid.
+        from megatoken.controls import build_request_control, semantic_selection_instruction
+
+        assert controls[0] in {
+            build_request_control(instruction=semantic_selection_instruction()),
+            build_request_control(instruction=semantic_selection_instruction(continuation=True)),
+        }
         self.generated_specs.append(specs[0])
         payload = self.selections.pop(0)
         terminal = True

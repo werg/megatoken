@@ -1174,9 +1174,9 @@ class SelectedSemanticInference:
             work.realm_cutoff = realm[-1]["sequence"]
             config = self.runtime.generator.generator.config
             maximum = min(self.max_tokens, config.max_capacity)
-            from megatoken.controls import semantic_selection_instruction
+            from megatoken.controls import build_request_control, semantic_selection_instruction
 
-            instruction = semantic_selection_instruction().encode("utf-8")
+            instruction = build_request_control(instruction=semantic_selection_instruction())
             # A logical semantic record may span several real model meridians.
             # Native commitment waits for the final terminal; no peer result or
             # second generated tool envelope is inserted between fragments.
@@ -1220,7 +1220,9 @@ class SelectedSemanticInference:
                         controls=(
                             instruction
                             if fragment == 0
-                            else semantic_selection_instruction(continuation=True).encode("utf-8"),
+                            else build_request_control(
+                                instruction=semantic_selection_instruction(continuation=True)
+                            ),
                         ),
                         effort=self.effort,
                     )
