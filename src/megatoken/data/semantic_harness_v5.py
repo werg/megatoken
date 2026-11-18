@@ -9,6 +9,7 @@ from __future__ import annotations
 import hashlib
 import json
 from collections.abc import Callable, Mapping
+from copy import deepcopy
 from dataclasses import dataclass
 from typing import Any
 
@@ -528,7 +529,9 @@ def adapt_selected_harness_v5(
                 "refs": refs,
                 "heap": {
                     **(existing["heap"] if existing else {}),
-                    **{node["id"]: node for node in item["inputGraph"]["objects"]},
+                    # The invocation is immutable observed evidence. Replay
+                    # mutates owned state, never the caller's input document.
+                    **{node["id"]: deepcopy(node) for node in item["inputGraph"]["objects"]},
                 },
                 "promises": existing["promises"] if existing else {},
                 "randomSeed": (
@@ -961,7 +964,7 @@ def adapt_selected_harness_v5(
                     if node["id"] in realm["refs"]:
                         _fail("Observed resource graph cannot replace an existing owned identity")
                     realm["refs"].add(node["id"])
-                    realm["heap"][node["id"]] = node
+                    realm["heap"][node["id"]] = deepcopy(node)
             promise_id = requests[key].get("promise")
             if promise_id is not None:
                 promise = activation["promises"][promise_id]

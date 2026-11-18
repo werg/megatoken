@@ -328,7 +328,10 @@ def parse_record(line: Any) -> tuple[str, dict[str, Any]]:
                     or not isinstance(relation["binding"], str)
                     or relation["binding"] in used
                     or not isinstance(relation["cell"], str)
-                    or not IDENTITY.fullmatch(relation["cell"])
+                    # Captures refer to source binding cells, not heap object
+                    # identities. Their names must match bind/read operands,
+                    # including camelCase, underscores and dollar signs.
+                    or not relation["cell"].replace("$", "_").isidentifier()
                 ):
                     _fail("Malformed shared cell capture relation")
                 used.add(relation["binding"])

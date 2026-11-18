@@ -95,6 +95,39 @@ def test_production_context_eviction_and_checked_reread(production_codec):
         native_admission(document, codec=production_codec, consumer_revision="a" * 40)
 
 
+def test_native_admission_keeps_input_graph_observations_byte_exact(production_codec):
+    document = json.loads(
+        (Path(__file__).parent / "fixtures/semantic-v5/input-array-mutation.json").read_text()
+    )
+    original = copy.deepcopy(document)
+    receipt = native_admission(document, codec=production_codec, consumer_revision="a" * 40)
+    assert document == original
+    assert receipt["admitted"] is True
+    assert receipt["fragmentationValidated"] is True
+    assert (
+        receipt["episodeDigest"]
+        == hashlib.sha256(canonical_json(original["public"]).encode()).hexdigest()
+    )
+
+
+def test_native_admission_preserves_captured_camel_case_parameter(production_codec):
+    document = json.loads(
+        (Path(__file__).parent / "fixtures/semantic-v5/captured-parameter-name.json").read_text()
+    )
+    original = copy.deepcopy(document)
+    captures = [
+        record["line"]
+        for record in document["public"]["timeline"]
+        if record.get("line", "").startswith("allocate ") and '"keyFn"' in record["line"]
+    ]
+    assert len(captures) == 1
+    receipt = native_admission(document, codec=production_codec, consumer_revision="a" * 40)
+    assert receipt["admitted"] is True
+    assert receipt["generatedTokens"] > 0
+    assert receipt["visibilityValidated"] and receipt["lossMaskValidated"]
+    assert document == original
+
+
 def test_source_visibility_alone_does_not_admit_evicted_captured_state(production_codec):
     document = json.loads(
         (Path(__file__).parent / "fixtures/semantic-v5/retained-events.json").read_text()
