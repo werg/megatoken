@@ -12,6 +12,7 @@ from pathlib import Path
 
 import pytest
 
+from megatoken.controls import canonical_semantic_observation
 from megatoken.data.host_operations import canonical_json
 from megatoken.data.semantic_admission import native_admission, validate_native_visibility
 from megatoken.data.semantic_contract import CONTRACT, DEFINITION
@@ -95,7 +96,9 @@ def test_production_context_eviction_and_checked_reread(production_codec):
         native_admission(document, codec=production_codec, consumer_revision="a" * 40)
 
 
-def test_native_admission_keeps_input_graph_observations_byte_exact(production_codec):
+def test_native_admission_keeps_input_graph_semantics_and_canonical_observation_bytes(
+    production_codec,
+):
     document = json.loads(
         (Path(__file__).parent / "fixtures/semantic-v5/input-array-mutation.json").read_text()
     )
@@ -104,6 +107,19 @@ def test_native_admission_keeps_input_graph_observations_byte_exact(production_c
     assert document == original
     assert receipt["admitted"] is True
     assert receipt["fragmentationValidated"] is True
+    episode, _ = adapt_selected_harness_v5(document, codec=production_codec, allow_local=True)
+    logical = [
+        parts for parts in episode.iter_logical_records()
+        if not parts[0].logical_id.startswith("semantic:context:")
+    ]
+    assert len(logical) == len(original["public"]["timeline"])
+    for item, parts in zip(original["public"]["timeline"], logical, strict=True):
+        expected = (
+            item["line"].encode("utf-8")
+            if item["kind"] == "semantic"
+            else canonical_semantic_observation(item)
+        )
+        assert b"".join(part.payload for part in parts) == expected
     assert (
         receipt["episodeDigest"]
         == hashlib.sha256(canonical_json(original["public"]).encode()).hexdigest()
