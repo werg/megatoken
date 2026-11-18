@@ -157,7 +157,7 @@ def test_native_admission_preserves_captured_camel_case_parameter(production_cod
     captures = [
         record["line"]
         for record in document["public"]["timeline"]
-        if record.get("line", "").startswith("allocate ") and '"keyFn"' in record["line"]
+        if record.get("line", "").startswith("new ") and "keyFn:" in record["line"]
     ]
     assert len(captures) == 1
     receipt = native_admission(document, codec=production_codec, consumer_revision="a" * 40)

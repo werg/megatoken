@@ -1661,9 +1661,8 @@ class MultiTrackGenerator:
                     )
                     if tape is None:
                         actual.append(target_raw[:, index].detach())
-                    elif (
-                        tape.continuation_mode == "encoded_text"
-                        and not isinstance(plan, MediaTrainTarget)
+                    elif tape.continuation_mode == "encoded_text" and not isinstance(
+                        plan, MediaTrainTarget
                     ):
                         actual.append(target_raw[:, index].detach())
                     else:
@@ -2070,7 +2069,9 @@ class MultiTrackGenerator:
                 valid_list[index] = is_valid
                 terminal_list[index] = is_terminal
             media_indices = tuple(
-                index for index, spec in enumerate(selected.specs) if isinstance(spec, MediaOutputSpec)
+                index
+                for index, spec in enumerate(selected.specs)
+                if isinstance(spec, MediaOutputSpec)
             )
             if media_indices:
                 media_control = (

@@ -56,6 +56,13 @@ def test_prepared_context_demo_restores_and_backpropagates_with_its_public_polic
         (batch,) = prepare_batches(
             model, [EpisodeWindow(restored, window, prepared.assets)], config
         )
+        answer_plan = next(
+            plan
+            for step in (*batch.prefix, *batch.steps)
+            for record, plan in zip(step.records, step.plans, strict=False)
+            if record.record.payload == episode.records[-1].payload
+        )
+        assert answer_plan.mode_specs[0].require_terminal is None
         ledger = LossLedger(batch.counts, batch.counts, config.loss_weights)
         metrics = forward_meridian_batch(
             model,

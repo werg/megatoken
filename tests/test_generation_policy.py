@@ -297,6 +297,24 @@ def test_raw_target_rejects_text_outside_its_public_support(model):
         model.prepare_target(target_bytes=b"a", terminal=False, mode_specs=[terminal_spec])
 
 
+def test_free_text_terminal_label_is_learned_without_restricting_public_support(model):
+    spec = ActionSpec(text_kind="utf8", min_tokens=1, max_tokens=8)
+    assert model.decoder._terminal_support(spec) == (0, 1)
+    terminal_losses = []
+    for terminal in (False, True):
+        plan = model.prepare_target(target_bytes=b"answer", terminal=terminal, mode_specs=[spec])
+        assert plan.mode_specs == (spec,)
+        result = model.supervised_step(model.core.initial_state(1), plan=plan)
+        terminal_loss, count = result.losses["terminal"]
+        assert count > 0 and terminal_loss.item() > 0
+        model.zero_grad(set_to_none=True)
+        terminal_loss.backward()
+        gradient = model.decoder.terminal_codes.weight.grad
+        assert gradient is not None and torch.count_nonzero(gradient).item() > 0
+        terminal_losses.append(terminal_loss.item())
+    assert terminal_losses[0] != terminal_losses[1]
+
+
 def test_raw_teacher_has_zero_loss_for_publicly_forced_length_and_terminal(model):
     model.eval()
     raw = model.core.initial_state(1).facets.detach()

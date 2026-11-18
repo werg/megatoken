@@ -173,6 +173,11 @@ def _target_plan(
         # Only records preceding the *whole meridian* can be public copies.
         earlier = [record.payload for record in item.episode.records[:beginning]]
         spec = dataclasses.replace(spec, copy_sources=recent_copy_sources(earlier))
+        # The compiled tool contract constrains generated tool actions to be
+        # nonterminal. Ordinary text has an unconstrained terminal mode, which
+        # is learned from the target rather than revealed as public support.
+        if not record.action_id:
+            spec = dataclasses.replace(spec, require_terminal=None)
     if spec is not None and record.action_id and record.part_count != 1:
         raise ValueError(
             "Tool targets must be complete canonical actions; normalize and reprepare the source"
