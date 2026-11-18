@@ -8,7 +8,7 @@ bytes. Token counts use the same codec and chunk planner as model serving.
 import json
 from dataclasses import replace
 
-from .schema import Dependency, Episode, Meridian, TrackEvent, make_records
+from .schema import Dependency, Episode, Meridian, make_records
 
 
 def physical_semantic_episode(episode: Episode, *, codec, max_positions: int, max_history: int):
@@ -18,7 +18,7 @@ def physical_semantic_episode(episode: Episode, *, codec, max_positions: int, ma
         raise ValueError("Semantic history budget must be positive")
     if codec is None:
         return episode
-    records, meridians, spans, programs_by_track = [], [], {}, {}
+    records, meridians, spans = [], [], {}
     events = {event.record_id: event for group in episode.meridians for event in group.events}
 
     def append_chunk(chunk, event):
@@ -26,13 +26,12 @@ def physical_semantic_episode(episode: Episode, *, codec, max_positions: int, ma
             Meridian(
                 len(meridians),
                 (
-                    TrackEvent(
-                        chunk.record_id,
-                        event.track_id,
-                        "text",
-                        len(meridians),
-                        chunk.role,
-                        request_revision=event.request_revision,
+                    replace(
+                        event,
+                        record_id=chunk.record_id,
+                        modality="text",
+                        meridian_id=len(meridians),
+                        role=chunk.role,
                     ),
                 ),
             )
@@ -57,34 +56,28 @@ def physical_semantic_episode(episode: Episode, *, codec, max_positions: int, ma
             content_kind="text",
         )
         spans[record.record_id] = tuple(chunk.record_id for chunk in chunks)
-        for chunk in chunks:
-            append_chunk(chunk, event)
+        for chunk_index, chunk in enumerate(chunks):
+            chunk_event = event
+            if record.policy_mask and chunk_index > 0:
+                from megatoken.controls import semantic_selection_instruction
+
+                chunk_event = replace(
+                    event, instruction=semantic_selection_instruction(continuation=True)
+                )
+            append_chunk(chunk, chunk_event)
         if not record.policy_mask:
             observation = json.loads(record.payload)
             kind = observation.get("kind")
-            if kind == "invocation":
-                programs_by_track[event.track_id] = observation["programId"]
             if (
                 kind in {"invocation", "source-read", "source-evict"}
                 or kind == "model-context"
                 and "selectedState" in observation
             ):
-                context = {
-                    "semantic_context": {
-                        "schema": "semantic-native-context/4",
-                        "reason": kind,
-                        "programId": observation.get(
-                            "programId", programs_by_track.get(event.track_id)
-                        ),
-                    },
-                    "context_window": {
-                        "local_events": 0 if kind == "source-evict" else max_history,
-                        "cross_events": 0 if kind == "source-evict" else max_history,
-                        "pinned_events": [],
-                    },
-                }
+                from megatoken.controls import semantic_context_window_observation
+
+                window = 0 if kind == "source-evict" else max_history
                 context_chunks = make_records(
-                    json.dumps(context, separators=(",", ":")).encode(),
+                    semantic_context_window_observation(window, window),
                     logical_id="semantic:context:" + record.record_id,
                     role="system",
                     turn_index=record.turn_index,

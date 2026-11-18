@@ -37,7 +37,7 @@ for path in root.rglob('*'):
 for path in root.rglob('manifest.json'):
  try:value=json.loads(path.read_text())
  except (OSError,ValueError):continue
- if value.get('schema_version')==6 and 'shards' in value:
+ if value.get('schema_version')==7 and 'shards' in value:
   prepared=path.parent
   selected.add(path)
   selected.add(prepared/'index.sqlite')
@@ -60,7 +60,7 @@ for pointer in root.rglob('checkpoints/latest.json'):
   if hashlib.sha256(metadata_bytes).hexdigest()!=value['metadata_sha256']:
    raise ValueError('Uncommitted checkpoint metadata')
   contract=json.loads(metadata_bytes)
-  if contract['format_version']!=16 or contract['checkpoint_name']!=name:
+  if contract['format_version']!=19 or contract['checkpoint_name']!=name:
    raise ValueError('Only named current checkpoints can be collected')
   transducer=contract['transducer_checkpoint']
   if transducer['file']!='transducer.pt':raise ValueError('Unsafe memory checkpoint path')

@@ -41,7 +41,7 @@ def test_progress_capture_retains_pruned_checkpoint_and_immutable_reports(tmp_pa
     metadata.write_text(
         json.dumps(
             {
-                "format_version": 16,
+                "format_version": 19,
                 "checkpoint_name": checkpoint.name,
                 "state_sha256": hashlib.sha256((checkpoint / "state.pt").read_bytes()).hexdigest(),
                 "transducer_checkpoint": {
@@ -88,6 +88,9 @@ def test_uncommitted_data_and_symlinks_cannot_enter_a_prepared_backup(tmp_path):
     (data / "index.sqlite").write_bytes(b"in progress")
     assert not capture(work, root)["files"]
     (data / "manifest.json").write_text('{"schema_version":6,"shards":[]}')
+    old_capture = capture(work, root)
+    assert "prepared/index.sqlite" not in {item["original"] for item in old_capture["files"]}
+    (data / "manifest.json").write_text('{"schema_version":7,"shards":[]}')
     (data / "episodes-000000.jsonl").write_bytes(b"{}\n")
     outside = work / "secret"
     outside.write_bytes(b"private credentials")

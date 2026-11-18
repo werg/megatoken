@@ -26,7 +26,7 @@ from .media_assets import MEDIA, MEDIA_RECORD_TYPE, MediaRecord, TensorAssetStor
 from .schema import Codec, Episode
 from .supply import SupplyCensus
 
-DATASET_VERSION = 6
+DATASET_VERSION = 7
 
 
 def _scored_media_outputs(episode: Episode) -> dict[str, int]:

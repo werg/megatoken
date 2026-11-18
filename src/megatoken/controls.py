@@ -20,7 +20,54 @@ if TYPE_CHECKING:
     from megatoken.model import FacetedCore
 
 
-CONTROL_SCHEMA_VERSION = 2
+CONTROL_SCHEMA_VERSION = 3
+
+
+def canonical_semantic_observation(value: object) -> bytes:
+    """Sorted, compact UTF-8 JSON for observed semantic execution records."""
+    return json.dumps(
+        value, sort_keys=True, ensure_ascii=False, separators=(",", ":"), allow_nan=False
+    ).encode("utf-8")
+
+
+def semantic_context_window_observation(
+    local_events: int, cross_events: int, pinned_events: Sequence[str] = ()
+) -> bytes:
+    """Canonical announcement shared by prepared semantic data and runtime."""
+    return canonical_semantic_observation(
+        {
+            "context_window": {
+                "local_events": local_events,
+                "cross_events": cross_events,
+                "pinned_events": tuple(pinned_events),
+            }
+        }
+    )
+
+
+def semantic_selection_instruction(*, continuation: bool = False) -> str:
+    """Declared public instruction shared by semantic training and serving."""
+    text = (
+        "Emit exactly one complete canonical semantic-trace/5 witness. "
+        "Use only the observed source, this invocation and prior selected "
+        "semantics. An external call is a validated request with already "
+        "evaluated arguments and source span. Never predict observations, "
+        "events, native results or future tool receipts."
+        " Use source-grounded, temporally evaluated pure expressions: "
+        "at most 8 operators and 32 expression nodes. Preserve real "
+        "lexical source bindings, aliases, effects, mutations, callbacks, "
+        "await boundaries and completion. Avoid anonymous temporary cells."
+    )
+    if continuation:
+        text += " Continue the exact current record bytes; end only when the witness is complete."
+    return text
+
+
+def semantic_execution_track_purpose(program_id: str, entry: str) -> str:
+    """Purpose shown by the trainer and the native execution track."""
+    if not isinstance(program_id, str) or not program_id or not isinstance(entry, str) or not entry:
+        raise ValueError("Semantic execution track purpose needs its public program and entry")
+    return f"Execute {program_id}.{entry}"
 
 
 @dataclass(frozen=True, slots=True)

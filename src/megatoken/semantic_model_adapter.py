@@ -24,6 +24,15 @@ class SemanticSelectionError(ValueError):
         self.evidence = evidence
 
 
+def requires_semantic_state_bootstrap(
+    *, new_work: bool, activation: str, realm_policy: str, prior_realm_history: bool
+) -> bool:
+    """Require selected-state history only when the realm can contain prior state."""
+    return new_work and (
+        activation == "callback" or realm_policy == "retained" and prior_realm_history
+    )
+
+
 def _execution_contract_identity() -> dict[str, str]:
     """Current shared execution schema, parity fixtures, and host catalog pins."""
     from megatoken.data.host_operations import CONTRACT_DIGEST
@@ -37,9 +46,9 @@ def _execution_contract_identity() -> dict[str, str]:
 
 
 def _canonical(value: Any) -> bytes:
-    return json.dumps(
-        value, sort_keys=True, ensure_ascii=False, separators=(",", ":"), allow_nan=False
-    ).encode("utf-8")
+    from megatoken.controls import canonical_semantic_observation
+
+    return canonical_semantic_observation(value)
 
 
 def _text(value: Any, name: str) -> str:
@@ -419,10 +428,12 @@ class SelectedSemanticInference:
                         source_events = published
                 state.runtime_session.execution_source_events[description.address] = source_events
         else:
+            from megatoken.controls import semantic_execution_track_purpose
+
             description = self.runtime.track_action(
                 state.runtime_session,
                 "create",
-                purpose=f"Execute {program_id}.{invocation['entry']}",
+                purpose=semantic_execution_track_purpose(program_id, invocation["entry"]),
                 completion=f"Invocation {invocation_id} completion",
                 capabilities=("text", *grants),
                 budget=self.work_budget,
@@ -1085,8 +1096,16 @@ class SelectedSemanticInference:
             ):
                 raise SemanticSelectionError("Selected execution track has not become runnable")
             source_reads = self._ensure_source(state, work, program)
-            retained = new_work and (
-                invocation["realmPolicy"] == "retained" or invocation["activation"] == "callback"
+            prior_realm_history = any(
+                event.get("kind") in {"semantic", "result"}
+                and event.get("sequence", 0) < invocation.get("sequence", 0)
+                for event in realm
+            )
+            retained = requires_semantic_state_bootstrap(
+                new_work=new_work,
+                activation=invocation["activation"],
+                realm_policy=invocation["realmPolicy"],
+                prior_realm_history=prior_realm_history,
             )
             foreign_progress = any(
                 event["sequence"] > work.realm_cutoff
@@ -1155,19 +1174,9 @@ class SelectedSemanticInference:
             work.realm_cutoff = realm[-1]["sequence"]
             config = self.runtime.generator.generator.config
             maximum = min(self.max_tokens, config.max_capacity)
-            instruction = (
-                b"Emit exactly one complete canonical semantic-trace/5 witness. "
-                b"Use only the observed source, this invocation and prior selected "
-                b"semantics. An external call is a validated request with already "
-                b"evaluated arguments and source span. Never predict observations, "
-                b"events, native results or future tool receipts."
-            )
-            instruction += (
-                b" Use source-grounded, temporally evaluated pure expressions: "
-                b"at most 8 operators and 32 expression nodes. Preserve real "
-                b"lexical source bindings, aliases, effects, mutations, callbacks, "
-                b"await boundaries and completion. Avoid anonymous temporary cells."
-            )
+            from megatoken.controls import build_request_control, semantic_selection_instruction
+
+            instruction = build_request_control(instruction=semantic_selection_instruction())
             # A logical semantic record may span several real model meridians.
             # Native commitment waits for the final terminal; no peer result or
             # second generated tool envelope is inserted between fragments.
@@ -1211,8 +1220,9 @@ class SelectedSemanticInference:
                         controls=(
                             instruction
                             if fragment == 0
-                            else instruction
-                            + b" Continue the exact current record bytes; end only when the witness is complete.",
+                            else build_request_control(
+                                instruction=semantic_selection_instruction(continuation=True)
+                            ),
                         ),
                         effort=self.effort,
                     )

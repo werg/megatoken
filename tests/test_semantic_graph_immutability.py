@@ -20,7 +20,9 @@ def document(name):
 
 
 def serialized(value):
-    return json.dumps(value, ensure_ascii=False, separators=(",", ":"), allow_nan=False)
+    return json.dumps(
+        value, sort_keys=True, ensure_ascii=False, separators=(",", ":"), allow_nan=False
+    )
 
 
 @pytest.mark.parametrize("name", FIXTURES)

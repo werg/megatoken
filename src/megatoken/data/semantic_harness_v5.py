@@ -981,13 +981,12 @@ def adapt_selected_harness_v5(
             if kind == "semantic"
             else ("user" if kind in ("program", "invocation") else "environment")
         )
-        payload = (
-            item["line"].encode("utf-8")
-            if kind == "semantic"
-            else json.dumps(
-                item, ensure_ascii=False, separators=(",", ":"), allow_nan=False
-            ).encode("utf-8")
-        )
+        if kind == "semantic":
+            payload = item["line"].encode("utf-8")
+        else:
+            from megatoken.controls import canonical_semantic_observation
+
+            payload = canonical_semantic_observation(item)
         records.append(
             PhysicalRecord(
                 record_id,
@@ -1001,7 +1000,26 @@ def adapt_selected_harness_v5(
                 execution_id=execution_id if result_of else None,
             )
         )
-        meridians.append(Meridian(index, (TrackEvent(record_id, track, "text", index, role),)))
+        instruction = ""
+        if kind == "semantic":
+            from megatoken.controls import semantic_selection_instruction
+
+            instruction = semantic_selection_instruction()
+        meridians.append(
+            Meridian(
+                index,
+                (
+                    TrackEvent(
+                        record_id,
+                        track,
+                        "text",
+                        index,
+                        role,
+                        instruction=instruction,
+                    ),
+                ),
+            )
+        )
         previous = last_by_track.get(track)
         if previous is not None and kind == "semantic":
             dependencies.append(Dependency(previous, record_id, "semantic"))
@@ -1063,6 +1081,15 @@ def adapt_selected_harness_v5(
             separators=(",", ":"),
         ),
     )
+    from megatoken.controls import semantic_execution_track_purpose
+
+    track_purposes = {}
+    for item in timeline:
+        if item["kind"] == "invocation":
+            track_purposes.setdefault(
+                item["track"],
+                semantic_execution_track_purpose(item["programId"], item["entry"]),
+            )
     episode = Episode(
         "semantic:harness:" + digest,
         tuple(records),
@@ -1071,7 +1098,10 @@ def adapt_selected_harness_v5(
         actions=tuple(actions),
         supervision=supervision,
         dependencies=tuple(dependencies),
-        tracks=tuple(TrackSpec(name, "assistant") for name in tracks),
+        tracks=tuple(
+            TrackSpec(name, "assistant", description=track_purposes.get(name, ""))
+            for name in tracks
+        ),
         meridians=tuple(meridians),
     )
     try:

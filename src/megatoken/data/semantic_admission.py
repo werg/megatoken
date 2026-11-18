@@ -6,6 +6,7 @@ import hashlib
 import json
 from dataclasses import asdict
 
+from megatoken.controls import canonical_semantic_observation
 from megatoken.generation.codec import LING_TOKENIZER_SHA256, ByteCodec
 
 from .host_operations import CONTRACT_DIGEST, canonical_json
@@ -177,13 +178,13 @@ def native_admission(
     timeline = document["public"]["timeline"]
     if len(logical) != len(timeline):
         raise ValueError("Physical fragmentation changed logical semantic boundaries")
+    # Native data and serving both canonicalize observed JSON before the model
+    # sees it. Generated semantic witness bytes, by contrast, are never rewritten.
     for item, parts in zip(timeline, logical, strict=True):
         expected = (
             item["line"].encode()
             if item["kind"] == "semantic"
-            else json.dumps(
-                item, ensure_ascii=False, separators=(",", ":"), allow_nan=False
-            ).encode()
+            else canonical_semantic_observation(item)
         )
         if b"".join(part.payload for part in parts) != expected:
             raise ValueError("Native transport changed exact selected or observed bytes")

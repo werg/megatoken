@@ -57,6 +57,23 @@ reader exposes indexed source/stream/token counts without materializing every
 episode. `PreparedDataset` defaults to the training split; `prepare_sources`
 returns a reader over all non-quarantined splits for census inspection.
 
+## Semantic execution conditioning revision
+
+The semantic execution trainer and serving adapter now share canonical observed
+JSON, the declared selection instruction, and the execution track purpose. A
+split semantic record receives the matching continuation instruction on later
+physical fragments. A fresh direct invocation in a retained realm does not get a
+selected-state bootstrap unless the realm already has semantic or result history;
+callback activations still require retained-state handling.
+
+This changes model conditioning. Episode and prepared dataset schemas are now
+version 7, the request control contract is version 3, and training checkpoints
+are format 19. Older episodes, prepared datasets, checkpoints, and served bundles
+are rejected. Regenerate prepared data and train a new checkpoint; do not resume
+from an older checkpoint. These input-boundary checks establish byte-level
+conditioning only. They do not establish tokenizer, recurrent-state, conditional
+logit, or learning parity.
+
 ## What an episode guarantees
 
 `Episode`, `PhysicalRecord`, `Lineage`, `LogicalAction`, `SourceSpan`, `Dependency`,

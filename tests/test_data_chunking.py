@@ -280,8 +280,8 @@ def test_oversized_native_generated_record_is_rejected_without_resegmentation(
 def test_legacy_episode_and_native_tape_versions_fail_explicitly():
     episode = Episode("e", (PhysicalRecord("record", "user", b"source"),), Lineage("s", "v", "f"))
     value = episode.to_dict()
-    assert value["schema_version"] == 6
-    value["schema_version"] = 1
+    assert value["schema_version"] == 7
+    value["schema_version"] = 6
     with pytest.raises(ValueError, match="Unsupported episode schema version"):
         Episode.from_dict(value)
     with pytest.raises(ValueError, match="malformed tape"):
@@ -290,6 +290,16 @@ def test_legacy_episode_and_native_tape_versions_fail_explicitly():
                 {"native_action_tapes": [{"tape": {"version": "v1", "carry": [0.0]}}]}
             )
         )
+
+
+def test_prepared_dataset_rejects_the_previous_conditioning_contract(tmp_path):
+    from megatoken.data.storage import PreparedDataset
+
+    root = tmp_path / "prepared"
+    root.mkdir()
+    (root / "manifest.json").write_text('{"schema_version":6,"complete":true}')
+    with pytest.raises(ValueError, match="Incomplete/unsupported prepared dataset"):
+        PreparedDataset(root)
 
 
 def test_policy_identity_is_computed_once_and_follows_the_registered_parsers(monkeypatch):

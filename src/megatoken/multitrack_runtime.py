@@ -354,7 +354,9 @@ class MultiTrackRuntime:
         updated = self.generator.tracks.set_context_policy(state, policy)
         # Public announcement and cache read use the newly accepted policy.
         # The same typed announcement is consumed by ordinary training replay.
-        payload = json.dumps({"context_window": values}, sort_keys=True).encode()
+        from megatoken.controls import semantic_context_window_observation
+
+        payload = semantic_context_window_observation(local_events, cross_events, pinned_events)
         event = ObservedEvent(
             track,
             "text",

@@ -124,6 +124,14 @@ class FakeRuntime:
         assert len(tracks) == len(specs) == len(controls) == 1
         assert session.tracks.selectable(tracks[0], session.completed_events)
         assert b"Never predict observations" in controls[0]
+        # Training resolves the same structured request frame for both first
+        # records and physical continuations; raw instruction bytes are invalid.
+        from megatoken.controls import build_request_control, semantic_selection_instruction
+
+        assert controls[0] in {
+            build_request_control(instruction=semantic_selection_instruction()),
+            build_request_control(instruction=semantic_selection_instruction(continuation=True)),
+        }
         self.generated_specs.append(specs[0])
         payload = self.selections.pop(0)
         terminal = True
@@ -150,6 +158,26 @@ class FakeRuntime:
 
     def release_generation(self, session, revision):
         session.selected_groups.pop(revision, None)
+
+
+class CapturedGeneration(BaseException):
+    """Stop at the real serving call boundary before model execution."""
+
+
+class CaptureRuntime(FakeRuntime):
+    def __init__(self):
+        super().__init__(selections=[b"unused; generation is stopped before sampling"])
+        self.captured_generation = None
+
+    def generate(self, session, *, tracks, specs, controls, effort):
+        self.captured_generation = {
+            "tracks": tuple(tracks),
+            "specs": tuple(specs),
+            "controls": tuple(controls),
+            "effort": effort,
+            "track_purposes": tuple(session.tracks.tracks[track].purpose for track in tracks),
+        }
+        raise CapturedGeneration
 
 
 def add(prefix, kind, mode="generated", **fields):
@@ -184,6 +212,170 @@ def add(prefix, kind, mode="generated", **fields):
             **fields,
         }
     )
+
+
+def test_first_serving_call_matches_canonical_multi_record_training_inputs():
+    from megatoken.controls import (
+        build_request_control,
+        canonical_semantic_observation,
+        resolve_event_control,
+        semantic_execution_track_purpose,
+        semantic_selection_instruction,
+    )
+    from megatoken.data.schema import (
+        Episode,
+        Lineage,
+        Meridian,
+        PhysicalRecord,
+        TrackEvent,
+        TrackSpec,
+    )
+
+    runtime = CaptureRuntime()
+    adapter = SelectedSemanticInference(runtime, max_tokens=8, verify_context=False)
+    prefix = fixture()
+    with pytest.raises(CapturedGeneration):
+        adapter.select(prefix)
+
+    captured = runtime.captured_generation
+    assert captured is not None
+    assert len(captured["controls"]) == 1
+    assert captured["controls"][0] == build_request_control(
+        instruction=semantic_selection_instruction()
+    )
+    assert len(runtime.sessions[0].observations) == 2
+    expected = [canonical_semantic_observation(row) for row in prefix["committed"]]
+    actual = [payload for _, payload, _ in runtime.sessions[0].observations]
+    assert actual == expected
+    assert captured["track_purposes"] == (semantic_execution_track_purpose("p", "run"),)
+    training_records = tuple(
+        PhysicalRecord(
+            f"input-{index}",
+            "user",
+            canonical_semantic_observation(row),
+            turn_index=index,
+        )
+        for index, row in enumerate(prefix["committed"])
+    ) + (PhysicalRecord("target", "assistant", b"target", turn_index=2, policy_mask=True),)
+    training_meridians = tuple(
+        Meridian(
+            index,
+            (
+                TrackEvent(
+                    record.record_id,
+                    row["track"] if index < len(prefix["committed"]) else "worker1",
+                    "text",
+                    index,
+                    record.role,
+                    instruction=(
+                        semantic_selection_instruction()
+                        if index == len(prefix["committed"])
+                        else ""
+                    ),
+                ),
+            ),
+        )
+        for index, (record, row) in enumerate(
+            zip(
+                training_records,
+                (*prefix["committed"], {"track": "worker1"}),
+                strict=True,
+            )
+        )
+    )
+    training = Episode(
+        "capture-parity",
+        training_records,
+        Lineage("capture", "v1", "capture-parity"),
+        tracks=tuple(
+            TrackSpec(
+                track,
+                "assistant",
+                description=(
+                    semantic_execution_track_purpose("p", "run") if track == "worker1" else ""
+                ),
+            )
+            for track in ("host", "worker1")
+        ),
+        meridians=training_meridians,
+    )
+    training_control = resolve_event_control(training, training.meridians[-1].events[0])
+    assert captured["controls"][0] == training_control
+
+
+def test_first_and_continuation_control_bytes_are_declared_once():
+    from megatoken.controls import build_request_control, semantic_selection_instruction
+
+    first = build_request_control(instruction=semantic_selection_instruction())
+    continuation = build_request_control(
+        instruction=semantic_selection_instruction(continuation=True)
+    )
+    assert len(first) == 580
+    assert len(continuation) == 660
+    assert first.startswith(b"\n<track>\n")
+    assert continuation.startswith(b"\n<track>\n")
+
+
+def test_fresh_retained_invocation_does_not_inject_empty_state_bootstrap():
+    runtime = CaptureRuntime()
+    adapter = SelectedSemanticInference(runtime, verify_context=False)
+    prefix = fixture()
+    prefix["committed"][1]["realmPolicy"] = "retained"
+    prefix["realmCommitted"] = copy.deepcopy(prefix["committed"])
+
+    with pytest.raises(CapturedGeneration):
+        adapter.select(prefix)
+
+    kinds = [json.loads(payload).get("kind") for _, payload, _ in runtime.sessions[0].observations]
+    assert kinds == ["program", "invocation"]
+
+
+def test_callback_invocation_publishes_retained_state_before_generation():
+    runtime = CaptureRuntime()
+    adapter = SelectedSemanticInference(runtime, verify_context=False)
+    prefix = fixture()
+    program = prefix["committed"][0]
+    parent_invocation = copy.deepcopy(prefix["committed"][1])
+    parent_invocation.update(invocationId="parent1", sequence=2, track="worker1")
+    state = adapter._opened("session1")
+    parent_work = adapter._bootstrap(state, program, parent_invocation)
+    invocation = copy.deepcopy(prefix["committed"][1])
+    invocation.update(
+        invocationId="callback1",
+        sequence=3,
+        track="worker2",
+        activation="callback",
+        parentInvocationId="parent1",
+        triggerId="callback1",
+        ingressKey="callback1",
+    )
+    prefix.update(
+        invocationId="callback1",
+        trackId="worker2",
+        committed=[program, parent_invocation, invocation],
+        realmCommitted=copy.deepcopy([program, parent_invocation, invocation]),
+        selectedState={
+            "schema": "semantic-continuation/5",
+            "heap": [],
+            "locals": [],
+            "captureAliases": [],
+            "stack": [],
+            "continuations": [],
+            "ready": [],
+            "callReturn": None,
+            "pending": None,
+            "completion": None,
+            "randomState": None,
+        },
+    )
+
+    with pytest.raises(CapturedGeneration):
+        adapter.select(prefix)
+
+    observed = [json.loads(payload) for _, payload, _ in runtime.sessions[0].observations]
+    assert observed[-1]["kind"] == "selected-bootstrap"
+    assert observed[-1]["reason"] == "retained-activation"
+    assert parent_work.actual_track != runtime.captured_generation["tracks"][0]
 
 
 def test_published_selected_bootstrap_checks_actual_rng_state_before_observing_it():
