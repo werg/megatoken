@@ -3,6 +3,7 @@
 import copy
 import hashlib
 import json
+from pathlib import Path
 
 import pytest
 
@@ -212,6 +213,27 @@ def test_selected_harness_import_uses_actual_dynamic_track_and_one_bound_action(
         )
     )
     assert episode.supervision.outcome == "unknown"
+
+
+def test_replaying_input_mutations_preserves_original_observation_bytes():
+    document = json.loads(
+        (Path(__file__).parent / "fixtures/semantic-v5/input-array-mutation.json").read_text()
+    )
+    original = copy.deepcopy(document)
+    first, _ = adapt_selected_harness_v5(
+        document, allow_local=True, codec=ByteCodec.byte_fallback()
+    )
+    assert document == original
+    invocation = next(item for item in original["public"]["timeline"] if item["kind"] == "invocation")
+    assert any(
+        record.payload == json.dumps(invocation, ensure_ascii=False, separators=(",", ":")).encode()
+        for record in first.records
+    )
+    second, _ = adapt_selected_harness_v5(
+        document, allow_local=True, codec=ByteCodec.byte_fallback()
+    )
+    assert document == original
+    assert first == second
 
 
 @pytest.mark.parametrize(

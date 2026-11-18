@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+from copy import deepcopy
 from collections.abc import Callable, Mapping
 from dataclasses import dataclass
 from typing import Any
@@ -528,7 +529,9 @@ def adapt_selected_harness_v5(
                 "refs": refs,
                 "heap": {
                     **(existing["heap"] if existing else {}),
-                    **{node["id"]: node for node in item["inputGraph"]["objects"]},
+                    # The invocation is immutable observed evidence. Replay
+                    # mutates owned state, never the caller's input document.
+                    **{node["id"]: deepcopy(node) for node in item["inputGraph"]["objects"]},
                 },
                 "promises": existing["promises"] if existing else {},
                 "randomSeed": (
