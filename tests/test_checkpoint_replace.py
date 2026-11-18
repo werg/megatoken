@@ -73,5 +73,7 @@ def test_checkpoint_from_previous_conditioning_contract_is_rejected(tmp_path):
     metadata = json.loads(path.read_text())
     metadata["format_version"] = 18
     path.write_text(json.dumps(metadata))
+    # Read the selected archive directly to test the version refusal. The
+    # root pointer must reject edited metadata at its checksum gate first.
     with pytest.raises(ValueError, match="Unsupported checkpoint format"):
-        load_checkpoint(tmp_path)
+        load_checkpoint(live)
