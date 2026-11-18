@@ -42,13 +42,21 @@ jobs:
       - name: Obtain and verify the exact production tokenizer
         run: |
           python - <<'PY'
-          import hashlib, os, urllib.request
+          import hashlib, json, os, subprocess, urllib.request
           from pathlib import Path
-          from megatoken.generation.codec import LING_REVISION, LING_TOKENIZER_SHA256
+          from megatoken.generation.codec import ByteCodec, LING_REVISION, LING_TOKENIZER_SHA256
           path = Path(os.environ['MEGATOKEN_TOKENIZER_JSON'])
           path.parent.mkdir(parents=True, exist_ok=True)
           urllib.request.urlretrieve(f'https://huggingface.co/inclusionAI/Ling-3.0-tiny/resolve/{LING_REVISION}/tokenizer.json', path)
           assert hashlib.sha256(path.read_bytes()).hexdigest() == LING_TOKENIZER_SHA256
+          codec = ByteCodec.from_tokenizer_json(path, expected_sha256=LING_TOKENIZER_SHA256)
+          policy = {
+            'consumerRevision': subprocess.check_output(['git', 'rev-parse', 'HEAD'], text=True).strip(),
+            'tokenizerIdentity': codec.fingerprint,
+            'tokenizerSha256': LING_TOKENIZER_SHA256,
+          }
+          (Path(os.environ['RUNNER_TEMP']) / 'native-policy.json').write_text(json.dumps(policy, indent=2) + '\n')
+          print(json.dumps(policy))
           PY
       - name: Check both declared contracts and collect actual teacher executions
         run: |
@@ -60,7 +68,7 @@ jobs:
           node tools/generate-host-contract.mjs --check
           node tools/generate-effectful-training.mjs --jobs 4 --out "$RUNNER_TEMP/teacher" \
             --megatoken "$GITHUB_WORKSPACE" --tokenizer "$MEGATOKEN_TOKENIZER_JSON" \
-            --python python --require-native
+            --python python --native-policy "$RUNNER_TEMP/native-policy.json" --require-native
       - name: Recheck independent source and native gates and export the prepared corpus
         run: |
           python scripts/validate_semantic_corpus.py --corpus "$RUNNER_TEMP/teacher" \
@@ -98,7 +106,8 @@ jobs:
         run: |
           node tools/generate-effectful-training.mjs --out "$RUNNER_TEMP/recipe" \
             --recipe training-v4 --jobs 4 \
-            --megatoken "$GITHUB_WORKSPACE" --tokenizer "$MEGATOKEN_TOKENIZER_JSON" --python python --require-native
+            --megatoken "$GITHUB_WORKSPACE" --tokenizer "$MEGATOKEN_TOKENIZER_JSON" --python python \
+            --native-policy "$RUNNER_TEMP/native-policy.json" --require-native
       - name: Verify canonical train and validation stage supply
         run: |
           python scripts/prepare_semantic_experiments.py \
@@ -118,6 +127,7 @@ jobs:
         with:
           name: semantic-engineering-receipts
           path: |
+            ${{ runner.temp }}/native-policy.json
             ${{ runner.temp }}/teacher/manifest.json
             ${{ runner.temp }}/prepared/semantic-report.json
             ${{ runner.temp }}/lifecycle/lifecycle-admission.json

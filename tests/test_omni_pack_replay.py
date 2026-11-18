@@ -39,6 +39,7 @@ def _tape(pack: str):
         emitted_ids=((),),
         valid=(True,),
         terminal=(True,),
+        continuation_mode="sampled",
     )
 
 

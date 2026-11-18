@@ -121,7 +121,8 @@ class FakeRuntime:
         session.observations.append((track, payload, kwargs["role"]))
         return 1
 
-    def generate(self, session, *, tracks, specs, controls, effort):
+    def generate(self, session, *, tracks, specs, controls, effort, continuation_mode):
+        assert continuation_mode == "encoded_text"
         assert len(tracks) == len(specs) == len(controls) == 1
         assert session.tracks.selectable(tracks[0], session.completed_events)
         assert b"Never predict observations" in controls[0]
@@ -170,12 +171,13 @@ class CaptureRuntime(FakeRuntime):
         super().__init__(selections=[b"unused; generation is stopped before sampling"])
         self.captured_generation = None
 
-    def generate(self, session, *, tracks, specs, controls, effort):
+    def generate(self, session, *, tracks, specs, controls, effort, continuation_mode):
         self.captured_generation = {
             "tracks": tuple(tracks),
             "specs": tuple(specs),
             "controls": tuple(controls),
             "effort": effort,
+            "continuation_mode": continuation_mode,
             "track_purposes": tuple(session.tracks.tracks[track].purpose for track in tracks),
         }
         raise CapturedGeneration
@@ -382,6 +384,7 @@ def test_callback_invocation_publishes_retained_state_before_generation():
     assert observed[-1]["kind"] == "selected-bootstrap"
     assert observed[-1]["reason"] == "retained-activation"
     assert parent_work.actual_track != runtime.captured_generation["tracks"][0]
+    assert runtime.captured_generation["continuation_mode"] == "encoded_text"
 
 
 def test_published_selected_bootstrap_checks_actual_rng_state_before_observing_it():

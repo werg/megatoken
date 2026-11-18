@@ -1218,6 +1218,7 @@ class SelectedSemanticInference:
                             ),
                         ),
                         effort=self.effort,
+                        continuation_mode="encoded_text",
                     )
                 tape = generated.tape
                 if self.verify_context:

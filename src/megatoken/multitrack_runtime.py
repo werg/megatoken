@@ -598,6 +598,7 @@ class MultiTrackRuntime:
         controls: Sequence[bytes] | None = None,
         effort: int = 6,
         generator: torch.Generator | None = None,
+        continuation_mode: str = "sampled",
     ) -> PendingGroup:
         """Produce a candidate without committing raw state, KV or output."""
         output_bytes = self._output_capacity(session, tracks, specs, modality_options)
@@ -630,6 +631,7 @@ class MultiTrackRuntime:
             controls=controls,
             effort=effort,
             generator=generator,
+            continuation_mode=continuation_mode,
         )
         selected_at_ns = time.monotonic_ns()
         result = self.generator.render_selected(selected)
@@ -713,6 +715,7 @@ class MultiTrackRuntime:
         controls: Sequence[bytes] | None = None,
         effort: int = 6,
         generator: torch.Generator | None = None,
+        continuation_mode: str = "sampled",
     ) -> GroupGeneration:
         return self.accept(
             session,
@@ -725,6 +728,7 @@ class MultiTrackRuntime:
                 controls=controls,
                 effort=effort,
                 generator=generator,
+                continuation_mode=continuation_mode,
             ),
         )
 
