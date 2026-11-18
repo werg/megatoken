@@ -199,6 +199,46 @@ def test_grouped_generation_tape_and_exact_replay():
         GroupActionTape.from_json(json.dumps(corrupted))
 
 
+def test_singleton_modality_choice_does_not_consume_policy_rng(monkeypatch):
+    core, multi = _tiny()
+    model = FacetedGenerator(core, ByteCodec.byte_fallback())
+    serving = MultiTrackGenerator(model)
+    state = multi.initial_state(1)
+    names = ("reply",)
+    identities = ("selected:0:reply",)
+    controls = (b"",)
+    generator = torch.Generator().manual_seed(913)
+    expected_generator = torch.Generator().manual_seed(913)
+
+    encoded = serving._controls(controls, state, names)
+    mean = serving.tracks.predict_group(
+        state,
+        tracks=names,
+        event_ids=identities,
+        control=encoded,
+        effort=1,
+        modalities=("text",),
+    )
+    prior = serving._prior(mean, state, names, encoded)
+    expected_raw = serving._sample_policy(prior, identities, expected_generator)
+
+    def forbidden_draw(*args, **kwargs):
+        pytest.fail("A singleton modality has no categorical draw")
+
+    monkeypatch.setattr(torch, "multinomial", forbidden_draw)
+    selected = serving.select_group(
+        state,
+        tracks=names,
+        event_ids=identities,
+        specs=(ActionSpec(max_tokens=1),),
+        effort=1,
+        generator=generator,
+    )
+    torch.testing.assert_close(selected.raw, expected_raw)
+    assert torch.equal(generator.get_state(), expected_generator.get_state())
+    assert selected.tape.modality_log_probs == (0.0,)
+
+
 def test_group_history_backpropagates_across_meridians():
     core, multi = _tiny()
     raw = _selected(core, ("first", "second")).requires_grad_(True)

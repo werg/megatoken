@@ -1465,6 +1465,25 @@ class MultiTrackGenerator:
         core = self.generator.core
         core.routing_aux_loss(clear=True)
         control = self._controls(controls, state, names)
+        # Serving chooses the output modality from the public capability mask
+        # before it runs P.  Make the same call here, before any target payload
+        # is encoded, and reuse these logits for the supervised loss below.
+        if full_group is not None:
+            modality_masks = torch.tensor(
+                [full_group.modality_masks], device=state.device, dtype=torch.bool
+            )
+        elif modality_masks is None:
+            supported = [
+                True,
+                *(
+                    REALIZERS[m] in self.generator.media_realizers.packs
+                    for m in ("audio", "image", "video")
+                ),
+            ]
+            modality_masks = torch.tensor(
+                [[supported] * len(names)], device=state.device, dtype=torch.bool
+            )
+        modality_logits = self.tracks.modality_logits(state, names, control, modality_masks)
         mean = self.tracks.predict_group(
             state,
             tracks=names,
@@ -1653,24 +1672,8 @@ class MultiTrackGenerator:
         modality_targets = torch.tensor(
             [[MODALITY_IDS[m] for m in modalities]], device=state.device
         )
-        if full_group is not None:
-            modality_masks = torch.tensor(
-                [full_group.modality_masks], device=state.device, dtype=torch.bool
-            )
-        elif modality_masks is None:
-            supported = [
-                True,
-                *(
-                    REALIZERS[m] in self.generator.media_realizers.packs
-                    for m in ("audio", "image", "video")
-                ),
-            ]
-            modality_masks = torch.tensor(
-                [[supported] * len(names)], device=state.device, dtype=torch.bool
-            )
         if not modality_masks.gather(-1, modality_targets[..., None]).all():
             raise ValueError("Supervised modality is illegal under the public capability mask")
-        modality_logits = self.tracks.modality_logits(state, names, control, modality_masks)
         sums["modality"] = torch.nn.functional.cross_entropy(
             modality_logits.flatten(0, 1), modality_targets.flatten(), reduction="sum"
         )
@@ -1825,9 +1828,14 @@ class MultiTrackGenerator:
         order = sorted(range(len(identities)), key=lambda i: identities[i])
         selected_kinds = torch.empty(len(names), dtype=torch.long, device=state.device)
         for index in order:
-            selected_kinds[index] = torch.multinomial(
-                logits[0, index].softmax(-1), 1, generator=generator
-            )[0]
+            if len(choices[index]) == 1:
+                option = choices[index][0]
+                kind = "text" if isinstance(option, ActionSpec) else option.modality
+                selected_kinds[index] = MODALITY_IDS[kind]
+            else:
+                selected_kinds[index] = torch.multinomial(
+                    logits[0, index].softmax(-1), 1, generator=generator
+                )[0]
         modality_densities = (
             logits.log_softmax(-1).gather(-1, selected_kinds[None, :, None]).squeeze(-1)
         )

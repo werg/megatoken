@@ -190,6 +190,127 @@ def test_served_predictive_facets_do_not_see_target_bytes_or_length(model, monke
     assert not torch.equal(captured[1], captured[3])  # content-dependent canonical encodings
 
 
+def test_raw_teacher_matches_real_renderer_length_terminal_and_lexical_heads(model, monkeypatch):
+    """Compare the shared decoder heads on one actual renderer emission."""
+    model.eval()
+    raw = model.core.initial_state(1).facets.detach()
+    spec = ActionSpec(text_kind="ascii", min_tokens=2, max_tokens=4)
+    logit_calls = []
+    serving_lexical = []
+    training_lexical = []
+    original_logits = model.decoder.logits
+    original_argmax = model.decoder.vocabulary.argmax
+    original_loss = model.decoder.vocabulary.loss
+
+    def capture_logits(header, codes):
+        logits = original_logits(header, codes)
+        logit_calls.append((codes, logits.detach().clone()))
+        return logits
+
+    def capture_argmax(states, allowed):
+        serving_lexical.append((states.detach().clone(), allowed.detach().clone()))
+        return original_argmax(states, allowed)
+
+    def capture_loss(states, targets, allowed):
+        training_lexical.append(
+            (states.detach().clone(), targets.detach().clone(), allowed.detach().clone())
+        )
+        return original_loss(states, targets, allowed)
+
+    monkeypatch.setattr(model.decoder, "logits", capture_logits)
+    monkeypatch.setattr(model.decoder.vocabulary, "argmax", capture_argmax)
+    decoded = model.decode_facets(raw, spec=spec)
+    assert decoded.valid
+    decisions = {decision.name: decision.value for decision in decoded.trace}
+    assert 2 <= decisions["length/text"] <= 4
+    assert decisions["terminal"] == int(decoded.terminal)
+    serving_logits = {
+        "length": next(logits for codes, logits in logit_calls if codes is model.decoder.length_codes),
+        "terminal": next(
+            logits for codes, logits in logit_calls if codes is model.decoder.terminal_codes
+        ),
+    }
+    assert len(serving_lexical) == 1
+    serving_states, serving_support = serving_lexical[0]
+
+    logit_calls.clear()
+    monkeypatch.setattr(model.decoder.vocabulary, "loss", capture_loss)
+    plan = model.prepare_target(
+        target_ids=[decoded.emitted_ids],
+        terminal=decoded.terminal,
+        mode_specs=[spec],
+    )
+    teacher_losses = model.decoder.teacher_raw(model.core, raw, plan)
+    teacher_logits = {
+        "length": next(logits for codes, logits in logit_calls if codes is model.decoder.length_codes),
+        "terminal": next(
+            logits for codes, logits in logit_calls if codes is model.decoder.terminal_codes
+        ),
+    }
+    assert len(training_lexical) == 1
+    training_states, training_ids, training_support = training_lexical[0]
+    torch.testing.assert_close(teacher_logits["length"], serving_logits["length"])
+    torch.testing.assert_close(teacher_logits["terminal"], serving_logits["terminal"])
+    torch.testing.assert_close(training_states, serving_states)
+    assert torch.equal(training_ids, torch.tensor(decoded.emitted_ids))
+    assert torch.equal(training_support, serving_support)
+    assert torch.equal(training_support, model.decoder.valid_ascii)
+
+    def log_probabilities(states, support):
+        projected = model.decoder.vocabulary.projection(states)
+        logits = projected @ model.decoder.vocabulary.embedding.weight.T
+        return logits.masked_fill(~support[None], -torch.inf).log_softmax(-1)
+
+    serving_token_log_probs = log_probabilities(serving_states, serving_support)
+    teacher_token_log_probs = log_probabilities(training_states, training_support)
+    torch.testing.assert_close(teacher_token_log_probs, serving_token_log_probs)
+    expected_lexical_loss = -teacher_token_log_probs.gather(1, training_ids[:, None]).sum()
+    torch.testing.assert_close(teacher_losses["lexical"][0], expected_lexical_loss)
+
+    allowed_lengths = torch.tensor([2, 3, 4])
+    target_length = torch.tensor([len(decoded.emitted_ids)])
+    expected_length_loss = torch.nn.functional.cross_entropy(
+        serving_logits["length"].float().index_select(1, allowed_lengths),
+        target_length - allowed_lengths[0],
+        reduction="sum",
+    )
+    expected_terminal_loss = torch.nn.functional.cross_entropy(
+        serving_logits["terminal"].float(), torch.tensor([int(decoded.terminal)]), reduction="sum"
+    )
+    torch.testing.assert_close(teacher_losses["structure"][0], expected_length_loss)
+    torch.testing.assert_close(teacher_losses["terminal"][0], expected_terminal_loss)
+
+
+def test_raw_target_rejects_text_outside_its_public_support(model):
+    ascii_spec = ActionSpec(text_kind="ascii", min_tokens=1, max_tokens=4)
+    with pytest.raises(ValueError, match="lexical support"):
+        model.prepare_target(target_bytes="é".encode(), mode_specs=[ascii_spec])
+    utf8_spec = ActionSpec(text_kind="utf8", min_tokens=1, max_tokens=4)
+    with pytest.raises(ValueError, match="valid UTF-8"):
+        model.prepare_target(target_bytes=b"\xff", mode_specs=[utf8_spec])
+    terminal_spec = ActionSpec(min_tokens=1, max_tokens=4, require_terminal=True)
+    with pytest.raises(ValueError, match="terminal label"):
+        model.prepare_target(
+            target_bytes=b"a", terminal=False, mode_specs=[terminal_spec]
+        )
+
+
+def test_raw_teacher_has_zero_loss_for_publicly_forced_length_and_terminal(model):
+    model.eval()
+    raw = model.core.initial_state(1).facets.detach()
+    spec = ActionSpec(text_kind="ascii", min_tokens=3, max_tokens=3, require_terminal=True)
+    decoded = model.decode_facets(raw, spec=spec)
+    assert decoded.valid and decoded.terminal
+    plan = model.prepare_target(
+        target_ids=[decoded.emitted_ids], terminal=True, mode_specs=[spec]
+    )
+    losses = model.decoder.teacher_raw(model.core, raw, plan)
+    assert losses["structure"][1] == 2  # singleton text mode plus forced length
+    assert losses["structure"][0].item() == 0
+    assert losses["terminal"][1] == 1
+    assert losses["terminal"][0].item() == 0
+
+
 def test_one_gaussian_draw_and_no_stochastic_downstream_work(model):
     state = model.core.initial_state(1)
     generator = torch.Generator().manual_seed(37)
