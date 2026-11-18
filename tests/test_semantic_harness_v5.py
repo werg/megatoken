@@ -245,6 +245,7 @@ def test_selected_harness_declares_the_same_semantic_selection_control():
 
 def test_physical_fragmentation_preserves_declared_selection_control():
     from megatoken.controls import (
+        build_request_control,
         resolve_event_control,
         semantic_selection_instruction,
     )
@@ -294,7 +295,10 @@ def test_physical_fragmentation_preserves_declared_selection_control():
     for index, (_, event) in enumerate(targets):
         expected_instruction = semantic_selection_instruction(continuation=index > 0)
         assert event.instruction == expected_instruction
-        assert resolve_event_control(episode, event)
+        assert resolve_event_control(episode, event) == build_request_control(
+            instruction=expected_instruction
+        )
+        assert len(resolve_event_control(episode, event)) == (580 if index == 0 else 660)
 
 
 @pytest.mark.parametrize(

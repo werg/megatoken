@@ -34,6 +34,28 @@ def canonical_document(index: int):
     return document
 
 
+class BoundedAdmissionCodec:
+    fingerprint = "test-only-admission-byte-codec/1"
+
+    def encode(self, payload: bytes) -> list[int]:
+        return list(payload)
+
+    def decode(self, token_ids) -> bytes:
+        return bytes(token_ids)
+
+
+def test_native_admission_accepts_shared_canonical_observation_bytes():
+    pytest.importorskip("torch")
+    document = canonical_document(0)
+    receipt = native_admission(
+        document,
+        codec=BoundedAdmissionCodec(),
+        consumer_revision="a" * 40,
+    )
+    assert receipt["componentGate"] == "native-consumer-only"
+    assert receipt["lossMaskValidated"]
+
+
 @pytest.fixture
 def production_codec():
     path = Path(os.environ.get("MEGATOKEN_TOKENIZER_JSON", ".validation/tokenizer.json"))

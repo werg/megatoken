@@ -18,7 +18,7 @@ def physical_semantic_episode(episode: Episode, *, codec, max_positions: int, ma
         raise ValueError("Semantic history budget must be positive")
     if codec is None:
         return episode
-    records, meridians, spans, programs_by_track = [], [], {}, {}
+    records, meridians, spans = [], [], {}
     events = {event.record_id: event for group in episode.meridians for event in group.events}
 
     def append_chunk(chunk, event):
@@ -68,29 +68,16 @@ def physical_semantic_episode(episode: Episode, *, codec, max_positions: int, ma
         if not record.policy_mask:
             observation = json.loads(record.payload)
             kind = observation.get("kind")
-            if kind == "invocation":
-                programs_by_track[event.track_id] = observation["programId"]
             if (
                 kind in {"invocation", "source-read", "source-evict"}
                 or kind == "model-context"
                 and "selectedState" in observation
             ):
-                context = {
-                    "semantic_context": {
-                        "schema": "semantic-native-context/4",
-                        "reason": kind,
-                        "programId": observation.get(
-                            "programId", programs_by_track.get(event.track_id)
-                        ),
-                    },
-                    "context_window": {
-                        "local_events": 0 if kind == "source-evict" else max_history,
-                        "cross_events": 0 if kind == "source-evict" else max_history,
-                        "pinned_events": [],
-                    },
-                }
+                from megatoken.controls import semantic_context_window_observation
+
+                window = 0 if kind == "source-evict" else max_history
                 context_chunks = make_records(
-                    json.dumps(context, separators=(",", ":")).encode(),
+                    semantic_context_window_observation(window, window),
                     logical_id="semantic:context:" + record.record_id,
                     role="system",
                     turn_index=record.turn_index,

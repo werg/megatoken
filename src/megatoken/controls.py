@@ -30,6 +30,21 @@ def canonical_semantic_observation(value: object) -> bytes:
     ).encode("utf-8")
 
 
+def semantic_context_window_observation(
+    local_events: int, cross_events: int, pinned_events: Sequence[str] = ()
+) -> bytes:
+    """Canonical announcement shared by prepared semantic data and runtime."""
+    return canonical_semantic_observation(
+        {
+            "context_window": {
+                "local_events": local_events,
+                "cross_events": cross_events,
+                "pinned_events": tuple(pinned_events),
+            }
+        }
+    )
+
+
 def semantic_selection_instruction(*, continuation: bool = False) -> str:
     """Declared public instruction shared by semantic training and serving."""
     text = (
