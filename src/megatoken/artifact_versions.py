@@ -6,6 +6,6 @@ neural runtime. A version change rejects older artifacts; it does not migrate
 or infer missing saved fields.
 """
 
-PREPARED_SCHEMA_VERSION = 8
-ARCHITECTURE_VERSION = 17
-CHECKPOINT_FORMAT_VERSION = 20
+PREPARED_SCHEMA_VERSION = 9
+ARCHITECTURE_VERSION = 18
+CHECKPOINT_FORMAT_VERSION = 21

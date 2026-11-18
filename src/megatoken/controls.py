@@ -26,7 +26,7 @@ SEMANTIC_EXECUTION_WORK_BUDGET = 4096
 
 def semantic_execution_metadata() -> dict[str, object]:
     """Session facts known before any semantic execution observation."""
-    return {"task": "semantic-execution/5", "modality": "text"}
+    return {"task": "semantic-execution/6", "modality": "text"}
 
 
 def canonical_semantic_observation(value: object) -> bytes:
@@ -54,7 +54,7 @@ def semantic_context_window_observation(
 def semantic_selection_instruction(*, continuation: bool = False) -> str:
     """Declared public instruction shared by semantic training and serving."""
     text = (
-        "Emit exactly one complete canonical semantic-trace/5 witness. "
+        "Emit exactly one complete canonical semantic-trace/6 witness. "
         "Use only the observed source, this invocation and prior selected "
         "semantics. An external call is a validated request with already "
         "evaluated arguments and source span. Never predict observations, "

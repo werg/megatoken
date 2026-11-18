@@ -259,9 +259,7 @@ def prepare_targets(
         for spec, row in zip(public_specs, ids, strict=True)
     ):
         raise ValueError("Text target length is outside its public output support")
-    for spec, payload, row, is_terminal in zip(
-        public_specs, payloads, ids, terminals, strict=True
-    ):
+    for spec, payload, row, is_terminal in zip(public_specs, payloads, ids, terminals, strict=True):
         if spec is None:
             continue
         if spec.require_terminal is not None and is_terminal is not spec.require_terminal:

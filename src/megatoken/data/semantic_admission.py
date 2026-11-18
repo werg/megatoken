@@ -12,7 +12,7 @@ from megatoken.generation.codec import LING_TOKENIZER_SHA256, ByteCodec
 from .host_operations import CONTRACT_DIGEST, canonical_json
 from .schema import encode_record
 from .semantic_contract import FIXTURE_DIGEST, SCHEMA_DIGEST
-from .semantic_harness_v5 import adapt_selected_harness_v5
+from .semantic_harness_v6 import adapt_selected_harness_v6
 
 
 def validate_native_visibility(episode):
@@ -21,7 +21,7 @@ def validate_native_visibility(episode):
 
     from .context import context_announcement, validate_context_announcements
     from .semantic_physical import validate_semantic_creation_observations
-    from .witness_v5 import parse_record
+    from .witness_v6 import parse_record
 
     validate_context_announcements(episode)
     validate_semantic_creation_observations(episode)
@@ -164,7 +164,7 @@ def native_admission(
         raise ValueError("Native admission requires exact consumer revision provenance")
     if codec.fingerprint == ByteCodec.byte_fallback().fingerprint:
         raise ValueError("Production native admission requires the pinned production tokenizer")
-    episode, receipt = adapt_selected_harness_v5(
+    episode, receipt = adapt_selected_harness_v6(
         document,
         codec=codec,
         max_positions=max_positions,

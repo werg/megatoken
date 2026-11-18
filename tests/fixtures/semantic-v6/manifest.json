@@ -1,0 +1,25 @@
+{
+  "schema": "selected-engineering-fixtures/4",
+  "fixtures": [
+    {
+      "name": "async-pair",
+      "records": 17,
+      "selectionOrigin": "controlled-test-injected"
+    },
+    {
+      "name": "promise-finally",
+      "records": 14,
+      "selectionOrigin": "controlled-test-injected"
+    },
+    {
+      "name": "retained-events",
+      "records": 33,
+      "selectionOrigin": "controlled-test-injected"
+    },
+    {
+      "name": "checkpoint-recovery",
+      "records": 12,
+      "selectionOrigin": "controlled-test-injected"
+    }
+  ]
+}

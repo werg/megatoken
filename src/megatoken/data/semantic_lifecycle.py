@@ -34,7 +34,7 @@ from .schema import (
 from .semantic_admission import native_admission, validate_native_visibility
 from .semantic_contract import FIXTURE_DIGEST, SCHEMA_DIGEST
 from .semantic_corpus import public_digest, verify_admission
-from .semantic_harness_v5 import adapt_selected_harness_v5
+from .semantic_harness_v6 import adapt_selected_harness_v6
 
 ORCHESTRATION_POLICY = {
     "schema": "semantic-orchestration-policy/4",
@@ -57,6 +57,7 @@ class _Recorder:
         self.records, self.meridians, self.metadata = [], [], {}
         self.actions, self.dependencies = [], []
         self.track_revisions = []
+        self.track_descriptions = {}
         self.roles = {number: name for name, number in ROLE_TO_ID.items()}
 
     def drain(self):
@@ -123,10 +124,22 @@ class _Recorder:
             if self.roles[message[0].role_id] == "system":
                 public = json.loads(raw)
                 if "purpose" in public and "revision" in public:
+                    address = message[-1].track
+                    description = (public["purpose"], public["revision"])
+                    previous = self.track_descriptions.get(address)
+                    if previous == description:
+                        # Waiting, progress and completion publish a full
+                        # description without changing the task's purpose.
+                        # Keep those observations, but install its revision
+                        # only when the causal purpose actually advances.
+                        continue
+                    if previous is not None and description[1] <= previous[1]:
+                        raise ValueError("A changed track purpose needs a later public revision")
+                    self.track_descriptions[address] = description
                     self.track_revisions.append(
                         TrackRevision(
                             message[-1].event_id,
-                            message[-1].track,
+                            address,
                             public["purpose"],
                             public["revision"],
                         )
@@ -176,7 +189,7 @@ def collect_semantic_lifecycle(
             consumer_revision=consumer_revision,
             codec=codec,
         )
-        episode, imported = adapt_selected_harness_v5(
+        episode, imported = adapt_selected_harness_v6(
             document,
             codec=codec,
             max_positions=max_positions,
@@ -457,7 +470,7 @@ def collect_semantic_lifecycle(
             "maxHistory": max_history,
         },
         "semantic_execution": {
-            "schema": "semantic-execution/5",
+            "schema": "semantic-execution/6",
             "continuation": "teacher_conditioned",
             "representation": "compact",
             "orchestration": "runtime-certified",

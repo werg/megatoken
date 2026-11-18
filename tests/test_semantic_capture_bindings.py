@@ -7,19 +7,19 @@ from pathlib import Path
 import pytest
 
 from megatoken.data.semantic_admission import native_admission
-from megatoken.data.witness_v5 import WitnessV5Error, parse_record, value
+from megatoken.data.witness_v6 import WitnessV6Error, encode_record, parse_record, value
 from megatoken.generation.codec import LING_TOKENIZER_SHA256, ByteCodec
 
 
 def allocation(captures):
-    fields = {
-        "name": "o1",
-        "kind": "closure",
-        "properties": [],
-        "code": "function:1",
-        "captures": captures,
-    }
-    return "allocate " + json.dumps(fields, ensure_ascii=False, separators=(",", ":"))
+    def name(value):
+        return value if isinstance(value, str) else json.dumps(str(value))
+
+    return (
+        'new @o1 closure {} code "function:1" captures {'
+        + ", ".join(name(row["binding"]) + ": " + name(row["cell"]) for row in captures)
+        + "}"
+    )
 
 
 @pytest.mark.parametrize("name", ["keyFn", "_key", "key_fn", "keyFn_2", "$key", "key$Fn", "$"])
@@ -30,7 +30,9 @@ def test_capture_aliases_and_cells_use_the_existing_source_name_grammar(name):
     ]
     assert parse_record(allocation(captures))[1]["captures"] == captures
     assert (
-        parse_record("bind " + json.dumps({"name": name, "from": name, "value": ["num", 1]}))[0]
+        parse_record(
+            encode_record("bind", {"name": name, "from": "sourceCell", "value": ["num", 1]})
+        )[0]
         == "bind"
     )
 
@@ -42,12 +44,12 @@ def test_capture_aliases_and_cells_use_the_existing_source_name_grammar(name):
 def test_malformed_capture_aliases_and_cells_are_rejected(field, invalid):
     relation = {"binding": "keyFn", "cell": "outerCell"}
     relation[field] = invalid
-    with pytest.raises(WitnessV5Error, match="Malformed shared cell capture relation"):
+    with pytest.raises(WitnessV6Error, match="Invalid semantic-trace/6"):
         parse_record(allocation([relation]))
 
 
 def test_distinct_aliases_can_share_one_cell_but_duplicate_aliases_are_rejected():
-    with pytest.raises(WitnessV5Error, match="Malformed shared cell capture relation"):
+    with pytest.raises(WitnessV6Error, match="Invalid semantic-trace/6"):
         parse_record(
             allocation(
                 [
@@ -66,12 +68,10 @@ def test_distinct_aliases_can_share_one_cell_but_duplicate_aliases_are_rejected(
 @pytest.mark.parametrize("name", ["keyFn", "_key", "$key", "o:1"])
 def test_source_names_do_not_relax_heap_reference_identity(name):
     value(["ref", "o1"])
-    with pytest.raises(WitnessV5Error):
+    with pytest.raises(WitnessV6Error):
         value(["ref", name])
-    with pytest.raises(WitnessV5Error, match="Invalid witness identity"):
-        parse_record(
-            "read " + json.dumps({"object": name, "key": "x", "value": ["num", 1], "present": True})
-        )
+    with pytest.raises(WitnessV6Error, match="Invalid semantic-trace/6"):
+        parse_record(f'read @{name}["x"] => 1')
 
 
 def test_pinned_vscode_distinct_capture_passes_production_tokenizer_admission():
@@ -79,7 +79,7 @@ def test_pinned_vscode_distinct_capture_passes_production_tokenizer_admission():
     if not tokenizer.is_file():
         pytest.skip("Dedicated semantic CI supplies the pinned production tokenizer")
     document = json.loads(
-        (Path(__file__).parent / "fixtures/semantic-v5/source-binding-capture.json").read_text()
+        (Path(__file__).parent / "fixtures/semantic-v6/source-binding-capture.json").read_text()
     )
     before = json.dumps(document, ensure_ascii=False, separators=(",", ":"))
     assert any(

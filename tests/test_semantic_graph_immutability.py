@@ -7,7 +7,7 @@ from pathlib import Path
 import pytest
 
 from megatoken.data.semantic_admission import native_admission
-from megatoken.data.semantic_harness_v5 import adapt_selected_harness_v5
+from megatoken.data.semantic_harness_v6 import adapt_selected_harness_v6
 from megatoken.generation.codec import LING_TOKENIZER_SHA256, ByteCodec
 
 FIXTURES = ("input-mutation-short", "input-mutation-context", "result-mutation-context")
@@ -15,7 +15,7 @@ FIXTURES = ("input-mutation-short", "input-mutation-context", "result-mutation-c
 
 def document(name):
     return json.loads(
-        (Path(__file__).parent / "fixtures/semantic-v5" / (name + ".json")).read_text()
+        (Path(__file__).parent / "fixtures/semantic-v6" / (name + ".json")).read_text()
     )
 
 
@@ -29,7 +29,7 @@ def serialized(value):
 def test_selected_graph_import_preserves_original_document_and_record_bytes(name):
     original = document(name)
     before = serialized(original)
-    episode, _ = adapt_selected_harness_v5(original, allow_local=True)
+    episode, _ = adapt_selected_harness_v6(original, allow_local=True)
     assert serialized(original) == before
     logical = [
         parts
@@ -50,7 +50,7 @@ def test_rejected_context_preserves_original_evidence_after_prior_guest_mutation
     context["realmPrefixDigest"] = "0" * 64
     before = serialized(original)
     with pytest.raises(ValueError, match="committed realm prefix"):
-        adapt_selected_harness_v5(original, allow_local=True)
+        adapt_selected_harness_v6(original, allow_local=True)
     assert serialized(original) == before
 
 

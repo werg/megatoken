@@ -16,7 +16,7 @@ from megatoken.controls import canonical_semantic_observation
 from megatoken.data.host_operations import canonical_json
 from megatoken.data.semantic_admission import native_admission, validate_native_visibility
 from megatoken.data.semantic_contract import CONTRACT, DEFINITION
-from megatoken.data.semantic_harness_v5 import adapt_selected_harness_v5
+from megatoken.data.semantic_harness_v6 import adapt_selected_harness_v6
 from megatoken.generation.codec import LING_TOKENIZER_SHA256, ByteCodec
 from megatoken.training.config import TrainConfig
 from megatoken.training.semantic_evaluation import (
@@ -82,7 +82,7 @@ def test_production_tokenizer_fragmentation_source_visibility_and_loss(productio
     )
     assert receipt["generatedTokens"] > 0 and receipt["observedTokens"] > receipt["generatedTokens"]
     assert receipt["lossMaskValidated"] and receipt["visibilityValidated"]
-    episode, _ = adapt_selected_harness_v5(
+    episode, _ = adapt_selected_harness_v6(
         document, codec=production_codec, allow_local=True, max_positions=256, max_history=256
     )
     assert validate_native_visibility(episode) == 1
@@ -105,7 +105,7 @@ def test_production_tokenizer_fragmentation_source_visibility_and_loss(productio
 
 def test_production_context_eviction_and_checked_reread(production_codec):
     document = json.loads(
-        (Path(__file__).parent / "fixtures/semantic-v5/checkpoint-recovery.json").read_text()
+        (Path(__file__).parent / "fixtures/semantic-v6/checkpoint-recovery.json").read_text()
     )
     document["sidecar"]["representation"] = "compact"
     receipt = native_admission(document, codec=production_codec, consumer_revision="a" * 40)
@@ -122,14 +122,14 @@ def test_native_admission_keeps_input_graph_semantics_and_canonical_observation_
     production_codec,
 ):
     document = json.loads(
-        (Path(__file__).parent / "fixtures/semantic-v5/input-array-mutation.json").read_text()
+        (Path(__file__).parent / "fixtures/semantic-v6/input-array-mutation.json").read_text()
     )
     original = copy.deepcopy(document)
     receipt = native_admission(document, codec=production_codec, consumer_revision="a" * 40)
     assert document == original
     assert receipt["admitted"] is True
     assert receipt["fragmentationValidated"] is True
-    episode, _ = adapt_selected_harness_v5(document, codec=production_codec, allow_local=True)
+    episode, _ = adapt_selected_harness_v6(document, codec=production_codec, allow_local=True)
     logical = [
         parts
         for parts in episode.iter_logical_records()
@@ -151,7 +151,7 @@ def test_native_admission_keeps_input_graph_semantics_and_canonical_observation_
 
 def test_native_admission_preserves_captured_camel_case_parameter(production_codec):
     document = json.loads(
-        (Path(__file__).parent / "fixtures/semantic-v5/captured-parameter-name.json").read_text()
+        (Path(__file__).parent / "fixtures/semantic-v6/captured-parameter-name.json").read_text()
     )
     original = copy.deepcopy(document)
     captures = [
@@ -169,10 +169,10 @@ def test_native_admission_preserves_captured_camel_case_parameter(production_cod
 
 def test_source_visibility_alone_does_not_admit_evicted_captured_state(production_codec):
     document = json.loads(
-        (Path(__file__).parent / "fixtures/semantic-v5/retained-events.json").read_text()
+        (Path(__file__).parent / "fixtures/semantic-v6/retained-events.json").read_text()
     )
     document["sidecar"]["representation"] = "compact"
-    episode, _ = adapt_selected_harness_v5(
+    episode, _ = adapt_selected_harness_v6(
         document, codec=production_codec, allow_local=True, max_positions=1024, max_history=1024
     )
     validate_native_visibility(episode)
@@ -200,7 +200,7 @@ def test_source_visibility_alone_does_not_admit_evicted_captured_state(productio
 
 def test_verified_public_state_refresh_supports_real_bounded_history(production_codec):
     document = json.loads(
-        (Path(__file__).parent / "fixtures/semantic-v5/retained-state-tail.json").read_text()
+        (Path(__file__).parent / "fixtures/semantic-v6/retained-state-tail.json").read_text()
     )
     receipt = native_admission(
         document, codec=production_codec, consumer_revision="a" * 40, max_history=128
@@ -221,7 +221,7 @@ def test_verified_public_state_refresh_supports_real_bounded_history(production_
     interval = DEFINITION["modelContext"]["selectedRecordInterval"]
     minimum_states = sum(math.ceil(count / interval) for count in generated_by_invocation.values())
     assert len(states) >= minimum_states
-    episode, _ = adapt_selected_harness_v5(
+    episode, _ = adapt_selected_harness_v6(
         document, codec=production_codec, allow_local=True, max_positions=1024, max_history=128
     )
     snapshots = [
@@ -464,7 +464,7 @@ def test_canonical_training_refuses_obsolete_labels_and_keeps_public_state(produ
     )
 
     document = canonical_document(1)
-    episode, _ = adapt_selected_harness_v5(
+    episode, _ = adapt_selected_harness_v6(
         document,
         codec=production_codec,
         max_positions=1024,
@@ -500,13 +500,13 @@ def test_canonical_training_refuses_obsolete_labels_and_keeps_public_state(produ
     forged = copy.deepcopy(document)
     forged["sidecar"]["representation"] = "explicit"
     with pytest.raises(ValueError, match="canonical|contract"):
-        adapt_selected_harness_v5(forged, allow_local=True)
+        adapt_selected_harness_v6(forged, allow_local=True)
 
 
 def test_rejected_interactive_cost_keeps_new_bytes_and_deduplicates_committed_native_failure():
     from megatoken.training.semantic_evaluation import _interactive_usage
 
-    accepted = 'return {"value":["num",7]}'
+    accepted = "return 7"
     rejected = b"compute invalid"
     evidence = {
         "episode": {"public": {"timeline": [{"kind": "semantic", "line": accepted}]}},

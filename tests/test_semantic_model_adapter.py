@@ -10,6 +10,7 @@ from types import SimpleNamespace
 
 import pytest
 
+from megatoken.data.witness_v6 import encode_record
 from megatoken.lifecycle import TrackRegistry
 from megatoken.semantic_model_adapter import SelectedSemanticInference, SemanticSelectionError
 
@@ -17,7 +18,7 @@ from megatoken.semantic_model_adapter import SelectedSemanticInference, Semantic
 def fixture():
     source = "function run(){return 7;}"
     digest = hashlib.sha256(source.encode()).hexdigest()
-    common = {"schema": "semantic-execution/5", "session": "session1", "ownerSequence": 1}
+    common = {"schema": "semantic-execution/6", "session": "session1", "ownerSequence": 1}
     published = {
         **common,
         "sequence": 1,
@@ -90,9 +91,9 @@ class FakeRuntime:
         self.selections = list(
             selections
             or [
-                b'request {"effect":"fx1","operation":"demo.readAsync","arguments":[["str","x"]],"invocation":"i1","promise":"p1","site":{"start":0,"end":1},"payload":"[\\"x\\"]"}',
-                b'return {"value":["num",7]}',
-                b'end {"kind":"return"}',
+                b'request @fx1 demo.readAsync("x") payload ["x"] promise @p1 in @i1 at 0..1',
+                b"return 7",
+                b"end return",
             ]
         )
         self.sessions = []
@@ -181,26 +182,25 @@ class CaptureRuntime(FakeRuntime):
 
 
 def add(prefix, kind, mode="generated", **fields):
-    import json
 
     required = {}
     if kind == "semantic":
-        required["traceFormat"] = "semantic-trace/5"
+        required["traceFormat"] = "semantic-trace/6"
     elif kind == "dispatch":
         required.update(key="session1/i1/" + fields["effectId"], attempt=1)
     elif kind == "result":
         required.update(status="fulfilled", errorOrigin=None)
-        required["line"] = "observe " + json.dumps(
+        required["line"] = encode_record(
+            "observe",
             {
                 "effect": fields["effectId"],
                 "status": fields.get("status", "fulfilled"),
                 "result": fields["result"],
             },
-            separators=(",", ":"),
         )
     prefix["committed"].append(
         {
-            "schema": "semantic-execution/5",
+            "schema": "semantic-execution/6",
             "session": "session1",
             "sequence": len(prefix["committed"]) + 1,
             "ownerSequence": len(prefix["committed"]),
@@ -220,7 +220,7 @@ def test_real_serving_bootstrap_matches_prepared_bytes_roles_tracks_and_metadata
     from megatoken.contracts import ROLE_TO_ID
     from megatoken.controls import semantic_execution_metadata
     from megatoken.data.knowledge import episode_metadata
-    from megatoken.data.semantic_harness_v5 import adapt_selected_harness_v5
+    from megatoken.data.semantic_harness_v6 import adapt_selected_harness_v6
     from megatoken.generation.codec import ByteCodec
     from megatoken.generation.policy import FacetedGenerator
     from megatoken.model import FacetedCore, ModelConfig
@@ -240,19 +240,19 @@ def test_real_serving_bootstrap_matches_prepared_bytes_roles_tracks_and_metadata
     adapter = SelectedSemanticInference(runtime, max_tokens=64)
     prefix = fixture()
     complete = copy.deepcopy(prefix)
-    add(complete, "semantic", line='return {"value":["num",7]}')
-    add(complete, "semantic", line='end {"kind":"return"}')
+    add(complete, "semantic", line="return 7")
+    add(complete, "semantic", line="end return")
     document = {
         "public": {
-            "schema": "semantic-execution/5",
-            "traceFormat": "semantic-trace/5",
+            "schema": "semantic-execution/6",
+            "traceFormat": "semantic-trace/6",
             "profile": "selected-harness/2",
-            "contextFormat": "semantic-context/5",
+            "contextFormat": "semantic-context/6",
             "timeline": complete["committed"],
         },
         "sidecar": {"schema": "semantic-supervision/2", "representation": "compact"},
     }
-    episode, _ = adapt_selected_harness_v5(
+    episode, _ = adapt_selected_harness_v6(
         document, codec=model.codec, max_positions=1024, max_history=64, allow_local=True
     )
     captured = {}
@@ -361,7 +361,7 @@ def test_callback_invocation_publishes_retained_state_before_generation():
         committed=[program, parent_invocation, invocation],
         realmCommitted=copy.deepcopy([program, parent_invocation, invocation]),
         selectedState={
-            "schema": "semantic-continuation/5",
+            "schema": "semantic-continuation/6",
             "heap": [],
             "locals": [],
             "captureAliases": [],
@@ -392,7 +392,7 @@ def test_published_selected_bootstrap_checks_actual_rng_state_before_observing_i
     program, invocation = prefix["committed"]
     program["randomSeed"] = 0
     random_draw = {
-        "schema": "semantic-execution/5",
+        "schema": "semantic-execution/6",
         "session": "session1",
         "sequence": 3,
         "ownerSequence": 2,
@@ -400,11 +400,11 @@ def test_published_selected_bootstrap_checks_actual_rng_state_before_observing_i
         "mode": "generated",
         "kind": "semantic",
         "invocationId": "i1",
-        "traceFormat": "semantic-trace/5",
-        "line": 'compute {"expr":{"op":"random"},"result":["num",0.23606797284446657]}',
+        "traceFormat": "semantic-trace/6",
+        "line": "compute random() => 0.23606797284446657",
     }
     source_read = {
-        "schema": "semantic-execution/5",
+        "schema": "semantic-execution/6",
         "session": "session1",
         "sequence": 4,
         "ownerSequence": 3,
@@ -419,7 +419,7 @@ def test_published_selected_bootstrap_checks_actual_rng_state_before_observing_i
         invocation_id="i1", actual_track="worker1", state_bootstrap=None, selection_history=[]
     )
     snapshot = {
-        "schema": "semantic-continuation/5",
+        "schema": "semantic-continuation/6",
         "heap": [],
         "locals": [],
         "captureAliases": [],
@@ -472,7 +472,7 @@ def test_real_runtime_interface_commits_one_selection_before_any_future_observat
         effectId="fx1",
         result=["num", 7],
         status="fulfilled",
-        line='observe {"effect":"fx1","status":"fulfilled","result":["num",7]}',
+        line="observe @fx1 fulfilled 7",
     )
     second = adapter.select(prefix)
     assert second["record"].startswith("return ")
@@ -480,7 +480,7 @@ def test_real_runtime_interface_commits_one_selection_before_any_future_observat
     assert all(x[2] == "environment" for x in runtime.sessions[0].observations[2:])
     add(prefix, "semantic", line=second["record"])
     third = adapter.select(prefix)
-    assert third["record"] == 'end {"kind":"return"}'
+    assert third["record"] == "end return"
     add(prefix, "semantic", line=third["record"])
     adapter.close_invocation("session1", "i1", prefix)
     track = runtime.sessions[0].tracks.tracks["track:0"]
@@ -573,7 +573,7 @@ def test_invocation_bindings_prevent_source_reordering_or_impersonating_model_ca
 
 
 def test_more_than_eight_lifetime_invocations_reuse_one_model_session_without_aliasing():
-    responses = [b'return {"value":["num",1]}', b'end {"kind":"return"}'] * 12
+    responses = [b"return 1", b"end return"] * 12
     runtime = FakeRuntime(selections=responses)
     adapter = SelectedSemanticInference(runtime, verify_context=False)
     for number in range(12):
@@ -611,7 +611,7 @@ def test_more_than_eight_lifetime_invocations_reuse_one_model_session_without_al
 
 
 def test_model_restart_is_explicit_observed_bootstrap_and_never_reexecutes_tools():
-    runtime = FakeRuntime(selections=[b'return {"value":["num",7]}'])
+    runtime = FakeRuntime(selections=[b"return 7"])
     adapter = SelectedSemanticInference(
         runtime, verify_context=False, model_identity="fixed-fixture-model"
     )
@@ -622,7 +622,7 @@ def test_model_restart_is_explicit_observed_bootstrap_and_never_reexecutes_tools
     add(prefix, "semantic", line=selected["record"])
     checkpoint = adapter.checkpoint("session1", [prefix])
     assert checkpoint["schema"] == "semantic-model-checkpoint/5"
-    restored_runtime = FakeRuntime(selections=[b'end {"kind":"return"}'])
+    restored_runtime = FakeRuntime(selections=[b"end return"])
     restored = SelectedSemanticInference(
         restored_runtime, verify_context=False, model_identity="fixed-fixture-model"
     )
@@ -662,7 +662,7 @@ def test_checkpoint_restore_rejects_stale_contract_even_with_recomputed_packet_d
     from megatoken.semantic_model_adapter import _canonical
 
     adapter = SelectedSemanticInference(
-        FakeRuntime(selections=[b'return {"value":["num",7]}']),
+        FakeRuntime(selections=[b"return 7"]),
         verify_context=False,
         model_identity="fixed-fixture-model",
     )
@@ -693,7 +693,7 @@ def test_current_checkpoint_roundtrips_with_actual_loaded_model_identity_and_fix
         FacetedCore(ModelConfig.tiny(max_history_chunks=64, max_capacity=512)),
         ByteCodec.byte_fallback(),
     )
-    runtime = FakeRuntime(selections=[b'return {"value":["num",7]}'])
+    runtime = FakeRuntime(selections=[b"return 7"])
     runtime.generator.generator = model
     adapter = SelectedSemanticInference(runtime, verify_context=False)
     prefix = fixture()
@@ -702,7 +702,7 @@ def test_current_checkpoint_roundtrips_with_actual_loaded_model_identity_and_fix
     packet = adapter.checkpoint("session1", [prefix])
     assert packet["modelIdentity"] == adapter._identity()
 
-    restored_runtime = FakeRuntime(selections=[b'end {"kind":"return"}'])
+    restored_runtime = FakeRuntime(selections=[b"end return"])
     restored_runtime.generator.generator = model
     restored = SelectedSemanticInference(restored_runtime, verify_context=False)
     assert restored.restore(packet)["nativeEffects"] == 0
@@ -773,10 +773,10 @@ def test_actual_initialized_model_inference_and_source_reread_change_no_weights(
 
 
 def test_fragmented_model_request_reaches_real_native_commit_bridge_once():
-    from megatoken.data.witness_v5 import parse_record
+    from megatoken.data.witness_v6 import parse_record
 
     original = FakeRuntime().selections[0]
-    boundary = original.index(b'"payload"')
+    boundary = original.index(b" payload ")
     runtime = FakeRuntime(selections=[(original[:boundary], False), (original[boundary:], True)])
     adapter = SelectedSemanticInference(runtime, verify_context=False)
     prefix = fixture()
@@ -815,7 +815,7 @@ def test_fragmented_model_request_reaches_real_native_commit_bridge_once():
 
 def test_native_request_authority_survives_later_prefix_acknowledgement():
     """Async dispatch may reach the bridge after the next selection consumed feedback."""
-    from megatoken.data.witness_v5 import parse_record
+    from megatoken.data.witness_v6 import parse_record
 
     runtime = FakeRuntime()
     adapter = SelectedSemanticInference(runtime, verify_context=False)

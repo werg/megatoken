@@ -330,7 +330,7 @@ def test_semantic_execution_continues_from_teacher_recorded_semantics(monkeypatc
         fixture_episode(),
         stream="semantic_execution",
         supervision=Supervision(
-            annotations_json='{"session_metadata":{"task":"semantic-execution/5","modality":"text"},'
+            annotations_json='{"session_metadata":{"task":"semantic-execution/6","modality":"text"},'
             '"semantic_execution":{"continuation":"teacher_conditioned"}}'
         ),
     )

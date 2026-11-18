@@ -97,7 +97,7 @@ def test_controlled_coordinator_and_child_share_actual_bootstrap_join_and_comple
         assert result["record"] == event["line"] and not result["selection"]["modelSelected"]
         prefix["committed"].append(event)
     prefix["selectedState"] = {
-        "schema": "semantic-continuation/5",
+        "schema": "semantic-continuation/6",
         "completion": {"kind": "return", "value": ["num", 7]},
     }
     adapter.close_invocation(session, prefix["invocationId"], prefix)
@@ -155,11 +155,68 @@ def test_actual_coordinator_generation_retains_invalid_bytes_without_fixture_fal
     assert all(item["status"] == "cancelled" for item in cancelled["tracks"])
 
 
+def test_lifecycle_collection_keeps_status_observations_without_duplicate_task_revisions(
+    native_runtime,
+):
+    from megatoken.data.schema import Episode, Lineage, TrackSpec
+    from megatoken.data.semantic_lifecycle import _Recorder
+
+    session = native_runtime.open(effort=1, memory_writes=False)
+    recorder = _Recorder(session)
+    track = native_runtime.track_action(session, "create", purpose="Read the child result")
+    recorder.drain()
+    native_runtime.track_action(session, "wait", address=track.address)
+    native_runtime.track_action(session, "progress", address=track.address, progress="Child ready")
+    recorder.drain()
+    native_runtime.track_action(
+        session, "assign", address=track.address, purpose="Publish the child result"
+    )
+    recorder.drain()
+    native_runtime.track_action(session, "complete", address=track.address)
+    recorder.drain()
+    episode = Episode(
+        "lifecycle-status",
+        tuple(recorder.records),
+        Lineage("test", "v1", "lifecycle-status"),
+        meridians=tuple(recorder.meridians),
+        tracks=tuple(TrackSpec(address, "assistant") for address in session.tracks.tracks),
+        track_revisions=tuple(recorder.track_revisions),
+    )
+    assert [revision.revision for revision in episode.track_revisions] == [0, 1]
+    announcements = [
+        json.loads(record.payload)
+        for record in episode.records
+        if record.role == "system" and b'"purpose"' in record.payload
+    ]
+    assert len(announcements) == 5
+    assert announcements[-1]["status"] == "completed"
+    assert not any(record.policy_mask for record in episode.records)
+    assert Episode.from_dict(episode.to_dict()) == episode
+
+
+def test_lifecycle_collection_rejects_changed_purpose_without_new_revision(native_runtime):
+    from megatoken.data.semantic_lifecycle import _Recorder
+
+    session = native_runtime.open(effort=1, memory_writes=False)
+    recorder = _Recorder(session)
+    track = native_runtime.track_action(session, "create", purpose="Read the child result")
+    recorder.drain()
+    native_runtime.observe_text(
+        session,
+        track.address,
+        b'{"purpose":"Hidden replacement","revision":0}',
+        role="system",
+        effort=1,
+    )
+    with pytest.raises(ValueError, match="later public revision"):
+        recorder.drain()
+
+
 def test_persistent_subscription_owns_new_callbacks_after_registration_call_completes(
     native_runtime,
 ):
     document = json.loads(
-        (Path(__file__).parent / "fixtures/semantic-v5/retained-events.json").read_text()
+        (Path(__file__).parent / "fixtures/semantic-v6/retained-events.json").read_text()
     )
     timeline = document["public"]["timeline"]
     program = timeline[0]

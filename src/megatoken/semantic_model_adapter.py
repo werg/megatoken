@@ -131,7 +131,7 @@ def _validate_prefix(prefix: Any) -> tuple[dict, dict, list[dict]]:
             raise SemanticSelectionError(
                 "Model prefix violates the shared envelope contract: " + str(error)
             ) from error
-        if item.get("schema") != "semantic-execution/5":
+        if item.get("schema") != "semantic-execution/6":
             raise SemanticSelectionError("Model prefix mixes incompatible public contracts")
         mode = item.get("mode")
         if item.get("kind") in {
@@ -519,7 +519,7 @@ class SelectedSemanticInference:
                         "Model transcript does not match its previously committed selection"
                     )
                 work.selected.pop(0)
-                from megatoken.data.witness_v5 import parse_record
+                from megatoken.data.witness_v6 import parse_record
 
                 kind, fields = parse_record(event["line"])
                 if kind == "request" and "promise" in fields:
@@ -871,7 +871,7 @@ class SelectedSemanticInference:
                 "completion",
                 "randomState",
             }
-            or snapshot["schema"] != "semantic-continuation/5"
+            or snapshot["schema"] != "semantic-continuation/6"
         ):
             raise SemanticSelectionError(
                 "Retained execution requires its exact committed selected-state snapshot"
@@ -1061,7 +1061,7 @@ class SelectedSemanticInference:
             self._advance(state, work, events[len(work.seen) :])
             if work.waiting_promise is not None and prefix.get("selectedState") is not None:
                 snapshot = prefix["selectedState"]
-                if snapshot.get("schema") != "semantic-continuation/5":
+                if snapshot.get("schema") != "semantic-continuation/6":
                     raise SemanticSelectionError(
                         "Cannot wake from an incompatible selected-state snapshot"
                     )
@@ -1337,28 +1337,29 @@ class SelectedSemanticInference:
             self._advance(state, work, events[len(work.seen) :])
             if work.selected:
                 raise SemanticSelectionError("Cannot complete before last selection commits")
-            from megatoken.data.witness_v5 import parse_record
+            from megatoken.data.witness_v6 import parse_record
 
             terminal = []
             for event in events:
                 if event.get("kind") != "semantic":
                     continue
                 kind, fields = parse_record(event["line"])
-                if (
-                    kind in {"return", "throw"}
-                    and fields.get("invocation", invocation) == invocation
-                ):
+                if fields.get("invocation", invocation) != invocation:
+                    continue
+                if kind in {"return", "throw"}:
                     terminal.append((kind, fields))
+                elif kind == "summarize":
+                    terminal.append(("return", {"value": fields["result"]}))
             if not terminal:
                 raise SemanticSelectionError("Completion needs an owned root return or throw")
             completion_kind, completion_fields = terminal[-1]
             snapshot = prefix.get("selectedState")
             if snapshot is not None and snapshot.get("completion") is not None:
-                from megatoken.data.witness_v5 import value as validate_value
+                from megatoken.data.witness_v6 import value as validate_value
 
                 completion = snapshot["completion"]
                 if (
-                    snapshot.get("schema") != "semantic-continuation/5"
+                    snapshot.get("schema") != "semantic-continuation/6"
                     or set(completion) != {"kind", "value"}
                     or completion["kind"] not in {"return", "throw"}
                 ):
@@ -1409,7 +1410,7 @@ class SelectedSemanticInference:
         performs that action. Nothing asks the model to describe it again.
         """
         from megatoken.data.semantic_request import _host_request
-        from megatoken.data.witness_v5 import parse_record
+        from megatoken.data.witness_v6 import parse_record
 
         with self.lock:
             state = self.sessions.get(session)

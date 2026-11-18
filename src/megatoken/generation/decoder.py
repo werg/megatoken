@@ -249,8 +249,10 @@ class DeterministicDecoder(nn.Module):
         unconstrained case.
         """
         lower = 0 if spec is None else spec.min_tokens
-        upper = self.config.max_capacity if spec is None else min(
-            spec.max_tokens, self.config.max_capacity
+        upper = (
+            self.config.max_capacity
+            if spec is None
+            else min(spec.max_tokens, self.config.max_capacity)
         )
         return tuple(range(lower, upper + 1))
 
@@ -295,9 +297,7 @@ class DeterministicDecoder(nn.Module):
         zero = header.float().sum() * 0
         losses = {name: (zero, 0) for name in DECODER_LOSSES}
         lengths = torch.tensor([len(row) for row in plan.ids], device=header.device)
-        length_supports = tuple(
-            self._text_length_support(spec) for spec in plan.mode_specs
-        )
+        length_supports = tuple(self._text_length_support(spec) for spec in plan.mode_specs)
         losses["structure"] = self._support_loss(
             header, self.length_codes, lengths, length_supports, name="length"
         )
@@ -320,9 +320,7 @@ class DeterministicDecoder(nn.Module):
             losses["structure"] = previous + loss, count + 1
         header = self.condition(header, self.length_codes, lengths)
         terminals = torch.tensor(plan.terminals, device=header.device, dtype=torch.long)
-        terminal_supports = tuple(
-            self._terminal_support(spec) for spec in plan.mode_specs
-        )
+        terminal_supports = tuple(self._terminal_support(spec) for spec in plan.mode_specs)
         losses["terminal"] = self._support_loss(
             header, self.terminal_codes, terminals, terminal_supports, name="terminal"
         )
@@ -364,9 +362,7 @@ class DeterministicDecoder(nn.Module):
                 states.setdefault(kind, []).append(
                     rows.index_select(
                         0,
-                        torch.tensor(
-                            selected_positions, device=rows.device, dtype=torch.long
-                        ),
+                        torch.tensor(selected_positions, device=rows.device, dtype=torch.long),
                     )
                 )
                 targets.setdefault(kind, []).extend(group_targets[kind])

@@ -225,7 +225,9 @@ def test_raw_teacher_matches_real_renderer_length_terminal_and_lexical_heads(mod
     assert 2 <= decisions["length/text"] <= 4
     assert decisions["terminal"] == int(decoded.terminal)
     serving_logits = {
-        "length": next(logits for codes, logits in logit_calls if codes is model.decoder.length_codes),
+        "length": next(
+            logits for codes, logits in logit_calls if codes is model.decoder.length_codes
+        ),
         "terminal": next(
             logits for codes, logits in logit_calls if codes is model.decoder.terminal_codes
         ),
@@ -242,7 +244,9 @@ def test_raw_teacher_matches_real_renderer_length_terminal_and_lexical_heads(mod
     )
     teacher_losses = model.decoder.teacher_raw(model.core, raw, plan)
     teacher_logits = {
-        "length": next(logits for codes, logits in logit_calls if codes is model.decoder.length_codes),
+        "length": next(
+            logits for codes, logits in logit_calls if codes is model.decoder.length_codes
+        ),
         "terminal": next(
             logits for codes, logits in logit_calls if codes is model.decoder.terminal_codes
         ),
@@ -290,9 +294,7 @@ def test_raw_target_rejects_text_outside_its_public_support(model):
         model.prepare_target(target_bytes=b"\xff", mode_specs=[utf8_spec])
     terminal_spec = ActionSpec(min_tokens=1, max_tokens=4, require_terminal=True)
     with pytest.raises(ValueError, match="terminal label"):
-        model.prepare_target(
-            target_bytes=b"a", terminal=False, mode_specs=[terminal_spec]
-        )
+        model.prepare_target(target_bytes=b"a", terminal=False, mode_specs=[terminal_spec])
 
 
 def test_raw_teacher_has_zero_loss_for_publicly_forced_length_and_terminal(model):
@@ -301,9 +303,7 @@ def test_raw_teacher_has_zero_loss_for_publicly_forced_length_and_terminal(model
     spec = ActionSpec(text_kind="ascii", min_tokens=3, max_tokens=3, require_terminal=True)
     decoded = model.decode_facets(raw, spec=spec)
     assert decoded.valid and decoded.terminal
-    plan = model.prepare_target(
-        target_ids=[decoded.emitted_ids], terminal=True, mode_specs=[spec]
-    )
+    plan = model.prepare_target(target_ids=[decoded.emitted_ids], terminal=True, mode_specs=[spec])
     losses = model.decoder.teacher_raw(model.core, raw, plan)
     assert losses["structure"][1] == 2  # singleton text mode plus forced length
     assert losses["structure"][0].item() == 0
