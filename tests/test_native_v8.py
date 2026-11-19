@@ -1,4 +1,6 @@
 import copy
+import base64
+import gzip
 import json
 import unittest
 from pathlib import Path
@@ -6,13 +8,13 @@ from pathlib import Path
 from megatoken.data.native_v8 import NativeV8Error, validate_v8_artifact
 
 
-FIXTURE = Path(__file__).parent / "fixtures" / "semantic-regions-v8.json"
+FIXTURE = Path(__file__).parent / "fixtures" / "semantic-regions-v8.json.gz.b64"
 
 
 class NativeV8Tests(unittest.TestCase):
     @classmethod
     def setUpClass(cls):
-        cls.document = json.loads(FIXTURE.read_text())
+        cls.document = json.loads(gzip.decompress(base64.b64decode(FIXTURE.read_bytes())))
 
     def test_public_interoperability_examples_are_independently_checked(self):
         for example in self.document["examples"]:
