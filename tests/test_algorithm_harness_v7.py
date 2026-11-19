@@ -387,6 +387,19 @@ class _FakeNativeRuntime:
         )
 
 
+class _MutatingThenRaisingNativeRuntime(_FakeNativeRuntime):
+    def __init__(self):
+        super().__init__()
+        self.fail_after_observation = False
+
+    def observe_text(self, session, track, payload, *, role, **kwargs):
+        result = super().observe_text(session, track, payload, role=role, **kwargs)
+        if self.fail_after_observation:
+            self.fail_after_observation = False
+            raise RuntimeError("runtime failed after retaining observation")
+        return result
+
+
 def test_native_serving_uses_matching_context_controls_continuation_and_rejects_stale_definitions(
     artifacts,
 ):
@@ -447,6 +460,29 @@ def test_native_serving_restore_rebuilds_context_without_dispatching(artifacts):
         "serve-after-observation"
     ].runtime_session.observations
     assert restored_runtime.calls == []
+
+
+def test_mutating_observation_failure_poisons_generic_session_and_blocks_dispatch_retry(artifacts):
+    runtime = _MutatingThenRaisingNativeRuntime()
+    adapter = AlgorithmModelAdapterV7(runtime)
+    restored = adapter.restore(
+        "serve-poisoned",
+        artifacts["checkpoint"],
+        contexts=[artifacts["checkpointContext"]],
+    )
+    pending = restored["pending"]
+    runtime.fail_after_observation = True
+
+    with pytest.raises(RuntimeError, match="after retaining"):
+        adapter.record_dispatch("serve-poisoned", pending["id"], key=pending["key"])
+
+    driver_state = adapter.driver.sessions["serve-poisoned"]
+    assert driver_state.poisoned
+    assert driver_state.runtime_session.observations[-1][1] == "environment"
+    with pytest.raises(AlgorithmServingError, match="poisoned"):
+        adapter.record_dispatch("serve-poisoned", pending["id"], key=pending["key"])
+    with pytest.raises(AlgorithmServingError, match="poisoned"):
+        adapter.select("serve-poisoned")
 
 
 def test_actual_native_runtime_receives_the_same_chunked_prefix_and_selection_controls(artifacts):

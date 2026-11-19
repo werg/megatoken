@@ -149,28 +149,35 @@ class V7NativeModelDriver:
         native_track = self.track if track is None else track
         archive = getattr(state.runtime_session, "context_archive", None)
         before = set(getattr(archive, "events", {})) if archive is not None else set()
-        self.runtime.observe_text(
-            state.runtime_session,
-            native_track,
-            payload,
-            role=role,
-            effort=self.effort,
-            content_kind="text",
-        )
-        archive = getattr(state.runtime_session, "context_archive", None)
-        events = set(getattr(archive, "events", {})) if archive is not None else set()
-        added = tuple(events - before)
-        if not added:
-            raise AlgorithmServingError(
-                "Native runtime did not retain the exact public observation"
+        try:
+            self.runtime.observe_text(
+                state.runtime_session,
+                native_track,
+                payload,
+                role=role,
+                effort=self.effort,
+                content_kind="text",
             )
-        if visibility == "persistent":
-            state.persistent_visible_ids.update(added)
-        elif visibility == "context":
-            state.latest_context_ids = set(added)
-            state.current_fragment_ids.clear()
-        elif visibility == "generated":
-            state.committed_record_ids.update(added)
+            archive = getattr(state.runtime_session, "context_archive", None)
+            events = set(getattr(archive, "events", {})) if archive is not None else set()
+            added = tuple(events - before)
+            if not added:
+                raise AlgorithmServingError(
+                    "Native runtime did not retain the exact public observation"
+                )
+            if visibility == "persistent":
+                state.persistent_visible_ids.update(added)
+            elif visibility == "context":
+                state.latest_context_ids = set(added)
+                state.current_fragment_ids.clear()
+            elif visibility == "generated":
+                state.committed_record_ids.update(added)
+        except BaseException:
+            # observe_text can append chunks before raising, and archive checks can
+            # fail after that mutation. No retry may treat such a partial prefix as
+            # committed model context.
+            state.poisoned = True
+            raise
         return added
 
     def _require_visible_context(self, state: _DriverSession) -> None:
