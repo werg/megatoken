@@ -75,8 +75,13 @@ def validate_semantic_creation_observations(episode: Episode) -> None:
 
 
 def physical_semantic_episode(
-    episode: Episode, *, codec, max_positions: int, max_history: int,
+    episode: Episode,
+    *,
+    codec,
+    max_positions: int,
+    max_history: int,
     selection_instruction=None,
+    emit_context_windows=True,
 ):
     if type(max_positions) is not int or max_positions < 1:
         raise ValueError("Semantic physical token budget must be positive")
@@ -127,12 +132,13 @@ def physical_semantic_episode(
             if record.policy_mask and chunk_index > 0:
                 if selection_instruction is None:
                     from megatoken.controls import semantic_selection_instruction
+
                     instruction = semantic_selection_instruction(continuation=True)
                 else:
                     instruction = selection_instruction(continuation=True)
                 chunk_event = replace(event, instruction=instruction)
             append_chunk(chunk, chunk_event)
-        if not record.policy_mask and record.payload.startswith(b"{"):
+        if emit_context_windows and not record.policy_mask and record.payload.startswith(b"{"):
             observation = json.loads(record.payload)
             kind = observation.get("kind")
             if (
@@ -174,7 +180,9 @@ def physical_semantic_episode(
     )
     annotations = json.loads(episode.supervision.annotations_json)
     annotations["semantic_geometry"] = {
-        "schema": "semantic-native-geometry/7" if annotations.get("semantic_execution", {}).get("schema") == "semantic-execution/7" else "semantic-native-geometry/4",
+        "schema": "semantic-native-geometry/7"
+        if annotations.get("semantic_execution", {}).get("schema") == "semantic-execution/7"
+        else "semantic-native-geometry/4",
         "maxPositions": max_positions,
         "maxHistory": max_history,
     }

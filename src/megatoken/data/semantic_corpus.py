@@ -123,6 +123,13 @@ def verify_admission(
 
 def semantic_behaviors(episode) -> set[str]:
     """Derive supply coverage from actual logical records, not declared dataset labels."""
+    if (
+        json.loads(episode.supervision.annotations_json).get("semantic_execution", {}).get("schema")
+        == "semantic-execution/7"
+    ):
+        from .semantic_corpus_v7 import semantic_behaviors_v7
+
+        return semantic_behaviors_v7(episode)
     behaviors = set()
     records = []
     for parts in episode.iter_logical_records():
