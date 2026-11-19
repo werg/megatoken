@@ -213,12 +213,14 @@ def _resume_call(machine, node, method, argument):
         _fail("retained generator invocation")
     if not machine.get("stack"):
         _fail("resume requires caller frame")
+    closure = machine["heap"][node["callee"][1]]
+    if any(capture["cell"] not in machine["locals"] for capture in closure.get("captures", [])):
+        _fail("generator capture is not initialized")
     proto = machine["protocol"]
     proto["callFrames"].append({"child": invocation, "parent": machine["stack"][-1],
         "priorReceiver": copy.deepcopy(machine.get("receiver", ["undefined"])),
         "priorAliases": [[key, value] for key, value in machine.get("captureAliases", {}).items()],
         "arguments": copy.deepcopy(node["arguments"])})
-    closure = machine["heap"][node["callee"][1]]
     machine["receiver"] = copy.deepcopy(closure.get("lexicalReceiver") if closure.get("functionKind") == "arrow" else node["receiver"])
     machine["captureAliases"] = {row["binding"]: row["cell"] for row in closure.get("captures", [])}
     machine["locals"][invocation + ":this"] = copy.deepcopy(machine["receiver"])

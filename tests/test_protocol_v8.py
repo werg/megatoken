@@ -283,11 +283,17 @@ class ProtocolV8NativeReplayTests(unittest.TestCase):
                 0,
                 30,
             ),
+            "source-proxy-traps-arithmetic": (
+                "8a7028de68baae6e315499727f843814ccfe340ec7ec13d78c2890be118a9952",
+                "2e586831fb90d84958046b8093b090604816f82aec8738fa1b0463f492611610",
+                22,
+                3,
+                25,
+            ),
         }
         deferred = {
             "source-promise-all-reaction-arithmetic",
             "source-promise-join-rejection-finally",
-            "source-proxy-traps-arithmetic",
         }
         case_ids = {case["id"] for case in self.artifact["cases"]}
         self.assertEqual(case_ids, set(expected) | deferred)
@@ -368,6 +374,41 @@ class ConstructionProtocolNativeTests(unittest.TestCase):
             functionKind="ordinary" if kind == "closure" else None,
             lexicalReceiver=None,
         )
+
+    def test_hoisted_capture_cell_may_be_declared_before_initialization(self):
+        self.send(
+            "allocate",
+            name="closure",
+            objectKind="closure",
+            length=None,
+            properties=[],
+            code="f",
+            captures=[{"binding": "x", "cell": "cell"}],
+            functionKind="ordinary",
+            lexicalReceiver=None,
+        )
+        with self.assertRaises(ProtocolV8Error):
+            self.send(
+                "call",
+                child="call1",
+                callee=["ref", "closure"],
+                receiver=["undefined"],
+                arguments=[],
+            )
+        self.assertNotIn("closure", self.machine["frameFunctions"])
+        self.machine["locals"]["cell"] = ["num", 7]
+        self.send(
+            "call",
+            child="call1",
+            callee=["ref", "closure"],
+            receiver=["undefined"],
+            arguments=[],
+        )
+        del self.machine["locals"]["cell"]
+        with self.assertRaises(ProtocolV8Error):
+            validate_protocol_state(
+                self.machine["protocol"], self.machine["heap"], _external_machine(self.machine)
+            )
 
     def class_(self, name, heritage=("undefined",)):
         self.allocate(name, "closure", name + "-code")

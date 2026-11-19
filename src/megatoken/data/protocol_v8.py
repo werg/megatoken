@@ -469,10 +469,17 @@ def _lookup_descriptor(machine, identity, key):
 
 
 def _install(node, key, d):
-    if _descriptor(node, key) is None:
+    exists = _descriptor(node, key) is not None
+    if not exists:
         if "keyOrder" not in node:
             node["keyOrder"] = _ordered(node)
         node["keyOrder"].append(key)
+    else:
+        # The producer serializes its Map-backed properties and descriptors in
+        # insertion order. Its descriptor installation deletes and reinserts
+        # an existing key while preserving the separate public keyOrder list.
+        node["properties"].pop(key, None)
+        node["descriptors"].pop(key, None)
     if d["kind"] == "data":
         node["properties"][key] = copy.deepcopy(d["value"])
         node["descriptors"][key] = {k: copy.deepcopy(v) for k, v in d.items() if k != "value"}
@@ -887,6 +894,8 @@ def _apply(machine, record):
             _fail("generator call requires its declared creation/resume protocol")
         if node.get("callable", {}).get("classConstructor"):
             _fail("class constructor cannot be called without construction")
+        if any(capture["cell"] not in machine["locals"] for capture in node["captures"]):
+            _fail("closure capture is not initialized")
         p["callFrames"].append(
             {
                 "child": record["child"],
@@ -1371,6 +1380,12 @@ def validate_protocol_state(snapshot, heap_ids=(), shared_state=None):
             else {"heap": heap_nodes, "protocol": snapshot}
         )
         validate_construction_record_state(snapshot["construction"], construction_machine)
+    if shared_state is not None:
+        active_machine = _internal_machine(shared_state)
+        for binding, cell in active_machine.get("captureAliases", {}).items():
+            if not isinstance(binding, str) or not isinstance(cell, str) or cell not in active_machine["locals"]:
+                _fail("active closure capture is not initialized")
+            _known(active_machine, active_machine["locals"][cell])
     if heap_nodes is not None:
         known_machine = {"heap": heap_nodes, "protocol": snapshot}
         for identity, node in heap_nodes.items():
