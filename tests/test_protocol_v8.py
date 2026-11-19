@@ -99,6 +99,7 @@ class ProtocolV8NativeReplayTests(unittest.TestCase):
             "source-symbol-getter-arithmetic":("f0f48dc8fcdc5e97e03334dc19d7f076f02f9f9c39095603070af4a0b2fc6c30","00a245053b8a2c70089a755792a5149637afa9dadd59c2480bb10c4f3255c55a",11,3,8),
             "typed-views-shared-backing":("bf88479ca947f7ae6250c493e458db1edac052b1ecd3ebdb8f8fe4f8b52e86d9","519dce4e0d95f63c1070ec27c7d1c6f977110fb543f44b790b476006509def23",13,0,8),
             "source-derived-private-arithmetic":("ea92a427b7c99365502f6b1df70d5bc60241079b987aea6695457187debb8f2d","72825d06e63761462e0f00f01575bfa7d8126d20e3078a2e2c31a88f3a5cf80a",64,2,21),
+            "builtin-iterator-mixed-arithmetic":("a2e355eed02c63c41850dbff17cac4d5c8fc07b71ae5fccf214ab4d4b9de5c33","9f0bc0d24903e7f3a1390745b5f59b6a41b76320d453709d677713bd76e03d8e",16,2,12),
         }
         self.assertEqual({case["id"] for case in self.artifact["cases"]},set(expected))
         for golden in self.artifact["cases"]:

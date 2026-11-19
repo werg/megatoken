@@ -1540,7 +1540,7 @@
       "reason": "old artifacts require their original contract"
     }
   ],
-  "interoperabilityDigest": "3c9086556dfc944d56f5cc4eff288b2047da854e0ab4fcf8dc3ea47b08524849",
+  "interoperabilityDigest": "bb357a86f10500d0633effad391437fa0ed14531b0ce92ac56c379e7e4228b59",
   "interoperability": [
     {
       "id": "ordered-map",
@@ -1563,6 +1563,11 @@
       "fixtureDigest": "d345ef84cb001f56f63363d2e0ba16cf6ad101c9739ffb089599c965e613acd4"
     },
     {
+      "id": "iterator-machine",
+      "schema": "semantic-protocol-fixtures/1",
+      "fixtureDigest": "c99e3489c40cea267517269a93d2f3cd4ab076202c7f890147e6f15745b0c783"
+    },
+    {
       "id": "protocol-region:source-symbol-getter-arithmetic",
       "publicDigest": "f0f48dc8fcdc5e97e03334dc19d7f076f02f9f9c39095603070af4a0b2fc6c30",
       "contextDigest": "00a245053b8a2c70089a755792a5149637afa9dadd59c2480bb10c4f3255c55a"
@@ -1576,6 +1581,11 @@
       "id": "protocol-region:source-derived-private-arithmetic",
       "publicDigest": "ea92a427b7c99365502f6b1df70d5bc60241079b987aea6695457187debb8f2d",
       "contextDigest": "72825d06e63761462e0f00f01575bfa7d8126d20e3078a2e2c31a88f3a5cf80a"
+    },
+    {
+      "id": "protocol-region:builtin-iterator-mixed-arithmetic",
+      "publicDigest": "a2e355eed02c63c41850dbff17cac4d5c8fc07b71ae5fccf214ab4d4b9de5c33",
+      "contextDigest": "9f0bc0d24903e7f3a1390745b5f59b6a41b76320d453709d677713bd76e03d8e"
     }
   ]
 }
