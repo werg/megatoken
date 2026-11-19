@@ -13,7 +13,6 @@ import math
 from collections.abc import Mapping, MutableMapping, Sequence
 from typing import Any
 
-
 ALGORITHM_CONTEXT_SCHEMA = "semantic-context/7"
 ALGORITHM_CONTINUATION_SCHEMA = "semantic-continuation/7"
 
@@ -37,7 +36,9 @@ def algorithm_selection_instruction(*, continuation: bool = False) -> str:
         "observations, private evidence, or future responses."
     )
     if continuation:
-        instruction += " Continue the exact current record bytes; end only when the record is complete."
+        instruction += (
+            " Continue the exact current record bytes; end only when the record is complete."
+        )
     return instruction
 
 
@@ -150,7 +151,11 @@ def validate_algorithm_context(
     )
     if item.get("schema") != ALGORITHM_CONTEXT_SCHEMA or item.get("representation") != "algorithm":
         raise AlgorithmContextError("Wrong explicit semantic-context/7 representation")
-    if type(invocation_id) is not str or not invocation_id or item.get("invocationId") != invocation_id:
+    if (
+        type(invocation_id) is not str
+        or not invocation_id
+        or item.get("invocationId") != invocation_id
+    ):
         raise AlgorithmContextError("Algorithm context invocation identity changed")
     if type(item.get("visibleThrough")) is not int or item["visibleThrough"] != len(prior):
         raise AlgorithmContextError("Algorithm context cutoff is stale or points into the future")
@@ -174,7 +179,9 @@ def validate_algorithm_context(
         published = key in item
         if cached is None:
             if not published or not _same(item[key], expected):
-                raise AlgorithmContextError(f"First {label} use must publish the exact immutable value")
+                raise AlgorithmContextError(
+                    f"First {label} use must publish the exact immutable value"
+                )
             definitions[digest] = copy.deepcopy(expected)
         elif not _same(cached, expected):
             raise AlgorithmContextError(f"Consumer {label} cache is stale or tampered")
@@ -242,4 +249,3 @@ def restore_algorithm_continuation_v7(packet: Mapping[str, Any]):
         raise
     except (TypeError, ValueError, KeyError) as error:
         raise AlgorithmContextError(f"Algorithm continuation replay failed: {error}") from error
-

@@ -42,7 +42,6 @@ from .algorithm_context_v7 import (
     validate_algorithm_context,
 )
 
-
 IDENTITY = re.compile(r"^[a-z][a-z0-9:_-]*$")
 HEX_SHA256 = re.compile(r"^[0-9a-f]{64}$")
 PUBLIC_SCHEMA = "semantic-execution/7"
@@ -176,7 +175,7 @@ def validate_algorithm_program_v7(program: Mapping[str, Any]) -> dict[str, Any]:
             or boundary.get("operation") != step["operation"]
             or boundary.get("sourceDigest") != program["sourceDigest"]
             or boundary.get("capability") != step["operation"]
-            or boundary.get("awaited") is not True
+            or type(boundary.get("awaited")) is not bool
             or boundary.get("observationDomain") != "non-bigint-scalar/1"
         ):
             _fail("Effect authorization differs from its immutable source/core boundary")
@@ -187,7 +186,9 @@ def validate_algorithm_program_v7(program: Mapping[str, Any]) -> dict[str, Any]:
         _fail("Unsupported algorithm execution profile")
     if (profile == "bounded-pure-algorithm/1") != (not request_steps):
         _fail("Algorithm profile does not match its certified effect boundaries")
-    body = {key: copy.deepcopy(value) for key, value in program.items() if key != "definitionDigest"}
+    body = {
+        key: copy.deepcopy(value) for key, value in program.items() if key != "definitionDigest"
+    }
     if program.get("definitionDigest") != stable_algorithm_hash(body):
         _fail("Immutable algorithm definition digest changed")
     return copy.deepcopy(dict(program))
@@ -217,11 +218,15 @@ def _validate_input_graph(program: Mapping[str, Any], input_graph: Mapping[str, 
         keys: set[str] = set()
         for prop in properties:
             _exact_fields(prop, {"key", "value"}, {"version"}, "Algorithm graph property")
-            if not isinstance(prop.get("key"), str) or prop["key"] == "__proto__" or prop["key"] in keys:
+            if (
+                not isinstance(prop.get("key"), str)
+                or prop["key"] == "__proto__"
+                or prop["key"] in keys
+            ):
                 _fail("Algorithm graph has a malformed or duplicate data property")
             keys.add(prop["key"])
     try:
-        heap_builder = getattr(_core_api(), "algorithm_heap_from_graph")
+        heap_builder = _core_api().algorithm_heap_from_graph
         heap = heap_builder(input_graph)
         # This checks input types, referenced heap identities, dense arrays, and
         # all tagged leaves before replay can trust them.
@@ -267,7 +272,11 @@ def _scalar_to_json(value: list[Any]):
         raise ValueError("undefined is not serializable in canonical JSON arguments")
     if tag == "bool" or tag == "str":
         return value[1]
-    if tag == "num" and type(value[1]) in (int, float) and value[1] not in ("-0", "NaN", "+Infinity", "-Infinity"):
+    if (
+        tag == "num"
+        and type(value[1]) in (int, float)
+        and value[1] not in ("-0", "NaN", "+Infinity", "-Infinity")
+    ):
         return value[1]
     raise ValueError("Effect argument requires a codec outside canonical scalar JSON")
 
@@ -319,7 +328,9 @@ class AlgorithmReplayV7:
         self.input_graph, self.heap = _validate_input_graph(self.program, input_graph)
         self.invocation_id = _identity(invocation_id, "invocation identity")
         self.session_id = _identity(session_id, "session identity")
-        expected_capabilities = list(dict.fromkeys(item["operation"] for item in self.program["boundaries"]))
+        expected_capabilities = list(
+            dict.fromkeys(item["operation"] for item in self.program["boundaries"])
+        )
         if capabilities is None:
             capabilities = expected_capabilities
         if (
@@ -333,7 +344,9 @@ class AlgorithmReplayV7:
         self.capability_set = set(capabilities)
         self.inputs = {
             input_row["id"]: copy.deepcopy(value)
-            for input_row, value in zip(self.program["core"]["inputs"], self.input_graph["roots"], strict=True)
+            for input_row, value in zip(
+                self.program["core"]["inputs"], self.input_graph["roots"], strict=True
+            )
         }
         self.values: dict[str, list[Any]] = {}
         self.symbols: dict[str, Mapping[str, Any]] = {}
@@ -356,8 +369,15 @@ class AlgorithmReplayV7:
         if self.completion is not None:
             return None
         if self.abrupt is not None:
-            return {"kind": "throw", "value": {"op": "literal", "value": copy.deepcopy(self.abrupt)}}
-        return self.program["core"]["steps"][self.cursor] if self.cursor < len(self.program["core"]["steps"]) else None
+            return {
+                "kind": "throw",
+                "value": {"op": "literal", "value": copy.deepcopy(self.abrupt)},
+            }
+        return (
+            self.program["core"]["steps"][self.cursor]
+            if self.cursor < len(self.program["core"]["steps"])
+            else None
+        )
 
     def expand(self, term: Mapping[str, Any], seen: set[str] | None = None):
         seen = set() if seen is None else seen
@@ -394,7 +414,9 @@ class AlgorithmReplayV7:
         try:
             record = api.parse_algorithm_record(line, role="generated")
         except (TypeError, ValueError) as error:
-            raise AlgorithmHarnessError(f"Invalid generated semantic-trace/7 record: {error}") from error
+            raise AlgorithmHarnessError(
+                f"Invalid generated semantic-trace/7 record: {error}"
+            ) from error
         if record["kind"] == "observe":
             _fail("External observations cannot be generated by the model")
         step = self.next_step()
@@ -407,7 +429,13 @@ class AlgorithmReplayV7:
             identity = record["id"]
             if identity in self.values or identity in self.inputs:
                 _fail("Algorithm value identity was reused")
-            expected_term = step["term"] if step["kind"] == "compute" else step["value"] if step["kind"] in {"return", "throw"} else None
+            expected_term = (
+                step["term"]
+                if step["kind"] == "compute"
+                else step["value"]
+                if step["kind"] in {"return", "throw"}
+                else None
+            )
             if expected_term is None:
                 _fail("Computation cannot cross a certified effect boundary")
             expanded = self.expand(record["term"])
@@ -423,7 +451,9 @@ class AlgorithmReplayV7:
             try:
                 expected = api.evaluate_term(record["term"], self.environment())
             except (TypeError, ValueError, KeyError) as error:
-                raise AlgorithmHarnessError(f"Cannot evaluate selected algorithm claim: {error}") from error
+                raise AlgorithmHarnessError(
+                    f"Cannot evaluate selected algorithm claim: {error}"
+                ) from error
             claim = self._claim(record, expected, _same(record["result"], expected))
             self.values[identity] = copy.deepcopy(record["result"])
             self.symbols[identity] = copy.deepcopy(record["term"])
@@ -449,9 +479,13 @@ class AlgorithmReplayV7:
             if self.first_violation is not None:
                 _fail("An earlier false claim cannot authorize an external request")
             try:
-                expected_args = [api.evaluate_term(term, self.environment()) for term in step["arguments"]]
+                expected_args = [
+                    api.evaluate_term(term, self.environment()) for term in step["arguments"]
+                ]
             except (TypeError, ValueError, KeyError) as error:
-                raise AlgorithmHarnessError(f"Cannot evaluate certified effect arguments: {error}") from error
+                raise AlgorithmHarnessError(
+                    f"Cannot evaluate certified effect arguments: {error}"
+                ) from error
             if not _same(record["arguments"], expected_args):
                 _fail("Effect request arguments differ from the committed dependencies")
             payload, codec, action_arguments = _transport(record["operation"], record["arguments"])
@@ -476,7 +510,9 @@ class AlgorithmReplayV7:
             try:
                 expected = api.evaluate_term(step["value"], self.environment())
             except (TypeError, ValueError, KeyError) as error:
-                raise AlgorithmHarnessError(f"Cannot evaluate algorithm completion: {error}") from error
+                raise AlgorithmHarnessError(
+                    f"Cannot evaluate algorithm completion: {error}"
+                ) from error
             self._claim(record, expected, _same(record["value"], expected))
             self.completion = {"kind": record["kind"], "value": copy.deepcopy(record["value"])}
             self.abrupt = None
@@ -486,14 +522,20 @@ class AlgorithmReplayV7:
             _fail("Generated record is outside the certified algorithm profile")
 
         self._append_history("generated", line)
-        return {"record": record, "claim": copy.deepcopy(self.claims[-1]), "dispatch": copy.deepcopy(locals().get("dispatch"))}
+        return {
+            "record": record,
+            "claim": copy.deepcopy(self.claims[-1]),
+            "dispatch": copy.deepcopy(locals().get("dispatch")),
+        }
 
     def observe(self, line: str):
         api = _core_api()
         try:
             record = api.parse_algorithm_record(line, role="observed")
         except (TypeError, ValueError) as error:
-            raise AlgorithmHarnessError(f"Invalid observed semantic-trace/7 record: {error}") from error
+            raise AlgorithmHarnessError(
+                f"Invalid observed semantic-trace/7 record: {error}"
+            ) from error
         step = self.next_step()
         if (
             record["kind"] != "observe"
@@ -584,7 +626,9 @@ class AlgorithmReplayV7:
             "prefixDigest": stable_algorithm_hash(self.history),
         }
         self._add_definition_publication(context, definitions, definition, self.program, "program")
-        self._add_definition_publication(context, definitions, input_digest, self.input_graph, "inputGraph")
+        self._add_definition_publication(
+            context, definitions, input_digest, self.input_graph, "inputGraph"
+        )
         return context
 
     def checkpoint(self) -> dict[str, Any]:
@@ -610,7 +654,17 @@ class AlgorithmReplayV7:
             _fail("Consumer immutable definition cache was altered")
 
 
-def _validate_sidecar(export: Mapping[str, Any], public: Mapping[str, Any], contexts: list, program: Mapping[str, Any], replay: AlgorithmReplayV7, generated_certificates: list[dict[str, Any]], *, allow_local: bool, admission_verifier: Callable[[Mapping[str, Any]], bool] | None):
+def _validate_sidecar(
+    export: Mapping[str, Any],
+    public: Mapping[str, Any],
+    contexts: list,
+    program: Mapping[str, Any],
+    replay: AlgorithmReplayV7,
+    generated_certificates: list[dict[str, Any]],
+    *,
+    allow_local: bool,
+    admission_verifier: Callable[[Mapping[str, Any]], bool] | None,
+):
     sidecar = export.get("sidecar")
     if not isinstance(sidecar, Mapping) or sidecar.get("schema") != "semantic-algorithm-evidence/2":
         _fail("Algorithm evidence sidecar must use semantic-algorithm-evidence/2")
@@ -662,7 +716,13 @@ def _validate_sidecar(export: Mapping[str, Any], public: Mapping[str, Any], cont
         _fail("Algorithm evidence needs independently reconciled source checks")
     if admission == "admitted" and not {"sourceAdmission", "nativeAdmissionStatus"} <= set(sidecar):
         _fail("Admitted algorithm evidence needs its source and native admission receipts")
-    binding_fields = {"splitIdentity", "split", "sourceComponent", "familyRegistryDigest", "datasetBinding"}
+    binding_fields = {
+        "splitIdentity",
+        "split",
+        "sourceComponent",
+        "familyRegistryDigest",
+        "datasetBinding",
+    }
     if set(sidecar) & binding_fields and not binding_fields <= set(sidecar):
         _fail("Bound algorithm data must carry the complete frozen split and family binding")
     if admission != "admitted" and not allow_local:
@@ -673,12 +733,23 @@ def _validate_sidecar(export: Mapping[str, Any], public: Mapping[str, Any], cont
         or not admission_verifier(export)
     ):
         _fail("Admitted algorithm data needs independently verified source/effect evidence")
-    if sidecar.get("sourceDigest") != program["sourceDigest"] or sidecar.get("coreDigest") != program["coreDigest"] or sidecar.get("definitionDigest") != program["definitionDigest"]:
+    if (
+        sidecar.get("sourceDigest") != program["sourceDigest"]
+        or sidecar.get("coreDigest") != program["coreDigest"]
+        or sidecar.get("definitionDigest") != program["definitionDigest"]
+    ):
         _fail("Private source evidence refers to a different immutable algorithm definition")
     for key, value in (("publicDigest", public), ("contextDigest", contexts)):
         if sidecar.get(key) != stable_algorithm_hash(value):
             _fail(f"Algorithm evidence {key} differs from public bytes")
-    for key in ("archiveDigest", "sourceDigest", "coreDigest", "definitionDigest", "publicDigest", "contextDigest"):
+    for key in (
+        "archiveDigest",
+        "sourceDigest",
+        "coreDigest",
+        "definitionDigest",
+        "publicDigest",
+        "contextDigest",
+    ):
         if not isinstance(sidecar.get(key), str) or not HEX_SHA256.fullmatch(sidecar[key]):
             _fail(f"Algorithm evidence is missing a valid {key}")
     certificates = sidecar.get("certificates")
@@ -729,7 +800,9 @@ def _validate_sidecar(export: Mapping[str, Any], public: Mapping[str, Any], cont
         or sidecar.get("family") != sidecar.get("sourceFamily")
     ):
         _fail("Algorithm source evidence or source family differs from its digest-checked artifact")
-    if not isinstance(sidecar.get("fixtureDigest"), str) or not HEX_SHA256.fullmatch(sidecar["fixtureDigest"]):
+    if not isinstance(sidecar.get("fixtureDigest"), str) or not HEX_SHA256.fullmatch(
+        sidecar["fixtureDigest"]
+    ):
         _fail("Algorithm evidence must bind the exact source fixture")
     return admission, sidecar
 
@@ -753,7 +826,17 @@ def adapt_algorithm_harness_v7(
         _fail("Public v7 envelope requires the explicit representation:'algorithm' discriminator")
     _exact_fields(
         public,
-        {"schema", "traceFormat", "contextFormat", "representation", "profile", "timeline", "completion", "claims", "firstViolation"},
+        {
+            "schema",
+            "traceFormat",
+            "contextFormat",
+            "representation",
+            "profile",
+            "timeline",
+            "completion",
+            "claims",
+            "firstViolation",
+        },
         label="Public algorithm envelope",
     )
     if (
@@ -769,7 +852,12 @@ def adapt_algorithm_harness_v7(
         _fail("Missing or over-budget algorithm execution timeline")
     _exact_fields(timeline[0], {"mode", "kind", "program"}, label="Program publication")
     _exact_fields(timeline[1], {"mode", "kind", "graph"}, label="Input graph publication")
-    if timeline[0].get("mode") != "observed" or timeline[0].get("kind") != "program" or timeline[1].get("mode") != "observed" or timeline[1].get("kind") != "input":
+    if (
+        timeline[0].get("mode") != "observed"
+        or timeline[0].get("kind") != "program"
+        or timeline[1].get("mode") != "observed"
+        or timeline[1].get("kind") != "input"
+    ):
         _fail("An immutable program and exact input graph must be observed before selection")
     program = validate_algorithm_program_v7(timeline[0]["program"])
     input_graph = timeline[1]["graph"]
@@ -778,7 +866,9 @@ def adapt_algorithm_harness_v7(
     if len(invocation_ids) != 1:
         _fail("Algorithm contexts must retain exactly one immutable invocation identity")
     invocation_id = _identity(next(iter(invocation_ids)), "invocation identity")
-    replay = AlgorithmReplayV7(program, input_graph, capabilities=capabilities, invocation_id=invocation_id)
+    replay = AlgorithmReplayV7(
+        program, input_graph, capabilities=capabilities, invocation_id=invocation_id
+    )
     definitions: dict[str, Any] = {}
     context_index = 0
     generated_certificates: list[dict[str, Any]] = []
@@ -787,7 +877,6 @@ def adapt_algorithm_harness_v7(
     dependencies: list[Dependency] = []
     actions: list[LogicalAction] = []
     action_by_request: dict[str, LogicalAction] = {}
-    record_by_timeline: dict[int, str] = {}
     last_generated: str | None = None
     observed = 0
     generated = 0
@@ -802,7 +891,20 @@ def adapt_algorithm_harness_v7(
         else "unknown"
     )
 
-    def add_record(payload: bytes, role: str, *, policy=False, record_id: str, turn: int, event_kind: str, event_request: str = "", action_id: str | None = None, result_of: str | None = None, execution_id: str | None = None, instruction=""):
+    def add_record(
+        payload: bytes,
+        role: str,
+        *,
+        policy=False,
+        record_id: str,
+        turn: int,
+        event_kind: str,
+        event_request: str = "",
+        action_id: str | None = None,
+        result_of: str | None = None,
+        execution_id: str | None = None,
+        instruction="",
+    ):
         records.append(
             PhysicalRecord(
                 record_id,
@@ -838,10 +940,21 @@ def adapt_algorithm_harness_v7(
     # Program and graph are native observations, followed by exact causal
     # timeline replay. Private sidecars never enter this record list.
     program_record = "algorithm:v7:program"
-    add_record(canonical_semantic_observation(timeline[0]), "user", record_id=program_record, turn=0, event_kind="program")
+    add_record(
+        canonical_semantic_observation(timeline[0]),
+        "user",
+        record_id=program_record,
+        turn=0,
+        event_kind="program",
+    )
     input_record = "algorithm:v7:input"
-    add_record(canonical_semantic_observation(timeline[1]), "environment", record_id=input_record, turn=1, event_kind="input")
-    previous_environment = input_record
+    add_record(
+        canonical_semantic_observation(timeline[1]),
+        "environment",
+        record_id=input_record,
+        turn=1,
+        event_kind="input",
+    )
     timeline_index = 2
     while timeline_index < len(timeline):
         item = timeline[timeline_index]
@@ -866,7 +979,9 @@ def adapt_algorithm_harness_v7(
                     definitions=definitions,
                 )
             except (AlgorithmContextError, TypeError, ValueError, KeyError) as error:
-                raise AlgorithmHarnessError(f"Invalid algorithm context at record {context_index}: {error}") from error
+                raise AlgorithmHarnessError(
+                    f"Invalid algorithm context at record {context_index}: {error}"
+                ) from error
             context_id = f"algorithm:v7:context:{context_index}"
             add_record(
                 canonical_semantic_observation(context),
@@ -879,8 +994,16 @@ def adapt_algorithm_harness_v7(
             generated_id = f"algorithm:v7:selection:{generated}"
             try:
                 result = replay.commit(item["line"])
-            except (AlgorithmContextError, AlgorithmHarnessError, TypeError, ValueError, KeyError) as error:
-                raise AlgorithmHarnessError(f"Algorithm selection failed causal replay: {error}") from error
+            except (
+                AlgorithmContextError,
+                AlgorithmHarnessError,
+                TypeError,
+                ValueError,
+                KeyError,
+            ) as error:
+                raise AlgorithmHarnessError(
+                    f"Algorithm selection failed causal replay: {error}"
+                ) from error
             request_id = result["record"].get("id") if result["record"]["kind"] == "request" else ""
             action_id = None
             execution_id = None
@@ -920,7 +1043,9 @@ def adapt_algorithm_harness_v7(
             generated_certificates.append(
                 {
                     "record": len(replay.history) - 1,
-                    "rule": "certified-effect-boundary/1" if result["record"]["kind"] == "request" else "checked-algorithm-operation/1",
+                    "rule": "certified-effect-boundary/1"
+                    if result["record"]["kind"] == "request"
+                    else "checked-algorithm-operation/1",
                     "digest": stable_algorithm_hash(item["line"]),
                     "sourceDigest": program["sourceDigest"],
                     "definitionDigest": program["definitionDigest"],
@@ -932,7 +1057,9 @@ def adapt_algorithm_harness_v7(
             continue
 
         if kind == "dispatch":
-            _exact_fields(item, {"mode", "kind", "request", "key", "attempt"}, label="Observed dispatch")
+            _exact_fields(
+                item, {"mode", "kind", "request", "key", "attempt"}, label="Observed dispatch"
+            )
             request = item.get("request")
             dispatch = replay.pending
             if (
@@ -942,10 +1069,14 @@ def adapt_algorithm_harness_v7(
                 or item.get("key") != dispatch["key"]
                 or type(item.get("attempt")) is not int
                 or item["attempt"] != 1
-                or request in dispatch_seen and dispatch_seen[request].get("timelineDispatch")
+                or request in dispatch_seen
+                and dispatch_seen[request].get("timelineDispatch")
             ):
                 _fail("Dispatch must follow its selected request exactly once with its checked key")
-            dispatch_seen[request] = {**dispatch_seen.get(request, dispatch), "timelineDispatch": True}
+            dispatch_seen[request] = {
+                **dispatch_seen.get(request, dispatch),
+                "timelineDispatch": True,
+            }
             dispatch_id = f"algorithm:v7:dispatch:{request}"
             add_record(
                 canonical_semantic_observation(item),
@@ -955,25 +1086,32 @@ def adapt_algorithm_harness_v7(
                 event_kind="dispatch",
                 event_request=request,
             )
-            previous_environment = dispatch_id
             observed += 1
             timeline_index += 1
             continue
 
         if kind == "observation":
-            _exact_fields(item, {"mode", "kind", "line"}, {"reconciliation"}, "Observed algorithm result")
+            _exact_fields(
+                item, {"mode", "kind", "line"}, {"reconciliation"}, "Observed algorithm result"
+            )
             if mode != "observed" or not isinstance(item.get("line"), str):
                 _fail("External algorithm observation must remain an observed public record")
-            if "reconciliation" in item and (not isinstance(item["reconciliation"], str) or not item["reconciliation"]):
+            if "reconciliation" in item and (
+                not isinstance(item["reconciliation"], str) or not item["reconciliation"]
+            ):
                 _fail("Observation reconciliation receipt must be nonempty text")
             try:
                 observation = _core_api().parse_algorithm_record(item["line"], role="observed")
                 request = observation["request"]
-                if request not in dispatch_seen or not dispatch_seen[request].get("timelineDispatch"):
+                if request not in dispatch_seen or not dispatch_seen[request].get(
+                    "timelineDispatch"
+                ):
                     _fail("External observation lacks its prior selected dispatch")
                 replay.observe(item["line"])
             except (AlgorithmHarnessError, TypeError, ValueError, KeyError) as error:
-                raise AlgorithmHarnessError(f"Invalid external algorithm observation: {error}") from error
+                raise AlgorithmHarnessError(
+                    f"Invalid external algorithm observation: {error}"
+                ) from error
             action = action_by_request.get(request)
             observation_id = f"algorithm:v7:observation:{request}"
             add_record(
@@ -986,7 +1124,6 @@ def adapt_algorithm_harness_v7(
                 result_of=action.action_id if action else None,
                 execution_id=action.execution_id if action else None,
             )
-            previous_environment = observation_id
             observed += 1
             timeline_index += 1
             continue
@@ -1003,7 +1140,10 @@ def adapt_algorithm_harness_v7(
         _fail("A false algorithm claim cannot be admitted as checked training evidence")
     if not _same(public.get("completion"), replay.completion):
         _fail("Public completion differs from causal replay")
-    if not _same(public.get("claims"), replay.claims) or public.get("firstViolation") != replay.first_violation:
+    if (
+        not _same(public.get("claims"), replay.claims)
+        or public.get("firstViolation") != replay.first_violation
+    ):
         _fail("Public claim summary differs from current-prefix checks")
     admission, sidecar = _validate_sidecar(
         export,
@@ -1020,17 +1160,19 @@ def adapt_algorithm_harness_v7(
 
     public_digest = stable_algorithm_hash(public)
     context_digest = stable_algorithm_hash(contexts)
-    revision = hashlib.sha256(
-        b"\n".join(record.payload for record in records)
-    ).hexdigest()
-    lineage_family = sidecar.get("family") or sidecar.get("sourceLineage") or program["sourceDigest"]
+    revision = hashlib.sha256(b"\n".join(record.payload for record in records)).hexdigest()
+    lineage_family = (
+        sidecar.get("family") or sidecar.get("sourceLineage") or program["sourceDigest"]
+    )
     if not isinstance(lineage_family, str) or not lineage_family:
         lineage_family = program["sourceDigest"]
     split = sidecar.get("split")
     if split not in {None, "train", "validation", "test", "quarantine"}:
         _fail("Algorithm sidecar has an invalid frozen split")
     ancestors = sidecar.get("ancestorIds", [])
-    if not isinstance(ancestors, list) or any(not isinstance(value, str) or not value for value in ancestors):
+    if not isinstance(ancestors, list) or any(
+        not isinstance(value, str) or not value for value in ancestors
+    ):
         _fail("Algorithm private lineage has malformed ancestor IDs")
     lineage = Lineage(
         source_id="semantic-algorithm:" + public_digest[:20],
@@ -1086,6 +1228,7 @@ def adapt_algorithm_harness_v7(
             max_positions=max_positions,
             max_history=max_history,
             selection_instruction=algorithm_selection_instruction,
+            emit_context_windows=False,
         )
     except ValueError as error:
         raise AlgorithmHarnessError(str(error)) from error
@@ -1100,4 +1243,3 @@ def adapt_algorithm_harness_v7(
         public_digest=public_digest,
         context_digest=context_digest,
     )
-
