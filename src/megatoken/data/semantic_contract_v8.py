@@ -8,7 +8,10 @@ CONTRACT=json.loads(files("megatoken.data").joinpath("contracts/semantic-executi
 DEFINITION=CONTRACT["definition"]
 CONTRACT_DIGEST=CONTRACT["digest"]
 FIXTURE_DIGEST=CONTRACT["fixtureDigest"]
-if stable_algorithm_hash(DEFINITION)!=CONTRACT_DIGEST or stable_algorithm_hash(CONTRACT["fixtures"])!=FIXTURE_DIGEST:
+INTEROPERABILITY_DIGEST=CONTRACT["interoperabilityDigest"]
+if (stable_algorithm_hash(DEFINITION)!=CONTRACT_DIGEST or
+    stable_algorithm_hash(CONTRACT["fixtures"])!=FIXTURE_DIGEST or
+    stable_algorithm_hash(CONTRACT["interoperability"])!=INTEROPERABILITY_DIGEST):
     raise ValueError("Pinned semantic-execution/8 contract or fixtures are inconsistent")
 
 
@@ -26,6 +29,6 @@ def validate_public(public):
         if type(row) is not dict or set(row)!=set(DEFINITION["envelopeFields"]): raise SemanticContractV8Error("V8 timeline envelope fields")
         if row["sequence"]!=sequence or type(row["sequence"]) is not int or row["mode"] not in ("observed","generated") or type(row["kind"]) is not str or type(row["fields"]) is not dict:
             raise SemanticContractV8Error("V8 sequence, authority, or envelope shape")
-        if row["mode"] != ("generated" if row["kind"] in {"semantic","algorithm","region"} else "observed"):
+        if row["mode"] != ("generated" if row["kind"] in {"semantic","algorithm","region","protocol"} else "observed"):
             raise SemanticContractV8Error("V8 record authority mismatch")
     return timeline

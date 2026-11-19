@@ -16,10 +16,12 @@ from .algorithm_v7 import stable_algorithm_hash
 from .algorithm_v8 import replay_algorithm_line
 from .detailed_v7 import parse_record
 from .detailed_v7 import value as validate_value
-from .semantic_contract_v8 import CONTRACT_DIGEST, SemanticContractV8Error, validate_public
+from .semantic_contract_v8 import CONTRACT_DIGEST, INTEROPERABILITY_DIGEST, SemanticContractV8Error, validate_public
 from megatoken.controls import canonical_semantic_observation, semantic_selection_instruction
 from .schema import Dependency, Episode, Lineage, Meridian, PhysicalRecord, Supervision, TrackEvent, TrackSpec, encode_episode
 from .semantic_physical import physical_semantic_episode
+from .protocol_v8 import (ProtocolV8Error, apply_protocol_to_shared_state,
+    assert_detailed_record_compatible, decode_protocol_record, validate_protocol_state)
 
 
 class NativeV8Error(ValueError): pass
@@ -46,7 +48,7 @@ def validate_v8_artifact(document):
     if type(contexts) is not list: _fail("V8 contexts must be an ordered public list")
     generated=[(i,row) for i,row in enumerate(timeline) if row["mode"]=="generated"]
     if len(contexts)!=len(generated): _fail("Every generated v8 target requires one earlier context")
-    programs={}; invocations={}; generated_count=0; algorithm_count=0; detail_count=0; region_count=0
+    programs={}; invocations={}; generated_count=0; algorithm_count=0; detail_count=0; region_count=0; protocol_count=0
     for context,(index,row) in zip(contexts,generated,strict=True):
         _exact(context,{"schema","representation","profile","invocationId","programs","input","state","regionCursor","obligations","visibleThrough","prefixDigest"},"context")
         if context["schema"]!="semantic-context/8" or context["representation"]!="mixed" or context["profile"]!="compositional-regions/1": _fail("V8 context version")
@@ -59,9 +61,14 @@ def validate_v8_artifact(document):
             if not isinstance(state[name],list): _fail("V8 continuation ordered table")
         if any(not isinstance(row,list) or len(row)!=2 or not isinstance(row[0],str) for key in ("locals","captureAliases","continuations","frameFunctions") for row in state[key]): _fail("V8 continuation identity table")
         try:
-            for _,tagged in state["locals"]: validate_value(tagged)
-            validate_value(state["receiver"])
+            value_validator=(__import__("megatoken.data.protocol_v8",fromlist=["validate_protocol_value"]).validate_protocol_value
+                if state["protocol"] is not None else validate_value)
+            for _,tagged in state["locals"]: value_validator(tagged)
+            value_validator(state["receiver"])
         except (TypeError,ValueError) as e: raise NativeV8Error(f"Malformed tagged v8 continuation value: {e}") from e
+        if state["protocol"] is not None:
+            try: validate_protocol_state(state["protocol"],[row[0] for row in state["heap"]])
+            except ProtocolV8Error as e: raise NativeV8Error(f"Malformed shared protocol state: {e}") from e
         if not isinstance(context["regionCursor"],dict) or set(context["regionCursor"])!={"active","consumed"} or not isinstance(context["regionCursor"]["consumed"],list): _fail("V8 region cursor")
         if not isinstance(context["obligations"],dict) or set(context["obligations"])!={"intents","handlers","callbacks","closureQueue"} or any(not isinstance(v,list) for v in context["obligations"].values()): _fail("V8 obligations")
         if not isinstance(context["programs"],list) or not isinstance(context["input"],dict) or not isinstance(context["obligations"],dict): _fail("V8 context publication/state shape")
@@ -77,7 +84,7 @@ def validate_v8_artifact(document):
         prior_invocations=[r["fields"] for r in timeline[:cutoff] if r["kind"]=="invocation" and r["fields"].get("invocationId")==context["invocationId"]]
         if not prior_invocations or context["input"].get("graph")!=prior_invocations[-1].get("inputGraph"): _fail("Context input graph was not previously observed")
         fields=row["fields"]
-        if row["kind"] in ("algorithm","region","semantic"):
+        if row["kind"] in ("algorithm","region","semantic","protocol"):
             # A target must follow a program and invocation publication inside
             # the exact model-visible prefix. No importer cache can satisfy it.
             if not context["programs"]: _fail("Generated target has no publicly visible region definition")
@@ -92,19 +99,24 @@ def validate_v8_artifact(document):
                 _replay_region(program,context,fields.get("line"),fields.get("entry")); region_count+=1
             else:
                 line=fields.get("line")
-                if not isinstance(line,str) or not line.startswith("detail "): _fail("V8 semantic record must carry a checked detailed record")
-                try: kind,detail_fields=parse_record(line)
-                except ValueError as e: raise NativeV8Error(f"Invalid v8 detail record: {e}") from e
-                detail_count+=1
+                if row["kind"]=="protocol":
+                    try: decode_protocol_record(line)
+                    except ProtocolV8Error as e: raise NativeV8Error(f"Invalid v8 protocol record: {e}") from e
+                    protocol_count+=1
+                else:
+                    if not isinstance(line,str) or not line.startswith("detail "): _fail("V8 semantic record must carry a checked detailed record")
+                    try: kind,detail_fields=parse_record(line)
+                    except ValueError as e: raise NativeV8Error(f"Invalid v8 detail record: {e}") from e
+                    detail_count+=1
             generated_count+=1
     final_restored=_replay_shared_state(timeline,contexts,programs,roundtrip=True)
     final_uninterrupted=_replay_shared_state(timeline,contexts,programs,roundtrip=False)
     if final_restored!=final_uninterrupted: _fail("Checkpoint restoration changed the final shared continuation")
     return {"schema":"semantic-native-admission/8","contractDigest":CONTRACT_DIGEST,
-            "checks":{"replay":"passed" if generated_count and algorithm_count+region_count+detail_count==generated_count else "unsupported",
+            "checks":{"replay":"passed" if generated_count and algorithm_count+region_count+detail_count+protocol_count==generated_count else "unsupported",
                       "contexts":"passed","continuation":"passed","masks":"untested",
                       "sourceBinding":"untested","tokenizer":"untested"},
-            "counts":{"contexts":len(contexts),"generatedRecords":generated_count,"algorithmRecords":algorithm_count,"regionRecords":region_count,"detailedRecords":detail_count},
+            "counts":{"contexts":len(contexts),"generatedRecords":generated_count,"algorithmRecords":algorithm_count,"regionRecords":region_count,"detailedRecords":detail_count,"protocolRecords":protocol_count},
             "admitted":False}
 
 
@@ -233,7 +245,7 @@ def _initial_state(program,invocation,functions=()):
             "randomState":None,"pending":None,"lastReturn":None,"completion":None,"receiver":invocation.get("receiver",["undefined"]),
             "captureAliases":aliases,"continuations":[],"reactionSequence":0,"blockedSync":None,"callReturn":None,
             "activeJob":None,"scheduler":{"registration":0,"ready":0},
-            "frameFunctions":[[invocation["invocationId"],invocation["entry"]]],"jobErrors":[]}
+            "frameFunctions":[[invocation["invocationId"],invocation["entry"]]],"jobErrors":[],"protocol":None}
 
 
 def _replay_shared_state(timeline,contexts,programs_from_context,*,roundtrip):
@@ -322,8 +334,17 @@ def _replay_shared_state(timeline,contexts,programs_from_context,*,roundtrip):
                 frame=state["stack"][-1] if state["stack"] else fields["invocationId"]
                 _apply_algorithm(state,program["algorithm"],context["input"]["graph"],fields["line"])
                 consumed.append({"invocationId":fields["invocationId"],"frame":frame,"region":"whole"})
+            elif kind=="protocol":
+                if state.get("protocol") is None and (state["effects"] or state["jobs"] or state["ready"] or len(state["stack"])!=1):
+                    _fail("The first protocol profile must begin as a fresh synchronous invocation")
+                try: state=apply_protocol_to_shared_state(state,fields["line"])
+                except ProtocolV8Error as e: raise NativeV8Error(f"Invalid independently replayed protocol transition: {e}") from e
             elif kind=="semantic":
-                k,payload=parse_record(fields["line"]); detail_kind=k; _apply_detail(state,k,payload,row,obligations,program,task_revisions)
+                k,payload=parse_record(fields["line"]); detail_kind=k
+                if state.get("protocol") is not None:
+                    try: assert_detailed_record_compatible(state,k,payload)
+                    except ProtocolV8Error as e: raise NativeV8Error(f"Detailed record bypasses protocol state: {e}") from e
+                _apply_detail(state,k,payload,row,obligations,program,task_revisions)
         elif kind in ("dispatch","result"):
             target=state if fields.get("invocationId")==active_invocation else suspended.get(fields.get("invocationId"))
             if target is None: _fail("Observation has no independently replayed invocation state")

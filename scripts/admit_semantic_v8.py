@@ -10,7 +10,7 @@ from pathlib import Path
 
 from megatoken.data.algorithm_v7 import stable_algorithm_hash
 from megatoken.data.native_v8 import prepare_native_v8_training, validate_v8_artifact
-from megatoken.data.semantic_contract_v8 import CONTRACT, CONTRACT_DIGEST
+from megatoken.data.semantic_contract_v8 import CONTRACT, CONTRACT_DIGEST, INTEROPERABILITY_DIGEST
 
 
 def checked_revision(root, expected):
@@ -38,13 +38,21 @@ def main():
     sidecar=document.get("sidecar",{})
     public=document["public"]; contexts=document["contexts"]
     source_binding="untested"
-    if isinstance(sidecar,dict) and sidecar.get("schema")=="semantic-region-evidence/1":
+    if isinstance(sidecar,dict) and sidecar.get("schema") in (
+        "semantic-region-evidence/1", "semantic-protocol-region-evidence/1"
+    ):
         if (sidecar.get("representation")!="semantic-trace/8" or sidecar.get("referenceStatus")!="agreed" or
             sidecar.get("optimizerSteps")!=0 or sidecar.get("learningClaim") is not None or
             sidecar.get("sourceArtifactDigest")!=stable_algorithm_hash(sidecar.get("sourceArtifact")) or
             sidecar.get("publicDigest")!=stable_algorithm_hash(public) or
             sidecar.get("contextDigest")!=stable_algorithm_hash(contexts)):
             raise ValueError("V8 source evidence no longer binds this public projection")
+        if sidecar.get("schema")=="semantic-protocol-region-evidence/1" and (
+            sidecar.get("admission")!="locally_verified" or
+            sidecar.get("profile")!="compositional-regions/1" or
+            sidecar.get("protocolProfile")!="symbols-ordinary-properties/1"
+        ):
+            raise ValueError("V8 protocol source evidence has an unsupported admission profile")
         source_binding="passed"
     tokenizer={"status":"untested","identity":None,"sha256":None}; training=None
     if args.tokenizer_json is not None:
@@ -65,8 +73,8 @@ def main():
              "publicDigest":stable_algorithm_hash(public),"contextsDigest":stable_algorithm_hash(contexts),
              "sourceArtifactDigest":stable_algorithm_hash(source_artifact) if source_artifact is not None else None,
              "datasetBindingDigest":stable_algorithm_hash(sidecar["datasetBinding"]) if isinstance(sidecar,dict) and sidecar.get("datasetBinding") is not None else None,
-             "consumerRevision":revision,"contractDigest":CONTRACT_DIGEST,"fixtureDigest":CONTRACT["fixtureDigest"],
-             "tokenizer":tokenizer,"checks":checks,"counts":{"records":len(public["timeline"]),"contexts":result["counts"]["contexts"],"generatedRecords":result["counts"]["generatedRecords"],"generatedTokens":training["generatedTokens"] if training else None,"observedTokens":training["observedTokens"] if training else None},
+             "consumerRevision":revision,"contractDigest":CONTRACT_DIGEST,"fixtureDigest":CONTRACT["fixtureDigest"],"interoperabilityDigest":INTEROPERABILITY_DIGEST,
+             "tokenizer":tokenizer,"checks":checks,"counts":{"records":len(public["timeline"]),"contexts":result["counts"]["contexts"],"generatedRecords":result["counts"]["generatedRecords"],"algorithmRecords":result["counts"].get("algorithmRecords",0),"regionRecords":result["counts"].get("regionRecords",0),"detailedRecords":result["counts"].get("detailedRecords",0),"protocolRecords":result["counts"].get("protocolRecords",0),"generatedTokens":training["generatedTokens"] if training else None,"observedTokens":training["observedTokens"] if training else None},
              "framing":{"kind":training["framing"] if training else "untested","eosTokenId":training["eosTokenId"] if training else None,"terminalTokens":training["terminalTokens"] if training else None,"physicalRecords":training["physicalRecords"] if training else None},
              "nativeTrainingDigest":training["nativeTrainingDigest"] if training else None,"optimizerSteps":0,"learningClaim":None,
              "admitted":bool(training is not None and all(checks.get(name)=="passed" for name in ("replay","contexts","continuation","masks","sourceBinding","tokenizer")))}

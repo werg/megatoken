@@ -239,6 +239,153 @@
           ]
         },
         "meaning": "Existing checked selected-detailed/1 transitions, committed into the same shared machine."
+      },
+      "protocol": {
+        "schema": "semantic-protocol-record/1",
+        "prefix": "protocol ",
+        "fieldsByKind": {
+          "symbol.create": [
+            "kind",
+            "id",
+            "description"
+          ],
+          "symbol.for": [
+            "kind",
+            "id",
+            "key"
+          ],
+          "symbol.read": [
+            "kind",
+            "symbol",
+            "operation",
+            "result",
+            "bind"
+          ],
+          "allocate": [
+            "kind",
+            "name",
+            "objectKind",
+            "length",
+            "properties",
+            "code",
+            "captures",
+            "functionKind",
+            "lexicalReceiver"
+          ],
+          "bind": [
+            "kind",
+            "name",
+            "value"
+          ],
+          "compute": [
+            "kind",
+            "expr",
+            "result",
+            "bind"
+          ],
+          "choose": [
+            "kind",
+            "expr",
+            "decision",
+            "path"
+          ],
+          "call": [
+            "kind",
+            "child",
+            "callee",
+            "receiver",
+            "arguments"
+          ],
+          "return": [
+            "kind",
+            "value",
+            "invocation"
+          ],
+          "throw": [
+            "kind",
+            "value",
+            "invocation"
+          ],
+          "end": [
+            "kind",
+            "completion"
+          ],
+          "property.define": [
+            "kind",
+            "object",
+            "key",
+            "descriptor",
+            "success"
+          ],
+          "property.get": [
+            "kind",
+            "object",
+            "key",
+            "receiver",
+            "result"
+          ],
+          "property.set": [
+            "kind",
+            "object",
+            "key",
+            "receiver",
+            "value",
+            "success"
+          ],
+          "property.delete": [
+            "kind",
+            "object",
+            "key",
+            "success"
+          ],
+          "property.keys": [
+            "kind",
+            "object",
+            "mode",
+            "name",
+            "keys"
+          ],
+          "property.prototype": [
+            "kind",
+            "object",
+            "prototype",
+            "success"
+          ],
+          "property.preventExtensions": [
+            "kind",
+            "object"
+          ],
+          "property.get.call": [
+            "kind",
+            "id",
+            "child",
+            "object",
+            "key",
+            "receiver"
+          ],
+          "property.set.call": [
+            "kind",
+            "id",
+            "child",
+            "object",
+            "key",
+            "receiver",
+            "value"
+          ],
+          "property.finish": [
+            "kind",
+            "id",
+            "completion"
+          ]
+        },
+        "profile": "symbols-ordinary-properties/1",
+        "limits": {
+          "symbols": 4096,
+          "properties": 4096,
+          "calls": 64,
+          "steps": 32768
+        },
+        "meaning": "Checked Symbol identities, descriptors, receiver-aware access, scoped calls and completion in the same authoritative heap."
       }
     },
     "algorithm": {
@@ -1044,8 +1191,22 @@
       "activeJob",
       "scheduler",
       "frameFunctions",
-      "jobErrors"
+      "jobErrors",
+      "protocol"
     ],
+    "protocolState": {
+      "schema": "semantic-protocol-state/1",
+      "fields": [
+        "schema",
+        "symbols",
+        "pendingCalls",
+        "callFrames",
+        "sequence"
+      ],
+      "initial": null,
+      "heap": "Existing heap nodes with property and descriptor Maps serialized as entry arrays; Symbol keys remain tagged pairs.",
+      "lifecycle": "First protocol profile is one synchronous fresh invocation with no host work, jobs or asynchronous observations."
+    },
     "checkpoint": {
       "fields": [
         "schema",
@@ -1055,6 +1216,14 @@
         "selected",
         "integrity"
       ],
+      "protocolSelected": {
+        "schema": "semantic-protocol-continuation/1",
+        "fields": [
+          "schema",
+          "invocations"
+        ],
+        "meaning": "Exact shared states and activation statuses independently reconstructed from the complete public v8 history."
+      },
       "restore": "Validate public mixed replay and exact shared state. Restore existing intent/handler lifecycle without invoking adapters."
     },
     "supervision": {
@@ -1071,7 +1240,7 @@
       "default": "not promoted by engineering receipts alone"
     }
   },
-  "digest": "fe1eed56bafa5c0012354b29ebb3b40bbe33f085f063d6990fcb3f26cb261cc2",
+  "digest": "e34317197f4daa123e2fa02d84347801dbff5d93868670b76f5902917949cf80",
   "fixtureDigest": "56f7f36d3b25b3b11a208be3de337e637b9782e6759faea1e1ec107b0a90f0ce",
   "fixtures": [
     {
@@ -1094,6 +1263,29 @@
       "valid": false,
       "execution": "semantic-execution/7",
       "reason": "old artifacts require their original contract"
+    }
+  ],
+  "interoperabilityDigest": "ffe91c3265e22a792dbb80d5a4b80faa22561c7143eb9ac8819e7a9f9432af33",
+  "interoperability": [
+    {
+      "id": "ordered-map",
+      "publicDigest": "b704bd98130eb8fe864342068f5772fab7cb3f2d1b42606d4474e11129b7f159",
+      "contextDigest": "2e307fc5bd194c55fbb2e8add4edc0459e25ca4aa2d0d0fb3728b069faa74018"
+    },
+    {
+      "id": "shared-getter",
+      "publicDigest": "8eb149a3c659355c843d16d3f4b76f1a5fb42e90088376f93fa9564f3b0caac5",
+      "contextDigest": "28401e10e99fe0aaf37dfb4cd2c0a467bfe59f941ab994a06533da62edda8443"
+    },
+    {
+      "id": "causal-counter",
+      "publicDigest": "c37a66e94edae5d7ca6f80be9bb46ccd8b31afa825074a88612c4b76645dbf4c",
+      "contextDigest": "112e1761435270b82947f142587d23d3c3b424d64f2fc50ab9973f99c54be310"
+    },
+    {
+      "id": "protocol-machine",
+      "schema": "semantic-protocol-fixtures/1",
+      "fixtureDigest": "e2f1db4a8605644cc9d8ab06642a182c19cc345460596c6a2e29b90ad30bd704"
     }
   ]
 }
