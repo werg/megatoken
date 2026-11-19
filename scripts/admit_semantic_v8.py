@@ -53,15 +53,19 @@ def main():
                 raise ValueError("V8 protocol source evidence has an unsupported region profile")
             profile=sidecar.get("protocolProfile")
             extensions=sidecar.get("protocolExtensions",[])
-            source_projection=(source_artifact or {}).get("sidecar",{}).get("compiler",{})
+            source_sidecar=source_artifact.get("sidecar") if isinstance(source_artifact,dict) else None
+            source_projection=source_sidecar.get("compiler") if isinstance(source_sidecar,dict) else None
+            if not isinstance(source_projection,dict):
+                raise ValueError("V8 protocol source projection inventory is missing")
             source_extensions=source_projection.get("extensions",[])
             if profile=="symbols-ordinary-properties/1":
                 if extensions not in (None,[]) or source_extensions not in (None,[]):
                     raise ValueError("Base protocol source evidence cannot claim extensions")
             elif profile=="protocol-source-extensions/1":
                 supported={"owned-binary-memory/1","builtin-iterator/1"}
-                if (not isinstance(extensions,list) or not extensions or len(extensions)!=len(set(extensions)) or
-                    any(value not in supported for value in extensions) or
+                if (not isinstance(extensions,list) or not extensions or
+                    not all(type(value) is str and value in supported for value in extensions) or
+                    len(extensions)!=len(set(extensions)) or not isinstance(source_extensions,list) or
                     source_extensions!=extensions):
                     raise ValueError("V8 protocol source evidence has unsupported or mismatched extensions")
             else:
