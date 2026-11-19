@@ -240,9 +240,12 @@ def _replay_shared_state(timeline,contexts,programs_from_context,*,roundtrip):
     snapshots={row["sequence"]:ctx for ctx,(_,row) in zip(contexts,[(i,r) for i,r in enumerate(timeline) if r["mode"]=="generated"],strict=True)}
     published={}; state=None; program=None; dispatched=set(); settled=set()
     consumed=[]; obligations={"intents":[],"handlers":[],"callbacks":[],"closureQueue":[]}
-    task_revisions={}; track_counts={}
+    task_revisions={}; owner_sequences={}; owner_sequence=0; suspended={}; common_state=None; active_invocation=None; callback_invocations=set()
+    for prior in timeline:
+        if prior.get("fields",{}).get("track")!="host": owner_sequence+=1
+        owner_sequences[prior["sequence"]]=owner_sequence
     for row in timeline:
-        kind=row["kind"]; fields=row["fields"]
+        kind=row["kind"]; fields=row["fields"]; detail_kind=None
         if kind=="program":
             program=fields.get("regionProgram")
             if not isinstance(program,dict): _fail("Program record omits its immutable region definition")
@@ -254,17 +257,55 @@ def _replay_shared_state(timeline,contexts,programs_from_context,*,roundtrip):
             if published_row is None: _fail("Invocation has no preceding program")
             program,functions=published_row
             if fields.get("sourceDigest")!=program.get("sourceDigest"): _fail("Invocation source/definition binding")
-            state=_initial_state(program,fields,functions)
+            if fields.get("activation")=="callback" and (state is not None or common_state is not None):
+                owner=fields.get("parentInvocationId")
+                if owner and owner not in suspended: suspended[owner]=copy.deepcopy(state)
+                base=state if state is not None else common_state
+                callback_invocation=copy.deepcopy(fields); callback_invocation["inputGraph"]["roots"]=[]
+                callback_state=_initial_state(program,callback_invocation,functions)
+                callback_state["heap"]=copy.deepcopy(base["heap"]); callback_state["locals"]=copy.deepcopy(base["locals"])
+                callback_state["scheduler"]=copy.deepcopy(base["scheduler"]); callback_state["reactionSequence"]=base["reactionSequence"]
+                callback_state["randomState"]=base["randomState"]
+                callback_state["effects"]=[]; callback_state["jobs"]=[]; callback_state["ready"]=[]; callback_state["continuations"]=[]
+                callback_state["stack"]=[fields["invocationId"]]; callback_state["pending"]=None; callback_state["lastReturn"]=None; callback_state["completion"]=None
+                callback_state["callReturn"]=None; callback_state["blockedSync"]=None
+                callback_state["receiver"]=fields.get("receiver",["undefined"]); callback_state["captureAliases"]=[]
+                callback_state["frameFunctions"]=[[fields["invocationId"],fields["entry"]]]
+                closure=next((value for identity,value in callback_state["heap"] if identity==fields.get("closureId")),None)
+                if closure is None or closure.get("kind")!="closure": _fail("Callback invocation has no published guest closure")
+                callback_state["captureAliases"]=[[capture["binding"],capture["cell"]] for capture in closure.get("captures",[])]
+                function=next((fn for fn in functions if fn.get("name")==fields.get("entry") or "function:"+str(fn.get("start"))==fields.get("entry")),None)
+                params=function.get("params",[]) if function else []
+                roots=fields.get("inputGraph",{}).get("roots",[])
+                for index,value in enumerate(roots):
+                    # Callback invocation identifiers end in their deterministic event ordinal.
+                    suffix="".join(c for c in fields["invocationId"] if c.isdigit()) or "0"
+                    cell=f"a{suffix}b{index}"
+                    _set_row(callback_state["locals"],cell,value)
+                    _set_row(callback_state["captureAliases"],params[index],cell) if index<len(params) else None
+                state=callback_state
+            elif fields.get("activation")=="call":
+                state=_initial_state(program,fields,functions)
+            else: _fail("Unsupported invocation activation in v8 shared replay")
+            active_invocation=fields["invocationId"]
+            if fields.get("activation")=="callback": callback_invocations.add(active_invocation); common_state=copy.deepcopy(state)
             task_revisions[fields["invocationId"]]=fields.get("taskRevision")
             continue
-        if row["mode"]=="observed":
-            track=fields.get("track")
-            track_counts[track]=track_counts.get(track,0)+1
+        if state is None and row["mode"]=="generated" and kind=="semantic":
+            parsed_kind,parsed_fields=parse_record(fields["line"])
+            if parsed_kind=="resume" and parsed_fields["invocation"] in suspended:
+                state=copy.deepcopy(suspended[parsed_fields["invocation"]]); active_invocation=parsed_fields["invocation"]
+                if common_state is not None: _merge_callback_state(state,common_state)
+        if state is None and kind in ("handler","handler-close","event"):
+            # Host handler rows affect obligations, not execution locals.
+            _apply_observation({},row,dispatched,settled,obligations,owner_sequences); continue
         if state is None: continue
         if row["mode"]=="generated":
             context=snapshots.get(row["sequence"])
             if context is None or context["visibleThrough"]!=row["sequence"]-1: _fail("Generated prefix cutoff is not immediately causal")
-            if state!=context["state"]: _fail("Public continuation differs from independently replayed shared state")
+            if state!=context["state"]:
+                differing=[name for name in context["state"] if state.get(name)!=context["state"].get(name)]
+                _fail("Public continuation differs from independently replayed shared state at "+str(row["sequence"])+" fields "+repr(differing))
             expected_cursor={"active":None,"consumed":consumed}
             if context["regionCursor"]!=expected_cursor: _fail("Region cursor differs from independently replayed region history")
             if context["obligations"]!=obligations: _fail("Obligations differ from independently replayed request history")
@@ -282,10 +323,28 @@ def _replay_shared_state(timeline,contexts,programs_from_context,*,roundtrip):
                 _apply_algorithm(state,program["algorithm"],context["input"]["graph"],fields["line"])
                 consumed.append({"invocationId":fields["invocationId"],"frame":frame,"region":"whole"})
             elif kind=="semantic":
-                k,payload=parse_record(fields["line"]); _apply_detail(state,k,payload,row,obligations,program,task_revisions)
+                k,payload=parse_record(fields["line"]); detail_kind=k; _apply_detail(state,k,payload,row,obligations,program,task_revisions)
         elif kind in ("dispatch","result"):
-            _apply_observation(state,row,dispatched,settled,obligations,track_counts)
+            target=state if fields.get("invocationId")==active_invocation else suspended.get(fields.get("invocationId"))
+            if target is None: _fail("Observation has no independently replayed invocation state")
+            _apply_observation(target,row,dispatched,settled,obligations,owner_sequences)
+            if target is not state: _merge_callback_state(state,target)
+            for saved in suspended.values(): _merge_callback_state(saved,target)
+        elif kind in ("handler","handler-close","event"):
+            _apply_observation(state,row,dispatched,settled,obligations,owner_sequences)
+        if active_invocation is not None:
+            for saved in suspended.values(): _merge_callback_state(saved,state)
+            common_state=copy.deepcopy(state) if active_invocation not in suspended else common_state
+        if detail_kind=="end" and active_invocation==fields.get("invocationId") and active_invocation in callback_invocations:
+            state=None; active_invocation=None
     return state
+
+
+def _merge_callback_state(target,source):
+    """Carry heap/cells and scheduler state between callback and owner frames."""
+    if not isinstance(target,dict) or not isinstance(source,dict): return
+    for field in ("heap","locals","scheduler","reactionSequence","randomState"):
+        if field in source: target[field]=copy.deepcopy(source[field])
 
 
 def _native_checkpoint(prefix,context):
@@ -321,6 +380,51 @@ def _set_row(rows,key,value):
 def _table(state,field): return {key:value for key,value in state[field]}
 
 
+def _detail_truthy(value):
+    if value[0] in ("undefined","null"): return False
+    if value[0]=="bool": return value[1]
+    if value[0]=="str": return bool(value[1])
+    if value[0]=="num":
+        item=value[1]
+        if isinstance(item,str): return item not in ("-0","NaN")
+        return item!=0
+    return True
+
+
+def _eval_detail_expression(expr,state):
+    from . import algorithm_v7 as v7
+    op=expr.get("op")
+    if op=="literal": return copy.deepcopy(expr["value"])
+    if op=="local":
+        locals_=_table(state,"locals"); alias=dict(state["captureAliases"]).get(expr["name"],expr["name"])
+        if alias not in locals_: _fail("Expression reads unavailable local")
+        return copy.deepcopy(locals_[alias])
+    if op=="read":
+        heap=_table(state,"heap").get(expr["object"])
+        if heap is None: _fail("Expression reads absent object")
+        prop=dict(heap["properties"])
+        return copy.deepcopy(prop.get(expr["key"],["undefined"]))
+    if op=="random": _fail("Random transition needs explicit checked state")
+    if op=="unary":
+        arg=_eval_detail_expression(expr["arg"],state)
+        mapping={"!":"not","+":"positive","-":"negate","~":"bit_not","typeof":"type_of","void":"void"}
+        if expr["operator"] not in mapping: _fail("Unsupported unary operator")
+        return v7._operation(mapping[expr["operator"]],[arg])
+    if op=="binary":
+        left=_eval_detail_expression(expr["left"],state); right=_eval_detail_expression(expr["right"],state)
+        mapping={"+":"add","-":"subtract","*":"multiply","/":"divide","%":"remainder","**":"power","===":"equal","!==":"not_equal","==":"loose_equal","!=":"loose_not_equal","<":"less","<=":"less_equal",">":"greater",">=":"greater_equal","&":"bit_and","|":"bit_or","^":"bit_xor","<<":"shift_left",">>":"shift_right",">>>":"unsigned_shift_right"}
+        if expr["operator"] not in mapping: _fail("Unsupported binary operator")
+        return v7._operation(mapping[expr["operator"]],[left,right])
+    if op in ("select","and","or","coalesce"):
+        args=expr.get("args",[])
+        if not args: _fail("Malformed lazy expression")
+        left=_eval_detail_expression(args[0],state)
+        if op=="select": return _eval_detail_expression(args[1 if _detail_truthy(left) else 2],state)
+        take=_detail_truthy(left) if op=="and" else not _detail_truthy(left) if op=="or" else left[0] in ("null","undefined")
+        return _eval_detail_expression(args[1],state) if take else left
+    _fail("Unsupported detailed expression")
+
+
 def _apply_region(state,target):
     for name,value in target["bindings"]: _set_row(state["locals"],name,value)
     if target["completion"]["kind"]=="return":
@@ -354,12 +458,37 @@ def _apply_detail(state,kind,fields,row,obligations=None,program=None,task_revis
         node["properties"]=[[k,v] for k,v in props.items()]
     elif kind=="call":
         state["stack"].append(fields["child"]); state["frameFunctions"].append([fields["child"],fields["callee"]])
+    elif kind in ("compute","choose"):
+        actual=_eval_detail_expression(fields["expr"],state)
+        claimed=fields["result"] if kind=="compute" else fields["decision"]
+        if actual!=claimed: _fail("Detailed expression claim differs from independent replay")
+        if kind=="compute" and fields.get("bind") is not None:
+            alias=dict(state["captureAliases"]).get(fields["bind"])
+            _set_row(state["locals"],alias or fields["bind"],claimed)
+        elif kind=="choose":
+            truth=_detail_truthy(claimed); path=fields["path"]
+            if path in ("then","else") and (path=="then")!=truth: _fail("Branch decision path is inconsistent")
+            if path in ("use-left","evaluate-right"):
+                op=fields["expr"].get("op"); left=_eval_detail_expression(fields["expr"].get("left",{}),state)
+                use_right=(truth if op=="and" else not truth if op=="or" else left[0] in ("null","undefined") if op=="coalesce" else None)
+                if use_right is None or (path=="evaluate-right")!=use_right: _fail("Logical decision path is inconsistent")
     elif kind=="return":
         value=fields["value"]; invocation=fields["invocation"]
         if len(state["stack"])>1 and state["stack"][-1]==invocation:
             state["lastReturn"]={"kind":"return","value":value}; state["stack"].pop()
         else:
             state["pending"]={"kind":"return","value":value}; state["stack"]=[]
+    elif kind=="throw":
+        value=fields["value"]; invocation=fields.get("invocation")
+        if invocation is not None and state["stack"] and state["stack"][-1]!=invocation: _fail("Throw invocation mismatch")
+        if len(state["stack"])>1:
+            state["lastReturn"]={"kind":"throw","value":value}; state["stack"].pop()
+        else:
+            state["pending"]={"kind":"throw","value":value}; state["stack"]=[]
+    elif kind=="transfer":
+        completion_kind=fields["kind"]
+        if completion_kind not in ("return","throw","cleanup"): _fail("Unknown completion transfer")
+        state["pending"]={"kind":completion_kind,"value":fields["value"],"handler":fields["handler"]}
     elif kind=="end":
         if state["stack"]: state["stack"].pop()
         state["completion"]=state["pending"] or {"kind":fields["kind"]}
@@ -368,7 +497,21 @@ def _apply_detail(state,kind,fields,row,obligations=None,program=None,task_revis
         effect=fields["effect"]; promise=fields.get("promise")
         args=fields["arguments"]
         from . import algorithm_v7 as v7
-        decoded=[v7._decode_scalar(v) for v in args]
+        callback_slots={"demo.withCallback":{1},"demo.listen":{1}}
+        decoded=[]
+        for index,value in enumerate(args):
+            if index in callback_slots.get(fields["operation"],set()):
+                if value[0]!="ref": _fail("Host callback argument must be an owned closure")
+                callback=_table(state,"heap").get(value[1])
+                if callback is None or callback.get("kind")!="closure": _fail("Host callback identity is not a guest function")
+                decoded.append({"$ownedCallback":value[1]})
+            else:
+                item=v7._decode_scalar(value)
+                if isinstance(item,tuple) and item and item[0]=="__algorithm_ref__": _fail("Object request argument requires owned graph codec")
+                if item is v7.UNDEFINED: _fail("Undefined host JSON value is not admitted")
+                if type(item) is float and item.is_integer(): item=int(item)
+                if type(item) is int and value[0]=="bigint": _fail("BigInt host JSON value is not admitted")
+                decoded.append(item)
         try: delivered=json.loads(fields["payload"])
         except (TypeError,json.JSONDecodeError) as e: raise NativeV8Error("Malformed host request payload") from e
         if delivered!=decoded: _fail("Host request payload differs from its tagged arguments")
@@ -394,7 +537,8 @@ def _apply_detail(state,kind,fields,row,obligations=None,program=None,task_revis
     elif kind=="await":
         seq=state["scheduler"]["registration"]+1; state["scheduler"]["registration"]=seq
         _set_row(state["continuations"],fields["continuation"],{"state":"waiting","promise":fields["promise"],"invocation":fields["invocation"],"sequence":seq,"activeJob":None,"captureAliases":copy.deepcopy(state["captureAliases"]),"readySequence":None})
-        state["callReturn"]={"kind":"return","value":["ref",fields["returnPromise"]]}; state["stack"]=[]
+        if fields.get("returnPromise"): state["callReturn"]={"kind":"return","value":["ref",fields["returnPromise"]]}
+        state["stack"]=[]
     elif kind=="resume":
         continuation=_table(state,"continuations").get(fields["continuation"])
         if continuation is None: _fail("Resume without continuation")
@@ -413,6 +557,62 @@ def _apply_detail(state,kind,fields,row,obligations=None,program=None,task_revis
 
 def _apply_observation(state,row,dispatched,settled,obligations=None,track_counts=None):
     fields=row["fields"]
+    if row["kind"]=="event":
+        if obligations is not None:
+            callback=next((v for _,v in obligations["callbacks"] if v.get("subscriptionId")==fields.get("subscriptionId")),None)
+            if callback is None or callback.get("state")!="active" or callback.get("closureId")!=fields.get("closureId",callback.get("closureId")):
+                _fail("Observed event has no active guest callback registration")
+            handlers={key:value for key,value in obligations["handlers"]}
+            handler=handlers.get(fields["subscriptionId"])
+            if handler is None or handler["state"]!="active": _fail("Event has no active source handler")
+            if fields.get("eventId") in handler["seen"]: _fail("Duplicate source event identity")
+            handler["seen"].append(fields["eventId"])
+            obligations["handlers"]=[[key,value] for key,value in handlers.items()]
+        return
+    if row["kind"]=="handler":
+        if obligations is not None:
+            callback_args=[]
+            for identity,intent in obligations["intents"]:
+                if intent.get("status")!="dispatched" or intent.get("operation") not in ("demo.withCallback","demo.listen"): continue
+                effect=next((item for item in state["effects"] if item[0]==intent["effectId"]),None)
+                if effect is None: continue
+                for slot,value in enumerate(effect[1]["arguments"]):
+                    if isinstance(value,dict) and set(value)=={"$ownedCallback"}:
+                        if value["$ownedCallback"]==fields.get("closureId"):
+                            callback_args.append((identity,slot,value["$ownedCallback"],intent))
+            matches=[entry for entry in callback_args if entry[2]==fields.get("closureId") and entry[3]["invocationId"]==fields.get("ownerInvocationId")]
+            if len(matches)!=1: _fail("Handler does not identify exactly one dispatched callback capability")
+            identity,slot,closure_id,intent=matches[0]
+            if fields.get("subscriptionId") in {value.get("subscriptionId") for _,value in obligations["callbacks"]}: _fail("Duplicate callback registration")
+            callbacks={key:value for key,value in obligations["callbacks"]}
+            closure=_table(state,"heap").get(closure_id)
+            callbacks[identity+"/"+str(slot)]={"state":"active","slot":slot,"closureId":closure_id,
+                "entry":closure.get("code"),"realmId":fields["realmId"],"programId":fields["programId"],
+                "trackId":fields["trackId"],"subscriptionId":fields["subscriptionId"],"lifetime":fields["lifetime"],
+                "sequence":0,"queued":[],"ownerInvocationId":fields["ownerInvocationId"]}
+            obligations["callbacks"]=[[key,value] for key,value in callbacks.items()]
+            handlers={key:value for key,value in obligations["handlers"]}
+            if fields["subscriptionId"] in handlers: _fail("Duplicate source handler")
+            handlers[fields["subscriptionId"]]={"programId":fields["programId"],"realmId":fields["realmId"],
+                "trackId":fields["trackId"],"realmPolicy":fields["realmPolicy"],"entry":fields["entry"],
+                "queueLimit":fields["queueLimit"],"seen":[],"queue":[],"state":"active",
+                "closureId":fields["closureId"],"lifetime":fields["lifetime"],"ownerInvocationId":fields["ownerInvocationId"]}
+            obligations["handlers"]=[[key,value] for key,value in handlers.items()]
+        return
+    if row["kind"]=="handler-close":
+        if obligations is not None:
+            callbacks={key:value for key,value in obligations["callbacks"]}
+            matches=[value for value in callbacks.values() if value.get("subscriptionId")==fields.get("subscriptionId")]
+            if len(matches)!=1 or matches[0].get("state")!="active": _fail("Handler close must revoke one active callback")
+            matches[0]["state"]="revoked"
+            obligations["callbacks"]=[[key,value] for key,value in callbacks.items()]
+            handlers={key:value for key,value in obligations["handlers"]}
+            handler=handlers.get(fields["subscriptionId"])
+            if handler is None or handler.get("state")!="active" or fields.get("discarded")!=handler.get("queue"):
+                _fail("Handler close does not match its queued events")
+            handler["state"]="closed"
+            obligations["handlers"]=[[key,value] for key,value in handlers.items()]
+        return
     if row["kind"]=="dispatch":
         if fields.get("attempt")!=1 or fields.get("key")!=f"{fields.get('invocationId')}/{fields.get('effectId')}": _fail("Effect dispatch identity")
         effect=next((e for e in state["effects"] if e[0]==fields["effectId"]),None)
@@ -442,7 +642,7 @@ def _apply_observation(state,row,dispatched,settled,obligations=None,track_count
             from . import witness_v6
             seq=row["sequence"]
             intent["result"]={"schema":"semantic-execution/6","session":fields["session"],"sequence":seq,
-                "ownerSequence":seq-1,"track":fields["track"],"mode":"observed","kind":"result",
+                "ownerSequence":(track_counts or {}).get(seq,seq-1),"track":fields["track"],"mode":"observed","kind":"result",
                 "invocationId":fields["invocationId"],"effectId":obs["effect"],"status":obs["status"],
                 "result":obs["result"],"line":"observe @"+obs["effect"]+" "+obs["status"]+" "+witness_v6._trace_value(obs["result"]),
                 "errorOrigin":fields.get("errorOrigin")}
