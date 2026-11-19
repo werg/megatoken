@@ -214,4 +214,29 @@ class MemoryProtocolNativeTests(unittest.TestCase):
         external=_external_machine(self.machine)
         validate_protocol_state(external["protocol"],external["heap"],external)
 
+    def test_binary_state_rejects_forged_bytes_views_and_ordinary_properties(self):
+        self.construct("ArrayBuffer","buffer",[["num",8]])
+        self.construct("Uint16Array","view",[["ref","buffer"],["num",2],["num",2]])
+        external=_external_machine(self.machine)
+        validate_protocol_state(external["protocol"],external["heap"],external)
+        node=lambda state,identity: next(row[1] for row in state["heap"] if row[0]==identity)
+        for mutate in (
+            lambda state: node(state,"buffer")["bytes"].__setitem__(0,256),
+            lambda state: node(state,"view").__setitem__("bufferId","missing"),
+            lambda state: node(state,"view").__setitem__("byteOffset",3),
+            lambda state: node(state,"view")["properties"].append(["custom",["num",1]]),
+            lambda state: node(state,"buffer").__setitem__("version",0),
+            lambda state: node(state,"buffer").__setitem__("resizable",True),
+        ):
+            bad=json.loads(json.dumps(external));mutate(bad)
+            with self.assertRaises(ProtocolV8Error): validate_protocol_state(bad["protocol"],bad["heap"],bad)
+
+    def test_false_binary_setter_completion_does_not_commit_backing_bytes(self):
+        self.construct("ArrayBuffer","buffer",[["num",4]])
+        self.construct("DataView","view",[["ref","buffer"]])
+        before=json.loads(json.dumps(self.machine))
+        with self.assertRaisesRegex(ProtocolV8Error,"false binary-memory call result"):
+            self.call("DataView.prototype.setUint8",["ref","view"],[["num",0],["num",9]],["num",9])
+        self.assertEqual(self.machine,before)
+
 if __name__ == "__main__": unittest.main()
