@@ -16,6 +16,9 @@ from .algorithm_v8 import replay_algorithm_line
 from .detailed_v7 import parse_record
 from .detailed_v7 import value as validate_value
 from .semantic_contract_v8 import CONTRACT_DIGEST, SemanticContractV8Error, validate_public
+from megatoken.controls import canonical_semantic_observation, semantic_selection_instruction
+from .schema import Dependency, Episode, Lineage, Meridian, PhysicalRecord, Supervision, TrackEvent, TrackSpec, encode_episode
+from .semantic_physical import physical_semantic_episode
 
 
 class NativeV8Error(ValueError): pass
@@ -102,6 +105,59 @@ def validate_v8_artifact(document):
                       "sourceBinding":"untested","tokenizer":"untested"},
             "counts":{"contexts":len(contexts),"generatedRecords":generated_count,"algorithmRecords":algorithm_count,"regionRecords":region_count,"detailedRecords":detail_count},
             "admitted":False}
+
+
+def prepare_native_v8_training(document,*,codec,max_positions=8192,max_history=1024):
+    """Build the exact native physical rows, masks, token counts and digest."""
+    validate_v8_artifact(document)
+    public=document["public"]; timeline=public["timeline"]
+    generated=[(i,row) for i,row in enumerate(timeline) if row["mode"]=="generated"]
+    contexts=document["contexts"]
+    rows=[]; context_for={row["sequence"]:context for context,(_,row) in zip(contexts,generated,strict=True)}
+    for sequence,row in enumerate(timeline,1):
+        if row["mode"]=="generated":
+            context=context_for[sequence]
+            rows.append((f"semantic:v8:context:{sequence}","system",canonical_semantic_observation(context),False))
+            payload=row["fields"]["line"].encode("utf-8")
+            rows.append((f"semantic:v8:target:{sequence}","assistant",payload,True))
+        else:
+            role="user" if row["kind"] in {"program","invocation"} else "environment"
+            rows.append((f"semantic:v8:observation:{sequence}",role,canonical_semantic_observation(row),False))
+    logical_records=[]; meridians=[]; ids={}
+    for index,(identity,role,payload,masked) in enumerate(rows):
+        rec=PhysicalRecord(identity,role,payload,turn_index=index,logical_id=identity,policy_mask=masked,
+                           provenance="unknown" if masked else "executed")
+        logical_records.append(rec); ids[identity]=identity
+        meridians.append(Meridian(index,(TrackEvent(identity,"assistant","text",index,role,
+            instruction=semantic_selection_instruction() if masked else ""),)))
+    dependencies=[]
+    for sequence,_ in generated:
+        target=f"semantic:v8:target:{timeline[sequence]["sequence"]}"
+        context=f"semantic:v8:context:{timeline[sequence]["sequence"]}"
+        dependencies.append(Dependency(context,target,"v8-public-context"))
+    digest=stable_algorithm_hash(public)
+    episode=Episode("semantic:v8:"+digest[:24],tuple(logical_records),
+        Lineage("semantic-execution-v8",digest,"semantic-execution-v8"),stream="semantic_execution",
+        supervision=Supervision(annotations_json=json.dumps({"session_metadata":{"schema":"semantic-execution-metadata/8"},
+            "semantic_execution":{"schema":"semantic-execution/8","representation":"mixed","profile":"compositional-regions/1"}},separators=(",",":"))),
+        dependencies=tuple(dependencies),tracks=(TrackSpec("assistant","assistant"),),meridians=tuple(meridians))
+    episode=physical_semantic_episode(episode,codec=codec,max_positions=max_positions,max_history=max_history,
+        selection_instruction=lambda continuation=False:semantic_selection_instruction(continuation=continuation),emit_context_windows=False)
+    encoded=encode_episode(episode,codec)
+    token_rows=[]; generated_tokens=observed_tokens=0
+    for item in encoded:
+        record=item.record; labels=[token if eligible else -100 for token,eligible in zip(item.token_ids,item.free_mask,strict=True)]
+        if record.policy_mask: generated_tokens+=item.P
+        else: observed_tokens+=item.tokens
+        token_rows.append({"recordId":record.record_id,"logicalId":record.logical_id,"partIndex":record.part_index,
+            "partCount":record.part_count,"role":record.role,"policyMask":record.policy_mask,
+            "payloadSha256":__import__("hashlib").sha256(record.payload).hexdigest(),
+            "tokenIds":list(item.token_ids),"labels":labels,"codecFingerprint":item.codec_fingerprint})
+    native_digest=stable_algorithm_hash({"schema":"semantic-native-training/8","codecFingerprint":codec.fingerprint,"rows":token_rows})
+    return episode,{"nativeTrainingDigest":native_digest,"generatedTokens":generated_tokens,"observedTokens":observed_tokens,
+                    "physicalRecords":len(episode.records),"logicalRecords":len(timeline)+len(contexts),"contexts":len(contexts),
+                    "generatedRecords":len(generated),"eosTokenId":None,"terminalTokens":0,
+                    "framing":"native-physical-record-boundaries/1"}
 
 
 def _replay_region(program,context,line,entry):

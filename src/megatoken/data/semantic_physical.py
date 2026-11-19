@@ -180,7 +180,9 @@ def physical_semantic_episode(
     )
     annotations = json.loads(episode.supervision.annotations_json)
     annotations["semantic_geometry"] = {
-        "schema": "semantic-native-geometry/7"
+        "schema": "semantic-native-geometry/8"
+        if annotations.get("semantic_execution", {}).get("schema") == "semantic-execution/8"
+        else "semantic-native-geometry/7"
         if annotations.get("semantic_execution", {}).get("schema") == "semantic-execution/7"
         else "semantic-native-geometry/4",
         "maxPositions": max_positions,
