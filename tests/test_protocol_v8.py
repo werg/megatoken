@@ -165,4 +165,53 @@ class ConstructionProtocolNativeTests(unittest.TestCase):
         validate_protocol_state(external["protocol"],external["heap"],external)
 
 
+class MemoryProtocolNativeTests(unittest.TestCase):
+    def setUp(self):
+        self.machine={"protocol":create_protocol_state(),"heap":{},"stack":["root"],"locals":{},
+            "captureAliases":{},"frameFunctions":{"root":"root"},"receiver":["undefined"],
+            "pending":None,"lastReturn":None,"completion":None}
+
+    def send(self,kind,**fields):
+        return apply_protocol_record(self.machine,{"kind":kind,**fields})
+
+    def construct(self,constructor,name,args,backing=None):
+        self.send("memory.construct",constructor=constructor,name=name,backing=backing,arguments=args)
+
+    def call(self,method,receiver,args,result,name=None):
+        self.send("memory.call",method=method,receiver=receiver,arguments=args,result=result,name=name)
+
+    def get(self,object,key,result): self.send("memory.get",object=object,key=["str",key],result=result)
+    def set(self,object,key,value): self.send("memory.set",object=object,key=["str",key],value=value)
+
+    def test_aliased_views_and_data_view_byte_order(self):
+        self.construct("ArrayBuffer","backing",[["num",8]])
+        self.construct("Uint8Array","bytes",[["ref","backing"]])
+        self.construct("DataView","view",[["ref","backing"]])
+        self.set("bytes","0",["num",257])
+        self.call("DataView.prototype.setUint16",["ref","view"],[["num",2],["num",0x1234],["bool",True]],["undefined"])
+        self.get("bytes","0",["num",1]);self.get("bytes","2",["num",0x34]);self.get("bytes","3",["num",0x12])
+        self.call("DataView.prototype.getUint16",["ref","view"],[["num",2],["bool",False]],["num",0x3412])
+        self.get("view","buffer",["ref","backing"])
+        before=json.loads(json.dumps(self.machine))
+        with self.assertRaisesRegex(ProtocolV8Error,"false binary-memory read"):
+            self.get("bytes","0",["num",257])
+        self.assertEqual(self.machine,before)
+        self.call("ArrayBuffer.prototype.slice",["ref","backing"],[["num",1],["num",4]],["ref","copy"],"copy")
+        self.construct("Uint8Array","copied",[["ref","copy"]])
+        self.set("bytes","2",["num",9]);self.get("copied","1",["num",0x34])
+        external=_external_machine(self.machine)
+        validate_protocol_state(external["protocol"],external["heap"],external)
+
+    def test_shared_growable_buffer_retains_tracking_view_and_atomics(self):
+        self.machine["heap"]["options"]={"kind":"object","properties":{"maxByteLength":["num",16]}}
+        self.construct("SharedArrayBuffer","shared",[["num",4],["ref","options"]])
+        self.construct("Int32Array","words",[["ref","shared"]])
+        self.construct("Uint8Array","fixed",[["ref","shared"],["num",0],["num",4]])
+        self.call("Atomics.store",None,[["ref","words"],["num",0],["num",257]],["num",257])
+        self.get("fixed","0",["num",1])
+        self.call("SharedArrayBuffer.prototype.grow",["ref","shared"],[["num",12]],["undefined"])
+        self.get("words","length",["num",3]);self.get("fixed","length",["num",4]);self.get("words","2",["num",0])
+        external=_external_machine(self.machine)
+        validate_protocol_state(external["protocol"],external["heap"],external)
+
 if __name__ == "__main__": unittest.main()

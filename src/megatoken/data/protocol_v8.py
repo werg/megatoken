@@ -43,7 +43,9 @@ class ProtocolV8Error(ValueError):
 from .construction_v8 import (FIELDS as CONSTRUCTION_FIELDS, apply_record as apply_construction_record,
     validate_record as validate_construction_record, validate_state as validate_construction_record_state,
     assert_next as assert_construction_next)
+from .memory_v8 import FIELDS as MEMORY_FIELDS, apply_record as apply_memory_record, validate_record as validate_memory_record, validate_state as validate_memory_state
 FIELDS.update(CONSTRUCTION_FIELDS)
+FIELDS.update(MEMORY_FIELDS)
 
 
 def _fail(message):
@@ -110,6 +112,11 @@ def validate_protocol_record(record):
         try: validate_construction_record(record)
         except ProtocolV8Error: raise
         except (TypeError, KeyError, IndexError) as error: raise ProtocolV8Error("Invalid construction record") from error
+        return True
+    if type(record) is dict and record.get("kind") in MEMORY_FIELDS:
+        try: validate_memory_record(record)
+        except ProtocolV8Error: raise
+        except (TypeError, KeyError, IndexError) as error: raise ProtocolV8Error("Invalid binary-memory record") from error
         return True
     if type(record) is not dict or record.get("kind") not in FIELDS: _fail("record kind")
     _exact(record, FIELDS[record["kind"]], "record")
@@ -272,6 +279,9 @@ def _apply(machine,record):
     if not machine["stack"] and record["kind"]!="end": _fail("active invocation required")
     kind=record["kind"]
     if "construction" in p: assert_construction_next(machine,record)
+    if kind in MEMORY_FIELDS:
+        if not apply_memory_record(machine,record): _fail("unsupported binary-memory transition")
+        return
     if kind in CONSTRUCTION_FIELDS:
         if not apply_construction_record(machine,record): _fail("unsupported construction transition")
         return
@@ -402,8 +412,9 @@ def _internal_machine(initial):
     for identity,node in initial["heap"]:
         n=copy.deepcopy(node)
         n["properties"]={_key(key) if isinstance(key,list) else key:value for key,value in n.get("properties",[])}
-        n["descriptors"]={_key(key) if isinstance(key,list) else key:value for key,value in n.get("descriptors",[])}
-        n["keyOrder"]=[_key(key) if isinstance(key,list) else key for key in n.get("keyOrder",[])]
+        if n.get("kind") not in ("array-buffer","shared-int32-buffer","typed-array","shared-int32-view","data-view","shared-data-view"):
+            n["descriptors"]={_key(key) if isinstance(key,list) else key:value for key,value in n.get("descriptors",[])}
+            n["keyOrder"]=[_key(key) if isinstance(key,list) else key for key in n.get("keyOrder",[])]
         if isinstance(n.get("privateElements"),list): n["privateElements"]={key:copy.deepcopy(value) for key,value in n["privateElements"]}
         machine["heap"][identity]=n
     for field in ("locals","captureAliases","frameFunctions"):
@@ -505,6 +516,9 @@ def validate_protocol_state(snapshot, heap_ids=(), shared_state=None):
         if heap_nodes is None: _fail("construction validation requires full shared heap")
         construction_machine=(_internal_machine(shared_state) if shared_state is not None else {"heap":heap_nodes,"protocol":snapshot})
         validate_construction_record_state(snapshot["construction"],construction_machine)
+    if heap_nodes is not None:
+        memory_machine=(_internal_machine(shared_state) if shared_state is not None else {"heap":heap_nodes})
+        validate_memory_state(memory_machine)
     return True
 
 
