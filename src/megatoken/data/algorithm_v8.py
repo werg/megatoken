@@ -7,6 +7,7 @@ tagged-value/heap rules from algorithm v7.
 from __future__ import annotations
 
 import copy
+import json
 from typing import Any
 
 from . import algorithm_v7 as v7
@@ -239,4 +240,38 @@ def evaluate_algorithm(core, arguments, *, heap=None, allocator=None):
     for identity,node in actual_heap.items():
         graph["objects"].append({"id":identity,"kind":node["kind"],"properties":[{"key":k,"value":copy.deepcopy(v)} for k,v in node["properties"].items()]})
     return {"completion":completion,"claims":claims,"graph":graph,"heap":actual_heap,"allocator":allocator,"work":work}
+
+
+def replay_algorithm_line(core, input_graph, line):
+    """Independently derive the public algorithm target from a public input graph."""
+    validate_algorithm(core)
+    if type(input_graph) is not dict or set(input_graph)!={"roots","objects"} or type(input_graph["roots"]) is not list:
+        _fail("input graph envelope")
+    heap=v7.algorithm_heap_from_graph(input_graph)
+    result=evaluate_algorithm(core,input_graph["roots"],heap=heap,allocator={"prefix":"core-v8","next":0})
+    if type(line) is not str or not line.startswith("algorithm "):
+        _fail("generated algorithm prefix")
+    try: supplied=json.loads(line[len("algorithm "):])
+    except (json.JSONDecodeError,TypeError) as e: raise AlgorithmV8Error("Malformed algorithm/2 target JSON") from e
+    if type(supplied) is not dict or set(supplied)!={"claims","allocations","completion"}: _fail("algorithm target fields")
+    existing=set(heap); remap={}; next_id=0
+    for identity in result["heap"]:
+        if identity not in existing:
+            while f"o{next_id}" in existing: next_id+=1
+            remap[identity]=f"o{next_id}"; existing.add(f"o{next_id}"); next_id+=1
+    def map_value(value):
+        if type(value) is list:
+            if len(value)==2 and value[0]=="ref" and value[1] in remap: return ["ref",remap[value[1]]]
+            return [map_value(x) for x in value]
+        if type(value) is dict: return {k:map_value(v) for k,v in value.items()}
+        return value
+    expected_claims=map_value(result["claims"])
+    expected_completion=map_value(result["completion"])
+    allocations=[]
+    for identity,node in result["heap"].items():
+        if identity in remap:
+            allocations.append({"id":remap[identity],"kind":node["kind"],"properties":[{"key":k,"value":map_value(v)} for k,v in node["properties"].items()]})
+    expected={"claims":expected_claims,"allocations":allocations,"completion":expected_completion}
+    if supplied!=expected: _fail("algorithm target differs from independent replay")
+    return expected
 

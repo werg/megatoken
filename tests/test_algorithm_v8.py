@@ -1,6 +1,6 @@
 import unittest
 
-from megatoken.data.algorithm_v8 import AlgorithmV8Error, evaluate_algorithm, validate_algorithm
+from megatoken.data.algorithm_v8 import AlgorithmV8Error, evaluate_algorithm, replay_algorithm_line, validate_algorithm
 
 
 def callback_term(mode="map"):
@@ -42,6 +42,15 @@ class AlgorithmV8Tests(unittest.TestCase):
     def test_old_algorithm_version_is_not_relabelled(self):
         self.core["schema"] = "semantic-algorithm/1"
         with self.assertRaises(AlgorithmV8Error): validate_algorithm(self.core)
+
+    def test_generated_claims_and_allocations_are_replayed(self):
+        line = 'algorithm {"allocations":[{"id":"o0","kind":"array","properties":[{"key":"0","value":["num",4]},{"key":"1","value":["num",6]},{"key":"2","value":["num",8]},{"key":"length","value":["num",3]}]}],"claims":[{"id":"v0","kind":"compute","result":["ref","o0"],"step":0},{"kind":"return","step":1,"value":["ref","o0"]}],"completion":{"kind":"return","value":["ref","o0"]}}'
+        graph = {"roots": [["ref", "o2"]], "objects": [{"id":"o2","kind":"array","properties":[
+            {"key":"0","value":["num",2]},{"key":"1","value":["num",3]},{"key":"2","value":["num",4]},{"key":"length","value":["num",3]},
+        ]}]}
+        self.assertEqual(replay_algorithm_line(self.core, graph, line)["completion"]["value"], ["ref", "o0"])
+        forged = line.replace('["num",8]', '["num",9]')
+        with self.assertRaises(AlgorithmV8Error): replay_algorithm_line(self.core, graph, forged)
 
 
 if __name__ == "__main__": unittest.main()
