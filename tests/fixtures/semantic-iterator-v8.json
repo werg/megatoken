@@ -99,7 +99,9 @@
           "pendingCalls": [],
           "callFrames": [],
           "sequence": 0,
-          "construction": null
+          "construction": null,
+          "numberConversions": null,
+          "proxyCalls": null
         }
       },
       "lines": [
@@ -423,7 +425,9 @@
           "pendingCalls": [],
           "callFrames": [],
           "sequence": 12,
-          "construction": null
+          "construction": null,
+          "numberConversions": null,
+          "proxyCalls": null
         }
       }
     },
@@ -524,7 +528,9 @@
           "pendingCalls": [],
           "callFrames": [],
           "sequence": 0,
-          "construction": null
+          "construction": null,
+          "numberConversions": null,
+          "proxyCalls": null
         }
       },
       "lines": [
@@ -825,7 +831,9 @@
           "pendingCalls": [],
           "callFrames": [],
           "sequence": 7,
-          "construction": null
+          "construction": null,
+          "numberConversions": null,
+          "proxyCalls": null
         }
       }
     },
@@ -926,7 +934,9 @@
           "pendingCalls": [],
           "callFrames": [],
           "sequence": 0,
-          "construction": null
+          "construction": null,
+          "numberConversions": null,
+          "proxyCalls": null
         }
       },
       "lines": [
@@ -1157,7 +1167,9 @@
           "pendingCalls": [],
           "callFrames": [],
           "sequence": 8,
-          "construction": null
+          "construction": null,
+          "numberConversions": null,
+          "proxyCalls": null
         }
       }
     }

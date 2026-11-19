@@ -98,7 +98,10 @@
           ],
           "pendingCalls": [],
           "callFrames": [],
-          "sequence": 0
+          "sequence": 0,
+          "construction": null,
+          "numberConversions": null,
+          "proxyCalls": null
         }
       },
       "lines": [
@@ -159,19 +162,19 @@
                     "o1"
                   ],
                   {
-                    "kind": "data",
-                    "writable": false,
+                    "configurable": false,
                     "enumerable": true,
-                    "configurable": false
+                    "kind": "data",
+                    "writable": false
                   }
                 ],
                 [
                   "\u0000symbol:o1",
                   {
-                    "kind": "data",
-                    "writable": true,
+                    "configurable": true,
                     "enumerable": true,
-                    "configurable": true
+                    "kind": "data",
+                    "writable": true
                   }
                 ]
               ],
@@ -326,7 +329,10 @@
           ],
           "pendingCalls": [],
           "callFrames": [],
-          "sequence": 11
+          "sequence": 11,
+          "construction": null,
+          "numberConversions": null,
+          "proxyCalls": null
         }
       }
     },
@@ -426,7 +432,10 @@
           ],
           "pendingCalls": [],
           "callFrames": [],
-          "sequence": 0
+          "sequence": 0,
+          "construction": null,
+          "numberConversions": null,
+          "proxyCalls": null
         }
       },
       "lines": [
@@ -473,16 +482,16 @@
                     "o1"
                   ],
                   {
-                    "kind": "accessor",
+                    "configurable": false,
+                    "enumerable": false,
                     "get": [
                       "ref",
                       "o3"
                     ],
+                    "kind": "accessor",
                     "set": [
                       "undefined"
-                    ],
-                    "enumerable": false,
-                    "configurable": false
+                    ]
                   }
                 ]
               ],
@@ -671,7 +680,10 @@
           ],
           "pendingCalls": [],
           "callFrames": [],
-          "sequence": 15
+          "sequence": 15,
+          "construction": null,
+          "numberConversions": null,
+          "proxyCalls": null
         }
       }
     },
@@ -771,7 +783,10 @@
           ],
           "pendingCalls": [],
           "callFrames": [],
-          "sequence": 0
+          "sequence": 0,
+          "construction": null,
+          "numberConversions": null,
+          "proxyCalls": null
         }
       },
       "lines": [
@@ -804,16 +819,16 @@
                 [
                   "x",
                   {
-                    "kind": "accessor",
+                    "configurable": true,
+                    "enumerable": true,
                     "get": [
                       "undefined"
                     ],
+                    "kind": "accessor",
                     "set": [
                       "ref",
                       "o2"
-                    ],
-                    "enumerable": true,
-                    "configurable": true
+                    ]
                   }
                 ]
               ],
@@ -956,7 +971,10 @@
           ],
           "pendingCalls": [],
           "callFrames": [],
-          "sequence": 8
+          "sequence": 8,
+          "construction": null,
+          "numberConversions": null,
+          "proxyCalls": null
         }
       }
     }

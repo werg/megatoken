@@ -20,6 +20,7 @@ from megatoken.data.protocol_v8 import (
 FIXTURE = Path(__file__).parent / "fixtures" / "semantic-protocol-v8.json"
 REGION_FIXTURE = Path(__file__).parent / "fixtures" / "semantic-protocol-region-v8.json.gz.b64"
 ITERATOR_FIXTURE = Path(__file__).parent / "fixtures" / "semantic-iterator-v8.json"
+GENERATOR_FIXTURE = Path(__file__).parent / "fixtures" / "semantic-generator-v8.json"
 
 
 class ProtocolV8CodecTests(unittest.TestCase):
@@ -194,6 +195,36 @@ class IteratorProtocolNativeTests(unittest.TestCase):
             replay_protocol_case(bad)
 
 
+class GeneratorProtocolNativeTests(unittest.TestCase):
+    @classmethod
+    def setUpClass(cls):
+        cls.document = json.loads(GENERATOR_FIXTURE.read_text())
+
+    def test_generator_lifecycle_handlers_and_delegation_replay(self):
+        self.assertEqual(self.document["profile"], "synchronous-generator/1")
+        self.assertEqual(len(self.document["cases"]), 6)
+        for case in self.document["cases"]:
+            with self.subTest(case=case["id"]):
+                self.assertEqual(replay_protocol_case(case), case["expected"])
+
+    def test_direct_generator_calls_and_false_delegate_completion_are_rejected(self):
+        start = json.loads(json.dumps(next(case for case in self.document["cases"] if case["id"] == "return-before-body-start")))
+        declaration = next(i for i, line in enumerate(start["lines"]) if '"kind":"generator.function"' in line)
+        direct_call = {"kind": "call", "child": "forged-child", "callee": ["ref", "fn"],
+                       "receiver": ["undefined"], "arguments": []}
+        start["lines"].insert(declaration + 1, encode_protocol_record(direct_call))
+        with self.assertRaises(ProtocolV8Error):
+            replay_protocol_case(start)
+
+        delegated = json.loads(json.dumps(next(case for case in self.document["cases"] if case["id"] == "delegate-array-preserves-result-identity")))
+        index = next(i for i, line in enumerate(delegated["lines"]) if '"kind":"generator.delegate.result"' in line)
+        record = decode_protocol_record(delegated["lines"][index])
+        record["done"] = True
+        delegated["lines"][index] = encode_protocol_record(record)
+        with self.assertRaises(ProtocolV8Error):
+            replay_protocol_case(delegated)
+
+
 class ProtocolV8NativeReplayTests(unittest.TestCase):
     @classmethod
     def setUpClass(cls):
@@ -204,36 +235,65 @@ class ProtocolV8NativeReplayTests(unittest.TestCase):
         self.assertEqual(self.artifact["schema"], "semantic-protocol-region-fixtures/1")
         expected = {
             "source-symbol-getter-arithmetic": (
-                "f0f48dc8fcdc5e97e03334dc19d7f076f02f9f9c39095603070af4a0b2fc6c30",
-                "00a245053b8a2c70089a755792a5149637afa9dadd59c2480bb10c4f3255c55a",
+                "25740fcc4c7a2dae1d185fd5e8250c2fb727e1db97a176d751bc74752d37d573",
+                "34e498ac227f3cd7bf927f8361281e6ce5d47ef7f91b05b5c1fcb905c8b35674",
                 11,
                 3,
                 8,
             ),
             "typed-views-shared-backing": (
                 "bf88479ca947f7ae6250c493e458db1edac052b1ecd3ebdb8f8fe4f8b52e86d9",
-                "519dce4e0d95f63c1070ec27c7d1c6f977110fb543f44b790b476006509def23",
+                "f0880fab0287c82b4b7c0ee5a712875f2770ed3483daf9c2352976da9b4a604e",
                 13,
                 0,
                 8,
             ),
             "source-derived-private-arithmetic": (
-                "ea92a427b7c99365502f6b1df70d5bc60241079b987aea6695457187debb8f2d",
-                "72825d06e63761462e0f00f01575bfa7d8126d20e3078a2e2c31a88f3a5cf80a",
+                "3bfe01e095d764ec1883a13260fc9ec4d61f4536161188bd9346de081dba92cb",
+                "5616241138fb319d558defbace8d8e58900940b453972720a9e11bb641525abd",
                 64,
                 2,
                 21,
             ),
             "builtin-iterator-mixed-arithmetic": (
-                "a2e355eed02c63c41850dbff17cac4d5c8fc07b71ae5fccf214ab4d4b9de5c33",
-                "9f0bc0d24903e7f3a1390745b5f59b6a41b76320d453709d677713bd76e03d8e",
+                "923ae7d50aad887a9fc354de1dd8e2c71c810df562423fa0e5d3d243678a4939",
+                "7aa559a57a0dbe36d07ae4aa1523f4c24f6b700dd32b1e96de8b2d990164bb30",
                 16,
                 2,
                 12,
             ),
+            "source-number-private-arithmetic": (
+                "18e7a40509f398734e0e07410a0b90b556969ec99203fb37d3d51ddcf9b54116",
+                "c4f7839118881a8f4a043e58eff87637a702fad7b83dfee940b7edeebe9e5a12",
+                51,
+                2,
+                15,
+            ),
+            "source-generator-cleanup-suspension": (
+                "afd8010d455b42109bfd3bdc369a8011a6d2f463669125b19ba9cf0392cfd197",
+                "25fbee79668ac97d1130883c90b4c0392079771a3a5730c235189f86d82b5223",
+                30,
+                0,
+                6,
+            ),
+            "source-generator-delegated-cleanup": (
+                "acd9ac1cf59ce1ef29c627872deae5a70f04a119704adea9637d718c97fd9c9d",
+                "3a81ec76c01fbd27e79c0d479b42610056451f210e5402d38f26be0708b1b855",
+                49,
+                0,
+                30,
+            ),
         }
-        self.assertEqual({case["id"] for case in self.artifact["cases"]}, set(expected))
+        deferred = {
+            "source-promise-all-reaction-arithmetic",
+            "source-promise-join-rejection-finally",
+            "source-proxy-traps-arithmetic",
+        }
+        case_ids = {case["id"] for case in self.artifact["cases"]}
+        self.assertEqual(case_ids, set(expected) | deferred)
         for golden in self.artifact["cases"]:
+            if golden["id"] in deferred:
+                continue
             case = golden["artifact"]
             with self.subTest(case=golden["id"]):
                 public_digest, context_digest, protocol_records, regions, details = expected[

@@ -17,6 +17,11 @@ from .construction_v8 import apply_record as apply_construction_record
 from .construction_v8 import assert_next as assert_construction_next
 from .construction_v8 import validate_record as validate_construction_record
 from .construction_v8 import validate_state as validate_construction_record_state
+from .generator_v8 import FIELDS as GENERATOR_FIELDS
+from .generator_v8 import apply_record as apply_generator_record
+from .generator_v8 import assert_next as assert_generator_next
+from .generator_v8 import validate_record as validate_generator_record
+from .generator_v8 import validate_state as validate_generator_state
 from .iterator_v8 import FIELDS as ITERATOR_FIELDS
 from .iterator_v8 import apply_record as apply_iterator_record
 from .iterator_v8 import validate_record as validate_iterator_record
@@ -25,9 +30,19 @@ from .memory_v8 import FIELDS as MEMORY_FIELDS
 from .memory_v8 import apply_record as apply_memory_record
 from .memory_v8 import validate_record as validate_memory_record
 from .memory_v8 import validate_state as validate_memory_state
+from .number_v8 import FIELDS as NUMBER_FIELDS
+from .number_v8 import apply_record as apply_number_record
+from .number_v8 import assert_next as assert_number_next
+from .number_v8 import validate_record as validate_number_record
+from .number_v8 import validate_state as validate_number_state
 from .promise_join_v8 import FIELDS as PROMISE_JOIN_FIELDS
 from .promise_join_v8 import apply_record as apply_promise_join_record
 from .promise_join_v8 import validate_record as validate_promise_join_record
+from .proxy_v8 import FIELDS as PROXY_FIELDS
+from .proxy_v8 import apply_record as apply_proxy_record
+from .proxy_v8 import assert_next as assert_proxy_next
+from .proxy_v8 import validate_record as validate_proxy_record
+from .proxy_v8 import validate_state as validate_proxy_state
 
 PREFIX = "protocol "
 SCHEMA = "semantic-protocol-record/1"
@@ -90,6 +105,9 @@ FIELDS.update(CONSTRUCTION_FIELDS)
 FIELDS.update(MEMORY_FIELDS)
 FIELDS.update(ITERATOR_FIELDS)
 FIELDS.update(PROMISE_JOIN_FIELDS)
+FIELDS.update(NUMBER_FIELDS)
+FIELDS.update(GENERATOR_FIELDS)
+FIELDS.update(PROXY_FIELDS)
 
 
 def _fail(message):
@@ -201,6 +219,12 @@ def _expression(term, depth=0, budget=None):
 
 
 def validate_protocol_record(record):
+    if type(record) is dict and record.get("kind") in PROXY_FIELDS:
+        return validate_proxy_record(record)
+    if type(record) is dict and record.get("kind") in NUMBER_FIELDS:
+        return validate_number_record(record)
+    if type(record) is dict and record.get("kind") in GENERATOR_FIELDS:
+        return validate_generator_record(record)
     if type(record) is dict and record.get("kind") in PROMISE_JOIN_FIELDS:
         try:
             validate_promise_join_record(record)
@@ -372,6 +396,8 @@ def create_protocol_state():
         "callFrames": [],
         "sequence": 0,
         "construction": None,
+        "numberConversions": None,
+        "proxyCalls": None,
     }
 
 
@@ -681,6 +707,10 @@ def _apply(machine, record):
     if not machine["stack"] and record["kind"] not in ("end", "promise.join.step"):
         _fail("active invocation required")
     kind = record["kind"]
+    if not machine.get("_internalProtocolTransition"):
+        assert_number_next(machine, record)
+        assert_generator_next(machine, record)
+        assert_proxy_next(machine, record)
     if p.get("construction") is not None:
         assert_construction_next(machine, record)
     if kind in MEMORY_FIELDS:
@@ -694,6 +724,18 @@ def _apply(machine, record):
     if kind in PROMISE_JOIN_FIELDS:
         if not apply_promise_join_record(machine, record):
             _fail("unsupported Promise join transition")
+        return
+    if kind in NUMBER_FIELDS:
+        if not apply_number_record(machine, record):
+            _fail("unsupported Number transition")
+        return
+    if kind in GENERATOR_FIELDS:
+        if not apply_generator_record(machine, record):
+            _fail("unsupported generator transition")
+        return
+    if kind in PROXY_FIELDS:
+        if not apply_proxy_record(machine, record):
+            _fail("unsupported Proxy transition")
         return
     if kind in CONSTRUCTION_FIELDS:
         if not apply_construction_record(machine, record):
@@ -821,11 +863,13 @@ def _apply(machine, record):
         if result != claimed:
             _fail("false protocol computation")
         if kind == "choose":
-            if record["path"] not in ("then", "else"):
+            if record["path"] not in ("then", "else", "use-left", "evaluate-right"):
                 _fail("unsupported short-circuit path")
             truthy = result[0] == "symbol" or v7._truthy(result)
             if record["path"] == "then" and not truthy or record["path"] == "else" and truthy:
                 _fail("false branch path")
+            if record["path"] == "use-left" and not truthy:
+                _fail("false short-circuit path")
         if kind == "compute" and record["bind"] is not None:
             machine["locals"][
                 machine.get("captureAliases", {}).get(record["bind"], record["bind"])
@@ -839,6 +883,8 @@ def _apply(machine, record):
             or record["child"] in machine["frameFunctions"]
         ):
             _fail("owned callable required")
+        if node.get("generatorFunction") is True and not machine.get("_internalProtocolTransition"):
+            _fail("generator call requires its declared creation/resume protocol")
         if node.get("callable", {}).get("classConstructor"):
             _fail("class constructor cannot be called without construction")
         p["callFrames"].append(
@@ -1177,12 +1223,12 @@ def replay_protocol_case(case):
             machine = _internal_machine(serialized)
             if machine["protocol"]["sequence"] != number + 1:
                 _fail("checkpoint sequence")
-            validate_protocol_state(machine["protocol"], machine["heap"])
+            validate_protocol_state(machine["protocol"], machine["heap"], _external_machine(machine))
     return _external_machine(machine)
 
 
 def validate_protocol_state(snapshot, heap_ids=(), shared_state=None):
-    base_fields = {"schema", "symbols", "pendingCalls", "callFrames", "sequence"}
+    base_fields = {"schema", "symbols", "pendingCalls", "callFrames", "sequence", "numberConversions", "proxyCalls"}
     if type(snapshot) is dict and "construction" in snapshot:
         _exact(snapshot, base_fields | {"construction"}, "shared protocol state")
     else:
@@ -1368,6 +1414,9 @@ def validate_protocol_state(snapshot, heap_ids=(), shared_state=None):
         from .promise_join_v8 import validate_state as validate_promise_join_state
 
         validate_promise_join_state(memory_machine)
+        validate_number_state(memory_machine)
+        validate_generator_state(memory_machine)
+        validate_proxy_state(memory_machine)
     return True
 
 
@@ -1389,6 +1438,9 @@ def assert_detailed_record_compatible(shared_state, kind, fields):
     if protocol is None:
         return True
     machine = _internal_machine(shared_state)
+    assert_number_next(machine, {"kind": kind, **fields})
+    assert_generator_next(machine, {"kind": kind, **fields})
+    assert_proxy_next(machine, {"kind": kind, **fields})
 
     def rich(node):
         return bool(
@@ -1396,6 +1448,9 @@ def assert_detailed_record_compatible(shared_state, kind, fields):
             or node.get("extensible") is False
             or node.get("prototype") not in (None, "ordinary")
             or any(isinstance(key, tuple) for key in node.get("properties", {}))
+            or node.get("kind") == "generator"
+            or node.get("generatorFunction") is True
+            or node.get("kind") == "proxy"
         )
 
     def inspect(value):
@@ -1419,6 +1474,12 @@ def assert_detailed_record_compatible(shared_state, kind, fields):
         node = machine["heap"].get(fields.get("object"))
         if node and rich(node):
             _fail("Detailed property transition bypasses rich protocol state")
+    if kind in ("call", "construct"):
+        callee = fields.get("callee")
+        identity = callee[1] if isinstance(callee, list) and len(callee) == 2 and callee[0] == "ref" else callee
+        target = machine["heap"].get(identity)
+        if target and target.get("generatorFunction") is True:
+            _fail("Detailed call bypasses generator creation/resume protocol")
     if shared_state["protocol"]["pendingCalls"] and kind == "end":
         _fail("Unfinished accessor call")
     return True

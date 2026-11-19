@@ -540,6 +540,226 @@
             "kind",
             "iterated",
             "result"
+          ],
+          "promise.join": [
+            "kind",
+            "mode",
+            "result",
+            "inputs",
+            "jobs",
+            "output",
+            "error"
+          ],
+          "promise.join.step": [
+            "kind",
+            "result",
+            "job",
+            "entry",
+            "output",
+            "error",
+            "status",
+            "value"
+          ],
+          "number.begin": [
+            "kind",
+            "id",
+            "value"
+          ],
+          "number.select": [
+            "kind",
+            "id",
+            "key",
+            "method",
+            "builtin"
+          ],
+          "number.call": [
+            "kind",
+            "id",
+            "child"
+          ],
+          "number.builtin": [
+            "kind",
+            "id",
+            "result"
+          ],
+          "number.return": [
+            "kind",
+            "id",
+            "value"
+          ],
+          "number.finish": [
+            "kind",
+            "id",
+            "result"
+          ],
+          "generator.function": [
+            "kind",
+            "object",
+            "prototype",
+            "name",
+            "length"
+          ],
+          "generator.create": [
+            "kind",
+            "name",
+            "child",
+            "callee",
+            "receiver",
+            "arguments"
+          ],
+          "generator.start": [
+            "kind",
+            "object"
+          ],
+          "generator.resume": [
+            "kind",
+            "object",
+            "method",
+            "argument"
+          ],
+          "generator.receive": [
+            "kind",
+            "object",
+            "bind"
+          ],
+          "generator.handler.enter": [
+            "kind",
+            "object",
+            "name",
+            "catch",
+            "finally"
+          ],
+          "generator.handler.route": [
+            "kind",
+            "object",
+            "completion"
+          ],
+          "generator.handler.catch": [
+            "kind",
+            "object",
+            "name",
+            "bind"
+          ],
+          "generator.handler.leave": [
+            "kind",
+            "object",
+            "name"
+          ],
+          "generator.delegate.enter": [
+            "kind",
+            "object",
+            "iterator",
+            "next"
+          ],
+          "generator.delegate.call": [
+            "kind",
+            "object",
+            "method",
+            "call"
+          ],
+          "generator.delegate.result": [
+            "kind",
+            "object",
+            "result",
+            "done"
+          ],
+          "generator.delegate.yield": [
+            "kind",
+            "object",
+            "result"
+          ],
+          "generator.delegate.receive": [
+            "kind",
+            "object"
+          ],
+          "generator.delegate.end": [
+            "kind",
+            "object"
+          ],
+          "generator.delegate.absent": [
+            "kind",
+            "object",
+            "method"
+          ],
+          "generator.delegate.abrupt": [
+            "kind",
+            "object",
+            "value"
+          ],
+          "generator.yield": [
+            "kind",
+            "object",
+            "value",
+            "name"
+          ],
+          "generator.finish": [
+            "kind",
+            "object",
+            "completion",
+            "name"
+          ],
+          "generator.completed": [
+            "kind",
+            "object",
+            "method",
+            "argument",
+            "name"
+          ],
+          "generator.lookup": [
+            "kind",
+            "receiver",
+            "key",
+            "method"
+          ],
+          "generator.read": [
+            "kind",
+            "object",
+            "key",
+            "result"
+          ],
+          "generator.identity": [
+            "kind",
+            "object",
+            "result"
+          ],
+          "proxy.create": [
+            "kind",
+            "name",
+            "target",
+            "handler"
+          ],
+          "proxy.get": [
+            "kind",
+            "object",
+            "key",
+            "result"
+          ],
+          "proxy.set": [
+            "kind",
+            "object",
+            "key",
+            "value",
+            "success"
+          ],
+          "proxy.get.call": [
+            "kind",
+            "id",
+            "object",
+            "key",
+            "child"
+          ],
+          "proxy.set.call": [
+            "kind",
+            "id",
+            "object",
+            "key",
+            "value",
+            "child"
+          ],
+          "proxy.finish": [
+            "kind",
+            "id",
+            "completion"
           ]
         },
         "profile": "symbols-ordinary-properties/1",
@@ -1366,7 +1586,9 @@
         "pendingCalls",
         "callFrames",
         "sequence",
-        "construction"
+        "construction",
+        "numberConversions",
+        "proxyCalls"
       ],
       "initial": null,
       "heap": "Existing heap nodes with property, descriptor and private-element Maps serialized as entry arrays; Symbol keys remain tagged pairs.",
@@ -1419,6 +1641,39 @@
           "properties"
         ],
         "capabilities": "Builtin array keys/values/entries and Unicode string iteration, live array length, sticky exhaustion and explicit result/pair allocation identities."
+      },
+      "promiseJoins": {
+        "profile": "promise-join/1",
+        "schema": "semantic-promise-join-state/1",
+        "modes": [
+          "all",
+          "race"
+        ],
+        "fields": [
+          "schema",
+          "mode",
+          "inputs",
+          "jobs",
+          "observed",
+          "values",
+          "settled",
+          "output",
+          "error"
+        ],
+        "jobFields": [
+          "status",
+          "owner",
+          "promise",
+          "reaction",
+          "closure",
+          "rejectionClosure",
+          "target",
+          "sequence",
+          "joinResult",
+          "joinIndex",
+          "readySequence"
+        ],
+        "capabilities": "Ordered Promise dependencies, FIFO internal jobs, first settlement and explicit late no-op steps; fresh result arrays are named only when allocated."
       },
       "binaryMemory": {
         "profile": "owned-binary-memory/1",
@@ -1480,7 +1735,7 @@
         "dataViewByteOrder": "explicit per operation",
         "capabilities": "Fixed ordinary buffers and fixed/growable shared buffers; scalar conversions; shared view identities; bounded single-agent atomic operations. No detach, transfer, host buffers or cross-agent scheduling."
       },
-      "lifecycle": "First protocol profile is one synchronous fresh invocation with no host work, jobs or asynchronous observations."
+      "lifecycle": "One fresh invocation without external host work. Declared Promise joins may use internal Promise, await, resume, job and transfer detail; join steps require an empty stack and the FIFO ready head. External observations remain outside protocol profiles."
     },
     "checkpoint": {
       "fields": [
@@ -1515,7 +1770,7 @@
       "default": "not promoted by engineering receipts alone"
     }
   },
-  "digest": "3adb1eab2d8b0d51472014bbfa9b7146d217cd6de2fcc7a9c63a3d9af1ae53d9",
+  "digest": "f91f67ae280bddc99b8dde278acc43b2754c40829e8ebccc0084c6a29f35bfe3",
   "fixtureDigest": "56f7f36d3b25b3b11a208be3de337e637b9782e6759faea1e1ec107b0a90f0ce",
   "fixtures": [
     {
@@ -1540,7 +1795,7 @@
       "reason": "old artifacts require their original contract"
     }
   ],
-  "interoperabilityDigest": "bb357a86f10500d0633effad391437fa0ed14531b0ce92ac56c379e7e4228b59",
+  "interoperabilityDigest": "bd623249b218c69a822ab0a683cf265418c7fcac38f4c672ef2b379951ab116c",
   "interoperability": [
     {
       "id": "ordered-map",
@@ -1560,32 +1815,62 @@
     {
       "id": "protocol-machine",
       "schema": "semantic-protocol-fixtures/1",
-      "fixtureDigest": "d345ef84cb001f56f63363d2e0ba16cf6ad101c9739ffb089599c965e613acd4"
+      "fixtureDigest": "e8d6016182e1222184ec6d483eb4126c10922ffcf32497f68a11d6fc20d29071"
     },
     {
       "id": "iterator-machine",
       "schema": "semantic-protocol-fixtures/1",
-      "fixtureDigest": "c99e3489c40cea267517269a93d2f3cd4ab076202c7f890147e6f15745b0c783"
+      "fixtureDigest": "4f6739129e3ba47c8256fd73e04fdd9845ba7dcdc658f1d93895060660bcf730"
     },
     {
       "id": "protocol-region:source-symbol-getter-arithmetic",
-      "publicDigest": "f0f48dc8fcdc5e97e03334dc19d7f076f02f9f9c39095603070af4a0b2fc6c30",
-      "contextDigest": "00a245053b8a2c70089a755792a5149637afa9dadd59c2480bb10c4f3255c55a"
+      "publicDigest": "25740fcc4c7a2dae1d185fd5e8250c2fb727e1db97a176d751bc74752d37d573",
+      "contextDigest": "34e498ac227f3cd7bf927f8361281e6ce5d47ef7f91b05b5c1fcb905c8b35674"
     },
     {
       "id": "protocol-region:typed-views-shared-backing",
       "publicDigest": "bf88479ca947f7ae6250c493e458db1edac052b1ecd3ebdb8f8fe4f8b52e86d9",
-      "contextDigest": "519dce4e0d95f63c1070ec27c7d1c6f977110fb543f44b790b476006509def23"
+      "contextDigest": "f0880fab0287c82b4b7c0ee5a712875f2770ed3483daf9c2352976da9b4a604e"
     },
     {
       "id": "protocol-region:source-derived-private-arithmetic",
-      "publicDigest": "ea92a427b7c99365502f6b1df70d5bc60241079b987aea6695457187debb8f2d",
-      "contextDigest": "72825d06e63761462e0f00f01575bfa7d8126d20e3078a2e2c31a88f3a5cf80a"
+      "publicDigest": "3bfe01e095d764ec1883a13260fc9ec4d61f4536161188bd9346de081dba92cb",
+      "contextDigest": "5616241138fb319d558defbace8d8e58900940b453972720a9e11bb641525abd"
     },
     {
       "id": "protocol-region:builtin-iterator-mixed-arithmetic",
-      "publicDigest": "a2e355eed02c63c41850dbff17cac4d5c8fc07b71ae5fccf214ab4d4b9de5c33",
-      "contextDigest": "9f0bc0d24903e7f3a1390745b5f59b6a41b76320d453709d677713bd76e03d8e"
+      "publicDigest": "923ae7d50aad887a9fc354de1dd8e2c71c810df562423fa0e5d3d243678a4939",
+      "contextDigest": "7aa559a57a0dbe36d07ae4aa1523f4c24f6b700dd32b1e96de8b2d990164bb30"
+    },
+    {
+      "id": "protocol-region:source-promise-all-reaction-arithmetic",
+      "publicDigest": "c6f23bce85ea1aa0e7b51f71e5432fb2e1759b73fcb15d5bc553df60eb23b13c",
+      "contextDigest": "86f4fb0a8b0cfcd22e0f1c16cdaa2bf28303455948d3172b456a1470d66ecba6"
+    },
+    {
+      "id": "protocol-region:source-promise-join-rejection-finally",
+      "publicDigest": "7d7365fa0f71e2301434f05bc1da3766e09f85588b76d12f94fc4380d5687001",
+      "contextDigest": "3f8b14c46aaf78eb4804e22f20a87afc2287ac277a9603f1d3ff7a88d0f1148d"
+    },
+    {
+      "id": "protocol-region:source-number-private-arithmetic",
+      "publicDigest": "18e7a40509f398734e0e07410a0b90b556969ec99203fb37d3d51ddcf9b54116",
+      "contextDigest": "c4f7839118881a8f4a043e58eff87637a702fad7b83dfee940b7edeebe9e5a12"
+    },
+    {
+      "id": "protocol-region:source-generator-cleanup-suspension",
+      "publicDigest": "afd8010d455b42109bfd3bdc369a8011a6d2f463669125b19ba9cf0392cfd197",
+      "contextDigest": "25fbee79668ac97d1130883c90b4c0392079771a3a5730c235189f86d82b5223"
+    },
+    {
+      "id": "protocol-region:source-generator-delegated-cleanup",
+      "publicDigest": "acd9ac1cf59ce1ef29c627872deae5a70f04a119704adea9637d718c97fd9c9d",
+      "contextDigest": "3a81ec76c01fbd27e79c0d479b42610056451f210e5402d38f26be0708b1b855"
+    },
+    {
+      "id": "protocol-region:source-proxy-traps-arithmetic",
+      "publicDigest": "8a7028de68baae6e315499727f843814ccfe340ec7ec13d78c2890be118a9952",
+      "contextDigest": "2e586831fb90d84958046b8093b090604816f82aec8738fa1b0463f492611610"
     }
   ]
 }
