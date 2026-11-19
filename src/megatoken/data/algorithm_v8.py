@@ -69,13 +69,13 @@ def validate_term(term: Any, *, scopes=(), inputs=None, values=None, budget=None
             _exact(t, ("op", field)); seq=t[field]
             if type(seq) is not list or len(seq)>MAX_ITEMS: _fail("allocation shape/budget")
             if op == "array":
-                for a in seq: visit(a,depth+1)
+                for a in seq: visit(a,depth+1,lexical)
             else:
                 seen=set()
                 for p in seq:
                     _exact(p,("key","value"))
                     if type(p["key"]) is not str or p["key"] == "__proto__" or p["key"] in seen: _fail("object key")
-                    seen.add(p["key"]); visit(p["value"],depth+1)
+                    seen.add(p["key"]); visit(p["value"],depth+1,lexical)
         elif op == "let":
             _exact(t,("op","bindings","body")); binds=t["bindings"]
             if type(binds) is not list or not binds or len(binds)>128: _fail("let bindings")

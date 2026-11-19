@@ -15,6 +15,21 @@ def callback_term(mode="map"):
     }
 
 
+def traversal(mode, body, initial=None, input_term=None):
+    return {"op":"traverse","mode":mode,"input":input_term or {"op":"input","id":"a0"},
+        "initial":initial,"callback":{"arity":4 if mode in ("fold","scan") else 3,"body":body},
+        "profile":"dense-primitive-array/1","order":"ascending"}
+
+
+def array_heap(items, identity="a"):
+    return {identity:{"kind":"array","properties":{**{str(i):v for i,v in enumerate(items)},"length":["num",len(items)]}}}
+
+
+def bound(index, depth=0): return {"op":"bound","depth":depth,"index":index}
+def lit(value): return {"op":"literal","value":value}
+def operation(op,*args): return {"op":op,"args":list(args)}
+
+
 class AlgorithmV8Tests(unittest.TestCase):
     def setUp(self):
         self.heap = {"o2": {"kind": "array", "properties": [
@@ -77,6 +92,88 @@ class AlgorithmV8Tests(unittest.TestCase):
         self.assertEqual(replay_algorithm_line(self.core, graph, line)["completion"]["value"], ["ref", "o0"])
         forged = line.replace('["num",8]', '["num",9]')
         with self.assertRaises(AlgorithmV8Error): replay_algorithm_line(self.core, graph, forged)
+
+    def test_all_traversal_modes_match_ordered_ecmascript_behavior(self):
+        values=[2,3,4]; heap=array_heap([["num",v] for v in values],"xs"); source={"op":"input","id":"xs"}
+        greater=operation("greater",bound(0),lit(["num",2]))
+        cases={
+            "fold":(operation("subtract",bound(0),bound(1)),lit(["num",10]),["num",1]),
+            "map":(operation("multiply",bound(0),lit(["num",2])),None,["ref","v8:0"]),
+            "filter":(greater,None,["ref","v8:0"]),
+            "find":(greater,None,["num",3]),
+            "find_index":(greater,None,["num",1]),
+            "some":(greater,None,["bool",True]),
+            "every":(operation("greater",bound(0),lit(["num",1])),None,["bool",True]),
+            "scan":(operation("add",bound(0),bound(1)),lit(["num",0]),["ref","v8:0"]),
+        }
+        for mode,(body,initial,expected) in cases.items():
+            with self.subTest(mode=mode):
+                result,allocated,_=evaluate_term(traversal(mode,body,initial,source),inputs={"xs":["ref","xs"]},heap=heap)
+                self.assertEqual(result,expected)
+                if mode=="map": self.assertEqual([allocated["v8:0"]["properties"][str(i)] for i in range(3)],[["num",4],["num",6],["num",8]])
+                if mode=="filter": self.assertEqual(allocated["v8:0"]["properties"]["1"],["num",4])
+                if mode=="scan": self.assertEqual([allocated["v8:0"]["properties"][str(i)] for i in range(3)],[["num",2],["num",5],["num",9]])
+
+    def test_empty_traversals_and_short_circuit_modes(self):
+        empty_heap=array_heap([],"xs"); source={"op":"input","id":"xs"}
+        for mode,body,initial,expected in [
+            ("find",lit(["bool",True]),None,["undefined"]),
+            ("find_index",lit(["bool",True]),None,["num",-1]),
+            ("some",lit(["bool",True]),None,["bool",False]),
+            ("every",lit(["bool",False]),None,["bool",True]),
+            ("fold",bound(0),lit(["num",9]),["num",9]),
+        ]:
+            result,_,_=evaluate_term(traversal(mode,body,initial,source),inputs={"xs":["ref","xs"]},heap=empty_heap)
+            self.assertEqual(result,expected)
+        one_heap=array_heap([["num",1],["num",2],["num",3]],"xs")
+        early=traversal("find",operation("greater",bound(0),lit(["num",0])),None,source)
+        result,_,_=evaluate_term(early,inputs={"xs":["ref","xs"]},heap=one_heap,budget={"remaining":7})
+        self.assertEqual(result,["num",1])
+
+    def test_lazy_defaults_select_and_logical_operators_do_not_evaluate_skipped_terms(self):
+        bad={"op":"get","object":lit(["num",1]),"key":lit(["str","missing"])}
+        for term,expected in [
+            ({"op":"default_undefined","args":[lit(["null"]),bad]},["null"]),
+            ({"op":"default_undefined","args":[lit(["num",0]),bad]},["num",0]),
+            (operation("select",lit(["bool",True]),lit(["str","yes"]),bad),["str","yes"]),
+            (operation("and",lit(["bool",False]),bad),["bool",False]),
+            (operation("or",lit(["num",4]),bad),["num",4]),
+            (operation("coalesce",lit(["num",0]),bad),["num",0]),
+        ]:
+            self.assertEqual(evaluate_term(term)[0],expected)
+
+    def test_lexical_let_depth_and_eager_binding_order(self):
+        term={"op":"let","bindings":[
+            {"id":"outer","value":lit(["num",7])},
+            {"id":"inner","value":operation("add",bound(0),lit(["num",1]))},
+        ],"body":{"op":"let","bindings":[{"id":"nested","value":operation("multiply",bound(0),bound(1))}],
+            "body":operation("add",bound(0),bound(1,1))}}
+        term["body"]["bindings"][0]["value"]=operation("multiply",bound(0,1),bound(1,1))
+        self.assertEqual(evaluate_term(term)[0],["num",64])
+        with self.assertRaises(AlgorithmV8Error):
+            evaluate_term({"op":"let","bindings":[{"id":"x","value":bound(0)}],"body":bound(0)})
+
+    def test_number_specials_rounding_and_multi_object_allocation_aliases(self):
+        rounded=operation("add",lit(["num",1e16]),lit(["num",1]))
+        self.assertEqual(evaluate_term(rounded)[0],["num",1e16])
+        self.assertEqual(evaluate_term(operation("divide",lit(["num",1]),lit(["num",0])))[0],["num","+Infinity"])
+        self.assertEqual(evaluate_term(operation("multiply",lit(["num","-0"]),lit(["num",1])))[0],["num","-0"])
+        obj={"op":"object","properties":[
+            {"key":"z","value":bound(0)},{"key":"10","value":bound(0)},{"key":"2","value":bound(0)},
+            {"key":"a","value":bound(0)}]}
+        term={"op":"let","bindings":[{"id":"shared","value":{"op":"array","items":[lit(["num",5])]}}],"body":obj}
+        value,heap,_=evaluate_term(term)
+        obj=heap[value[1]]
+        self.assertEqual(list(obj["properties"]),["2","10","z","a"])
+        self.assertEqual(obj["properties"]["2"],obj["properties"]["10"])
+        self.assertEqual(obj["properties"]["2"],obj["properties"]["z"])
+        self.assertEqual(len(heap),2)
+
+    def test_resource_limits_and_scope_errors_fail_closed(self):
+        with self.assertRaises(AlgorithmV8Error):
+            evaluate_term(operation("add",lit(["num",1]),lit(["num",2])),budget={"remaining":1})
+        with self.assertRaises(AlgorithmV8Error):
+            evaluate_term(traversal("every",bound(3)),inputs={"a0":["ref","o2"]},heap=self.heap)
 
 
 if __name__ == "__main__": unittest.main()
