@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import json
 import copy
+import hashlib
 from collections.abc import Mapping
 
 from .algorithm_v7 import stable_algorithm_hash
@@ -238,6 +239,8 @@ def _initial_state(program,invocation,functions=()):
 def _replay_shared_state(timeline,contexts,programs_from_context,*,roundtrip):
     snapshots={row["sequence"]:ctx for ctx,(_,row) in zip(contexts,[(i,r) for i,r in enumerate(timeline) if r["mode"]=="generated"],strict=True)}
     published={}; state=None; program=None; dispatched=set(); settled=set()
+    consumed=[]; obligations={"intents":[],"handlers":[],"callbacks":[],"closureQueue":[]}
+    task_revisions={}; track_counts={}
     for row in timeline:
         kind=row["kind"]; fields=row["fields"]
         if kind=="program":
@@ -252,23 +255,36 @@ def _replay_shared_state(timeline,contexts,programs_from_context,*,roundtrip):
             program,functions=published_row
             if fields.get("sourceDigest")!=program.get("sourceDigest"): _fail("Invocation source/definition binding")
             state=_initial_state(program,fields,functions)
+            task_revisions[fields["invocationId"]]=fields.get("taskRevision")
             continue
+        if row["mode"]=="observed":
+            track=fields.get("track")
+            track_counts[track]=track_counts.get(track,0)+1
         if state is None: continue
         if row["mode"]=="generated":
             context=snapshots.get(row["sequence"])
             if context is None or context["visibleThrough"]!=row["sequence"]-1: _fail("Generated prefix cutoff is not immediately causal")
             if state!=context["state"]: _fail("Public continuation differs from independently replayed shared state")
+            expected_cursor={"active":None,"consumed":consumed}
+            if context["regionCursor"]!=expected_cursor: _fail("Region cursor differs from independently replayed region history")
+            if context["obligations"]!=obligations: _fail("Obligations differ from independently replayed request history")
             if roundtrip:
                 state=_restore_native_checkpoint(_native_checkpoint(timeline[:context["visibleThrough"]],context),
-                                                 expected_prefix=timeline[:context["visibleThrough"]],expected_state=context["state"])
+                                                 expected_prefix=timeline[:context["visibleThrough"]],expected_state=context["state"],
+                                                 expected_cursor=expected_cursor,expected_obligations=obligations)
             program=context["programs"][-1]["program"]
             if kind=="region":
+                frame=state["stack"][-1] if state["stack"] else fields["invocationId"]
                 target=_replay_region(program,context,fields["line"],fields["entry"]); _apply_region(state,target)
-            elif kind=="algorithm": _apply_algorithm(state,program["algorithm"],context["input"]["graph"],fields["line"])
+                consumed.append({"invocationId":fields["invocationId"],"frame":frame,"region":target["region"]})
+            elif kind=="algorithm":
+                frame=state["stack"][-1] if state["stack"] else fields["invocationId"]
+                _apply_algorithm(state,program["algorithm"],context["input"]["graph"],fields["line"])
+                consumed.append({"invocationId":fields["invocationId"],"frame":frame,"region":"whole"})
             elif kind=="semantic":
-                k,payload=parse_record(fields["line"]); _apply_detail(state,k,payload,row)
+                k,payload=parse_record(fields["line"]); _apply_detail(state,k,payload,row,obligations,program,task_revisions)
         elif kind in ("dispatch","result"):
-            _apply_observation(state,row,dispatched,settled)
+            _apply_observation(state,row,dispatched,settled,obligations,track_counts)
     return state
 
 
@@ -281,7 +297,7 @@ def _native_checkpoint(prefix,context):
     return json.loads(json.dumps(checkpoint,separators=(",",":"),ensure_ascii=False))
 
 
-def _restore_native_checkpoint(checkpoint,*,expected_prefix,expected_state):
+def _restore_native_checkpoint(checkpoint,*,expected_prefix,expected_state,expected_cursor=None,expected_obligations=None):
     required={"schema","profile","visibleThrough","prefix","state","regionCursor","obligations","integrity"}
     if not isinstance(checkpoint,dict) or set(checkpoint)!=required: _fail("Native v8 checkpoint fields")
     content={k:v for k,v in checkpoint.items() if k!="integrity"}
@@ -289,6 +305,8 @@ def _restore_native_checkpoint(checkpoint,*,expected_prefix,expected_state):
     if checkpoint["schema"]!="semantic-native-checkpoint/8" or checkpoint["profile"]!="compositional-regions/1": _fail("Native v8 checkpoint version")
     if type(checkpoint["visibleThrough"]) is not int or checkpoint["visibleThrough"]!=len(checkpoint["prefix"]): _fail("Native v8 checkpoint cutoff")
     if checkpoint["prefix"]!=expected_prefix or checkpoint["state"]!=expected_state: _fail("Native v8 checkpoint differs from verified replay boundary")
+    if expected_cursor is not None and checkpoint["regionCursor"]!=expected_cursor: _fail("Native v8 checkpoint region cursor differs from verified replay")
+    if expected_obligations is not None and checkpoint["obligations"]!=expected_obligations: _fail("Native v8 checkpoint obligations differ from verified replay")
     expected=set(__import__("megatoken.data.semantic_contract_v8",fromlist=["DEFINITION"]).DEFINITION["sharedStateFields"])
     if not isinstance(checkpoint["state"],dict) or set(checkpoint["state"])!=expected: _fail("Native v8 checkpoint dropped shared state")
     return copy.deepcopy(checkpoint["state"])
@@ -317,7 +335,7 @@ def _apply_algorithm(state,core,graph,line):
     state["stack"]=[]
 
 
-def _apply_detail(state,kind,fields,row):
+def _apply_detail(state,kind,fields,row,obligations=None,program=None,task_revisions=None):
     if kind=="bind":
         alias=dict(state["captureAliases"]).get(fields["name"])
         _set_row(state["locals"],alias or fields["name"],fields["value"])
@@ -357,6 +375,22 @@ def _apply_detail(state,kind,fields,row):
         row_effect={"operation":fields["operation"],"invocation":fields["invocation"],"site":fields["site"],"payload":fields["payload"],"arguments":decoded,"argumentCodec":"canonical-json/1","status":"requested","fixture":None,"promise":promise}
         state["effects"].append([effect,row_effect])
         if promise: _set_row(state["heap"],promise,{"kind":"promise","properties":[],"state":"pending","result":None,"adopted":None,"external":effect,"reactions":[]})
+        if obligations is not None:
+            from . import witness_v6
+            identity=fields["invocation"]+"/"+effect
+            source=program.get("source","") if isinstance(program,dict) else ""
+            rendered=[witness_v6._trace_value(v) for v in args]
+            call=fields["operation"]+"("+", ".join(rendered)+")"
+            span=fields["site"]; suffix=(" promise @"+promise) if promise else ""
+            witness=("request @"+effect+" "+call+" payload "+fields["payload"]+suffix+
+                     " in @"+fields["invocation"]+" at "+str(span["start"])+".."+str(span["end"]))
+            intents={key:value for key,value in obligations["intents"]}
+            if identity in intents: _fail("Duplicate effect intent")
+            intents[identity]={"status":"requested","operation":fields["operation"],"payload":fields["payload"],
+                "invocationId":fields["invocation"],"effectId":effect,"attempts":0,
+                "taskRevision":(task_revisions or {}).get(fields["invocation"]),
+                "payloadDigest":hashlib.sha256(fields["payload"].encode("utf-8")).hexdigest(),"witness":witness,"result":None}
+            obligations["intents"]=[[key,value] for key,value in intents.items()]
     elif kind=="await":
         seq=state["scheduler"]["registration"]+1; state["scheduler"]["registration"]=seq
         _set_row(state["continuations"],fields["continuation"],{"state":"waiting","promise":fields["promise"],"invocation":fields["invocation"],"sequence":seq,"activeJob":None,"captureAliases":copy.deepcopy(state["captureAliases"]),"readySequence":None})
@@ -377,7 +411,7 @@ def _apply_detail(state,kind,fields,row):
     else: _fail("Unsupported detailed transition kind: "+kind)
 
 
-def _apply_observation(state,row,dispatched,settled):
+def _apply_observation(state,row,dispatched,settled,obligations=None,track_counts=None):
     fields=row["fields"]
     if row["kind"]=="dispatch":
         if fields.get("attempt")!=1 or fields.get("key")!=f"{fields.get('invocationId')}/{fields.get('effectId')}": _fail("Effect dispatch identity")
@@ -385,6 +419,12 @@ def _apply_observation(state,row,dispatched,settled):
         if effect is None: _fail("Dispatch of unknown effect")
         if fields["effectId"] in dispatched or fields["effectId"] in settled: _fail("Duplicate effect dispatch")
         dispatched.add(fields["effectId"])
+        if obligations is not None:
+            intents={key:value for key,value in obligations["intents"]}
+            intent=intents.get(fields["key"])
+            if intent is None or intent["status"]!="requested" or intent["attempts"]!=0: _fail("Dispatch without one requested intent")
+            intent["status"]="dispatched"; intent["attempts"]=fields["attempt"]
+            obligations["intents"]=[[key,value] for key,value in intents.items()]
     else:
         kind,obs=parse_record(fields["line"])
         if kind!="observe": _fail("Result line must be a detailed observation")
@@ -394,6 +434,19 @@ def _apply_observation(state,row,dispatched,settled):
         if obs["effect"] not in dispatched or obs["effect"] in settled: _fail("Result without one outstanding dispatch")
         settled.add(obs["effect"])
         effect[1]["status"]=obs["status"]; effect[1]["result"]=obs["result"]
+        if obligations is not None:
+            identity=effect[1]["invocation"]+"/"+obs["effect"]
+            intents={key:value for key,value in obligations["intents"]}; intent=intents.get(identity)
+            if intent is None or intent["status"]!="dispatched": _fail("Result without one dispatched obligation")
+            intent["status"]="settled"
+            from . import witness_v6
+            seq=row["sequence"]
+            intent["result"]={"schema":"semantic-execution/6","session":fields["session"],"sequence":seq,
+                "ownerSequence":seq-1,"track":fields["track"],"mode":"observed","kind":"result",
+                "invocationId":fields["invocationId"],"effectId":obs["effect"],"status":obs["status"],
+                "result":obs["result"],"line":"observe @"+obs["effect"]+" "+obs["status"]+" "+witness_v6._trace_value(obs["result"]),
+                "errorOrigin":fields.get("errorOrigin")}
+            obligations["intents"]=[[key,value] for key,value in intents.items()]
         promise=effect[1]["promise"]
         if promise:
             node=_table(state,"heap").get(promise); node["state"]=obs["status"]; node["result"]=obs["result"]

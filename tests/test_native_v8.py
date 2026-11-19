@@ -48,6 +48,18 @@ class NativeV8Tests(unittest.TestCase):
         example["contexts"][2]["state"]["locals"][-1][1] = ["num", 88]
         with self.assertRaises(NativeV8Error): validate_v8_artifact(example)
 
+    def test_false_region_cursor_is_rejected_at_next_prediction(self):
+        example = copy.deepcopy(self.document["examples"][1])
+        example["contexts"][2]["regionCursor"]["consumed"].append(
+            {"invocationId": "invocation1", "frame": "invocation1", "region": "r1"}
+        )
+        with self.assertRaises(NativeV8Error): validate_v8_artifact(example)
+
+    def test_false_request_obligation_is_rejected_at_next_prediction(self):
+        example = copy.deepcopy(self.document["examples"][2])
+        example["contexts"][3]["obligations"]["intents"][0][1]["payloadDigest"] = "0" * 64
+        with self.assertRaises(NativeV8Error): validate_v8_artifact(example)
+
     def test_native_checkpoint_roundtrip_and_tamper_detection(self):
         context=self.document["examples"][2]["contexts"][4]
         prefix=self.document["examples"][2]["public"]["timeline"][:context["visibleThrough"]]
