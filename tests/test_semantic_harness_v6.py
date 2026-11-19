@@ -9,15 +9,16 @@ import pytest
 
 from megatoken.data import WindowConfig, iter_windows
 from megatoken.data.schema import Episode
-from megatoken.data.semantic_harness_v5 import (
+from megatoken.data.semantic_harness_v6 import (
     SelectedHarnessError,
-    adapt_selected_harness_v5,
+    adapt_selected_harness_v6,
 )
+from megatoken.data.witness_v6 import encode_record
 from megatoken.generation.codec import ByteCodec
 
 
 def line(kind, fields):
-    return kind + " " + json.dumps(fields, ensure_ascii=False, separators=(",", ":"))
+    return encode_record(kind, fields)
 
 
 def fixture():
@@ -38,7 +39,7 @@ def fixture():
                 "module": False,
                 "sourceMetadata": None,
             },
-            "semantic": {"traceFormat": "semantic-trace/5"},
+            "semantic": {"traceFormat": "semantic-trace/6"},
             "result": {"errorOrigin": None},
             "handler": {"closureId": None, "lifetime": "subscription", "ownerInvocationId": None},
             "invocation": {"ingressKey": fields.get("triggerId")},
@@ -59,7 +60,7 @@ def fixture():
         owners[track] = owners.get(track, 0) + 1
         events.append(
             {
-                "schema": "semantic-execution/5",
+                "schema": "semantic-execution/6",
                 "session": "session1",
                 "sequence": len(events) + 1,
                 "ownerSequence": owners[track],
@@ -109,7 +110,7 @@ def fixture():
         "generated",
         "worker:0",
         invocationId="call1",
-        traceFormat="semantic-trace/5",
+        traceFormat="semantic-trace/6",
         line=line(
             "request",
             {
@@ -154,7 +155,7 @@ def fixture():
         "generated",
         "worker:0",
         invocationId="call1",
-        traceFormat="semantic-trace/5",
+        traceFormat="semantic-trace/6",
         line=line("return", {"value": ["num", 7]}),
     )
     add(
@@ -162,15 +163,15 @@ def fixture():
         "generated",
         "worker:0",
         invocationId="call1",
-        traceFormat="semantic-trace/5",
+        traceFormat="semantic-trace/6",
         line=line("end", {"kind": "return"}),
     )
     return {
         "public": {
-            "schema": "semantic-execution/5",
-            "traceFormat": "semantic-trace/5",
+            "schema": "semantic-execution/6",
+            "traceFormat": "semantic-trace/6",
             "profile": "selected-harness/2",
-            "contextFormat": "semantic-context/5",
+            "contextFormat": "semantic-context/6",
             "timeline": events,
         },
         "sidecar": {
@@ -183,7 +184,7 @@ def fixture():
 
 
 def test_selected_harness_import_uses_actual_dynamic_track_and_one_bound_action():
-    episode, receipt = adapt_selected_harness_v5(
+    episode, receipt = adapt_selected_harness_v6(
         fixture(), allow_local=True, codec=ByteCodec.byte_fallback()
     )
     assert receipt.invocations == 1
@@ -192,14 +193,22 @@ def test_selected_harness_import_uses_actual_dynamic_track_and_one_bound_action(
     assert receipt.tracks == 2
     from megatoken.controls import semantic_execution_track_purpose
 
-    assert {track.track_id: track.description for track in episode.tracks}["worker:0"] == (
-        semantic_execution_track_purpose("p", "run")
-    )
+    assert {track.track_id: track.description for track in episode.tracks} == {
+        "host": "",
+        "track:0": "",
+    }
+    assert len(episode.track_revisions) == 1
+    revision = episode.track_revisions[0]
+    assert revision.track_id == "track:0"
+    assert revision.purpose == semantic_execution_track_purpose("p", "run")
+    assert next(r for r in episode.records if r.record_id == revision.record_id).role == "system"
     assert episode.actions[0].call_id == "session1:call1:fx1"
     assert episode.actions[0].tool_name == "demo.readAsync"
     assert json.loads(episode.actions[0].arguments_json) == {"args": ["counter"]}
     public_records = [
-        r for r in episode.records if not r.logical_id.startswith("semantic:context:")
+        r
+        for r in episode.records
+        if not r.logical_id.startswith(("semantic:context:", "semantic:lifecycle:"))
     ]
     assert [r.policy_mask for r in public_records] == [
         False,
@@ -227,7 +236,7 @@ def test_selected_harness_declares_the_same_semantic_selection_control():
         semantic_selection_instruction,
     )
 
-    episode, _ = adapt_selected_harness_v5(
+    episode, _ = adapt_selected_harness_v6(
         fixture(), allow_local=True, codec=ByteCodec.byte_fallback()
     )
     target = next(
@@ -241,6 +250,27 @@ def test_selected_harness_declares_the_same_semantic_selection_control():
     assert event.instruction == semantic_selection_instruction()
     assert trained == build_request_control(instruction=semantic_selection_instruction())
     assert meridian.meridian_id == event.meridian_id
+
+
+def test_native_creation_receipt_cannot_carry_hidden_future_fields():
+    from dataclasses import replace
+
+    from megatoken.data.semantic_physical import validate_semantic_creation_observations
+
+    episode, _ = adapt_selected_harness_v6(fixture(), allow_local=True)
+    validate_semantic_creation_observations(episode)
+    announcement = next(
+        record for record in episode.records if record.logical_id.startswith("semantic:lifecycle:")
+    )
+    forged = json.loads(announcement.payload)
+    forged["future_result"] = ["num", 7]
+    changed = replace(announcement, payload=json.dumps(forged, sort_keys=True).encode())
+    altered = replace(
+        episode,
+        records=tuple(changed if row is announcement else row for row in episode.records),
+    )
+    with pytest.raises(ValueError, match="exact public ingress receipt"):
+        validate_semantic_creation_observations(altered)
 
 
 def test_physical_fragmentation_preserves_declared_selection_control():
@@ -328,10 +358,10 @@ def test_selected_state_bootstrap_requires_real_prior_history(
 
 def test_replaying_input_mutations_preserves_original_observation_bytes():
     document = json.loads(
-        (Path(__file__).parent / "fixtures/semantic-v5/input-array-mutation.json").read_text()
+        (Path(__file__).parent / "fixtures/semantic-v6/input-array-mutation.json").read_text()
     )
     original = copy.deepcopy(document)
-    first, _ = adapt_selected_harness_v5(
+    first, _ = adapt_selected_harness_v6(
         document, allow_local=True, codec=ByteCodec.byte_fallback()
     )
     assert document == original
@@ -345,7 +375,7 @@ def test_replaying_input_mutations_preserves_original_observation_bytes():
         ).encode()
         for record in first.records
     )
-    second, _ = adapt_selected_harness_v5(
+    second, _ = adapt_selected_harness_v6(
         document, allow_local=True, codec=ByteCodec.byte_fallback()
     )
     assert document == original
@@ -353,9 +383,11 @@ def test_replaying_input_mutations_preserves_original_observation_bytes():
 
 
 def test_prepared_episode_schema_rejects_previous_conditioning_version():
-    episode, _ = adapt_selected_harness_v5(fixture(), allow_local=True)
+    episode, _ = adapt_selected_harness_v6(fixture(), allow_local=True)
     stale = episode.to_dict()
-    stale["schema_version"] = 6
+    from megatoken.data.schema import SCHEMA_VERSION
+
+    stale["schema_version"] = SCHEMA_VERSION - 1
     with pytest.raises(ValueError, match="schema"):
         type(episode).from_dict(stale)
 
@@ -402,7 +434,7 @@ def test_invalid_or_forged_public_provenance_is_rejected(mutation):
     doc = copy.deepcopy(fixture())
     mutation(doc)
     with pytest.raises(SelectedHarnessError):
-        adapt_selected_harness_v5(doc, allow_local=True)
+        adapt_selected_harness_v6(doc, allow_local=True)
 
 
 def test_future_result_cannot_be_placed_ahead_of_selected_request():
@@ -416,7 +448,7 @@ def test_future_result_cannot_be_placed_ahead_of_selected_request():
         if event["track"] == "worker:0":
             event["ownerSequence"] = i
     with pytest.raises(SelectedHarnessError):
-        adapt_selected_harness_v5(doc, allow_local=True)
+        adapt_selected_harness_v6(doc, allow_local=True)
 
 
 def test_program_once_and_more_than_eight_lifetime_tracks():
@@ -447,7 +479,7 @@ def test_program_once_and_more_than_eight_lifetime_tracks():
         ):
             rows.append(
                 {
-                    "schema": "semantic-execution/5",
+                    "schema": "semantic-execution/6",
                     "session": "session1",
                     "sequence": len(rows) + 1,
                     "ownerSequence": n,
@@ -455,11 +487,11 @@ def test_program_once_and_more_than_eight_lifetime_tracks():
                     "mode": "generated",
                     "kind": "semantic",
                     "invocationId": inv,
-                    "traceFormat": "semantic-trace/5",
+                    "traceFormat": "semantic-trace/6",
                     "line": line(kind, data),
                 }
             )
-    ep, receipt = adapt_selected_harness_v5(doc, allow_local=True)
+    ep, receipt = adapt_selected_harness_v6(doc, allow_local=True)
     assert receipt.invocations == 10
     assert receipt.tracks == 11
     assert receipt.actions == 0
@@ -468,12 +500,12 @@ def test_program_once_and_more_than_eight_lifetime_tracks():
 
 def test_no_unadmitted_trajectory_can_be_labeled_success():
     with pytest.raises(SelectedHarnessError):
-        adapt_selected_harness_v5(fixture())
+        adapt_selected_harness_v6(fixture())
     doc = fixture()
     doc["sidecar"]["admission"] = "admitted"
     doc["sidecar"]["referenceStatus"] = "agreed"
     with pytest.raises(SelectedHarnessError):
-        adapt_selected_harness_v5(doc, admission_verifier=lambda _: False)
+        adapt_selected_harness_v6(doc, admission_verifier=lambda _: False)
 
 
 def test_obsolete_v4_envelope_is_rejected_even_for_local_inspection():
@@ -488,22 +520,62 @@ def test_obsolete_v4_envelope_is_rejected_even_for_local_inspection():
         if record["kind"] == "semantic":
             record["traceFormat"] = "semantic-trace/4"
     with pytest.raises(SelectedHarnessError, match="version"):
-        adapt_selected_harness_v5(doc, allow_local=True)
+        adapt_selected_harness_v6(doc, allow_local=True)
+
+
+def test_whole_entry_summary_completes_only_the_exact_root_invocation():
+    from megatoken.data.semantic_contract import CONTRACT
+
+    document = copy.deepcopy(CONTRACT["fixtures"]["envelope"]["valid"][3])
+    _, receipt = adapt_selected_harness_v6(document, allow_local=True)
+    assert receipt.completions == (
+        {"invocationId": "sum:1", "kind": "return", "value": ["num", 9]},
+    )
+
+    wrong_entry = copy.deepcopy(document)
+    summary = next(row for row in wrong_entry["public"]["timeline"] if row["kind"] == "semantic")
+    summary["line"] = summary["line"].replace("evaluate sum(", "evaluate other(", 1)
+    with pytest.raises(SelectedHarnessError, match="exact arguments"):
+        adapt_selected_harness_v6(wrong_entry, allow_local=True)
+
+    mid_entry = copy.deepcopy(document)
+    semantic = [row for row in mid_entry["public"]["timeline"] if row["kind"] == "semantic"]
+    original_summary = semantic[0]["line"]
+    position = mid_entry["public"]["timeline"].index(semantic[0])
+    semantic[0]["line"] = "compute (1 + 2) => 3"
+    mid_entry["public"]["timeline"].insert(
+        position + 1,
+        {
+            **semantic[0],
+            "sequence": semantic[0]["sequence"] + 1,
+            "ownerSequence": semantic[0]["ownerSequence"] + 1,
+            "line": original_summary,
+        },
+    )
+    for index, row in enumerate(mid_entry["public"]["timeline"], start=1):
+        row["sequence"] = index
+        if row["track"] == "worker:1":
+            row["ownerSequence"] = 1 + sum(
+                earlier["track"] == "worker:1"
+                for earlier in mid_entry["public"]["timeline"][: index - 1]
+            )
+    with pytest.raises(SelectedHarnessError, match="first complete root entry"):
+        adapt_selected_harness_v6(mid_entry, allow_local=True)
 
 
 def test_seeded_draws_and_selected_rng_context_are_replayed_independently():
     from megatoken.data.semantic_contract import CONTRACT
 
     seeded = copy.deepcopy(CONTRACT["fixtures"]["envelope"]["valid"][2])
-    adapt_selected_harness_v5(seeded, allow_local=True)
+    adapt_selected_harness_v6(seeded, allow_local=True)
     draw = next(
         row
         for row in seeded["public"]["timeline"]
-        if row["kind"] == "semantic" and '"op":"random"' in row["line"]
+        if row["kind"] == "semantic" and row["line"].startswith("compute random() =>")
     )
     draw["line"] = line("compute", {"expr": {"op": "random"}, "result": ["num", 0.5]})
     with pytest.raises(SelectedHarnessError, match="deterministic draw"):
-        adapt_selected_harness_v5(seeded, allow_local=True)
+        adapt_selected_harness_v6(seeded, allow_local=True)
 
     contextual = copy.deepcopy(CONTRACT["fixtures"]["envelope"]["valid"][1])
     context = next(
@@ -513,7 +585,7 @@ def test_seeded_draws_and_selected_rng_context_are_replayed_independently():
     )
     context["selectedState"]["randomState"] = 7
     with pytest.raises(ValueError, match="Selected-state random value"):
-        adapt_selected_harness_v5(contextual, allow_local=True)
+        adapt_selected_harness_v6(contextual, allow_local=True)
 
 
 def event_fixture():
@@ -532,7 +604,7 @@ def event_fixture():
                 "module": False,
                 "sourceMetadata": None,
             },
-            "semantic": {"traceFormat": "semantic-trace/5"},
+            "semantic": {"traceFormat": "semantic-trace/6"},
             "result": {"errorOrigin": None},
             "handler": {"closureId": None, "lifetime": "subscription", "ownerInvocationId": None},
             "invocation": {"ingressKey": fields.get("triggerId")},
@@ -553,7 +625,7 @@ def event_fixture():
         owners[track] = owners.get(track, 0) + 1
         timeline.append(
             {
-                "schema": "semantic-execution/5",
+                "schema": "semantic-execution/6",
                 "session": "session1",
                 "sequence": len(timeline) + 1,
                 "ownerSequence": owners[track],
@@ -610,7 +682,7 @@ def event_fixture():
             "generated",
             "worker:0",
             invocationId=invocation_id,
-            traceFormat="semantic-trace/5",
+            traceFormat="semantic-trace/6",
             line=line("return", {"value": ["num", index]}),
         )
         add(
@@ -618,7 +690,7 @@ def event_fixture():
             "generated",
             "worker:0",
             invocationId=invocation_id,
-            traceFormat="semantic-trace/5",
+            traceFormat="semantic-trace/6",
             line=line("end", {"kind": "return"}),
         )
     add("handler-close", "observed", "host", subscriptionId="sub1", discarded=[])
@@ -627,14 +699,18 @@ def event_fixture():
 
 
 def test_subscription_events_are_distinct_observations_and_share_retained_realm():
-    episode, receipt = adapt_selected_harness_v5(event_fixture(), allow_local=True)
+    episode, receipt = adapt_selected_harness_v6(event_fixture(), allow_local=True)
     assert receipt.invocations == 2
     assert receipt.observations == 7
     assert receipt.actions == 0
     assert sum(record.policy_mask for record in episode.records) == 4
-    assert [event.track_id for meridian in episode.meridians for event in meridian.events].count(
-        "worker:0"
-    ) == 8
+    generated = {record.record_id for record in episode.records if record.policy_mask}
+    assert [
+        event.track_id
+        for meridian in episode.meridians
+        for event in meridian.events
+        if event.record_id in generated
+    ] == ["track:0", "track:0", "track:1", "track:1"]
 
 
 @pytest.mark.parametrize(
@@ -652,4 +728,4 @@ def test_event_duplicate_wrong_owner_and_realm_changes_reject(change):
     doc = event_fixture()
     change(doc)
     with pytest.raises(SelectedHarnessError):
-        adapt_selected_harness_v5(doc, allow_local=True)
+        adapt_selected_harness_v6(doc, allow_local=True)

@@ -89,14 +89,15 @@ class SemanticExperimentConfig:
 
 def validate_semantic_episode(episode, *, phase, representation):
     """Bind actual native teaching records to the declared experiment arm."""
-    from megatoken.data.witness_v5 import parse_record
+    from megatoken.data.semantic_physical import validate_semantic_creation_observations
+    from megatoken.data.witness_v6 import parse_record
     from megatoken.io import strict_json_loads
 
     annotation = json.loads(episode.supervision.annotations_json).get("semantic_execution", {})
     if (
         episode.stream != "semantic_execution"
         or not episode.supervision.verified_success
-        or annotation.get("schema") != "semantic-execution/5"
+        or annotation.get("schema") != "semantic-execution/6"
         or annotation.get("representation") != representation
         or annotation.get("continuation") != "teacher_conditioned"
         or representation != "compact"
@@ -105,11 +106,12 @@ def validate_semantic_episode(episode, *, phase, representation):
         raise ValueError(
             "Prepared episode differs from its certified training representation/stage"
         )
+    validate_semantic_creation_observations(episode)
     invocations = generated = 0
     if phase != "SE" and episode.actions:
         raise ValueError("Common-support training cannot contain interactive actions")
     for parts in episode.iter_logical_records():
-        if parts[0].logical_id.startswith("semantic:context:"):
+        if parts[0].logical_id.startswith(("semantic:context:", "semantic:lifecycle:")):
             continue
         raw = b"".join(part.payload for part in parts).decode()
         if parts[0].policy_mask:

@@ -16,9 +16,20 @@ import time
 from pathlib import Path
 
 from megatoken import cloud
+from megatoken.artifact_versions import (
+    ARCHITECTURE_VERSION,
+    CHECKPOINT_FORMAT_VERSION,
+    PREPARED_SCHEMA_VERSION,
+)
 from megatoken.io import sha256_file, write_json
 
-SNAPSHOT = r"""
+# The remote capture is self-contained, including the exact current contracts
+# from this checkout. Do not import training or serving on the slim client.
+SNAPSHOT = (
+    f"PREPARED_SCHEMA_VERSION={PREPARED_SCHEMA_VERSION}\n"
+    f"ARCHITECTURE_VERSION={ARCHITECTURE_VERSION}\n"
+    f"CHECKPOINT_FORMAT_VERSION={CHECKPOINT_FORMAT_VERSION}\n"
+    + r"""
 import hashlib,json,os,shutil,sys,uuid
 from pathlib import Path
 work=Path(sys.argv[1]).resolve();root=Path(sys.argv[2]).resolve()
@@ -37,13 +48,13 @@ for path in root.rglob('*'):
 for path in root.rglob('manifest.json'):
  try:value=json.loads(path.read_text())
  except (OSError,ValueError):continue
- if value.get('schema_version')==7 and 'shards' in value:
+ if value.get('schema_version')==PREPARED_SCHEMA_VERSION and 'shards' in value:
   prepared=path.parent
   selected.add(path)
   selected.add(prepared/'index.sqlite')
   selected.update(prepared.glob('episodes-*.jsonl'))
   selected.update(p for p in (prepared/'media').rglob('*') if p.is_file())
- if value.get('format_version')==16 and value.get('training_heads') is False:
+ if value.get('format_version')==ARCHITECTURE_VERSION and value.get('training_heads') is False:
   selected.update(p for p in path.parent.iterdir() if p.is_file())
  if value.get('format')=='hindsight-targets-v1' and value.get('scope')=='text_windows':
   selected.update(p for p in path.parent.rglob('*') if p.is_file() and '.building.' not in p.name)
@@ -60,7 +71,7 @@ for pointer in root.rglob('checkpoints/latest.json'):
   if hashlib.sha256(metadata_bytes).hexdigest()!=value['metadata_sha256']:
    raise ValueError('Uncommitted checkpoint metadata')
   contract=json.loads(metadata_bytes)
-  if contract['format_version']!=19 or contract['checkpoint_name']!=name:
+  if contract['format_version']!=CHECKPOINT_FORMAT_VERSION or contract['checkpoint_name']!=name:
    raise ValueError('Only named current checkpoints can be collected')
   transducer=contract['transducer_checkpoint']
   if transducer['file']!='transducer.pt':raise ValueError('Unsafe memory checkpoint path')
@@ -108,6 +119,7 @@ print(json.dumps({'manifest':str((snapshot/'receipt.json').relative_to(work)),
                   'snapshot':str(snapshot.relative_to(work)),'files':len(items),
                   'bytes':sum(i['bytes'] for i in items),'capture_errors':errors}))
 """
+)
 
 
 def collect(sandbox, remote_root, destination, *, reserve_bytes):

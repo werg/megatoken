@@ -47,7 +47,8 @@ from .state import KVHistory, assert_cache_version
 if TYPE_CHECKING:
     from megatoken.generation.policy import FacetedGenerator
 
-GROUP_TAPE_VERSION = "fmt-multitrack-facets-v19"
+GROUP_TAPE_VERSION = "fmt-multitrack-facets-v20"
+CONTINUATION_MODES = {"sampled", "encoded_text"}
 
 
 @dataclass(frozen=True)
@@ -795,6 +796,7 @@ class GroupActionTape:
     valid: tuple[bool, ...]
     # Whether each event ends its message (the decoder's own terminal decision).
     terminal: tuple[bool, ...]
+    continuation_mode: str
     modalities: tuple[str, ...] = ()
     effort: int = 6
     event_log_probs: tuple[float, ...] = ()
@@ -812,6 +814,8 @@ class GroupActionTape:
         ContextPolicy.from_json(self.context_policy_json)
         if self.render_status not in {"selected", "rendered"}:
             raise ValueError("Unknown grouped rendering state")
+        if self.continuation_mode not in CONTINUATION_MODES:
+            raise ValueError("Unknown grouped continuation representation")
         if self.version != GROUP_TAPE_VERSION:
             raise ValueError("Incompatible grouped tape version")
         if (
@@ -920,6 +924,7 @@ class GroupActionTape:
             emitted_ids=self.emitted_ids,
             valid=self.valid,
             terminal=self.terminal,
+            continuation_mode=self.continuation_mode,
         )
         return json.dumps(value, sort_keys=True, separators=(",", ":"), allow_nan=False)
 
@@ -963,6 +968,7 @@ class GroupActionTape:
             emitted_ids=tuple(tuple(s) for s in value["emitted_ids"]),
             valid=tuple(value["valid"]),
             terminal=tuple(value["terminal"]),
+            continuation_mode=value["continuation_mode"],
         )
 
 
@@ -996,6 +1002,10 @@ class GroupActionMember:
     @property
     def native_tape(self):
         return self.group
+
+    @property
+    def continuation_mode(self):
+        return self.group.continuation_mode
 
     def __getattr__(self, name):
         if name in {
@@ -1033,6 +1043,10 @@ class SelectedGroup:
     control: Tensor | None
     tape: GroupActionTape
     log_prob: Tensor
+    # A semantic text continuation is rendered before its causal state is
+    # committed. Keep the deterministic text result so render_selected does
+    # not run the decoder twice. None means rendering has not been prepared.
+    pre_rendered_text: tuple[tuple[int, bytes, tuple[int, ...], bool, bool], ...] | None = None
 
 
 @dataclass(frozen=True)
@@ -1390,6 +1404,62 @@ class MultiTrackGenerator:
                     media.append(tensor)
         return tuple(payloads), tuple(ids), tuple(validity), tuple(terminals), tuple(media)
 
+    def _encode_text_continuation(
+        self,
+        state: MultiTrackState,
+        tracks: Sequence[str],
+        payloads: Sequence[bytes],
+    ) -> Tensor:
+        """Encode emitted text with the same E adapters and track IDs as targets."""
+        names = self.tracks._names(tracks, len(tracks))
+        if len(payloads) != len(names) or any(not isinstance(value, bytes) for value in payloads):
+            raise ValueError("Encoded text continuation needs exact output bytes per track")
+        core = self.generator.core
+        track_ids, _ = self.tracks._track_indices(state, names)
+        semantics = self.tracks.description_controls(state, names)
+        encoder_plan = core.adapters.plan("e", state.adapters, track_ids, semantics)
+        encoded = []
+        for index, payload in enumerate(payloads):
+            weights = None if encoder_plan is None else encoder_plan.weights[0, :, index]
+            with expert_scope(weights):
+                values, lengths = byte_tensor([payload], state.device)
+                encoded.append(
+                    core.encode_chunk(
+                        values,
+                        lengths,
+                        track_ids=track_ids[:, index],
+                        track_semantics=None if semantics is None else semantics[:, index],
+                    )
+                )
+        return torch.stack(encoded, dim=1)
+
+    def _continuation_raw(
+        self,
+        state: MultiTrackState,
+        raw: Tensor,
+        tracks: Sequence[str],
+        modalities: Sequence[str],
+        payloads: Sequence[bytes],
+        mode: str,
+    ) -> Tensor:
+        if mode not in CONTINUATION_MODES:
+            raise ValueError("Unknown grouped continuation representation")
+        if mode == "sampled":
+            return raw
+        if len(tracks) != len(modalities) or len(tracks) != len(payloads):
+            raise ValueError("Encoded continuation fields must share one event order")
+        indices = tuple(index for index, modality in enumerate(modalities) if modality == "text")
+        if not indices:
+            return raw
+        encoded = self._encode_text_continuation(
+            state,
+            tuple(tracks[index] for index in indices),
+            tuple(payloads[index] for index in indices),
+        )
+        continuation = raw.clone()
+        continuation[:, indices] = encoded
+        return continuation
+
     def supervised_meridian(
         self,
         state: MultiTrackState,
@@ -1465,6 +1535,25 @@ class MultiTrackGenerator:
         core = self.generator.core
         core.routing_aux_loss(clear=True)
         control = self._controls(controls, state, names)
+        # Serving chooses the output modality from the public capability mask
+        # before it runs P.  Make the same call here, before any target payload
+        # is encoded, and reuse these logits for the supervised loss below.
+        if full_group is not None:
+            modality_masks = torch.tensor(
+                [full_group.modality_masks], device=state.device, dtype=torch.bool
+            )
+        elif modality_masks is None:
+            supported = [
+                True,
+                *(
+                    REALIZERS[m] in self.generator.media_realizers.packs
+                    for m in ("audio", "image", "video")
+                ),
+            ]
+            modality_masks = torch.tensor(
+                [[supported] * len(names)], device=state.device, dtype=torch.bool
+            )
+        modality_logits = self.tracks.modality_logits(state, names, control, modality_masks)
         mean = self.tracks.predict_group(
             state,
             tracks=names,
@@ -1572,6 +1661,10 @@ class MultiTrackGenerator:
                     )
                     if tape is None:
                         actual.append(target_raw[:, index].detach())
+                    elif tape.continuation_mode == "encoded_text" and not isinstance(
+                        plan, MediaTrainTarget
+                    ):
+                        actual.append(target_raw[:, index].detach())
                     else:
                         actual.append(tape.single_raw(state.device))
                 continuation = torch.stack(actual, dim=1)
@@ -1653,24 +1746,8 @@ class MultiTrackGenerator:
         modality_targets = torch.tensor(
             [[MODALITY_IDS[m] for m in modalities]], device=state.device
         )
-        if full_group is not None:
-            modality_masks = torch.tensor(
-                [full_group.modality_masks], device=state.device, dtype=torch.bool
-            )
-        elif modality_masks is None:
-            supported = [
-                True,
-                *(
-                    REALIZERS[m] in self.generator.media_realizers.packs
-                    for m in ("audio", "image", "video")
-                ),
-            ]
-            modality_masks = torch.tensor(
-                [[supported] * len(names)], device=state.device, dtype=torch.bool
-            )
         if not modality_masks.gather(-1, modality_targets[..., None]).all():
             raise ValueError("Supervised modality is illegal under the public capability mask")
-        modality_logits = self.tracks.modality_logits(state, names, control, modality_masks)
         sums["modality"] = torch.nn.functional.cross_entropy(
             modality_logits.flatten(0, 1), modality_targets.flatten(), reduction="sum"
         )
@@ -1780,6 +1857,7 @@ class MultiTrackGenerator:
         controls: Sequence[bytes] | None = None,
         effort: int = 6,
         generator: torch.Generator | None = None,
+        continuation_mode: str = "sampled",
     ) -> SelectedGroup:
         self.tracks._validate(state)
         if state.batch_size != 1:
@@ -1794,6 +1872,8 @@ class MultiTrackGenerator:
         if len(payloads) != len(names) or any(not isinstance(x, bytes) for x in payloads):
             raise ValueError("Every track needs a byte-exact causal control")
         plans = self._specs(specs, len(names), self.generator.config.max_capacity)
+        if continuation_mode not in CONTINUATION_MODES:
+            raise ValueError("Unknown grouped continuation representation")
         pack_fingerprints = self._pack_ids(self.generator, plans)
         for plan in plans:
             if isinstance(plan, MediaOutputSpec):
@@ -1825,9 +1905,14 @@ class MultiTrackGenerator:
         order = sorted(range(len(identities)), key=lambda i: identities[i])
         selected_kinds = torch.empty(len(names), dtype=torch.long, device=state.device)
         for index in order:
-            selected_kinds[index] = torch.multinomial(
-                logits[0, index].softmax(-1), 1, generator=generator
-            )[0]
+            if len(choices[index]) == 1:
+                option = choices[index][0]
+                kind = "text" if isinstance(option, ActionSpec) else option.modality
+                selected_kinds[index] = MODALITY_IDS[kind]
+            else:
+                selected_kinds[index] = torch.multinomial(
+                    logits[0, index].softmax(-1), 1, generator=generator
+                )[0]
         modality_densities = (
             logits.log_softmax(-1).gather(-1, selected_kinds[None, :, None]).squeeze(-1)
         )
@@ -1858,9 +1943,50 @@ class MultiTrackGenerator:
             int(state.meridians_seen[0]),
             tuple(self._spec_id(spec) for spec in plans),
         )
+        pre_rendered_text = None
+        continuation = raw
+        if continuation_mode == "encoded_text":
+            text_indices = tuple(
+                index for index, spec in enumerate(plans) if isinstance(spec, ActionSpec)
+            )
+            pre_rendered_text = ()
+            if text_indices:
+                text_specs = tuple(plans[index] for index in text_indices)
+                text_control = None if encoded is None else encoded[:, text_indices]
+                text_track_ids = self.tracks._track_indices(
+                    state, tuple(names[index] for index in text_indices)
+                )[0]
+                selected_payloads, selected_ids, selected_valid, selected_terminal, _ = (
+                    self._realize(
+                        raw[:, text_indices],
+                        text_specs,
+                        text_control,
+                        seeds=tuple(seeds[index] for index in text_indices),
+                        mixture=state.adapters,
+                        track_ids=text_track_ids,
+                    )
+                )
+                pre_rendered_text = tuple(
+                    (index, payload, ids, valid, terminal)
+                    for index, payload, ids, valid, terminal in zip(
+                        text_indices,
+                        selected_payloads,
+                        selected_ids,
+                        selected_valid,
+                        selected_terminal,
+                        strict=True,
+                    )
+                )
+                encoded_text = self._encode_text_continuation(
+                    state,
+                    tuple(names[index] for index in text_indices),
+                    selected_payloads,
+                )
+                continuation = raw.clone()
+                continuation[:, text_indices] = encoded_text
         committed = self.tracks.advance_group(
             state,
-            raw,
+            continuation,
             track_semantics=encoded,
             tracks=names,
             event_ids=identities,
@@ -1903,6 +2029,7 @@ class MultiTrackGenerator:
             emitted_ids=((),) * len(names),
             valid=(False,) * len(names),
             terminal=(False,) * len(names),
+            continuation_mode=continuation_mode,
         )
         core.routing_aux_loss(clear=True)
         return SelectedGroup(
@@ -1913,6 +2040,7 @@ class MultiTrackGenerator:
             None if encoded is None else encoded.detach().clone(),
             tape,
             density,
+            pre_rendered_text,
         )
 
     @torch.no_grad()
@@ -1920,14 +2048,66 @@ class MultiTrackGenerator:
         """Render from the selected snapshot, independent of later session input."""
         self.tracks._validate(selected.before)
         tape = selected.tape
-        output, emitted, valid, terminal, media = self._realize(
-            selected.raw,
-            selected.specs,
-            selected.control,
-            seeds=tape.renderer_seeds,
-            mixture=selected.before.adapters,
-            track_ids=self.tracks._track_indices(selected.before, tape.tracks)[0],
-        )
+        if selected.pre_rendered_text is None:
+            output, emitted, valid, terminal, media = self._realize(
+                selected.raw,
+                selected.specs,
+                selected.control,
+                seeds=tape.renderer_seeds,
+                mixture=selected.before.adapters,
+                track_ids=self.tracks._track_indices(selected.before, tape.tracks)[0],
+            )
+        else:
+            output_list = [b""] * len(selected.specs)
+            emitted_list = [()] * len(selected.specs)
+            valid_list = [False] * len(selected.specs)
+            terminal_list = [False] * len(selected.specs)
+            media_list: list[Tensor | None] = [None] * len(selected.specs)
+            for index, payload, ids, is_valid, is_terminal in selected.pre_rendered_text:
+                output_list[index] = payload
+                emitted_list[index] = ids
+                valid_list[index] = is_valid
+                terminal_list[index] = is_terminal
+            media_indices = tuple(
+                index
+                for index, spec in enumerate(selected.specs)
+                if isinstance(spec, MediaOutputSpec)
+            )
+            if media_indices:
+                media_control = (
+                    None if selected.control is None else selected.control[:, media_indices]
+                )
+                media_track_ids = self.tracks._track_indices(
+                    selected.before, tuple(tape.tracks[index] for index in media_indices)
+                )[0]
+                subset = self._realize(
+                    selected.raw[:, media_indices],
+                    tuple(selected.specs[index] for index in media_indices),
+                    media_control,
+                    seeds=tuple(tape.renderer_seeds[index] for index in media_indices),
+                    mixture=selected.before.adapters,
+                    track_ids=media_track_ids,
+                )
+                subset_output, subset_ids, subset_valid, subset_terminal, subset_media = subset
+                for index, payload, ids, is_valid, is_terminal, tensor in zip(
+                    media_indices,
+                    subset_output,
+                    subset_ids,
+                    subset_valid,
+                    subset_terminal,
+                    subset_media,
+                    strict=True,
+                ):
+                    output_list[index] = payload
+                    emitted_list[index] = ids
+                    valid_list[index] = is_valid
+                    terminal_list[index] = is_terminal
+                    media_list[index] = tensor
+            output = tuple(output_list)
+            emitted = tuple(emitted_list)
+            valid = tuple(valid_list)
+            terminal = tuple(terminal_list)
+            media = tuple(media_list)
         self.tracks._validate(selected.before)
         rendered = replace(
             tape,
@@ -1955,10 +2135,20 @@ class MultiTrackGenerator:
         )
         for address, purpose, revision in tape.track_descriptions:
             state = self.tracks.describe_track(state, address, purpose, revision)
+        if tape.continuation_mode == "encoded_text" and tape.render_status != "rendered":
+            raise ValueError("Encoded text continuation requires a complete rendered action tape")
         control = self._controls(tape.controls, state, tape.tracks)
-        return self.tracks.advance_group(
+        continuation = self._continuation_raw(
             state,
             tape.raw(state.device),
+            tape.tracks,
+            tape.modalities,
+            tape.payloads,
+            tape.continuation_mode,
+        )
+        return self.tracks.advance_group(
+            state,
+            continuation,
             tracks=tape.tracks,
             event_ids=tape.event_ids,
             track_semantics=control,
@@ -2090,15 +2280,6 @@ class MultiTrackGenerator:
             mixture=state.adapters,
             track_ids=self.tracks._track_indices(state, tape.tracks)[0],
         )
-        committed = self.tracks.advance_group(
-            state,
-            raw,
-            track_semantics=encoded,
-            tracks=tape.tracks,
-            event_ids=tape.event_ids,
-            role_ids=torch.tensor([tape.roles], device=state.device, dtype=torch.long),
-            modalities=tape.modalities,
-        )
         if (output, emitted, valid, terminal) != (
             tape.payloads,
             tape.emitted_ids,
@@ -2106,5 +2287,22 @@ class MultiTrackGenerator:
             tape.terminal,
         ):
             raise ValueError("Grouped realization replay mismatch")
+        continuation = self._continuation_raw(
+            state,
+            raw,
+            tape.tracks,
+            tape.modalities,
+            output,
+            tape.continuation_mode,
+        )
+        committed = self.tracks.advance_group(
+            state,
+            continuation,
+            track_semantics=encoded,
+            tracks=tape.tracks,
+            event_ids=tape.event_ids,
+            role_ids=torch.tensor([tape.roles], device=state.device, dtype=torch.long),
+            modalities=tape.modalities,
+        )
         core.routing_aux_loss(clear=True)
         return GroupGeneration(committed, tape, density, media)

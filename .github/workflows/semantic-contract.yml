@@ -33,7 +33,7 @@ jobs:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           repository: werg/tracing-js-self
-          ref: b4fce2bd17490933efccd835d6573a57f2e91a92 # canonical v5 witness with replayable seeded RNG state
+          ref: 3dfa5e40138a0eb297e761034f209d54d38556dc # canonical v6 trace grammar and independently checked source bindings
           path: tracing-js-self
           persist-credentials: false
       - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
@@ -42,25 +42,33 @@ jobs:
       - name: Obtain and verify the exact production tokenizer
         run: |
           python - <<'PY'
-          import hashlib, os, urllib.request
+          import hashlib, json, os, subprocess, urllib.request
           from pathlib import Path
-          from megatoken.generation.codec import LING_REVISION, LING_TOKENIZER_SHA256
+          from megatoken.generation.codec import ByteCodec, LING_REVISION, LING_TOKENIZER_SHA256
           path = Path(os.environ['MEGATOKEN_TOKENIZER_JSON'])
           path.parent.mkdir(parents=True, exist_ok=True)
           urllib.request.urlretrieve(f'https://huggingface.co/inclusionAI/Ling-3.0-tiny/resolve/{LING_REVISION}/tokenizer.json', path)
           assert hashlib.sha256(path.read_bytes()).hexdigest() == LING_TOKENIZER_SHA256
+          codec = ByteCodec.from_tokenizer_json(path, expected_sha256=LING_TOKENIZER_SHA256)
+          policy = {
+            'consumerRevision': subprocess.check_output(['git', 'rev-parse', 'HEAD'], text=True).strip(),
+            'tokenizerIdentity': codec.fingerprint,
+            'tokenizerSha256': LING_TOKENIZER_SHA256,
+          }
+          (Path(os.environ['RUNNER_TEMP']) / 'native-policy.json').write_text(json.dumps(policy, indent=2) + '\n')
+          print(json.dumps(policy))
           PY
       - name: Check both declared contracts and collect actual teacher executions
         run: |
           npm ci --prefix tracing-js-self
-          cmp tracing-js-self/contracts/semantic-harness-v5.json src/megatoken/data/contracts/semantic-harness-v5.json
+          cmp tracing-js-self/contracts/semantic-harness-v6.json src/megatoken/data/contracts/semantic-harness-v6.json
           cmp tracing-js-self/contracts/host-operations-v4.json src/megatoken/data/contracts/host-operations-v4.json
           cd tracing-js-self
           node tools/generate-semantic-contract.mjs --check
           node tools/generate-host-contract.mjs --check
           node tools/generate-effectful-training.mjs --jobs 4 --out "$RUNNER_TEMP/teacher" \
             --megatoken "$GITHUB_WORKSPACE" --tokenizer "$MEGATOKEN_TOKENIZER_JSON" \
-            --python python --require-native
+            --python python --native-policy "$RUNNER_TEMP/native-policy.json" --require-native
       - name: Recheck independent source and native gates and export the prepared corpus
         run: |
           python scripts/validate_semantic_corpus.py --corpus "$RUNNER_TEMP/teacher" \
@@ -74,12 +82,12 @@ jobs:
         run: |
           python scripts/check_semantic_inference.py --tokenizer-json "$MEGATOKEN_TOKENIZER_JSON" --output "$RUNNER_TEMP/fixed-inference"
           python -m pytest -q tests/test_semantic_data_pipeline.py tests/test_semantic_runtime_integration.py \
-            tests/test_semantic_model_adapter.py tests/test_semantic_harness_v5.py \
+            tests/test_semantic_model_adapter.py tests/test_semantic_harness_v6.py \
             tests/test_semantic_capture_names.py tests/test_semantic_capture_bindings.py \
             tests/test_semantic_corpus_streaming.py \
             tests/test_semantic_corpus_lifetimes.py tests/test_semantic_graph_immutability.py \
             tests/test_semantic_orchestration.py \
-            tests/test_semantic_contract_v5.py tests/test_semantic_host_contract.py \
+            tests/test_semantic_contract_v6.py tests/test_semantic_host_contract.py \
             tests/test_selected_semantic_bridge_v4.py tests/test_semantic_harness_lifecycle_v4.py \
             tests/test_semantic_training_state.py tests/test_training_stream.py \
             tests/test_checkpoint_async.py tests/test_checkpoint_replace.py \
@@ -98,7 +106,8 @@ jobs:
         run: |
           node tools/generate-effectful-training.mjs --out "$RUNNER_TEMP/recipe" \
             --recipe training-v4 --jobs 4 \
-            --megatoken "$GITHUB_WORKSPACE" --tokenizer "$MEGATOKEN_TOKENIZER_JSON" --python python --require-native
+            --megatoken "$GITHUB_WORKSPACE" --tokenizer "$MEGATOKEN_TOKENIZER_JSON" --python python \
+            --native-policy "$RUNNER_TEMP/native-policy.json" --require-native
       - name: Verify canonical train and validation stage supply
         run: |
           python scripts/prepare_semantic_experiments.py \
@@ -118,6 +127,7 @@ jobs:
         with:
           name: semantic-engineering-receipts
           path: |
+            ${{ runner.temp }}/native-policy.json
             ${{ runner.temp }}/teacher/manifest.json
             ${{ runner.temp }}/prepared/semantic-report.json
             ${{ runner.temp }}/lifecycle/lifecycle-admission.json

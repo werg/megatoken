@@ -1,0 +1,30 @@
+0001 [host] observed: code run @40545b82c8ef
+function run(){return host.listen("tick",onTick);}function onTick(delta){counter+=delta;host.store("counter",counter);return counter;}function close(token){return host.unlisten(token);}
+0002 [worker / register] observed: invoke run caused by outside in realm shared (call-return)
+0003 [worker / register] generated: bind counter = 0
+0004 [worker / register] generated: allocate &fn closure {}
+0005 [worker / register] generated: request listen demo.listen("tick", &fn) in register @22:48 -> Promise &listen — host.listen("tick",onTick)
+0007 [host] observed: register callback1 for onTick
+0008 [worker / register] observed: observe listen fulfilled "callback1"
+0009 [worker / register] generated: return "callback1"
+0010 [worker / register] generated: end return
+0011 [worker / event1] observed: event callbackevent1 from callback1 activates event1
+0012 [worker / event1] observed: invoke onTick caused by event:callback1:callbackevent1 from register in realm shared (call-return)
+0013 [worker / event1] generated: counter = (counter + delta) -> 2
+0014 [worker / event1] generated: request write demo.store("counter", 2) in event1 @88:117 — host.store("counter",counter)
+0016 [worker / event1] observed: observe write fulfilled 1
+0017 [worker / event1] generated: return 2
+0018 [worker / event1] generated: end return
+0019 [worker / event2] observed: event callbackevent2 from callback1 activates event2
+0020 [worker / event2] observed: invoke onTick caused by event:callback1:callbackevent2 from register in realm shared (call-return)
+0021 [worker / event2] generated: counter = (counter + delta) -> 5
+0022 [worker / event2] generated: request write demo.store("counter", 5) in event2 @88:117 — host.store("counter",counter)
+0024 [worker / event2] observed: observe write fulfilled 2
+0025 [worker / event2] generated: return 5
+0026 [worker / event2] generated: end return
+0027 [worker / close] observed: invoke close caused by outside-close in realm shared (call-return)
+0028 [worker / close] generated: request close demo.unlisten("callback1") in close @163:183 -> Promise &closed — host.unlisten(token)
+0030 [host] observed: close callback1
+0031 [worker / close] observed: observe close fulfilled undefined
+0032 [worker / close] generated: return undefined
+0033 [worker / close] generated: end return

@@ -240,6 +240,55 @@ class DeterministicDecoder(nn.Module):
 
         return schema_fields, schema_limits, feasible, modes
 
+    def _text_length_support(self, spec: ActionSpec | None) -> tuple[int, ...]:
+        """The exact public support of the raw text length decision.
+
+        A missing spec deliberately means the unqualified training head, whose
+        support is every configured output position. Native semantic training
+        supplies its actual per-event ActionSpec instead of relying on this
+        unconstrained case.
+        """
+        lower = 0 if spec is None else spec.min_tokens
+        upper = (
+            self.config.max_capacity
+            if spec is None
+            else min(spec.max_tokens, self.config.max_capacity)
+        )
+        return tuple(range(lower, upper + 1))
+
+    @staticmethod
+    def _terminal_support(spec: ActionSpec | None) -> tuple[int, ...]:
+        if spec is None or spec.require_terminal is None:
+            return (0, 1)
+        return (int(spec.require_terminal),)
+
+    @staticmethod
+    def _text_kind(spec: ActionSpec | None) -> str:
+        return "bytes" if spec is None else spec.text_kind
+
+    def _support_loss(self, header, codes, targets, supports, *, name):
+        """Score batched categorical labels after applying each row's public support."""
+        zero = header.float().sum() * 0
+        total, count = zero, 0
+        logits = self.logits(header, codes).float()
+        grouped: dict[tuple[int, ...], list[int]] = {}
+        for index, support in enumerate(supports):
+            if not support:
+                raise ValueError(f"No public support for {name} decision")
+            grouped.setdefault(tuple(support), []).append(index)
+        for allowed, members in grouped.items():
+            rows = torch.tensor(members, device=header.device, dtype=torch.long)
+            columns = torch.tensor(allowed, device=header.device, dtype=torch.long)
+            positions = torch.full(
+                (codes.num_embeddings,), -1, device=header.device, dtype=torch.long
+            )
+            positions[columns] = torch.arange(len(allowed), device=header.device)
+            local_targets = positions.index_select(0, targets.index_select(0, rows))
+            selected = logits.index_select(0, rows).index_select(1, columns)
+            total = total + F.cross_entropy(selected, local_targets, reduction="sum")
+            count += len(members)
+        return total, count
+
     def _teacher_raw_impl(self, core, context, plan: PreparedTargets):
         """Vectorized independent examples; only the sparse CE positions are gathered."""
         batch = len(plan.ids)
@@ -248,11 +297,9 @@ class DeterministicDecoder(nn.Module):
         zero = header.float().sum() * 0
         losses = {name: (zero, 0) for name in DECODER_LOSSES}
         lengths = torch.tensor([len(row) for row in plan.ids], device=header.device)
-        losses["structure"] = (
-            F.cross_entropy(
-                self.logits(header, self.length_codes).float(), lengths, reduction="sum"
-            ),
-            batch,
+        length_supports = tuple(self._text_length_support(spec) for spec in plan.mode_specs)
+        losses["structure"] = self._support_loss(
+            header, self.length_codes, lengths, length_supports, name="length"
         )
         # Score the format against the same public alternatives as serving.
         # The target never decides which alternatives are legal.
@@ -273,19 +320,17 @@ class DeterministicDecoder(nn.Module):
             losses["structure"] = previous + loss, count + 1
         header = self.condition(header, self.length_codes, lengths)
         terminals = torch.tensor(plan.terminals, device=header.device, dtype=torch.long)
-        losses["terminal"] = (
-            F.cross_entropy(
-                self.logits(header, self.terminal_codes).float(), terminals, reduction="sum"
-            ),
-            batch,
+        terminal_supports = tuple(self._terminal_support(spec) for spec in plan.mode_specs)
+        losses["terminal"] = self._support_loss(
+            header, self.terminal_codes, terminals, terminal_supports, name="terminal"
         )
         header = self.condition(header, self.terminal_codes, terminals)
         # Each example is realized at its own workspace size, as serving does.
         groups: dict[int, list[int]] = {}
         for example, capacity in enumerate(plan.capacities):
             groups.setdefault(capacity, []).append(example)
-        states = []
-        targets: list[int] = []
+        states: dict[str, list[Tensor]] = {}
+        targets: dict[str, list[int]] = {}
         for capacity, members in groups.items():
             if len(members) == batch:
                 group_context, group_header = context, header
@@ -299,23 +344,37 @@ class DeterministicDecoder(nn.Module):
                 # adapter rows aligned to those examples while realizing it.
                 with core.expert_pools.routing_subset(member_index):
                     rows = self.realizer(core, group_context, capacity, group_header).flatten(0, 1)
-            positions = []
+            positions: dict[str, list[int]] = {}
+            group_targets: dict[str, list[int]] = {}
             for local, example in enumerate(members):
+                kind = self._text_kind(plan.mode_specs[example])
+                positions.setdefault(kind, [])
+                group_targets.setdefault(kind, [])
                 for position, (token, scored) in enumerate(
                     zip(plan.ids[example], plan.free_masks[example], strict=True)
                 ):
                     if scored:
-                        positions.append(local * capacity + position)
-                        targets.append(token)
-            states.append(
-                rows.index_select(0, torch.tensor(positions, device=rows.device, dtype=torch.long))
-            )
-        selected = torch.cat(states)
-        targets = torch.tensor(targets, device=header.device, dtype=torch.long)
-        losses["lexical"] = (
-            self.vocabulary.loss(selected, targets, self.valid_bytes).sum(),
-            selected.shape[0],
-        )
+                        positions[kind].append(local * capacity + position)
+                        group_targets[kind].append(token)
+            for kind, selected_positions in positions.items():
+                if not selected_positions:
+                    continue
+                states.setdefault(kind, []).append(
+                    rows.index_select(
+                        0,
+                        torch.tensor(selected_positions, device=rows.device, dtype=torch.long),
+                    )
+                )
+                targets.setdefault(kind, []).extend(group_targets[kind])
+        lexical_total = zero
+        lexical_count = 0
+        for kind, values in states.items():
+            selected = torch.cat(values)
+            labels = torch.tensor(targets[kind], device=header.device, dtype=torch.long)
+            alphabet = self.alphabet(kind)
+            lexical_total = lexical_total + self.vocabulary.loss(selected, labels, alphabet).sum()
+            lexical_count += selected.shape[0]
+        losses["lexical"] = lexical_total, lexical_count
         return losses
 
     def forward(self, core, context, spec: ActionSpec, teacher: PreparedAction | None = None):
@@ -508,10 +567,18 @@ class DeterministicDecoder(nn.Module):
             else:
                 remaining = sum(other.minimum for other in values[index + 1 :])
                 upper = min(value.spec.max_tokens, field_limit - assigned - remaining)
+                allowed_lengths = (
+                    self._text_length_support(spec)
+                    if schema is None and value.spec.name == "text"
+                    else tuple(range(value.minimum, upper + 1))
+                )
+                allowed_lengths = tuple(
+                    length for length in allowed_lengths if value.minimum <= length <= upper
+                )
                 value.length = choose(
                     "length/" + value.spec.name,
                     self.length_codes,
-                    range(value.minimum, upper + 1),
+                    allowed_lengths,
                     len(teacher.field_ids[value.spec.name]) if teacher else None,
                 )
                 if value.copy_ids:
@@ -528,7 +595,7 @@ class DeterministicDecoder(nn.Module):
             choose(
                 "terminal",
                 self.terminal_codes,
-                [int(spec.require_terminal)] if spec.require_terminal is not None else [0, 1],
+                self._terminal_support(spec),
                 int(teacher.terminal) if teacher else None,
                 key="terminal",
             )

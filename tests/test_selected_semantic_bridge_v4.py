@@ -1,11 +1,11 @@
 """Committed semantic request bridge: one selected action, no synthetic tool JSON."""
 
-import json
 from threading import RLock
 from types import SimpleNamespace
 
 import pytest
 
+from megatoken.data.witness_v6 import encode_record
 from megatoken.multitrack_runtime import MultiTrackRuntime
 
 
@@ -18,7 +18,7 @@ def witness(effect="fx1", payload='["counter"]'):
         "arguments": [["str", "counter"]],
         "payload": payload,
     }
-    return ("request " + json.dumps(fields, separators=(",", ":"))).encode()
+    return (encode_record("request", fields)).encode()
 
 
 def group_and_session(line=None):
@@ -98,7 +98,7 @@ def test_validated_selected_request_has_single_stable_native_action_and_route():
     [
         witness(payload='["forged"]'),
         b'request {"effect":',
-        witness(effect="fx1").replace(b'"invocation":"i1"', b'"invocation":"Bad name"'),
+        witness(effect="fx1").replace(b"in @i1", b"in @Bad name"),
     ],
 )
 def test_malformed_or_ungrounded_request_cannot_submit(line):

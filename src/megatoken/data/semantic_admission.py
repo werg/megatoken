@@ -12,7 +12,7 @@ from megatoken.generation.codec import LING_TOKENIZER_SHA256, ByteCodec
 from .host_operations import CONTRACT_DIGEST, canonical_json
 from .schema import encode_record
 from .semantic_contract import FIXTURE_DIGEST, SCHEMA_DIGEST
-from .semantic_harness_v5 import adapt_selected_harness_v5
+from .semantic_harness_v6 import adapt_selected_harness_v6
 
 
 def validate_native_visibility(episode):
@@ -20,9 +20,11 @@ def validate_native_visibility(episode):
     from megatoken.model.context import ContextPolicy, retained_context_events
 
     from .context import context_announcement, validate_context_announcements
-    from .witness_v5 import parse_record
+    from .semantic_physical import validate_semantic_creation_observations
+    from .witness_v6 import parse_record
 
     validate_context_announcements(episode)
+    validate_semantic_creation_observations(episode)
     geometry = json.loads(episode.supervision.annotations_json).get("semantic_geometry")
     if (
         not isinstance(geometry, dict)
@@ -106,16 +108,24 @@ def validate_native_visibility(episode):
         for part in parts:
             if part.policy_mask and not lifecycle:
                 invocation = invocations[owner]
-                source_ids = rereads.get(
-                    (track, invocation["programId"]), programs[invocation["programId"]]
-                )
                 allowed = policy.visible(track, tracks, positions, identities, seen)
                 available = {
                     identity
                     for identity, visible in zip(identities, allowed, strict=True)
                     if visible
                 }
-                if not set(source_ids) <= available:
+                # Code is immutable and can be observed on its original host
+                # or another execution track. Only an entire currently
+                # visible exact copy can satisfy this source requirement.
+                source_copies = [
+                    programs[invocation["programId"]],
+                    *(
+                        copy
+                        for (_, program_id), copy in rereads.items()
+                        if program_id == invocation["programId"]
+                    ),
+                ]
+                if not any(set(source_ids) <= available for source_ids in source_copies):
                     raise ValueError(
                         "Generated native action cannot see all of its exact source context"
                     )
@@ -154,7 +164,7 @@ def native_admission(
         raise ValueError("Native admission requires exact consumer revision provenance")
     if codec.fingerprint == ByteCodec.byte_fallback().fingerprint:
         raise ValueError("Production native admission requires the pinned production tokenizer")
-    episode, receipt = adapt_selected_harness_v5(
+    episode, receipt = adapt_selected_harness_v6(
         document,
         codec=codec,
         max_positions=max_positions,
@@ -173,7 +183,7 @@ def native_admission(
     logical = [
         parts
         for parts in episode.iter_logical_records()
-        if not parts[0].logical_id.startswith("semantic:context:")
+        if not parts[0].logical_id.startswith(("semantic:context:", "semantic:lifecycle:"))
     ]
     timeline = document["public"]["timeline"]
     if len(logical) != len(timeline):

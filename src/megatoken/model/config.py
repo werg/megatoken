@@ -7,11 +7,11 @@ import math
 from dataclasses import asdict, dataclass, fields
 from typing import Any
 
+from megatoken.artifact_versions import ARCHITECTURE_VERSION as ARCHITECTURE_VERSION
 from megatoken.teacher import PINNED_TEACHER, validate_extractor
 
 from .context import DEFAULT_CROSS_EVENTS, DEFAULT_LOCAL_EVENTS
 
-ARCHITECTURE_VERSION = 16
 # Reserved system track addresses; they share the session equality registry.
 TRANSDUCER_QUERY_TRACK = "__transducer_query__"
 KNOWLEDGE_TRACK = "__transducer_knowledge__"

@@ -1,0 +1,12 @@
+0001 [host] observed: code run @f5d68142da75
+async function run(){return await host.readAsync("durable");}
+0002 [worker / call] observed: invoke run caused by outside in realm shared (call-return)
+0003 [worker / call] generated: request read demo.readAsync("durable") in call @34:59 -> Promise &pending — host.readAsync("durable")
+0005 [worker / call] generated: await Promise &pending; suspend call as resume
+0006 [worker] observed: source unavailable p; checked reread required
+0007 [worker] observed: restore checked source p @f5d68142da75
+0008 [worker / call] observed: reconcile read: fulfilled
+0009 [worker / call] observed: observe read fulfilled 7
+0010 [worker / call] generated: resume call via resume with fulfilled 7
+0011 [worker / call] generated: return 7
+0012 [worker / call] generated: end return

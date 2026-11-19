@@ -1,0 +1,14 @@
+0001 [host] observed: code run @452c6994c164
+function run(){return Promise.resolve(1).finally(cleanup);}function cleanup(){return host.readAsync("cleanup");}
+0002 [worker / call] observed: invoke run caused by outside in realm r (await-returned-promise)
+0003 [worker / call] generated: allocate &fn closure {}
+0004 [worker / call] generated: create owned Promise &original
+0005 [worker / call] generated: resolve Promise &original 1
+0006 [worker / call] generated: when &original settles, finally &fn as cleanup -> &result
+0007 [worker / call] generated: return &result
+0008 [worker / call] generated: job dispatch cleanup owner call
+0009 [worker / call] generated: request cleanup demo.readAsync("cleanup") in job:cleanup @85:110 -> Promise &native — host.readAsync("cleanup")
+0010 [worker / call] generated: return &native
+0011 [worker / call] generated: job complete cleanup owner call
+0013 [worker / call] observed: observe cleanup rejected "cleanup failed"
+0014 [worker / call] generated: end return

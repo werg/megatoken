@@ -10,6 +10,7 @@ from types import SimpleNamespace
 
 import pytest
 
+from megatoken.data.witness_v6 import encode_record
 from megatoken.lifecycle import TrackRegistry
 from megatoken.semantic_model_adapter import SelectedSemanticInference, SemanticSelectionError
 
@@ -17,7 +18,7 @@ from megatoken.semantic_model_adapter import SelectedSemanticInference, Semantic
 def fixture():
     source = "function run(){return 7;}"
     digest = hashlib.sha256(source.encode()).hexdigest()
-    common = {"schema": "semantic-execution/5", "session": "session1", "ownerSequence": 1}
+    common = {"schema": "semantic-execution/6", "session": "session1", "ownerSequence": 1}
     published = {
         **common,
         "sequence": 1,
@@ -90,9 +91,9 @@ class FakeRuntime:
         self.selections = list(
             selections
             or [
-                b'request {"effect":"fx1","operation":"demo.readAsync","arguments":[["str","x"]],"invocation":"i1","promise":"p1","site":{"start":0,"end":1},"payload":"[\\"x\\"]"}',
-                b'return {"value":["num",7]}',
-                b'end {"kind":"return"}',
+                b'request @fx1 demo.readAsync("x") payload ["x"] promise @p1 in @i1 at 0..1',
+                b"return 7",
+                b"end return",
             ]
         )
         self.sessions = []
@@ -120,7 +121,8 @@ class FakeRuntime:
         session.observations.append((track, payload, kwargs["role"]))
         return 1
 
-    def generate(self, session, *, tracks, specs, controls, effort):
+    def generate(self, session, *, tracks, specs, controls, effort, continuation_mode):
+        assert continuation_mode == "encoded_text"
         assert len(tracks) == len(specs) == len(controls) == 1
         assert session.tracks.selectable(tracks[0], session.completed_events)
         assert b"Never predict observations" in controls[0]
@@ -169,38 +171,38 @@ class CaptureRuntime(FakeRuntime):
         super().__init__(selections=[b"unused; generation is stopped before sampling"])
         self.captured_generation = None
 
-    def generate(self, session, *, tracks, specs, controls, effort):
+    def generate(self, session, *, tracks, specs, controls, effort, continuation_mode):
         self.captured_generation = {
             "tracks": tuple(tracks),
             "specs": tuple(specs),
             "controls": tuple(controls),
             "effort": effort,
+            "continuation_mode": continuation_mode,
             "track_purposes": tuple(session.tracks.tracks[track].purpose for track in tracks),
         }
         raise CapturedGeneration
 
 
 def add(prefix, kind, mode="generated", **fields):
-    import json
 
     required = {}
     if kind == "semantic":
-        required["traceFormat"] = "semantic-trace/5"
+        required["traceFormat"] = "semantic-trace/6"
     elif kind == "dispatch":
         required.update(key="session1/i1/" + fields["effectId"], attempt=1)
     elif kind == "result":
         required.update(status="fulfilled", errorOrigin=None)
-        required["line"] = "observe " + json.dumps(
+        required["line"] = encode_record(
+            "observe",
             {
                 "effect": fields["effectId"],
                 "status": fields.get("status", "fulfilled"),
                 "result": fields["result"],
             },
-            separators=(",", ":"),
         )
     prefix["committed"].append(
         {
-            "schema": "semantic-execution/5",
+            "schema": "semantic-execution/6",
             "session": "session1",
             "sequence": len(prefix["committed"]) + 1,
             "ownerSequence": len(prefix["committed"]),
@@ -214,93 +216,99 @@ def add(prefix, kind, mode="generated", **fields):
     )
 
 
-def test_first_serving_call_matches_canonical_multi_record_training_inputs():
-    from megatoken.controls import (
-        build_request_control,
-        canonical_semantic_observation,
-        resolve_event_control,
-        semantic_execution_track_purpose,
-        semantic_selection_instruction,
-    )
-    from megatoken.data.schema import (
-        Episode,
-        Lineage,
-        Meridian,
-        PhysicalRecord,
-        TrackEvent,
-        TrackSpec,
-    )
+def test_real_serving_bootstrap_matches_prepared_bytes_roles_tracks_and_metadata(monkeypatch):
+    import torch
 
-    runtime = CaptureRuntime()
-    adapter = SelectedSemanticInference(runtime, max_tokens=8, verify_context=False)
+    from megatoken.contracts import ROLE_TO_ID
+    from megatoken.controls import semantic_execution_metadata
+    from megatoken.data.knowledge import episode_metadata
+    from megatoken.data.semantic_harness_v6 import adapt_selected_harness_v6
+    from megatoken.generation.codec import ByteCodec
+    from megatoken.generation.policy import FacetedGenerator
+    from megatoken.model import FacetedCore, ModelConfig
+    from megatoken.model.multitrack import MultiTrackGenerator
+    from megatoken.model.transducer import metadata_payload
+    from megatoken.multitrack_runtime import MultiTrackRuntime
+    from megatoken.training.meridians import _metadata
+
+    torch.set_num_threads(1)
+    torch.manual_seed(71)
+    model = FacetedGenerator(
+        FacetedCore(ModelConfig.tiny(max_history_chunks=64, max_capacity=1024)),
+        ByteCodec.byte_fallback(),
+    )
+    model.eval()
+    runtime = MultiTrackRuntime(MultiTrackGenerator.of(model))
+    adapter = SelectedSemanticInference(runtime, max_tokens=64)
     prefix = fixture()
-    with pytest.raises(CapturedGeneration):
-        adapter.select(prefix)
+    complete = copy.deepcopy(prefix)
+    add(complete, "semantic", line="return 7")
+    add(complete, "semantic", line="end return")
+    document = {
+        "public": {
+            "schema": "semantic-execution/6",
+            "traceFormat": "semantic-trace/6",
+            "profile": "selected-harness/2",
+            "contextFormat": "semantic-context/6",
+            "timeline": complete["committed"],
+        },
+        "sidecar": {"schema": "semantic-supervision/2", "representation": "compact"},
+    }
+    episode, _ = adapt_selected_harness_v6(
+        document, codec=model.codec, max_positions=1024, max_history=64, allow_local=True
+    )
+    captured = {}
 
-    captured = runtime.captured_generation
-    assert captured is not None
-    assert len(captured["controls"]) == 1
-    assert captured["controls"][0] == build_request_control(
-        instruction=semantic_selection_instruction()
-    )
-    assert len(runtime.sessions[0].observations) == 2
-    expected = [canonical_semantic_observation(row) for row in prefix["committed"]]
-    actual = [payload for _, payload, _ in runtime.sessions[0].observations]
-    assert actual == expected
-    assert captured["track_purposes"] == (semantic_execution_track_purpose("p", "run"),)
-    training_records = tuple(
-        PhysicalRecord(
-            f"input-{index}",
-            "user",
-            canonical_semantic_observation(row),
-            turn_index=index,
-        )
-        for index, row in enumerate(prefix["committed"])
-    ) + (PhysicalRecord("target", "assistant", b"target", turn_index=2, policy_mask=True),)
-    training_meridians = tuple(
-        Meridian(
-            index,
-            (
-                TrackEvent(
-                    record.record_id,
-                    row["track"] if index < len(prefix["committed"]) else "worker1",
-                    "text",
-                    index,
-                    record.role,
-                    instruction=(
-                        semantic_selection_instruction()
-                        if index == len(prefix["committed"])
-                        else ""
-                    ),
-                ),
-            ),
-        )
-        for index, (record, row) in enumerate(
-            zip(
-                training_records,
-                (*prefix["committed"], {"track": "worker1"}),
-                strict=True,
+    def stop(session, **kwargs):
+        captured["session"] = session
+        captured["request"] = kwargs
+        raise CapturedGeneration
+
+    monkeypatch.setattr(runtime, "generate", stop)
+    try:
+        with torch.inference_mode(), pytest.raises(CapturedGeneration):
+            adapter.select(prefix)
+        session = captured["session"]
+        served = [
+            (event.track, event.role_id, event.payload, event.terminal)
+            for event, _ in session.context_archive.events.values()
+        ]
+        events = {event.record_id: event for group in episode.meridians for event in group.events}
+        trained = []
+        for record in episode.records:
+            if record.policy_mask:
+                break
+            trained.append(
+                (
+                    events[record.record_id].track_id,
+                    ROLE_TO_ID[record.role],
+                    record.payload,
+                    record.part_index + 1 == record.part_count,
+                )
             )
+        assert served == trained
+        assert captured["request"]["tracks"] == ("track:0",)
+        assert [json.loads(payload).get("kind") for _, _, payload, _ in served] == [
+            "program",
+            None,
+            "invocation",
+            None,
+        ]
+        expected_metadata = metadata_payload(semantic_execution_metadata())
+        assert episode_metadata(episode) == semantic_execution_metadata()
+        assert _metadata(episode, None) == expected_metadata
+        assert all(_metadata(episode, seed) == expected_metadata for seed in range(8))
+        # No future execution purpose is installed from whole-episode metadata.
+        assert all(not track.description for track in episode.tracks)
+        revision = episode.track_revisions[0]
+        announcement = next(
+            record for record in episode.records if record.record_id == revision.record_id
         )
-    )
-    training = Episode(
-        "capture-parity",
-        training_records,
-        Lineage("capture", "v1", "capture-parity"),
-        tracks=tuple(
-            TrackSpec(
-                track,
-                "assistant",
-                description=(
-                    semantic_execution_track_purpose("p", "run") if track == "worker1" else ""
-                ),
-            )
-            for track in ("host", "worker1")
-        ),
-        meridians=training_meridians,
-    )
-    training_control = resolve_event_control(training, training.meridians[-1].events[0])
-    assert captured["controls"][0] == training_control
+        assert not announcement.policy_mask
+        assert json.loads(announcement.payload)["purpose"] == revision.purpose
+        assert revision.track_id == "track:0"
+    finally:
+        runtime.close()
 
 
 def test_first_and_continuation_control_bytes_are_declared_once():
@@ -355,7 +363,7 @@ def test_callback_invocation_publishes_retained_state_before_generation():
         committed=[program, parent_invocation, invocation],
         realmCommitted=copy.deepcopy([program, parent_invocation, invocation]),
         selectedState={
-            "schema": "semantic-continuation/5",
+            "schema": "semantic-continuation/6",
             "heap": [],
             "locals": [],
             "captureAliases": [],
@@ -376,6 +384,7 @@ def test_callback_invocation_publishes_retained_state_before_generation():
     assert observed[-1]["kind"] == "selected-bootstrap"
     assert observed[-1]["reason"] == "retained-activation"
     assert parent_work.actual_track != runtime.captured_generation["tracks"][0]
+    assert runtime.captured_generation["continuation_mode"] == "encoded_text"
 
 
 def test_published_selected_bootstrap_checks_actual_rng_state_before_observing_it():
@@ -386,7 +395,7 @@ def test_published_selected_bootstrap_checks_actual_rng_state_before_observing_i
     program, invocation = prefix["committed"]
     program["randomSeed"] = 0
     random_draw = {
-        "schema": "semantic-execution/5",
+        "schema": "semantic-execution/6",
         "session": "session1",
         "sequence": 3,
         "ownerSequence": 2,
@@ -394,11 +403,11 @@ def test_published_selected_bootstrap_checks_actual_rng_state_before_observing_i
         "mode": "generated",
         "kind": "semantic",
         "invocationId": "i1",
-        "traceFormat": "semantic-trace/5",
-        "line": 'compute {"expr":{"op":"random"},"result":["num",0.23606797284446657]}',
+        "traceFormat": "semantic-trace/6",
+        "line": "compute random() => 0.23606797284446657",
     }
     source_read = {
-        "schema": "semantic-execution/5",
+        "schema": "semantic-execution/6",
         "session": "session1",
         "sequence": 4,
         "ownerSequence": 3,
@@ -413,7 +422,7 @@ def test_published_selected_bootstrap_checks_actual_rng_state_before_observing_i
         invocation_id="i1", actual_track="worker1", state_bootstrap=None, selection_history=[]
     )
     snapshot = {
-        "schema": "semantic-continuation/5",
+        "schema": "semantic-continuation/6",
         "heap": [],
         "locals": [],
         "captureAliases": [],
@@ -466,7 +475,7 @@ def test_real_runtime_interface_commits_one_selection_before_any_future_observat
         effectId="fx1",
         result=["num", 7],
         status="fulfilled",
-        line='observe {"effect":"fx1","status":"fulfilled","result":["num",7]}',
+        line="observe @fx1 fulfilled 7",
     )
     second = adapter.select(prefix)
     assert second["record"].startswith("return ")
@@ -474,7 +483,7 @@ def test_real_runtime_interface_commits_one_selection_before_any_future_observat
     assert all(x[2] == "environment" for x in runtime.sessions[0].observations[2:])
     add(prefix, "semantic", line=second["record"])
     third = adapter.select(prefix)
-    assert third["record"] == 'end {"kind":"return"}'
+    assert third["record"] == "end return"
     add(prefix, "semantic", line=third["record"])
     adapter.close_invocation("session1", "i1", prefix)
     track = runtime.sessions[0].tracks.tracks["track:0"]
@@ -567,7 +576,7 @@ def test_invocation_bindings_prevent_source_reordering_or_impersonating_model_ca
 
 
 def test_more_than_eight_lifetime_invocations_reuse_one_model_session_without_aliasing():
-    responses = [b'return {"value":["num",1]}', b'end {"kind":"return"}'] * 12
+    responses = [b"return 1", b"end return"] * 12
     runtime = FakeRuntime(selections=responses)
     adapter = SelectedSemanticInference(runtime, verify_context=False)
     for number in range(12):
@@ -605,7 +614,7 @@ def test_more_than_eight_lifetime_invocations_reuse_one_model_session_without_al
 
 
 def test_model_restart_is_explicit_observed_bootstrap_and_never_reexecutes_tools():
-    runtime = FakeRuntime(selections=[b'return {"value":["num",7]}'])
+    runtime = FakeRuntime(selections=[b"return 7"])
     adapter = SelectedSemanticInference(
         runtime, verify_context=False, model_identity="fixed-fixture-model"
     )
@@ -616,7 +625,7 @@ def test_model_restart_is_explicit_observed_bootstrap_and_never_reexecutes_tools
     add(prefix, "semantic", line=selected["record"])
     checkpoint = adapter.checkpoint("session1", [prefix])
     assert checkpoint["schema"] == "semantic-model-checkpoint/5"
-    restored_runtime = FakeRuntime(selections=[b'end {"kind":"return"}'])
+    restored_runtime = FakeRuntime(selections=[b"end return"])
     restored = SelectedSemanticInference(
         restored_runtime, verify_context=False, model_identity="fixed-fixture-model"
     )
@@ -656,7 +665,7 @@ def test_checkpoint_restore_rejects_stale_contract_even_with_recomputed_packet_d
     from megatoken.semantic_model_adapter import _canonical
 
     adapter = SelectedSemanticInference(
-        FakeRuntime(selections=[b'return {"value":["num",7]}']),
+        FakeRuntime(selections=[b"return 7"]),
         verify_context=False,
         model_identity="fixed-fixture-model",
     )
@@ -687,7 +696,7 @@ def test_current_checkpoint_roundtrips_with_actual_loaded_model_identity_and_fix
         FacetedCore(ModelConfig.tiny(max_history_chunks=64, max_capacity=512)),
         ByteCodec.byte_fallback(),
     )
-    runtime = FakeRuntime(selections=[b'return {"value":["num",7]}'])
+    runtime = FakeRuntime(selections=[b"return 7"])
     runtime.generator.generator = model
     adapter = SelectedSemanticInference(runtime, verify_context=False)
     prefix = fixture()
@@ -696,7 +705,7 @@ def test_current_checkpoint_roundtrips_with_actual_loaded_model_identity_and_fix
     packet = adapter.checkpoint("session1", [prefix])
     assert packet["modelIdentity"] == adapter._identity()
 
-    restored_runtime = FakeRuntime(selections=[b'end {"kind":"return"}'])
+    restored_runtime = FakeRuntime(selections=[b"end return"])
     restored_runtime.generator.generator = model
     restored = SelectedSemanticInference(restored_runtime, verify_context=False)
     assert restored.restore(packet)["nativeEffects"] == 0
@@ -767,10 +776,10 @@ def test_actual_initialized_model_inference_and_source_reread_change_no_weights(
 
 
 def test_fragmented_model_request_reaches_real_native_commit_bridge_once():
-    from megatoken.data.witness_v5 import parse_record
+    from megatoken.data.witness_v6 import parse_record
 
     original = FakeRuntime().selections[0]
-    boundary = original.index(b'"payload"')
+    boundary = original.index(b" payload ")
     runtime = FakeRuntime(selections=[(original[:boundary], False), (original[boundary:], True)])
     adapter = SelectedSemanticInference(runtime, verify_context=False)
     prefix = fixture()
@@ -809,7 +818,7 @@ def test_fragmented_model_request_reaches_real_native_commit_bridge_once():
 
 def test_native_request_authority_survives_later_prefix_acknowledgement():
     """Async dispatch may reach the bridge after the next selection consumed feedback."""
-    from megatoken.data.witness_v5 import parse_record
+    from megatoken.data.witness_v6 import parse_record
 
     runtime = FakeRuntime()
     adapter = SelectedSemanticInference(runtime, verify_context=False)

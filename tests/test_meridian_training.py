@@ -87,6 +87,46 @@ def test_meridians_are_indivisible_window_groups():
     assert [(w.start, w.end) for w in windows] == [(0, 2), (2, 4), (4, 5)]
 
 
+def test_causal_record_encoding_matches_serving_track_state_and_ignores_future_descriptions(
+    tmp_path,
+):
+    from megatoken.contracts import ROLE_TO_ID
+    from megatoken.model.multitrack import ObservedEvent
+    from megatoken.training.meridians import _actual_raw
+
+    torch.set_num_threads(1)
+    torch.manual_seed(59)
+    model = tiny_model().eval()
+    batch = grouped_batch(model, train_config(tmp_path, "recurrent"))
+    multi = MultiTrackGenerator.of(model)
+    state = multi.tracks.initial_state(1)
+    state = multi.tracks.observe_group(
+        state, [ObservedEvent("earlier", "text", b"earlier source", ROLE_TO_ID["user"])]
+    )
+    for track in ("a", "b"):
+        state = multi.tracks.describe_track(state, track, "Read available " + track)
+    step = batch.steps[0]
+    with torch.no_grad():
+        trained = _actual_raw(
+            model,
+            step,
+            batch.native_history,
+            TEXT_ONLY_ASSETS,
+            torch.device("cpu"),
+            encoder_grad=False,
+            state=state,
+            descriptions=(TrackSpec("a", "user", description="unavailable future description"),),
+        )
+        served = multi.tracks.observe_group(
+            state,
+            [
+                ObservedEvent(track, "text", entry.payload, role, event_id=entry.record.record_id)
+                for track, entry, role in zip(step.tracks, step.records, step.roles, strict=True)
+            ],
+        )
+    torch.testing.assert_close(trained, served.raw, rtol=0, atol=0)
+
+
 @pytest.mark.parametrize("mode", ("bootstrap", "recurrent"))
 def test_grouped_global_ledger_and_selected_recurrence(mode, monkeypatch, tmp_path):
     torch.set_num_threads(1)
@@ -290,7 +330,8 @@ def test_semantic_execution_continues_from_teacher_recorded_semantics(monkeypatc
         fixture_episode(),
         stream="semantic_execution",
         supervision=Supervision(
-            annotations_json='{"semantic_execution":{"continuation":"teacher_conditioned"}}'
+            annotations_json='{"session_metadata":{"task":"semantic-execution/6","modality":"text"},'
+            '"semantic_execution":{"continuation":"teacher_conditioned"}}'
         ),
     )
     model = tiny_model()

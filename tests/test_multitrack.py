@@ -199,6 +199,46 @@ def test_grouped_generation_tape_and_exact_replay():
         GroupActionTape.from_json(json.dumps(corrupted))
 
 
+def test_singleton_modality_choice_does_not_consume_policy_rng(monkeypatch):
+    core, multi = _tiny()
+    model = FacetedGenerator(core, ByteCodec.byte_fallback())
+    serving = MultiTrackGenerator(model)
+    state = multi.initial_state(1)
+    names = ("reply",)
+    identities = ("selected:0:reply",)
+    controls = (b"",)
+    generator = torch.Generator().manual_seed(913)
+    expected_generator = torch.Generator().manual_seed(913)
+
+    encoded = serving._controls(controls, state, names)
+    mean = serving.tracks.predict_group(
+        state,
+        tracks=names,
+        event_ids=identities,
+        control=encoded,
+        effort=1,
+        modalities=("text",),
+    )
+    prior = serving._prior(mean, state, names, encoded)
+    expected_raw = serving._sample_policy(prior, identities, expected_generator)
+
+    def forbidden_draw(*args, **kwargs):
+        pytest.fail("A singleton modality has no categorical draw")
+
+    monkeypatch.setattr(torch, "multinomial", forbidden_draw)
+    selected = serving.select_group(
+        state,
+        tracks=names,
+        event_ids=identities,
+        specs=(ActionSpec(max_tokens=1),),
+        effort=1,
+        generator=generator,
+    )
+    torch.testing.assert_close(selected.raw, expected_raw)
+    assert torch.equal(generator.get_state(), expected_generator.get_state())
+    assert selected.tape.modality_log_probs == (0.0,)
+
+
 def test_group_history_backpropagates_across_meridians():
     core, multi = _tiny()
     raw = _selected(core, ("first", "second")).requires_grad_(True)
@@ -359,3 +399,160 @@ def test_transducer_query_track_is_reserved_outside_user_capacity():
     assert q_ids[0, 0].item() == cap
     extra, _ = multi._track_indices(state, ("beyond_old_limit",))
     assert extra[0, 0].item() == cap
+
+
+def test_encoded_text_continuation_matches_two_teacher_forced_native_boundaries(tmp_path):
+    """Serving and semantic teacher continuation both commit E of exact bytes."""
+    from megatoken.generation.policy import FacetedGenerator
+
+    codec = ByteCodec.byte_fallback()
+    config = ModelConfig.tiny(max_history_chunks=8)
+    torch.manual_seed(207)
+    source = FacetedGenerator(FacetedCore(config), codec)
+    checkpoint = tmp_path / "tiny-same-checkpoint.pt"
+    torch.save(source.state_dict(), checkpoint)
+    saved = torch.load(checkpoint, map_location="cpu", weights_only=True)
+
+    train_model = FacetedGenerator(FacetedCore(config), codec)
+    serving_model = FacetedGenerator(FacetedCore(config), codec)
+    train_model.load_state_dict(saved)
+    serving_model.load_state_dict(saved)
+    train_model.eval()
+    serving_model.eval()
+    train = MultiTrackGenerator(train_model)
+    serving = MultiTrackGenerator(serving_model)
+    train_state = train.tracks.initial_state(1)
+    serving_state = serving.tracks.initial_state(1)
+    track, control = "semantic-worker", b"semantic-selection-contract-v6"
+    spec = ActionSpec(text_kind="ascii", min_tokens=1, max_tokens=8, require_terminal=True)
+
+    def teacher_step(state, event_id, payload):
+        plan = train_model.prepare_target(
+            target_bytes=payload,
+            representation_mode="recurrent",
+        )
+        return train.supervised_meridian(
+            state,
+            tracks=(track,),
+            event_ids=(event_id,),
+            plans=(plan,),
+            control_payloads=(control,),
+            effort=1,
+            teacher_forced_action=True,
+            generator=torch.Generator().manual_seed(900 + int(event_id[-1])),
+        ).state
+
+    def compare_state(left, right):
+        for name in ("raw", "final"):
+            torch.testing.assert_close(
+                getattr(left, name), getattr(right, name), atol=1e-6, rtol=1e-5
+            )
+        for name in ("keys", "values"):
+            torch.testing.assert_close(
+                getattr(left.history, name), getattr(right.history, name), atol=1e-6, rtol=1e-5
+            )
+        assert left.history_event_ids == right.history_event_ids
+        assert left.history_event_tracks == right.history_event_tracks
+        assert left.meridians_seen.tolist() == right.meridians_seen.tolist()
+
+    selected1 = serving.generate_group(
+        serving_state,
+        tracks=(track,),
+        event_ids=("semantic-event-1",),
+        specs=(spec,),
+        controls=(control,),
+        effort=1,
+        generator=torch.Generator().manual_seed(501),
+        continuation_mode="encoded_text",
+    )
+    assert selected1.tape.continuation_mode == "encoded_text"
+    assert selected1.tape.valid[0]
+    train_state = teacher_step(train_state, "semantic-event-1", selected1.tape.payloads[0])
+    serving_state = selected1.state
+    compare_state(train_state, serving_state)
+
+    def prior_signature(service, state, event_id):
+        names = (track,)
+        encoded = service._controls((control,), state, names)
+        mean = service.tracks.predict_group(
+            state,
+            tracks=names,
+            event_ids=(event_id,),
+            control=encoded,
+            effort=1,
+            modalities=("text",),
+        )
+        distribution = service._prior(mean, state, names, encoded)
+        return mean, distribution.mean, distribution.log_scale
+
+    train_prior = prior_signature(train, train_state, "semantic-event-2")
+    serve_prior = prior_signature(serving, serving_state, "semantic-event-2")
+    for trained, served in zip(train_prior, serve_prior, strict=True):
+        torch.testing.assert_close(trained, served, atol=1e-6, rtol=1e-5)
+
+    selected2 = serving.generate_group(
+        serving_state,
+        tracks=(track,),
+        event_ids=("semantic-event-2",),
+        specs=(spec,),
+        controls=(control,),
+        effort=1,
+        generator=torch.Generator().manual_seed(502),
+        continuation_mode="encoded_text",
+    )
+    train_state2 = teacher_step(train_state, "semantic-event-2", selected2.tape.payloads[0])
+    compare_state(train_state2, selected2.state)
+
+    saved_tape = GroupActionTape.from_json(selected1.tape.to_json())
+    assert saved_tape.continuation_mode == "encoded_text"
+    replay = serving.replay_group(
+        train.tracks.initial_state(1), saved_tape, specs=(spec,), effort=1
+    )
+    compare_state(replay.state, serving_state)
+    committed = train.commit_tape(train.tracks.initial_state(1), saved_tape)
+    compare_state(committed, serving_state)
+    torch.testing.assert_close(
+        serving.score_group(train.tracks.initial_state(1), saved_tape),
+        selected1.log_prob,
+        atol=1e-4,
+        rtol=1e-5,
+    )
+
+    snapshot = tuple(
+        tensor.clone()
+        for tensor in (
+            serving_state.raw,
+            serving_state.final,
+            serving_state.history.keys,
+            serving_state.history.values,
+        )
+    )
+    original_encode = serving._encode_text_continuation
+
+    def fail_encode(*args, **kwargs):
+        raise RuntimeError("encoder failure")
+
+    serving._encode_text_continuation = fail_encode
+    with pytest.raises(RuntimeError, match="encoder failure"):
+        serving.select_group(
+            serving_state,
+            tracks=(track,),
+            event_ids=("semantic-failed-encode",),
+            specs=(spec,),
+            controls=(control,),
+            effort=1,
+            generator=torch.Generator().manual_seed(503),
+            continuation_mode="encoded_text",
+        )
+    serving._encode_text_continuation = original_encode
+    for before, after in zip(
+        snapshot,
+        (
+            serving_state.raw,
+            serving_state.final,
+            serving_state.history.keys,
+            serving_state.history.values,
+        ),
+        strict=True,
+    ):
+        torch.testing.assert_close(before, after, atol=0, rtol=0)

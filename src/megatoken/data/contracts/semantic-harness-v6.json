@@ -1,10 +1,10 @@
 {
   "definition": {
-    "schema": "semantic-harness-contract/5",
-    "execution": "semantic-execution/5",
-    "trace": "semantic-trace/5",
-    "context": "semantic-context/5",
-    "continuation": "semantic-continuation/5",
+    "schema": "semantic-harness-contract/6",
+    "execution": "semantic-execution/6",
+    "trace": "semantic-trace/6",
+    "context": "semantic-context/6",
+    "continuation": "semantic-continuation/6",
     "profile": "selected-harness/2",
     "completionPolicies": [
       "call-return",
@@ -144,6 +144,16 @@
         "end": [
           "kind"
         ],
+        "summarize": [
+          "entry",
+          "arguments",
+          "result",
+          "profile",
+          "decisions",
+          "iterations",
+          "accumulator",
+          "invocation"
+        ],
         "value-open": [
           "id",
           "type"
@@ -236,6 +246,12 @@
         "promise": [
           "action",
           "promise"
+        ],
+        "summarize": [
+          "entry",
+          "arguments",
+          "result",
+          "profile"
         ],
         "await": [
           "promise",
@@ -437,7 +453,7 @@
       "owned": "^[a-z][a-z0-9]*$"
     },
     "modelContext": {
-      "stateSchema": "semantic-continuation/5",
+      "stateSchema": "semantic-continuation/6",
       "stateFields": [
         "schema",
         "heap",
@@ -489,23 +505,195 @@
       "requestsPerCommittedSelection": 1
     }
   },
-  "digest": "79667fecba710da15804c240657a88b4557277e6159d4ded7a11312c7625fbba",
-  "fixtureDigest": "78b2a67d9782207700891d04b2f44d244bc74c3b754902b427e06daa465c462e",
+  "digest": "8b10bbaf2c091eef864726344a44be25a9217af932fd74496f953ef3534c8e07",
+  "fixtureDigest": "8c7c086e3b69624365c2c437a15765a214752ad9d77dfcf723bc54d314faba95",
   "fixtures": {
     "witness": {
       "valid": [
-        "code {\"entry\":\"run\",\"source\":\"function run(){return Math.random();}\",\"sites\":[],\"randomSeed\":0}",
-        "compute {\"expr\":{\"op\":\"random\"},\"result\":[\"num\",0.23606797284446657]}",
-        "input {\"graph\":{\"roots\":[[\"ref\",\"retained\"]],\"objects\":[]},\"retained\":[\"retained\"]}",
-        "promise {\"action\":\"create\",\"promise\":\"result\"}",
-        "promise {\"action\":\"react\",\"promise\":\"source\",\"reaction\":\"then\",\"closure\":\"fulfilled\",\"rejectionClosure\":\"rejected\",\"target\":\"result\",\"job\":\"reaction\"}",
-        "request {\"effect\":\"effect\",\"operation\":\"demo.readAsync\",\"invocation\":\"outside:1\",\"site\":{\"start\":22,\"end\":41},\"arguments\":[[\"str\",\"key\"]],\"payload\":\"[\\\"key\\\"]\",\"promise\":\"read\"}",
-        "await {\"promise\":\"read\",\"continuation\":\"continuation\",\"invocation\":\"outside:1\",\"returnPromise\":\"result\"}",
-        "resume {\"continuation\":\"continuation\",\"invocation\":\"outside:1\",\"status\":\"fulfilled\",\"result\":[\"num\",\"NaN\"]}",
-        "job {\"action\":\"enqueue\",\"job\":\"microtask\",\"owner\":\"outside:1\",\"closure\":\"handler\"}",
-        "observe {\"effect\":\"effect\",\"status\":\"fulfilled\",\"result\":[\"ref\",\"o0\"],\"graph\":{\"roots\":[[\"ref\",\"o0\"]],\"objects\":[{\"id\":\"o0\",\"kind\":\"object\",\"properties\":[{\"key\":\"self\",\"value\":[\"ref\",\"o0\"]}]}]}}"
+        "source \"main\" = \"function main(x){return x+2}\" sites [] seed 0",
+        "source \"function:76\" = \"x=>x\" sites [{\"start\":0,\"end\":4}]",
+        "input {\"roots\":[[\"num\",4]],\"objects\":[]}",
+        "input {\"roots\":[[\"ref\",\"o1\"]],\"objects\":[]} retained [\"o1\"]",
+        "compute (x + 2) => 6 as y in @call1 at 20..25",
+        "compute @o1[\"two words\"] => 6",
+        "compute (typeof x) => \"number\"",
+        "compute (-1 - 2) => -3",
+        "compute (- 1) => -1",
+        "compute local(\"undefined\") => 1",
+        "compute random() => 0.5",
+        "choose x => true -> then",
+        "choose x => false -> else",
+        "choose x => 4 -> use-left",
+        "choose x => null -> evaluate-right",
+        "answer = 6",
+        "next = 6 from current in @call1",
+        "return = 6",
+        "éclair = \"東京\\n\\\"☃\\\"\"",
+        "new @o1 object {\"answer\": 6, \"self\": @o1} in @call1",
+        "new @a1 array {\"0\": 6} length 1",
+        "new @c1 closure {} code \"function:76\" captures {value: outerValue, again: outerValue}",
+        "new @c2 closure {} code \"main\" captures {}",
+        "new @s1 set {}",
+        "new @r1 regexp {\"source\": \"a+\"}",
+        "read @o1[\"answer\"] => 6",
+        "read @o1[\"missing\"] => undefined absent",
+        "write @o1[\"answer\"] = 7 in @call1",
+        "write @o1[\"answer\"] = undefined absent",
+        "call helper(4) this undefined -> @call1:child2 in @call1",
+        "call \"function:76\"() this @o1 -> @call2",
+        "call scalars(undefined, null, true, false, 0, -0, NaN, Infinity, -Infinity, 12n, -12345678901234567890n, \"text\", @o1) this undefined -> @call3",
+        "transfer return 6 via \"finally\" in @call1",
+        "transfer throw \"error\" via null",
+        "transfer cleanup undefined via {\"next\":\"finally\"}",
+        "return 6 in @call1",
+        "throw \"error\"",
+        "request @e1 Host.log(6) payload [6] in @call1 at 31..42",
+        "request @e2 \"host-operation\"(@o1) payload {\"schema\":\"owned-graph/1\",\"roots\":[],\"objects\":[]} promise @p1 in @call1 at 50..64",
+        "observe @e1 fulfilled 6",
+        "observe @e1 rejected \"error\"",
+        "observe @e2 fulfilled @o1 graph {\"roots\":[[\"ref\",\"o1\"]],\"objects\":[{\"id\":\"o1\",\"kind\":\"object\",\"properties\":[{\"key\":\"answer\",\"value\":[\"num\",6]}]}]}",
+        "job enqueue @j1 for @call1 closure @c1",
+        "job dispatch @j1 for @call1",
+        "job complete @j1 for @call1 result {\"kind\":\"return\",\"value\":[\"num\",6]}",
+        "promise create @p1 in @call1",
+        "promise resolve @p1 = 6",
+        "promise reject @p1 = \"error\"",
+        "promise adopt @p1 -> @p2",
+        "promise react @p1 then as @j1 closure @c1 reject @c2 target @p2",
+        "promise react @p1 catch as @j2 closure @c2",
+        "promise react @p1 finally as @j3 target @p3",
+        "await @p1 as @k1 in @call1",
+        "await @p1 as @k1 returns @p2 in @call1",
+        "resume @k1 fulfilled 6 in @call1",
+        "resume @k1 rejected \"error\" in @call1",
+        "end return",
+        "end throw",
+        "evaluate twice(3) => 6 in @call1",
+        "evaluate select(1) => 6 choosing 20..25:consequent, 40..48:right, 20..25:alternate, 40..48:left",
+        "evaluate sum(@a1) => 6 over 3 items into total",
+        "record @r8 type \"semantic-record\"",
+        "part @r8 \"return 6\"",
+        "close @r8",
+        "return 1e-7",
+        "return 0.000001",
+        "return 100000000000000000000",
+        "return 1e+21",
+        "return 1000000000000000100",
+        "return 5e-324",
+        "return 1.7976931348623157e+308",
+        "return \"\\ud800\"",
+        "return \"\\udfff\"",
+        "return \"\\b\\t\\n\\f\\r\\u0000\"",
+        "return \"before after\"",
+        "compute (local(\"typeof\") + 1) => 2",
+        "compute (local(\"void\") + 1) => 2",
+        "return -0.5",
+        "return -0.000001",
+        "return -1e-7",
+        "compute ͺ => 1",
+        "compute ำ => 1",
+        "compute ຳ => 1",
+        "compute ゛ => 1",
+        "compute ゜ => 1",
+        "transfer cleanup undefined via {\"1\":\"first\",\"2\":\"second\",\"4294967295\":\"not an index\",\"01\":\"not an index\"}",
+        "source \"run\" = \"function run(){return Math.random();}\" sites [] seed 0",
+        "compute random() => 0.23606797284446657",
+        "input {\"roots\":[[\"ref\",\"retained\"]],\"objects\":[]} retained [\"retained\"]",
+        "promise create @result",
+        "promise react @source then as @reaction closure @fulfilled reject @rejected target @result",
+        "request @effect demo.readAsync(\"key\") payload [\"key\"] promise @read in @outside:1 at 22..41",
+        "await @read as @continuation returns @result in @outside:1",
+        "resume @continuation fulfilled NaN in @outside:1",
+        "job enqueue @microtask for @outside:1 closure @handler",
+        "observe @effect fulfilled @o0 graph {\"roots\":[[\"ref\",\"o0\"]],\"objects\":[{\"id\":\"o0\",\"kind\":\"object\",\"properties\":[{\"key\":\"self\",\"value\":[\"ref\",\"o0\"]}]}]}"
       ],
       "invalid": [
+        "return {\"value\":[\"num\",6]}",
+        "compute {\"expr\":{\"op\":\"literal\",\"value\":[\"num\",6]},\"result\":[\"num\",6]}",
+        "return 6 ",
+        " return 6",
+        "return  6",
+        "return\t6",
+        "return 6\nend return",
+        "return 6\r",
+        "return +6",
+        "return 06",
+        "return 6.0",
+        "return 6e0",
+        "return 1E+21",
+        "return 1e21",
+        "return 1e-6",
+        "return 0.0000001",
+        "return -0.0",
+        "return +Infinity",
+        "return Infinityn",
+        "return -0n",
+        "return 1_000",
+        "return 0x10",
+        "return 1e309",
+        "return \"\\u0061\"",
+        "return 'text'",
+        "return @O1",
+        "return @o:1",
+        "return [\"num\",6]",
+        "return undefined extra",
+        "compute x+2 => 6",
+        "compute (x + 2) => 6 extra",
+        "compute (x+2) => 6",
+        "compute local(\"x\") => 6",
+        "compute (random() + 1) => 1",
+        "compute Math.random() => 1",
+        "compute (-1) => -1",
+        "compute ((x + 1)) => 2",
+        "compute x => 6 at 0..0",
+        "choose x => true -> consequent",
+        "new @o1 object {\"a\": 1, \"a\": 2}",
+        "new @o1 object {} captures {}",
+        "new @a1 array {} length 01",
+        "new @a1 array {} length 4097",
+        "new @c1 closure {} captures {x: a, x: b}",
+        "read @o1.a => 1",
+        "write @o1[\"x\"] = 1 present",
+        "x = 1 from x",
+        "call helper(1,2) this undefined -> @call1",
+        "call \"helper\"() this undefined -> @call1",
+        "request @e1 Host.log(6) payload [ 6 ] in @call1 at 1..2",
+        "request @e1 Host.log(6) payload [6] at 1..2",
+        "request @e1 Host.log(6) payload [6] in @call1",
+        "observe @e1 resolved 6",
+        "job dispatch @j1 for @call1 closure @c1",
+        "promise create @p1 = 6",
+        "promise react @p1 catch as @j1 reject @c1",
+        "await @p1 as @k1",
+        "resume @k1 fulfilled 6",
+        "end return in @call1",
+        "end success",
+        "evaluate twice(3) => 6 choosing ",
+        "evaluate twice(3) => 6 choosing 1..2:then",
+        "evaluate sum(@a1) => 6 over 1025 items into total",
+        "evaluate sum(@a1) => 6 over -1 items into total",
+        "evaluate twice(3) => 6 at 1..2",
+        "evaluate \"twice\"(3) => 6",
+        "part @r8 6",
+        "close @r8 type \"semantic-record\"",
+        "source \"main\" = \"x\" sites [{\"a\":1,\"a\":2}]",
+        "input {\"roots\":[], \"objects\":[]}",
+        "return \"\\uD800\"",
+        "return \"\\/\"",
+        "return \"\\u000a\"",
+        "compute typeof => 1",
+        "compute void => 1",
+        "source \"main\" = \"x\" sites [[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]",
+        "transfer cleanup undefined via {\"2\":\"second\",\"1\":\"first\"}",
+        "call helper(-0n) this undefined -> @call1",
+        "call helper(@o:1) this undefined -> @call1",
+        "call helper() this @o:1 -> @call1",
+        "new @o_1 object {}",
+        "observe @e_1 fulfilled 1",
+        "record @r_1 type \"semantic-record\"",
+        "part @r_1 \"return 6\"",
+        "close @r_1",
+        "record @r1 type \"\"",
         "compute {\"expr\":{\"op\":\"binary\",\"operator\":\"+\",\"left\":{\"op\":\"random\"},\"right\":{\"op\":\"random\"}},\"result\":[\"num\",0]}",
         "request {\"effect\":\"effect\",\"operation\":\"demo.readAsync\",\"arguments\":[],\"invocation\":\"i1\",\"payload\":\"[]\"}",
         "promise {\"action\":\"react\",\"promise\":\"p\",\"reaction\":\"catch\",\"job\":\"j\",\"rejectionClosure\":\"f\"}",
@@ -519,13 +707,13 @@
       "valid": [
         {
           "public": {
-            "schema": "semantic-execution/5",
+            "schema": "semantic-execution/6",
             "profile": "selected-harness/2",
-            "traceFormat": "semantic-trace/5",
-            "contextFormat": "semantic-context/5",
+            "traceFormat": "semantic-trace/6",
+            "contextFormat": "semantic-context/6",
             "timeline": [
               {
-                "schema": "semantic-execution/5",
+                "schema": "semantic-execution/6",
                 "session": "contract",
                 "sequence": 1,
                 "ownerSequence": 1,
@@ -586,7 +774,7 @@
                 "sourceMetadata": null
               },
               {
-                "schema": "semantic-execution/5",
+                "schema": "semantic-execution/6",
                 "session": "contract",
                 "sequence": 2,
                 "ownerSequence": 1,
@@ -622,7 +810,7 @@
                 "ingressKey": "caller"
               },
               {
-                "schema": "semantic-execution/5",
+                "schema": "semantic-execution/6",
                 "session": "contract",
                 "sequence": 3,
                 "ownerSequence": 2,
@@ -630,11 +818,11 @@
                 "mode": "generated",
                 "kind": "semantic",
                 "invocationId": "outside:1",
-                "traceFormat": "semantic-trace/5",
-                "line": "return {\"value\":[\"num\",7]}"
+                "traceFormat": "semantic-trace/6",
+                "line": "return 7"
               },
               {
-                "schema": "semantic-execution/5",
+                "schema": "semantic-execution/6",
                 "session": "contract",
                 "sequence": 4,
                 "ownerSequence": 3,
@@ -642,8 +830,8 @@
                 "mode": "generated",
                 "kind": "semantic",
                 "invocationId": "outside:1",
-                "traceFormat": "semantic-trace/5",
-                "line": "end {\"kind\":\"return\"}"
+                "traceFormat": "semantic-trace/6",
+                "line": "end return"
               }
             ]
           },
@@ -659,13 +847,13 @@
         },
         {
           "public": {
-            "schema": "semantic-execution/5",
+            "schema": "semantic-execution/6",
             "profile": "selected-harness/2",
-            "traceFormat": "semantic-trace/5",
-            "contextFormat": "semantic-context/5",
+            "traceFormat": "semantic-trace/6",
+            "contextFormat": "semantic-context/6",
             "timeline": [
               {
-                "schema": "semantic-execution/5",
+                "schema": "semantic-execution/6",
                 "session": "contextcontract",
                 "sequence": 1,
                 "ownerSequence": 1,
@@ -726,7 +914,7 @@
                 "sourceMetadata": null
               },
               {
-                "schema": "semantic-execution/5",
+                "schema": "semantic-execution/6",
                 "session": "contextcontract",
                 "sequence": 2,
                 "ownerSequence": 1,
@@ -762,7 +950,7 @@
                 "ingressKey": "caller"
               },
               {
-                "schema": "semantic-execution/5",
+                "schema": "semantic-execution/6",
                 "session": "contextcontract",
                 "sequence": 3,
                 "ownerSequence": 2,
@@ -774,7 +962,7 @@
                 "source": "function run(value){return value;}"
               },
               {
-                "schema": "semantic-execution/5",
+                "schema": "semantic-execution/6",
                 "session": "contextcontract",
                 "sequence": 4,
                 "ownerSequence": 3,
@@ -784,7 +972,7 @@
                 "invocationId": "outside:1",
                 "sourceReads": [],
                 "selectedState": {
-                  "schema": "semantic-continuation/5",
+                  "schema": "semantic-continuation/6",
                   "heap": [],
                   "locals": [
                     [
@@ -811,11 +999,11 @@
                   "completion": null,
                   "randomState": null
                 },
-                "realmPrefixDigest": "e408146c6f6e623dc4da70d6c242864d57594acfdc75aff5a2053996b072ae8f",
+                "realmPrefixDigest": "fb79dc4e92f4c2353d8f04d62059dfa40b2b403edd86c5826ac10bd0c9a1a482",
                 "visibleThrough": 3
               },
               {
-                "schema": "semantic-execution/5",
+                "schema": "semantic-execution/6",
                 "session": "contextcontract",
                 "sequence": 5,
                 "ownerSequence": 4,
@@ -823,11 +1011,11 @@
                 "mode": "generated",
                 "kind": "semantic",
                 "invocationId": "outside:1",
-                "traceFormat": "semantic-trace/5",
-                "line": "return {\"value\":[\"num\",7]}"
+                "traceFormat": "semantic-trace/6",
+                "line": "return 7"
               },
               {
-                "schema": "semantic-execution/5",
+                "schema": "semantic-execution/6",
                 "session": "contextcontract",
                 "sequence": 6,
                 "ownerSequence": 5,
@@ -835,8 +1023,8 @@
                 "mode": "generated",
                 "kind": "semantic",
                 "invocationId": "outside:1",
-                "traceFormat": "semantic-trace/5",
-                "line": "end {\"kind\":\"return\"}"
+                "traceFormat": "semantic-trace/6",
+                "line": "end return"
               }
             ]
           },
@@ -852,13 +1040,13 @@
         },
         {
           "public": {
-            "schema": "semantic-execution/5",
+            "schema": "semantic-execution/6",
             "profile": "selected-harness/2",
-            "traceFormat": "semantic-trace/5",
-            "contextFormat": "semantic-context/5",
+            "traceFormat": "semantic-trace/6",
+            "contextFormat": "semantic-context/6",
             "timeline": [
               {
-                "schema": "semantic-execution/5",
+                "schema": "semantic-execution/6",
                 "session": "seedcontract",
                 "sequence": 1,
                 "ownerSequence": 1,
@@ -930,7 +1118,7 @@
                 "randomSeed": 0
               },
               {
-                "schema": "semantic-execution/5",
+                "schema": "semantic-execution/6",
                 "session": "seedcontract",
                 "sequence": 2,
                 "ownerSequence": 1,
@@ -961,7 +1149,7 @@
                 "ingressKey": "caller"
               },
               {
-                "schema": "semantic-execution/5",
+                "schema": "semantic-execution/6",
                 "session": "seedcontract",
                 "sequence": 3,
                 "ownerSequence": 2,
@@ -969,11 +1157,11 @@
                 "mode": "generated",
                 "kind": "semantic",
                 "invocationId": "sample",
-                "traceFormat": "semantic-trace/5",
-                "line": "compute {\"expr\":{\"op\":\"random\"},\"result\":[\"num\",0.23606797284446657]}"
+                "traceFormat": "semantic-trace/6",
+                "line": "compute random() => 0.23606797284446657"
               },
               {
-                "schema": "semantic-execution/5",
+                "schema": "semantic-execution/6",
                 "session": "seedcontract",
                 "sequence": 4,
                 "ownerSequence": 3,
@@ -985,7 +1173,7 @@
                 "source": "function run(){return Math.random();}"
               },
               {
-                "schema": "semantic-execution/5",
+                "schema": "semantic-execution/6",
                 "session": "seedcontract",
                 "sequence": 5,
                 "ownerSequence": 4,
@@ -995,7 +1183,7 @@
                 "invocationId": "sample",
                 "sourceReads": [],
                 "selectedState": {
-                  "schema": "semantic-continuation/5",
+                  "schema": "semantic-continuation/6",
                   "heap": [],
                   "locals": [],
                   "captureAliases": [],
@@ -1009,11 +1197,11 @@
                   "completion": null,
                   "randomState": 1013904223
                 },
-                "realmPrefixDigest": "fccf817b7ae48ee0bce23b02566b19b508e5f4b195972c6d50d7250d1712db22",
+                "realmPrefixDigest": "f6327ef45e07816409d871aede46b0b6be0ba64dd1669fbf7871f7645d83dcca",
                 "visibleThrough": 4
               },
               {
-                "schema": "semantic-execution/5",
+                "schema": "semantic-execution/6",
                 "session": "seedcontract",
                 "sequence": 6,
                 "ownerSequence": 5,
@@ -1021,11 +1209,11 @@
                 "mode": "generated",
                 "kind": "semantic",
                 "invocationId": "sample",
-                "traceFormat": "semantic-trace/5",
-                "line": "return {\"value\":[\"num\",0.23606797284446657]}"
+                "traceFormat": "semantic-trace/6",
+                "line": "return 0.23606797284446657"
               },
               {
-                "schema": "semantic-execution/5",
+                "schema": "semantic-execution/6",
                 "session": "seedcontract",
                 "sequence": 7,
                 "ownerSequence": 6,
@@ -1033,8 +1221,303 @@
                 "mode": "generated",
                 "kind": "semantic",
                 "invocationId": "sample",
-                "traceFormat": "semantic-trace/5",
-                "line": "end {\"kind\":\"return\"}"
+                "traceFormat": "semantic-trace/6",
+                "line": "end return"
+              }
+            ]
+          },
+          "sidecar": {
+            "schema": "semantic-supervision/2",
+            "admission": "locally_verified",
+            "representation": "compact",
+            "referenceStatus": "unverified",
+            "sourceLineage": null,
+            "split": null,
+            "selectionOrigin": "controlled-or-model-output-unverified"
+          }
+        },
+        {
+          "public": {
+            "schema": "semantic-execution/6",
+            "profile": "selected-harness/2",
+            "traceFormat": "semantic-trace/6",
+            "contextFormat": "semantic-context/6",
+            "timeline": [
+              {
+                "schema": "semantic-execution/6",
+                "session": "regioncontract",
+                "sequence": 1,
+                "ownerSequence": 1,
+                "track": "host",
+                "mode": "observed",
+                "kind": "program",
+                "programId": "sum",
+                "digest": "1d3c9366f024055c7a36abf31df3900a781e9eb8b0746cf53aff439bd322cb78",
+                "entry": "sum",
+                "source": "\"use strict\";function sum(xs){let total=0;for(let i=0;i<xs.length;i++){total+=xs[i];}return total;}",
+                "sites": [
+                  {
+                    "id": "s1",
+                    "start": 0,
+                    "end": 12,
+                    "role": "Literal"
+                  },
+                  {
+                    "id": "s2",
+                    "start": 13,
+                    "end": 99,
+                    "role": "FunctionDeclaration"
+                  },
+                  {
+                    "id": "s3",
+                    "start": 22,
+                    "end": 25,
+                    "role": "Identifier"
+                  },
+                  {
+                    "id": "s4",
+                    "start": 26,
+                    "end": 28,
+                    "role": "Identifier"
+                  },
+                  {
+                    "id": "s5",
+                    "start": 34,
+                    "end": 39,
+                    "role": "Identifier"
+                  },
+                  {
+                    "id": "s6",
+                    "start": 34,
+                    "end": 41,
+                    "role": "VariableDeclarator"
+                  },
+                  {
+                    "id": "s7",
+                    "start": 40,
+                    "end": 41,
+                    "role": "Literal"
+                  },
+                  {
+                    "id": "s8",
+                    "start": 42,
+                    "end": 85,
+                    "role": "ForStatement"
+                  },
+                  {
+                    "id": "s9",
+                    "start": 50,
+                    "end": 51,
+                    "role": "Identifier"
+                  },
+                  {
+                    "id": "s10",
+                    "start": 50,
+                    "end": 53,
+                    "role": "VariableDeclarator"
+                  },
+                  {
+                    "id": "s11",
+                    "start": 52,
+                    "end": 53,
+                    "role": "Literal"
+                  },
+                  {
+                    "id": "s12",
+                    "start": 54,
+                    "end": 55,
+                    "role": "Identifier"
+                  },
+                  {
+                    "id": "s13",
+                    "start": 54,
+                    "end": 65,
+                    "role": "BinaryExpression"
+                  },
+                  {
+                    "id": "s14",
+                    "start": 56,
+                    "end": 58,
+                    "role": "Identifier"
+                  },
+                  {
+                    "id": "s15",
+                    "start": 56,
+                    "end": 65,
+                    "role": "MemberExpression"
+                  },
+                  {
+                    "id": "s16",
+                    "start": 59,
+                    "end": 65,
+                    "role": "Identifier"
+                  },
+                  {
+                    "id": "s17",
+                    "start": 66,
+                    "end": 67,
+                    "role": "Identifier"
+                  },
+                  {
+                    "id": "s18",
+                    "start": 66,
+                    "end": 69,
+                    "role": "UpdateExpression"
+                  },
+                  {
+                    "id": "s19",
+                    "start": 71,
+                    "end": 76,
+                    "role": "Identifier"
+                  },
+                  {
+                    "id": "s20",
+                    "start": 71,
+                    "end": 83,
+                    "role": "AssignmentExpression"
+                  },
+                  {
+                    "id": "s21",
+                    "start": 78,
+                    "end": 80,
+                    "role": "Identifier"
+                  },
+                  {
+                    "id": "s22",
+                    "start": 78,
+                    "end": 83,
+                    "role": "MemberExpression"
+                  },
+                  {
+                    "id": "s23",
+                    "start": 81,
+                    "end": 82,
+                    "role": "Identifier"
+                  },
+                  {
+                    "id": "s24",
+                    "start": 85,
+                    "end": 98,
+                    "role": "ReturnStatement"
+                  },
+                  {
+                    "id": "s25",
+                    "start": 92,
+                    "end": 97,
+                    "role": "Identifier"
+                  }
+                ],
+                "functions": [
+                  {
+                    "start": 13,
+                    "end": 99,
+                    "name": "sum",
+                    "params": [
+                      "xs"
+                    ]
+                  }
+                ],
+                "capabilities": [],
+                "dependencies": [],
+                "sourceMap": null,
+                "languageProfile": "owned-javascript/1",
+                "module": false,
+                "sourceMetadata": null
+              },
+              {
+                "schema": "semantic-execution/6",
+                "session": "regioncontract",
+                "sequence": 2,
+                "ownerSequence": 1,
+                "track": "worker:1",
+                "mode": "observed",
+                "kind": "invocation",
+                "programId": "sum",
+                "invocationId": "sum:1",
+                "realmId": "sumrealm",
+                "triggerId": "caller",
+                "completionPolicy": "call-return",
+                "realmPolicy": "fresh",
+                "inputGraph": {
+                  "roots": [
+                    [
+                      "ref",
+                      "o0"
+                    ]
+                  ],
+                  "objects": [
+                    {
+                      "id": "o0",
+                      "kind": "array",
+                      "properties": [
+                        {
+                          "key": "0",
+                          "value": [
+                            "num",
+                            2
+                          ]
+                        },
+                        {
+                          "key": "1",
+                          "value": [
+                            "num",
+                            3
+                          ]
+                        },
+                        {
+                          "key": "2",
+                          "value": [
+                            "num",
+                            4
+                          ]
+                        },
+                        {
+                          "key": "length",
+                          "value": [
+                            "num",
+                            3
+                          ]
+                        }
+                      ]
+                    }
+                  ]
+                },
+                "entry": "sum",
+                "sourceDigest": "1d3c9366f024055c7a36abf31df3900a781e9eb8b0746cf53aff439bd322cb78",
+                "receiver": [
+                  "undefined"
+                ],
+                "closureId": null,
+                "activation": "call",
+                "parentInvocationId": null,
+                "taskRevision": 1,
+                "deadline": null,
+                "bindings": {},
+                "ingressKey": "caller"
+              },
+              {
+                "schema": "semantic-execution/6",
+                "session": "regioncontract",
+                "sequence": 3,
+                "ownerSequence": 2,
+                "track": "worker:1",
+                "mode": "generated",
+                "kind": "semantic",
+                "invocationId": "sum:1",
+                "traceFormat": "semantic-trace/6",
+                "line": "evaluate sum(@o0) => 9 over 3 items into total"
+              },
+              {
+                "schema": "semantic-execution/6",
+                "session": "regioncontract",
+                "sequence": 4,
+                "ownerSequence": 3,
+                "track": "worker:1",
+                "mode": "generated",
+                "kind": "semantic",
+                "invocationId": "sum:1",
+                "traceFormat": "semantic-trace/6",
+                "line": "end return"
               }
             ]
           },
@@ -1052,13 +1535,13 @@
       "invalid": [
         {
           "public": {
-            "schema": "semantic-execution/5",
+            "schema": "semantic-execution/6",
             "profile": "selected-harness/2",
             "traceFormat": "semantic-trace/3",
-            "contextFormat": "semantic-context/5",
+            "contextFormat": "semantic-context/6",
             "timeline": [
               {
-                "schema": "semantic-execution/5",
+                "schema": "semantic-execution/6",
                 "session": "contract",
                 "sequence": 1,
                 "ownerSequence": 1,
@@ -1119,7 +1602,7 @@
                 "sourceMetadata": null
               },
               {
-                "schema": "semantic-execution/5",
+                "schema": "semantic-execution/6",
                 "session": "contract",
                 "sequence": 2,
                 "ownerSequence": 1,
@@ -1155,7 +1638,7 @@
                 "ingressKey": "caller"
               },
               {
-                "schema": "semantic-execution/5",
+                "schema": "semantic-execution/6",
                 "session": "contract",
                 "sequence": 3,
                 "ownerSequence": 2,
@@ -1163,11 +1646,11 @@
                 "mode": "generated",
                 "kind": "semantic",
                 "invocationId": "outside:1",
-                "traceFormat": "semantic-trace/5",
-                "line": "return {\"value\":[\"num\",7]}"
+                "traceFormat": "semantic-trace/6",
+                "line": "return 7"
               },
               {
-                "schema": "semantic-execution/5",
+                "schema": "semantic-execution/6",
                 "session": "contract",
                 "sequence": 4,
                 "ownerSequence": 3,
@@ -1175,8 +1658,8 @@
                 "mode": "generated",
                 "kind": "semantic",
                 "invocationId": "outside:1",
-                "traceFormat": "semantic-trace/5",
-                "line": "end {\"kind\":\"return\"}"
+                "traceFormat": "semantic-trace/6",
+                "line": "end return"
               }
             ]
           },
@@ -1192,13 +1675,13 @@
         },
         {
           "public": {
-            "schema": "semantic-execution/5",
+            "schema": "semantic-execution/6",
             "profile": "selected-harness/2",
-            "traceFormat": "semantic-trace/5",
-            "contextFormat": "semantic-context/5",
+            "traceFormat": "semantic-trace/6",
+            "contextFormat": "semantic-context/6",
             "timeline": [
               {
-                "schema": "semantic-execution/5",
+                "schema": "semantic-execution/6",
                 "session": "contract",
                 "sequence": 1,
                 "ownerSequence": 1,
@@ -1259,7 +1742,7 @@
                 "sourceMetadata": null
               },
               {
-                "schema": "semantic-execution/5",
+                "schema": "semantic-execution/6",
                 "session": "contract",
                 "sequence": 2,
                 "ownerSequence": 1,
@@ -1295,7 +1778,7 @@
                 "ingressKey": "caller"
               },
               {
-                "schema": "semantic-execution/5",
+                "schema": "semantic-execution/6",
                 "session": "contract",
                 "sequence": 3,
                 "ownerSequence": 2,
@@ -1303,11 +1786,11 @@
                 "mode": "generated",
                 "kind": "semantic",
                 "invocationId": "outside:1",
-                "traceFormat": "semantic-trace/5",
-                "line": "return {\"value\":[\"num\",7]}"
+                "traceFormat": "semantic-trace/6",
+                "line": "return 7"
               },
               {
-                "schema": "semantic-execution/5",
+                "schema": "semantic-execution/6",
                 "session": "contract",
                 "sequence": 4,
                 "ownerSequence": 3,
@@ -1315,8 +1798,8 @@
                 "mode": "generated",
                 "kind": "semantic",
                 "invocationId": "outside:1",
-                "traceFormat": "semantic-trace/5",
-                "line": "end {\"kind\":\"return\"}"
+                "traceFormat": "semantic-trace/6",
+                "line": "end return"
               }
             ]
           },
@@ -1332,13 +1815,13 @@
         },
         {
           "public": {
-            "schema": "semantic-execution/5",
+            "schema": "semantic-execution/6",
             "profile": "selected-harness/2",
-            "traceFormat": "semantic-trace/5",
-            "contextFormat": "semantic-context/5",
+            "traceFormat": "semantic-trace/6",
+            "contextFormat": "semantic-context/6",
             "timeline": [
               {
-                "schema": "semantic-execution/5",
+                "schema": "semantic-execution/6",
                 "session": "contract",
                 "sequence": 1,
                 "ownerSequence": 1,
@@ -1399,7 +1882,7 @@
                 "sourceMetadata": null
               },
               {
-                "schema": "semantic-execution/5",
+                "schema": "semantic-execution/6",
                 "session": "contract",
                 "sequence": 2,
                 "ownerSequence": 1,
@@ -1432,7 +1915,7 @@
                 "ingressKey": "caller"
               },
               {
-                "schema": "semantic-execution/5",
+                "schema": "semantic-execution/6",
                 "session": "contract",
                 "sequence": 3,
                 "ownerSequence": 2,
@@ -1440,11 +1923,11 @@
                 "mode": "generated",
                 "kind": "semantic",
                 "invocationId": "outside:1",
-                "traceFormat": "semantic-trace/5",
-                "line": "return {\"value\":[\"num\",7]}"
+                "traceFormat": "semantic-trace/6",
+                "line": "return 7"
               },
               {
-                "schema": "semantic-execution/5",
+                "schema": "semantic-execution/6",
                 "session": "contract",
                 "sequence": 4,
                 "ownerSequence": 3,
@@ -1452,8 +1935,8 @@
                 "mode": "generated",
                 "kind": "semantic",
                 "invocationId": "outside:1",
-                "traceFormat": "semantic-trace/5",
-                "line": "end {\"kind\":\"return\"}"
+                "traceFormat": "semantic-trace/6",
+                "line": "end return"
               }
             ]
           },
@@ -1469,13 +1952,13 @@
         },
         {
           "public": {
-            "schema": "semantic-execution/5",
+            "schema": "semantic-execution/6",
             "profile": "selected-harness/2",
-            "traceFormat": "semantic-trace/5",
-            "contextFormat": "semantic-context/5",
+            "traceFormat": "semantic-trace/6",
+            "contextFormat": "semantic-context/6",
             "timeline": [
               {
-                "schema": "semantic-execution/5",
+                "schema": "semantic-execution/6",
                 "session": "contextcontract",
                 "sequence": 1,
                 "ownerSequence": 1,
@@ -1536,7 +2019,7 @@
                 "sourceMetadata": null
               },
               {
-                "schema": "semantic-execution/5",
+                "schema": "semantic-execution/6",
                 "session": "contextcontract",
                 "sequence": 2,
                 "ownerSequence": 1,
@@ -1572,7 +2055,7 @@
                 "ingressKey": "caller"
               },
               {
-                "schema": "semantic-execution/5",
+                "schema": "semantic-execution/6",
                 "session": "contextcontract",
                 "sequence": 3,
                 "ownerSequence": 2,
@@ -1584,7 +2067,7 @@
                 "source": "function run(value){return value;}"
               },
               {
-                "schema": "semantic-execution/5",
+                "schema": "semantic-execution/6",
                 "session": "contextcontract",
                 "sequence": 4,
                 "ownerSequence": 3,
@@ -1594,7 +2077,7 @@
                 "invocationId": "outside:1",
                 "sourceReads": [],
                 "selectedState": {
-                  "schema": "semantic-continuation/5",
+                  "schema": "semantic-continuation/6",
                   "heap": [],
                   "locals": [
                     [
@@ -1621,11 +2104,11 @@
                   "completion": null,
                   "randomState": null
                 },
-                "realmPrefixDigest": "e408146c6f6e623dc4da70d6c242864d57594acfdc75aff5a2053996b072ae8f",
+                "realmPrefixDigest": "fb79dc4e92f4c2353d8f04d62059dfa40b2b403edd86c5826ac10bd0c9a1a482",
                 "visibleThrough": 3
               },
               {
-                "schema": "semantic-execution/5",
+                "schema": "semantic-execution/6",
                 "session": "contextcontract",
                 "sequence": 5,
                 "ownerSequence": 4,
@@ -1633,11 +2116,11 @@
                 "mode": "generated",
                 "kind": "semantic",
                 "invocationId": "outside:1",
-                "traceFormat": "semantic-trace/5",
-                "line": "return {\"value\":[\"num\",7]}"
+                "traceFormat": "semantic-trace/6",
+                "line": "return 7"
               },
               {
-                "schema": "semantic-execution/5",
+                "schema": "semantic-execution/6",
                 "session": "contextcontract",
                 "sequence": 6,
                 "ownerSequence": 5,
@@ -1645,8 +2128,8 @@
                 "mode": "generated",
                 "kind": "semantic",
                 "invocationId": "outside:1",
-                "traceFormat": "semantic-trace/5",
-                "line": "end {\"kind\":\"return\"}"
+                "traceFormat": "semantic-trace/6",
+                "line": "end return"
               }
             ]
           },
@@ -1662,13 +2145,13 @@
         },
         {
           "public": {
-            "schema": "semantic-execution/5",
+            "schema": "semantic-execution/6",
             "profile": "selected-harness/2",
-            "traceFormat": "semantic-trace/5",
-            "contextFormat": "semantic-context/5",
+            "traceFormat": "semantic-trace/6",
+            "contextFormat": "semantic-context/6",
             "timeline": [
               {
-                "schema": "semantic-execution/5",
+                "schema": "semantic-execution/6",
                 "session": "contextcontract",
                 "sequence": 1,
                 "ownerSequence": 1,
@@ -1729,7 +2212,7 @@
                 "sourceMetadata": null
               },
               {
-                "schema": "semantic-execution/5",
+                "schema": "semantic-execution/6",
                 "session": "contextcontract",
                 "sequence": 2,
                 "ownerSequence": 1,
@@ -1765,7 +2248,7 @@
                 "ingressKey": "caller"
               },
               {
-                "schema": "semantic-execution/5",
+                "schema": "semantic-execution/6",
                 "session": "contextcontract",
                 "sequence": 3,
                 "ownerSequence": 2,
@@ -1777,7 +2260,7 @@
                 "source": "function run(value){return value;}"
               },
               {
-                "schema": "semantic-execution/5",
+                "schema": "semantic-execution/6",
                 "session": "contextcontract",
                 "sequence": 4,
                 "ownerSequence": 3,
@@ -1787,7 +2270,7 @@
                 "invocationId": "outside:1",
                 "sourceReads": [],
                 "selectedState": {
-                  "schema": "semantic-continuation/5",
+                  "schema": "semantic-continuation/6",
                   "heap": [],
                   "locals": [
                     [
@@ -1814,11 +2297,11 @@
                   "completion": null,
                   "randomState": null
                 },
-                "realmPrefixDigest": "e408146c6f6e623dc4da70d6c242864d57594acfdc75aff5a2053996b072ae8f",
+                "realmPrefixDigest": "fb79dc4e92f4c2353d8f04d62059dfa40b2b403edd86c5826ac10bd0c9a1a482",
                 "visibleThrough": 4
               },
               {
-                "schema": "semantic-execution/5",
+                "schema": "semantic-execution/6",
                 "session": "contextcontract",
                 "sequence": 5,
                 "ownerSequence": 4,
@@ -1826,11 +2309,11 @@
                 "mode": "generated",
                 "kind": "semantic",
                 "invocationId": "outside:1",
-                "traceFormat": "semantic-trace/5",
-                "line": "return {\"value\":[\"num\",7]}"
+                "traceFormat": "semantic-trace/6",
+                "line": "return 7"
               },
               {
-                "schema": "semantic-execution/5",
+                "schema": "semantic-execution/6",
                 "session": "contextcontract",
                 "sequence": 6,
                 "ownerSequence": 5,
@@ -1838,8 +2321,8 @@
                 "mode": "generated",
                 "kind": "semantic",
                 "invocationId": "outside:1",
-                "traceFormat": "semantic-trace/5",
-                "line": "end {\"kind\":\"return\"}"
+                "traceFormat": "semantic-trace/6",
+                "line": "end return"
               }
             ]
           },
@@ -1855,13 +2338,13 @@
         },
         {
           "public": {
-            "schema": "semantic-execution/5",
+            "schema": "semantic-execution/6",
             "profile": "selected-harness/2",
-            "traceFormat": "semantic-trace/5",
-            "contextFormat": "semantic-context/5",
+            "traceFormat": "semantic-trace/6",
+            "contextFormat": "semantic-context/6",
             "timeline": [
               {
-                "schema": "semantic-execution/5",
+                "schema": "semantic-execution/6",
                 "session": "contextcontract",
                 "sequence": 1,
                 "ownerSequence": 1,
@@ -1922,7 +2405,7 @@
                 "sourceMetadata": null
               },
               {
-                "schema": "semantic-execution/5",
+                "schema": "semantic-execution/6",
                 "session": "contextcontract",
                 "sequence": 2,
                 "ownerSequence": 1,
@@ -1958,7 +2441,7 @@
                 "ingressKey": "caller"
               },
               {
-                "schema": "semantic-execution/5",
+                "schema": "semantic-execution/6",
                 "session": "contextcontract",
                 "sequence": 3,
                 "ownerSequence": 2,
@@ -1970,7 +2453,7 @@
                 "source": "function run(value){return value;}"
               },
               {
-                "schema": "semantic-execution/5",
+                "schema": "semantic-execution/6",
                 "session": "contextcontract",
                 "sequence": 4,
                 "ownerSequence": 3,
@@ -1980,7 +2463,7 @@
                 "invocationId": "outside:1",
                 "sourceReads": [],
                 "selectedState": {
-                  "schema": "semantic-continuation/5",
+                  "schema": "semantic-continuation/6",
                   "heap": [],
                   "locals": [
                     [
@@ -2011,7 +2494,7 @@
                 "visibleThrough": 3
               },
               {
-                "schema": "semantic-execution/5",
+                "schema": "semantic-execution/6",
                 "session": "contextcontract",
                 "sequence": 5,
                 "ownerSequence": 4,
@@ -2019,11 +2502,11 @@
                 "mode": "generated",
                 "kind": "semantic",
                 "invocationId": "outside:1",
-                "traceFormat": "semantic-trace/5",
-                "line": "return {\"value\":[\"num\",7]}"
+                "traceFormat": "semantic-trace/6",
+                "line": "return 7"
               },
               {
-                "schema": "semantic-execution/5",
+                "schema": "semantic-execution/6",
                 "session": "contextcontract",
                 "sequence": 6,
                 "ownerSequence": 5,
@@ -2031,8 +2514,8 @@
                 "mode": "generated",
                 "kind": "semantic",
                 "invocationId": "outside:1",
-                "traceFormat": "semantic-trace/5",
-                "line": "end {\"kind\":\"return\"}"
+                "traceFormat": "semantic-trace/6",
+                "line": "end return"
               }
             ]
           },
@@ -2160,7 +2643,7 @@
                 "kind": "semantic",
                 "invocationId": "outside:1",
                 "traceFormat": "semantic-trace/4",
-                "line": "return {\"value\":[\"num\",7]}"
+                "line": "return 7"
               },
               {
                 "schema": "semantic-execution/4",
@@ -2172,7 +2655,7 @@
                 "kind": "semantic",
                 "invocationId": "outside:1",
                 "traceFormat": "semantic-trace/4",
-                "line": "end {\"kind\":\"return\"}"
+                "line": "end return"
               }
             ]
           },
@@ -2188,13 +2671,13 @@
         },
         {
           "public": {
-            "schema": "semantic-execution/5",
+            "schema": "semantic-execution/6",
             "profile": "selected-harness/2",
-            "traceFormat": "semantic-trace/5",
-            "contextFormat": "semantic-context/5",
+            "traceFormat": "semantic-trace/6",
+            "contextFormat": "semantic-context/6",
             "timeline": [
               {
-                "schema": "semantic-execution/5",
+                "schema": "semantic-execution/6",
                 "session": "contextcontract",
                 "sequence": 1,
                 "ownerSequence": 1,
@@ -2255,7 +2738,7 @@
                 "sourceMetadata": null
               },
               {
-                "schema": "semantic-execution/5",
+                "schema": "semantic-execution/6",
                 "session": "contextcontract",
                 "sequence": 2,
                 "ownerSequence": 1,
@@ -2291,7 +2774,7 @@
                 "ingressKey": "caller"
               },
               {
-                "schema": "semantic-execution/5",
+                "schema": "semantic-execution/6",
                 "session": "contextcontract",
                 "sequence": 3,
                 "ownerSequence": 2,
@@ -2303,7 +2786,7 @@
                 "source": "function run(value){return value;}"
               },
               {
-                "schema": "semantic-execution/5",
+                "schema": "semantic-execution/6",
                 "session": "contextcontract",
                 "sequence": 4,
                 "ownerSequence": 3,
@@ -2313,7 +2796,7 @@
                 "invocationId": "outside:1",
                 "sourceReads": [],
                 "selectedState": {
-                  "schema": "semantic-continuation/5",
+                  "schema": "semantic-continuation/6",
                   "heap": [],
                   "locals": [
                     [
@@ -2339,11 +2822,11 @@
                   "pending": null,
                   "completion": null
                 },
-                "realmPrefixDigest": "e408146c6f6e623dc4da70d6c242864d57594acfdc75aff5a2053996b072ae8f",
+                "realmPrefixDigest": "fb79dc4e92f4c2353d8f04d62059dfa40b2b403edd86c5826ac10bd0c9a1a482",
                 "visibleThrough": 3
               },
               {
-                "schema": "semantic-execution/5",
+                "schema": "semantic-execution/6",
                 "session": "contextcontract",
                 "sequence": 5,
                 "ownerSequence": 4,
@@ -2351,11 +2834,11 @@
                 "mode": "generated",
                 "kind": "semantic",
                 "invocationId": "outside:1",
-                "traceFormat": "semantic-trace/5",
-                "line": "return {\"value\":[\"num\",7]}"
+                "traceFormat": "semantic-trace/6",
+                "line": "return 7"
               },
               {
-                "schema": "semantic-execution/5",
+                "schema": "semantic-execution/6",
                 "session": "contextcontract",
                 "sequence": 6,
                 "ownerSequence": 5,
@@ -2363,8 +2846,8 @@
                 "mode": "generated",
                 "kind": "semantic",
                 "invocationId": "outside:1",
-                "traceFormat": "semantic-trace/5",
-                "line": "end {\"kind\":\"return\"}"
+                "traceFormat": "semantic-trace/6",
+                "line": "end return"
               }
             ]
           },
@@ -2380,13 +2863,13 @@
         },
         {
           "public": {
-            "schema": "semantic-execution/5",
+            "schema": "semantic-execution/6",
             "profile": "selected-harness/2",
-            "traceFormat": "semantic-trace/5",
-            "contextFormat": "semantic-context/5",
+            "traceFormat": "semantic-trace/6",
+            "contextFormat": "semantic-context/6",
             "timeline": [
               {
-                "schema": "semantic-execution/5",
+                "schema": "semantic-execution/6",
                 "session": "contextcontract",
                 "sequence": 1,
                 "ownerSequence": 1,
@@ -2447,7 +2930,7 @@
                 "sourceMetadata": null
               },
               {
-                "schema": "semantic-execution/5",
+                "schema": "semantic-execution/6",
                 "session": "contextcontract",
                 "sequence": 2,
                 "ownerSequence": 1,
@@ -2483,7 +2966,7 @@
                 "ingressKey": "caller"
               },
               {
-                "schema": "semantic-execution/5",
+                "schema": "semantic-execution/6",
                 "session": "contextcontract",
                 "sequence": 3,
                 "ownerSequence": 2,
@@ -2495,7 +2978,7 @@
                 "source": "function run(value){return value;}"
               },
               {
-                "schema": "semantic-execution/5",
+                "schema": "semantic-execution/6",
                 "session": "contextcontract",
                 "sequence": 4,
                 "ownerSequence": 3,
@@ -2505,7 +2988,7 @@
                 "invocationId": "outside:1",
                 "sourceReads": [],
                 "selectedState": {
-                  "schema": "semantic-continuation/5",
+                  "schema": "semantic-continuation/6",
                   "heap": [],
                   "locals": [
                     [
@@ -2532,11 +3015,11 @@
                   "completion": null,
                   "randomState": true
                 },
-                "realmPrefixDigest": "e408146c6f6e623dc4da70d6c242864d57594acfdc75aff5a2053996b072ae8f",
+                "realmPrefixDigest": "fb79dc4e92f4c2353d8f04d62059dfa40b2b403edd86c5826ac10bd0c9a1a482",
                 "visibleThrough": 3
               },
               {
-                "schema": "semantic-execution/5",
+                "schema": "semantic-execution/6",
                 "session": "contextcontract",
                 "sequence": 5,
                 "ownerSequence": 4,
@@ -2544,11 +3027,11 @@
                 "mode": "generated",
                 "kind": "semantic",
                 "invocationId": "outside:1",
-                "traceFormat": "semantic-trace/5",
-                "line": "return {\"value\":[\"num\",7]}"
+                "traceFormat": "semantic-trace/6",
+                "line": "return 7"
               },
               {
-                "schema": "semantic-execution/5",
+                "schema": "semantic-execution/6",
                 "session": "contextcontract",
                 "sequence": 6,
                 "ownerSequence": 5,
@@ -2556,8 +3039,8 @@
                 "mode": "generated",
                 "kind": "semantic",
                 "invocationId": "outside:1",
-                "traceFormat": "semantic-trace/5",
-                "line": "end {\"kind\":\"return\"}"
+                "traceFormat": "semantic-trace/6",
+                "line": "end return"
               }
             ]
           },
@@ -2573,13 +3056,13 @@
         },
         {
           "public": {
-            "schema": "semantic-execution/5",
+            "schema": "semantic-execution/6",
             "profile": "selected-harness/2",
-            "traceFormat": "semantic-trace/5",
-            "contextFormat": "semantic-context/5",
+            "traceFormat": "semantic-trace/6",
+            "contextFormat": "semantic-context/6",
             "timeline": [
               {
-                "schema": "semantic-execution/5",
+                "schema": "semantic-execution/6",
                 "session": "contextcontract",
                 "sequence": 1,
                 "ownerSequence": 1,
@@ -2640,7 +3123,7 @@
                 "sourceMetadata": null
               },
               {
-                "schema": "semantic-execution/5",
+                "schema": "semantic-execution/6",
                 "session": "contextcontract",
                 "sequence": 2,
                 "ownerSequence": 1,
@@ -2676,7 +3159,7 @@
                 "ingressKey": "caller"
               },
               {
-                "schema": "semantic-execution/5",
+                "schema": "semantic-execution/6",
                 "session": "contextcontract",
                 "sequence": 3,
                 "ownerSequence": 2,
@@ -2688,7 +3171,7 @@
                 "source": "function run(value){return value;}"
               },
               {
-                "schema": "semantic-execution/5",
+                "schema": "semantic-execution/6",
                 "session": "contextcontract",
                 "sequence": 4,
                 "ownerSequence": 3,
@@ -2698,7 +3181,7 @@
                 "invocationId": "outside:1",
                 "sourceReads": [],
                 "selectedState": {
-                  "schema": "semantic-continuation/5",
+                  "schema": "semantic-continuation/6",
                   "heap": [],
                   "locals": [
                     [
@@ -2725,11 +3208,11 @@
                   "completion": null,
                   "randomState": -1
                 },
-                "realmPrefixDigest": "e408146c6f6e623dc4da70d6c242864d57594acfdc75aff5a2053996b072ae8f",
+                "realmPrefixDigest": "fb79dc4e92f4c2353d8f04d62059dfa40b2b403edd86c5826ac10bd0c9a1a482",
                 "visibleThrough": 3
               },
               {
-                "schema": "semantic-execution/5",
+                "schema": "semantic-execution/6",
                 "session": "contextcontract",
                 "sequence": 5,
                 "ownerSequence": 4,
@@ -2737,11 +3220,11 @@
                 "mode": "generated",
                 "kind": "semantic",
                 "invocationId": "outside:1",
-                "traceFormat": "semantic-trace/5",
-                "line": "return {\"value\":[\"num\",7]}"
+                "traceFormat": "semantic-trace/6",
+                "line": "return 7"
               },
               {
-                "schema": "semantic-execution/5",
+                "schema": "semantic-execution/6",
                 "session": "contextcontract",
                 "sequence": 6,
                 "ownerSequence": 5,
@@ -2749,8 +3232,8 @@
                 "mode": "generated",
                 "kind": "semantic",
                 "invocationId": "outside:1",
-                "traceFormat": "semantic-trace/5",
-                "line": "end {\"kind\":\"return\"}"
+                "traceFormat": "semantic-trace/6",
+                "line": "end return"
               }
             ]
           },
@@ -2766,13 +3249,13 @@
         },
         {
           "public": {
-            "schema": "semantic-execution/5",
+            "schema": "semantic-execution/6",
             "profile": "selected-harness/2",
-            "traceFormat": "semantic-trace/5",
-            "contextFormat": "semantic-context/5",
+            "traceFormat": "semantic-trace/6",
+            "contextFormat": "semantic-context/6",
             "timeline": [
               {
-                "schema": "semantic-execution/5",
+                "schema": "semantic-execution/6",
                 "session": "contextcontract",
                 "sequence": 1,
                 "ownerSequence": 1,
@@ -2833,7 +3316,7 @@
                 "sourceMetadata": null
               },
               {
-                "schema": "semantic-execution/5",
+                "schema": "semantic-execution/6",
                 "session": "contextcontract",
                 "sequence": 2,
                 "ownerSequence": 1,
@@ -2869,7 +3352,7 @@
                 "ingressKey": "caller"
               },
               {
-                "schema": "semantic-execution/5",
+                "schema": "semantic-execution/6",
                 "session": "contextcontract",
                 "sequence": 3,
                 "ownerSequence": 2,
@@ -2881,7 +3364,7 @@
                 "source": "function run(value){return value;}"
               },
               {
-                "schema": "semantic-execution/5",
+                "schema": "semantic-execution/6",
                 "session": "contextcontract",
                 "sequence": 4,
                 "ownerSequence": 3,
@@ -2891,7 +3374,7 @@
                 "invocationId": "outside:1",
                 "sourceReads": [],
                 "selectedState": {
-                  "schema": "semantic-continuation/5",
+                  "schema": "semantic-continuation/6",
                   "heap": [],
                   "locals": [
                     [
@@ -2918,11 +3401,11 @@
                   "completion": null,
                   "randomState": 4294967296
                 },
-                "realmPrefixDigest": "e408146c6f6e623dc4da70d6c242864d57594acfdc75aff5a2053996b072ae8f",
+                "realmPrefixDigest": "fb79dc4e92f4c2353d8f04d62059dfa40b2b403edd86c5826ac10bd0c9a1a482",
                 "visibleThrough": 3
               },
               {
-                "schema": "semantic-execution/5",
+                "schema": "semantic-execution/6",
                 "session": "contextcontract",
                 "sequence": 5,
                 "ownerSequence": 4,
@@ -2930,11 +3413,11 @@
                 "mode": "generated",
                 "kind": "semantic",
                 "invocationId": "outside:1",
-                "traceFormat": "semantic-trace/5",
-                "line": "return {\"value\":[\"num\",7]}"
+                "traceFormat": "semantic-trace/6",
+                "line": "return 7"
               },
               {
-                "schema": "semantic-execution/5",
+                "schema": "semantic-execution/6",
                 "session": "contextcontract",
                 "sequence": 6,
                 "ownerSequence": 5,
@@ -2942,8 +3425,8 @@
                 "mode": "generated",
                 "kind": "semantic",
                 "invocationId": "outside:1",
-                "traceFormat": "semantic-trace/5",
-                "line": "end {\"kind\":\"return\"}"
+                "traceFormat": "semantic-trace/6",
+                "line": "end return"
               }
             ]
           },
@@ -2959,13 +3442,13 @@
         },
         {
           "public": {
-            "schema": "semantic-execution/5",
+            "schema": "semantic-execution/6",
             "profile": "selected-harness/2",
-            "traceFormat": "semantic-trace/5",
-            "contextFormat": "semantic-context/5",
+            "traceFormat": "semantic-trace/6",
+            "contextFormat": "semantic-context/6",
             "timeline": [
               {
-                "schema": "semantic-execution/5",
+                "schema": "semantic-execution/6",
                 "session": "contextcontract",
                 "sequence": 1,
                 "ownerSequence": 1,
@@ -3026,7 +3509,7 @@
                 "sourceMetadata": null
               },
               {
-                "schema": "semantic-execution/5",
+                "schema": "semantic-execution/6",
                 "session": "contextcontract",
                 "sequence": 2,
                 "ownerSequence": 1,
@@ -3062,7 +3545,7 @@
                 "ingressKey": "caller"
               },
               {
-                "schema": "semantic-execution/5",
+                "schema": "semantic-execution/6",
                 "session": "contextcontract",
                 "sequence": 3,
                 "ownerSequence": 2,
@@ -3074,7 +3557,7 @@
                 "source": "function run(value){return value;}"
               },
               {
-                "schema": "semantic-execution/5",
+                "schema": "semantic-execution/6",
                 "session": "contextcontract",
                 "sequence": 4,
                 "ownerSequence": 3,
@@ -3084,7 +3567,7 @@
                 "invocationId": "outside:1",
                 "sourceReads": [],
                 "selectedState": {
-                  "schema": "semantic-continuation/5",
+                  "schema": "semantic-continuation/6",
                   "heap": [],
                   "locals": [
                     [
@@ -3111,11 +3594,11 @@
                   "completion": null,
                   "randomState": 0.5
                 },
-                "realmPrefixDigest": "e408146c6f6e623dc4da70d6c242864d57594acfdc75aff5a2053996b072ae8f",
+                "realmPrefixDigest": "fb79dc4e92f4c2353d8f04d62059dfa40b2b403edd86c5826ac10bd0c9a1a482",
                 "visibleThrough": 3
               },
               {
-                "schema": "semantic-execution/5",
+                "schema": "semantic-execution/6",
                 "session": "contextcontract",
                 "sequence": 5,
                 "ownerSequence": 4,
@@ -3123,11 +3606,11 @@
                 "mode": "generated",
                 "kind": "semantic",
                 "invocationId": "outside:1",
-                "traceFormat": "semantic-trace/5",
-                "line": "return {\"value\":[\"num\",7]}"
+                "traceFormat": "semantic-trace/6",
+                "line": "return 7"
               },
               {
-                "schema": "semantic-execution/5",
+                "schema": "semantic-execution/6",
                 "session": "contextcontract",
                 "sequence": 6,
                 "ownerSequence": 5,
@@ -3135,8 +3618,8 @@
                 "mode": "generated",
                 "kind": "semantic",
                 "invocationId": "outside:1",
-                "traceFormat": "semantic-trace/5",
-                "line": "end {\"kind\":\"return\"}"
+                "traceFormat": "semantic-trace/6",
+                "line": "end return"
               }
             ]
           },
@@ -3152,13 +3635,13 @@
         },
         {
           "public": {
-            "schema": "semantic-execution/5",
+            "schema": "semantic-execution/6",
             "profile": "selected-harness/2",
-            "traceFormat": "semantic-trace/5",
-            "contextFormat": "semantic-context/5",
+            "traceFormat": "semantic-trace/6",
+            "contextFormat": "semantic-context/6",
             "timeline": [
               {
-                "schema": "semantic-execution/5",
+                "schema": "semantic-execution/6",
                 "session": "contextcontract",
                 "sequence": 1,
                 "ownerSequence": 1,
@@ -3219,7 +3702,7 @@
                 "sourceMetadata": null
               },
               {
-                "schema": "semantic-execution/5",
+                "schema": "semantic-execution/6",
                 "session": "contextcontract",
                 "sequence": 2,
                 "ownerSequence": 1,
@@ -3255,7 +3738,7 @@
                 "ingressKey": "caller"
               },
               {
-                "schema": "semantic-execution/5",
+                "schema": "semantic-execution/6",
                 "session": "contextcontract",
                 "sequence": 3,
                 "ownerSequence": 2,
@@ -3267,7 +3750,7 @@
                 "source": "function run(value){return value;}"
               },
               {
-                "schema": "semantic-execution/5",
+                "schema": "semantic-execution/6",
                 "session": "contextcontract",
                 "sequence": 4,
                 "ownerSequence": 3,
@@ -3277,7 +3760,7 @@
                 "invocationId": "outside:1",
                 "sourceReads": [],
                 "selectedState": {
-                  "schema": "semantic-continuation/5",
+                  "schema": "semantic-continuation/6",
                   "heap": [],
                   "locals": [
                     [
@@ -3304,11 +3787,11 @@
                   "completion": null,
                   "randomState": 0
                 },
-                "realmPrefixDigest": "e408146c6f6e623dc4da70d6c242864d57594acfdc75aff5a2053996b072ae8f",
+                "realmPrefixDigest": "fb79dc4e92f4c2353d8f04d62059dfa40b2b403edd86c5826ac10bd0c9a1a482",
                 "visibleThrough": 3
               },
               {
-                "schema": "semantic-execution/5",
+                "schema": "semantic-execution/6",
                 "session": "contextcontract",
                 "sequence": 5,
                 "ownerSequence": 4,
@@ -3316,11 +3799,11 @@
                 "mode": "generated",
                 "kind": "semantic",
                 "invocationId": "outside:1",
-                "traceFormat": "semantic-trace/5",
-                "line": "return {\"value\":[\"num\",7]}"
+                "traceFormat": "semantic-trace/6",
+                "line": "return 7"
               },
               {
-                "schema": "semantic-execution/5",
+                "schema": "semantic-execution/6",
                 "session": "contextcontract",
                 "sequence": 6,
                 "ownerSequence": 5,
@@ -3328,8 +3811,8 @@
                 "mode": "generated",
                 "kind": "semantic",
                 "invocationId": "outside:1",
-                "traceFormat": "semantic-trace/5",
-                "line": "end {\"kind\":\"return\"}"
+                "traceFormat": "semantic-trace/6",
+                "line": "end return"
               }
             ]
           },
@@ -3345,13 +3828,13 @@
         },
         {
           "public": {
-            "schema": "semantic-execution/5",
+            "schema": "semantic-execution/6",
             "profile": "selected-harness/2",
-            "traceFormat": "semantic-trace/5",
-            "contextFormat": "semantic-context/5",
+            "traceFormat": "semantic-trace/6",
+            "contextFormat": "semantic-context/6",
             "timeline": [
               {
-                "schema": "semantic-execution/5",
+                "schema": "semantic-execution/6",
                 "session": "seedcontract",
                 "sequence": 1,
                 "ownerSequence": 1,
@@ -3423,7 +3906,7 @@
                 "randomSeed": 0
               },
               {
-                "schema": "semantic-execution/5",
+                "schema": "semantic-execution/6",
                 "session": "seedcontract",
                 "sequence": 2,
                 "ownerSequence": 1,
@@ -3454,7 +3937,7 @@
                 "ingressKey": "caller"
               },
               {
-                "schema": "semantic-execution/5",
+                "schema": "semantic-execution/6",
                 "session": "seedcontract",
                 "sequence": 3,
                 "ownerSequence": 2,
@@ -3462,11 +3945,11 @@
                 "mode": "generated",
                 "kind": "semantic",
                 "invocationId": "sample",
-                "traceFormat": "semantic-trace/5",
-                "line": "compute {\"expr\":{\"op\":\"random\"},\"result\":[\"num\",0.23606797284446657]}"
+                "traceFormat": "semantic-trace/6",
+                "line": "compute random() => 0.23606797284446657"
               },
               {
-                "schema": "semantic-execution/5",
+                "schema": "semantic-execution/6",
                 "session": "seedcontract",
                 "sequence": 4,
                 "ownerSequence": 3,
@@ -3478,7 +3961,7 @@
                 "source": "function run(){return Math.random();}"
               },
               {
-                "schema": "semantic-execution/5",
+                "schema": "semantic-execution/6",
                 "session": "seedcontract",
                 "sequence": 5,
                 "ownerSequence": 4,
@@ -3488,7 +3971,7 @@
                 "invocationId": "sample",
                 "sourceReads": [],
                 "selectedState": {
-                  "schema": "semantic-continuation/5",
+                  "schema": "semantic-continuation/6",
                   "heap": [],
                   "locals": [],
                   "captureAliases": [],
@@ -3502,11 +3985,11 @@
                   "completion": null,
                   "randomState": 0
                 },
-                "realmPrefixDigest": "fccf817b7ae48ee0bce23b02566b19b508e5f4b195972c6d50d7250d1712db22",
+                "realmPrefixDigest": "f6327ef45e07816409d871aede46b0b6be0ba64dd1669fbf7871f7645d83dcca",
                 "visibleThrough": 4
               },
               {
-                "schema": "semantic-execution/5",
+                "schema": "semantic-execution/6",
                 "session": "seedcontract",
                 "sequence": 6,
                 "ownerSequence": 5,
@@ -3514,11 +3997,11 @@
                 "mode": "generated",
                 "kind": "semantic",
                 "invocationId": "sample",
-                "traceFormat": "semantic-trace/5",
-                "line": "return {\"value\":[\"num\",0.23606797284446657]}"
+                "traceFormat": "semantic-trace/6",
+                "line": "return 0.23606797284446657"
               },
               {
-                "schema": "semantic-execution/5",
+                "schema": "semantic-execution/6",
                 "session": "seedcontract",
                 "sequence": 7,
                 "ownerSequence": 6,
@@ -3526,8 +4009,8 @@
                 "mode": "generated",
                 "kind": "semantic",
                 "invocationId": "sample",
-                "traceFormat": "semantic-trace/5",
-                "line": "end {\"kind\":\"return\"}"
+                "traceFormat": "semantic-trace/6",
+                "line": "end return"
               }
             ]
           },
@@ -3543,13 +4026,13 @@
         },
         {
           "public": {
-            "schema": "semantic-execution/5",
+            "schema": "semantic-execution/6",
             "profile": "selected-harness/2",
-            "traceFormat": "semantic-trace/5",
-            "contextFormat": "semantic-context/5",
+            "traceFormat": "semantic-trace/6",
+            "contextFormat": "semantic-context/6",
             "timeline": [
               {
-                "schema": "semantic-execution/5",
+                "schema": "semantic-execution/6",
                 "session": "seedcontract",
                 "sequence": 1,
                 "ownerSequence": 1,
@@ -3621,7 +4104,7 @@
                 "randomSeed": -1
               },
               {
-                "schema": "semantic-execution/5",
+                "schema": "semantic-execution/6",
                 "session": "seedcontract",
                 "sequence": 2,
                 "ownerSequence": 1,
@@ -3652,7 +4135,7 @@
                 "ingressKey": "caller"
               },
               {
-                "schema": "semantic-execution/5",
+                "schema": "semantic-execution/6",
                 "session": "seedcontract",
                 "sequence": 3,
                 "ownerSequence": 2,
@@ -3660,11 +4143,11 @@
                 "mode": "generated",
                 "kind": "semantic",
                 "invocationId": "sample",
-                "traceFormat": "semantic-trace/5",
-                "line": "compute {\"expr\":{\"op\":\"random\"},\"result\":[\"num\",0.23606797284446657]}"
+                "traceFormat": "semantic-trace/6",
+                "line": "compute random() => 0.23606797284446657"
               },
               {
-                "schema": "semantic-execution/5",
+                "schema": "semantic-execution/6",
                 "session": "seedcontract",
                 "sequence": 4,
                 "ownerSequence": 3,
@@ -3676,7 +4159,7 @@
                 "source": "function run(){return Math.random();}"
               },
               {
-                "schema": "semantic-execution/5",
+                "schema": "semantic-execution/6",
                 "session": "seedcontract",
                 "sequence": 5,
                 "ownerSequence": 4,
@@ -3686,7 +4169,7 @@
                 "invocationId": "sample",
                 "sourceReads": [],
                 "selectedState": {
-                  "schema": "semantic-continuation/5",
+                  "schema": "semantic-continuation/6",
                   "heap": [],
                   "locals": [],
                   "captureAliases": [],
@@ -3700,11 +4183,11 @@
                   "completion": null,
                   "randomState": 1013904223
                 },
-                "realmPrefixDigest": "fccf817b7ae48ee0bce23b02566b19b508e5f4b195972c6d50d7250d1712db22",
+                "realmPrefixDigest": "f6327ef45e07816409d871aede46b0b6be0ba64dd1669fbf7871f7645d83dcca",
                 "visibleThrough": 4
               },
               {
-                "schema": "semantic-execution/5",
+                "schema": "semantic-execution/6",
                 "session": "seedcontract",
                 "sequence": 6,
                 "ownerSequence": 5,
@@ -3712,11 +4195,11 @@
                 "mode": "generated",
                 "kind": "semantic",
                 "invocationId": "sample",
-                "traceFormat": "semantic-trace/5",
-                "line": "return {\"value\":[\"num\",0.23606797284446657]}"
+                "traceFormat": "semantic-trace/6",
+                "line": "return 0.23606797284446657"
               },
               {
-                "schema": "semantic-execution/5",
+                "schema": "semantic-execution/6",
                 "session": "seedcontract",
                 "sequence": 7,
                 "ownerSequence": 6,
@@ -3724,8 +4207,8 @@
                 "mode": "generated",
                 "kind": "semantic",
                 "invocationId": "sample",
-                "traceFormat": "semantic-trace/5",
-                "line": "end {\"kind\":\"return\"}"
+                "traceFormat": "semantic-trace/6",
+                "line": "end return"
               }
             ]
           },
@@ -3741,13 +4224,13 @@
         },
         {
           "public": {
-            "schema": "semantic-execution/5",
+            "schema": "semantic-execution/6",
             "profile": "selected-harness/2",
-            "traceFormat": "semantic-trace/5",
-            "contextFormat": "semantic-context/5",
+            "traceFormat": "semantic-trace/6",
+            "contextFormat": "semantic-context/6",
             "timeline": [
               {
-                "schema": "semantic-execution/5",
+                "schema": "semantic-execution/6",
                 "session": "seedcontract",
                 "sequence": 1,
                 "ownerSequence": 1,
@@ -3819,7 +4302,7 @@
                 "randomSeed": 4294967296
               },
               {
-                "schema": "semantic-execution/5",
+                "schema": "semantic-execution/6",
                 "session": "seedcontract",
                 "sequence": 2,
                 "ownerSequence": 1,
@@ -3850,7 +4333,7 @@
                 "ingressKey": "caller"
               },
               {
-                "schema": "semantic-execution/5",
+                "schema": "semantic-execution/6",
                 "session": "seedcontract",
                 "sequence": 3,
                 "ownerSequence": 2,
@@ -3858,11 +4341,11 @@
                 "mode": "generated",
                 "kind": "semantic",
                 "invocationId": "sample",
-                "traceFormat": "semantic-trace/5",
-                "line": "compute {\"expr\":{\"op\":\"random\"},\"result\":[\"num\",0.23606797284446657]}"
+                "traceFormat": "semantic-trace/6",
+                "line": "compute random() => 0.23606797284446657"
               },
               {
-                "schema": "semantic-execution/5",
+                "schema": "semantic-execution/6",
                 "session": "seedcontract",
                 "sequence": 4,
                 "ownerSequence": 3,
@@ -3874,7 +4357,7 @@
                 "source": "function run(){return Math.random();}"
               },
               {
-                "schema": "semantic-execution/5",
+                "schema": "semantic-execution/6",
                 "session": "seedcontract",
                 "sequence": 5,
                 "ownerSequence": 4,
@@ -3884,7 +4367,7 @@
                 "invocationId": "sample",
                 "sourceReads": [],
                 "selectedState": {
-                  "schema": "semantic-continuation/5",
+                  "schema": "semantic-continuation/6",
                   "heap": [],
                   "locals": [],
                   "captureAliases": [],
@@ -3898,11 +4381,11 @@
                   "completion": null,
                   "randomState": 1013904223
                 },
-                "realmPrefixDigest": "fccf817b7ae48ee0bce23b02566b19b508e5f4b195972c6d50d7250d1712db22",
+                "realmPrefixDigest": "f6327ef45e07816409d871aede46b0b6be0ba64dd1669fbf7871f7645d83dcca",
                 "visibleThrough": 4
               },
               {
-                "schema": "semantic-execution/5",
+                "schema": "semantic-execution/6",
                 "session": "seedcontract",
                 "sequence": 6,
                 "ownerSequence": 5,
@@ -3910,11 +4393,11 @@
                 "mode": "generated",
                 "kind": "semantic",
                 "invocationId": "sample",
-                "traceFormat": "semantic-trace/5",
-                "line": "return {\"value\":[\"num\",0.23606797284446657]}"
+                "traceFormat": "semantic-trace/6",
+                "line": "return 0.23606797284446657"
               },
               {
-                "schema": "semantic-execution/5",
+                "schema": "semantic-execution/6",
                 "session": "seedcontract",
                 "sequence": 7,
                 "ownerSequence": 6,
@@ -3922,8 +4405,8 @@
                 "mode": "generated",
                 "kind": "semantic",
                 "invocationId": "sample",
-                "traceFormat": "semantic-trace/5",
-                "line": "end {\"kind\":\"return\"}"
+                "traceFormat": "semantic-trace/6",
+                "line": "end return"
               }
             ]
           },
@@ -3939,13 +4422,13 @@
         },
         {
           "public": {
-            "schema": "semantic-execution/5",
+            "schema": "semantic-execution/6",
             "profile": "selected-harness/2",
-            "traceFormat": "semantic-trace/5",
-            "contextFormat": "semantic-context/5",
+            "traceFormat": "semantic-trace/6",
+            "contextFormat": "semantic-context/6",
             "timeline": [
               {
-                "schema": "semantic-execution/5",
+                "schema": "semantic-execution/6",
                 "session": "seedcontract",
                 "sequence": 1,
                 "ownerSequence": 1,
@@ -4017,7 +4500,7 @@
                 "randomSeed": 0.5
               },
               {
-                "schema": "semantic-execution/5",
+                "schema": "semantic-execution/6",
                 "session": "seedcontract",
                 "sequence": 2,
                 "ownerSequence": 1,
@@ -4048,7 +4531,7 @@
                 "ingressKey": "caller"
               },
               {
-                "schema": "semantic-execution/5",
+                "schema": "semantic-execution/6",
                 "session": "seedcontract",
                 "sequence": 3,
                 "ownerSequence": 2,
@@ -4056,11 +4539,11 @@
                 "mode": "generated",
                 "kind": "semantic",
                 "invocationId": "sample",
-                "traceFormat": "semantic-trace/5",
-                "line": "compute {\"expr\":{\"op\":\"random\"},\"result\":[\"num\",0.23606797284446657]}"
+                "traceFormat": "semantic-trace/6",
+                "line": "compute random() => 0.23606797284446657"
               },
               {
-                "schema": "semantic-execution/5",
+                "schema": "semantic-execution/6",
                 "session": "seedcontract",
                 "sequence": 4,
                 "ownerSequence": 3,
@@ -4072,7 +4555,7 @@
                 "source": "function run(){return Math.random();}"
               },
               {
-                "schema": "semantic-execution/5",
+                "schema": "semantic-execution/6",
                 "session": "seedcontract",
                 "sequence": 5,
                 "ownerSequence": 4,
@@ -4082,7 +4565,7 @@
                 "invocationId": "sample",
                 "sourceReads": [],
                 "selectedState": {
-                  "schema": "semantic-continuation/5",
+                  "schema": "semantic-continuation/6",
                   "heap": [],
                   "locals": [],
                   "captureAliases": [],
@@ -4096,11 +4579,11 @@
                   "completion": null,
                   "randomState": 1013904223
                 },
-                "realmPrefixDigest": "fccf817b7ae48ee0bce23b02566b19b508e5f4b195972c6d50d7250d1712db22",
+                "realmPrefixDigest": "f6327ef45e07816409d871aede46b0b6be0ba64dd1669fbf7871f7645d83dcca",
                 "visibleThrough": 4
               },
               {
-                "schema": "semantic-execution/5",
+                "schema": "semantic-execution/6",
                 "session": "seedcontract",
                 "sequence": 6,
                 "ownerSequence": 5,
@@ -4108,11 +4591,11 @@
                 "mode": "generated",
                 "kind": "semantic",
                 "invocationId": "sample",
-                "traceFormat": "semantic-trace/5",
-                "line": "return {\"value\":[\"num\",0.23606797284446657]}"
+                "traceFormat": "semantic-trace/6",
+                "line": "return 0.23606797284446657"
               },
               {
-                "schema": "semantic-execution/5",
+                "schema": "semantic-execution/6",
                 "session": "seedcontract",
                 "sequence": 7,
                 "ownerSequence": 6,
@@ -4120,8 +4603,8 @@
                 "mode": "generated",
                 "kind": "semantic",
                 "invocationId": "sample",
-                "traceFormat": "semantic-trace/5",
-                "line": "end {\"kind\":\"return\"}"
+                "traceFormat": "semantic-trace/6",
+                "line": "end return"
               }
             ]
           },
@@ -4137,13 +4620,13 @@
         },
         {
           "public": {
-            "schema": "semantic-execution/5",
+            "schema": "semantic-execution/6",
             "profile": "selected-harness/2",
-            "traceFormat": "semantic-trace/5",
-            "contextFormat": "semantic-context/5",
+            "traceFormat": "semantic-trace/6",
+            "contextFormat": "semantic-context/6",
             "timeline": [
               {
-                "schema": "semantic-execution/5",
+                "schema": "semantic-execution/6",
                 "session": "seedcontract",
                 "sequence": 1,
                 "ownerSequence": 1,
@@ -4215,7 +4698,7 @@
                 "randomSeed": true
               },
               {
-                "schema": "semantic-execution/5",
+                "schema": "semantic-execution/6",
                 "session": "seedcontract",
                 "sequence": 2,
                 "ownerSequence": 1,
@@ -4246,7 +4729,7 @@
                 "ingressKey": "caller"
               },
               {
-                "schema": "semantic-execution/5",
+                "schema": "semantic-execution/6",
                 "session": "seedcontract",
                 "sequence": 3,
                 "ownerSequence": 2,
@@ -4254,11 +4737,11 @@
                 "mode": "generated",
                 "kind": "semantic",
                 "invocationId": "sample",
-                "traceFormat": "semantic-trace/5",
-                "line": "compute {\"expr\":{\"op\":\"random\"},\"result\":[\"num\",0.23606797284446657]}"
+                "traceFormat": "semantic-trace/6",
+                "line": "compute random() => 0.23606797284446657"
               },
               {
-                "schema": "semantic-execution/5",
+                "schema": "semantic-execution/6",
                 "session": "seedcontract",
                 "sequence": 4,
                 "ownerSequence": 3,
@@ -4270,7 +4753,7 @@
                 "source": "function run(){return Math.random();}"
               },
               {
-                "schema": "semantic-execution/5",
+                "schema": "semantic-execution/6",
                 "session": "seedcontract",
                 "sequence": 5,
                 "ownerSequence": 4,
@@ -4280,7 +4763,7 @@
                 "invocationId": "sample",
                 "sourceReads": [],
                 "selectedState": {
-                  "schema": "semantic-continuation/5",
+                  "schema": "semantic-continuation/6",
                   "heap": [],
                   "locals": [],
                   "captureAliases": [],
@@ -4294,11 +4777,11 @@
                   "completion": null,
                   "randomState": 1013904223
                 },
-                "realmPrefixDigest": "fccf817b7ae48ee0bce23b02566b19b508e5f4b195972c6d50d7250d1712db22",
+                "realmPrefixDigest": "f6327ef45e07816409d871aede46b0b6be0ba64dd1669fbf7871f7645d83dcca",
                 "visibleThrough": 4
               },
               {
-                "schema": "semantic-execution/5",
+                "schema": "semantic-execution/6",
                 "session": "seedcontract",
                 "sequence": 6,
                 "ownerSequence": 5,
@@ -4306,11 +4789,11 @@
                 "mode": "generated",
                 "kind": "semantic",
                 "invocationId": "sample",
-                "traceFormat": "semantic-trace/5",
-                "line": "return {\"value\":[\"num\",0.23606797284446657]}"
+                "traceFormat": "semantic-trace/6",
+                "line": "return 0.23606797284446657"
               },
               {
-                "schema": "semantic-execution/5",
+                "schema": "semantic-execution/6",
                 "session": "seedcontract",
                 "sequence": 7,
                 "ownerSequence": 6,
@@ -4318,8 +4801,8 @@
                 "mode": "generated",
                 "kind": "semantic",
                 "invocationId": "sample",
-                "traceFormat": "semantic-trace/5",
-                "line": "end {\"kind\":\"return\"}"
+                "traceFormat": "semantic-trace/6",
+                "line": "end return"
               }
             ]
           },
@@ -4335,13 +4818,13 @@
         },
         {
           "public": {
-            "schema": "semantic-execution/5",
+            "schema": "semantic-execution/6",
             "profile": "selected-harness/2",
-            "traceFormat": "semantic-trace/5",
-            "contextFormat": "semantic-context/5",
+            "traceFormat": "semantic-trace/6",
+            "contextFormat": "semantic-context/6",
             "timeline": [
               {
-                "schema": "semantic-execution/5",
+                "schema": "semantic-execution/6",
                 "session": "seedcontract",
                 "sequence": 1,
                 "ownerSequence": 1,
@@ -4413,7 +4896,7 @@
                 "randomSeed": null
               },
               {
-                "schema": "semantic-execution/5",
+                "schema": "semantic-execution/6",
                 "session": "seedcontract",
                 "sequence": 2,
                 "ownerSequence": 1,
@@ -4444,7 +4927,7 @@
                 "ingressKey": "caller"
               },
               {
-                "schema": "semantic-execution/5",
+                "schema": "semantic-execution/6",
                 "session": "seedcontract",
                 "sequence": 3,
                 "ownerSequence": 2,
@@ -4452,11 +4935,11 @@
                 "mode": "generated",
                 "kind": "semantic",
                 "invocationId": "sample",
-                "traceFormat": "semantic-trace/5",
-                "line": "compute {\"expr\":{\"op\":\"random\"},\"result\":[\"num\",0.23606797284446657]}"
+                "traceFormat": "semantic-trace/6",
+                "line": "compute random() => 0.23606797284446657"
               },
               {
-                "schema": "semantic-execution/5",
+                "schema": "semantic-execution/6",
                 "session": "seedcontract",
                 "sequence": 4,
                 "ownerSequence": 3,
@@ -4468,7 +4951,7 @@
                 "source": "function run(){return Math.random();}"
               },
               {
-                "schema": "semantic-execution/5",
+                "schema": "semantic-execution/6",
                 "session": "seedcontract",
                 "sequence": 5,
                 "ownerSequence": 4,
@@ -4478,7 +4961,7 @@
                 "invocationId": "sample",
                 "sourceReads": [],
                 "selectedState": {
-                  "schema": "semantic-continuation/5",
+                  "schema": "semantic-continuation/6",
                   "heap": [],
                   "locals": [],
                   "captureAliases": [],
@@ -4492,11 +4975,11 @@
                   "completion": null,
                   "randomState": 1013904223
                 },
-                "realmPrefixDigest": "fccf817b7ae48ee0bce23b02566b19b508e5f4b195972c6d50d7250d1712db22",
+                "realmPrefixDigest": "f6327ef45e07816409d871aede46b0b6be0ba64dd1669fbf7871f7645d83dcca",
                 "visibleThrough": 4
               },
               {
-                "schema": "semantic-execution/5",
+                "schema": "semantic-execution/6",
                 "session": "seedcontract",
                 "sequence": 6,
                 "ownerSequence": 5,
@@ -4504,11 +4987,11 @@
                 "mode": "generated",
                 "kind": "semantic",
                 "invocationId": "sample",
-                "traceFormat": "semantic-trace/5",
-                "line": "return {\"value\":[\"num\",0.23606797284446657]}"
+                "traceFormat": "semantic-trace/6",
+                "line": "return 0.23606797284446657"
               },
               {
-                "schema": "semantic-execution/5",
+                "schema": "semantic-execution/6",
                 "session": "seedcontract",
                 "sequence": 7,
                 "ownerSequence": 6,
@@ -4516,8 +4999,8 @@
                 "mode": "generated",
                 "kind": "semantic",
                 "invocationId": "sample",
-                "traceFormat": "semantic-trace/5",
-                "line": "end {\"kind\":\"return\"}"
+                "traceFormat": "semantic-trace/6",
+                "line": "end return"
               }
             ]
           },

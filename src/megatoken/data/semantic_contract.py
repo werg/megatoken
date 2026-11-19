@@ -9,10 +9,10 @@ import re
 from importlib.resources import files
 
 from .host_operations import canonical_json
-from .witness_v5 import parse_record, value
+from .witness_v6 import parse_record, value
 
 CONTRACT = json.loads(
-    files("megatoken.data").joinpath("contracts/semantic-harness-v5.json").read_bytes()
+    files("megatoken.data").joinpath("contracts/semantic-harness-v6.json").read_bytes()
 )
 DEFINITION = CONTRACT["definition"]
 SCHEMA_DIGEST = CONTRACT["digest"]

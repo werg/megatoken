@@ -1,0 +1,16 @@
+0001 [host] observed: code run @ceab4c72b441
+async function run(){const a=host.readAsync("a");const b=host.readAsync("b");return (await a)+(await b);}
+0002 [worker:9 / call] observed: invoke run caused by outside in realm r (await-returned-promise)
+0003 [worker:9 / call] generated: create owned Promise &root
+0004 [worker:9 / call] generated: request a demo.readAsync("a") in call @29:48 -> Promise &pa — host.readAsync("a")
+0005 [worker:9 / call] generated: request b demo.readAsync("b") in call @57:76 -> Promise &pb — host.readAsync("b")
+0006 [worker:9 / call] generated: await Promise &pa; suspend call as ca; call returns owned Promise &root
+0009 [worker:9 / call] observed: observe b fulfilled 4
+0010 [worker:9 / call] observed: observe a fulfilled 2
+0011 [worker:9 / call] generated: resume call via ca with fulfilled 2
+0012 [worker:9 / call] generated: await Promise &pb; suspend call as cb
+0013 [worker:9 / call] generated: resume call via cb with fulfilled 4
+0014 [worker:9 / call] generated: compute (2 + 4) -> 6
+0015 [worker:9 / call] generated: resolve Promise &root 6
+0016 [worker:9 / call] generated: return &root
+0017 [worker:9 / call] generated: end return

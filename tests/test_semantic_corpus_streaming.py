@@ -9,10 +9,10 @@ import json
 import weakref
 
 import pytest
-from test_semantic_harness_v5 import fixture
+from test_semantic_harness_v6 import fixture
 
 from megatoken.data import semantic_corpus
-from megatoken.data.semantic_harness_v5 import adapt_selected_harness_v5
+from megatoken.data.semantic_harness_v6 import adapt_selected_harness_v6
 from megatoken.generation.codec import ByteCodec
 from megatoken.io import atomic_json_array_writer, sha256_file, write_json
 
@@ -56,7 +56,7 @@ def test_interrupted_or_invalid_append_preserves_complete_evidence(tmp_path):
 
 def controlled_storage_pipeline(monkeypatch):
     codec = ByteCodec.byte_fallback()
-    episode, _ = adapt_selected_harness_v5(fixture(), allow_local=True, codec=codec)
+    episode, _ = adapt_selected_harness_v6(fixture(), allow_local=True, codec=codec)
     monkeypatch.setattr(
         semantic_corpus,
         "native_admission",
@@ -64,7 +64,7 @@ def controlled_storage_pipeline(monkeypatch):
     )
     monkeypatch.setattr(semantic_corpus, "verify_admission", lambda *args, **kwargs: True)
     monkeypatch.setattr(
-        semantic_corpus, "adapt_selected_harness_v5", lambda *args, **kwargs: (episode, None)
+        semantic_corpus, "adapt_selected_harness_v6", lambda *args, **kwargs: (episode, None)
     )
     return codec, episode
 

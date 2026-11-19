@@ -1,0 +1,1442 @@
+{
+  "schema": "semantic-trace/6",
+  "canonical": [
+    {
+      "name": "source",
+      "kind": "code",
+      "fields": {
+        "entry": "main",
+        "source": "function main(x){return x+2}",
+        "sites": [],
+        "randomSeed": 0
+      },
+      "line": "source \"main\" = \"function main(x){return x+2}\" sites [] seed 0"
+    },
+    {
+      "name": "anonymous source",
+      "kind": "code",
+      "fields": {
+        "entry": "function:76",
+        "source": "x=>x",
+        "sites": [
+          {
+            "start": 0,
+            "end": 4
+          }
+        ]
+      },
+      "line": "source \"function:76\" = \"x=>x\" sites [{\"start\":0,\"end\":4}]"
+    },
+    {
+      "name": "input",
+      "kind": "input",
+      "fields": {
+        "graph": {
+          "roots": [
+            [
+              "num",
+              4
+            ]
+          ],
+          "objects": []
+        }
+      },
+      "line": "input {\"roots\":[[\"num\",4]],\"objects\":[]}"
+    },
+    {
+      "name": "retained input",
+      "kind": "input",
+      "fields": {
+        "graph": {
+          "roots": [
+            [
+              "ref",
+              "o1"
+            ]
+          ],
+          "objects": []
+        },
+        "retained": [
+          "o1"
+        ]
+      },
+      "line": "input {\"roots\":[[\"ref\",\"o1\"]],\"objects\":[]} retained [\"o1\"]"
+    },
+    {
+      "name": "source expression",
+      "kind": "compute",
+      "fields": {
+        "expr": {
+          "op": "binary",
+          "operator": "+",
+          "left": {
+            "op": "local",
+            "name": "x"
+          },
+          "right": {
+            "op": "literal",
+            "value": [
+              "num",
+              2
+            ]
+          }
+        },
+        "result": [
+          "num",
+          6
+        ],
+        "bind": "y",
+        "invocation": "call1",
+        "site": {
+          "start": 20,
+          "end": 25
+        }
+      },
+      "line": "compute (x + 2) => 6 as y in @call1 at 20..25"
+    },
+    {
+      "name": "property expression",
+      "kind": "compute",
+      "fields": {
+        "expr": {
+          "op": "read",
+          "object": "o1",
+          "key": "two words"
+        },
+        "result": [
+          "num",
+          6
+        ]
+      },
+      "line": "compute @o1[\"two words\"] => 6"
+    },
+    {
+      "name": "unary expression",
+      "kind": "compute",
+      "fields": {
+        "expr": {
+          "op": "unary",
+          "operator": "typeof",
+          "arg": {
+            "op": "local",
+            "name": "x"
+          }
+        },
+        "result": [
+          "str",
+          "number"
+        ]
+      },
+      "line": "compute (typeof x) => \"number\""
+    },
+    {
+      "name": "negative literal expression",
+      "kind": "compute",
+      "fields": {
+        "expr": {
+          "op": "binary",
+          "operator": "-",
+          "left": {
+            "op": "literal",
+            "value": [
+              "num",
+              -1
+            ]
+          },
+          "right": {
+            "op": "literal",
+            "value": [
+              "num",
+              2
+            ]
+          }
+        },
+        "result": [
+          "num",
+          -3
+        ]
+      },
+      "line": "compute (-1 - 2) => -3"
+    },
+    {
+      "name": "negative unary expression",
+      "kind": "compute",
+      "fields": {
+        "expr": {
+          "op": "unary",
+          "operator": "-",
+          "arg": {
+            "op": "literal",
+            "value": [
+              "num",
+              1
+            ]
+          }
+        },
+        "result": [
+          "num",
+          -1
+        ]
+      },
+      "line": "compute (- 1) => -1"
+    },
+    {
+      "name": "reserved local",
+      "kind": "compute",
+      "fields": {
+        "expr": {
+          "op": "local",
+          "name": "undefined"
+        },
+        "result": [
+          "num",
+          1
+        ]
+      },
+      "line": "compute local(\"undefined\") => 1"
+    },
+    {
+      "name": "random transition",
+      "kind": "compute",
+      "fields": {
+        "expr": {
+          "op": "random"
+        },
+        "result": [
+          "num",
+          0.5
+        ]
+      },
+      "line": "compute random() => 0.5"
+    },
+    {
+      "name": "choice then",
+      "kind": "choose",
+      "fields": {
+        "expr": {
+          "op": "local",
+          "name": "x"
+        },
+        "decision": [
+          "bool",
+          true
+        ],
+        "path": "then"
+      },
+      "line": "choose x => true -> then"
+    },
+    {
+      "name": "choice else",
+      "kind": "choose",
+      "fields": {
+        "expr": {
+          "op": "local",
+          "name": "x"
+        },
+        "decision": [
+          "bool",
+          false
+        ],
+        "path": "else"
+      },
+      "line": "choose x => false -> else"
+    },
+    {
+      "name": "choice use-left",
+      "kind": "choose",
+      "fields": {
+        "expr": {
+          "op": "local",
+          "name": "x"
+        },
+        "decision": [
+          "num",
+          4
+        ],
+        "path": "use-left"
+      },
+      "line": "choose x => 4 -> use-left"
+    },
+    {
+      "name": "choice evaluate-right",
+      "kind": "choose",
+      "fields": {
+        "expr": {
+          "op": "local",
+          "name": "x"
+        },
+        "decision": [
+          "null"
+        ],
+        "path": "evaluate-right"
+      },
+      "line": "choose x => null -> evaluate-right"
+    },
+    {
+      "name": "binding",
+      "kind": "bind",
+      "fields": {
+        "name": "answer",
+        "value": [
+          "num",
+          6
+        ]
+      },
+      "line": "answer = 6"
+    },
+    {
+      "name": "source cell relation",
+      "kind": "bind",
+      "fields": {
+        "name": "next",
+        "value": [
+          "num",
+          6
+        ],
+        "from": "current",
+        "invocation": "call1"
+      },
+      "line": "next = 6 from current in @call1"
+    },
+    {
+      "name": "keyword binding",
+      "kind": "bind",
+      "fields": {
+        "name": "return",
+        "value": [
+          "num",
+          6
+        ]
+      },
+      "line": "return = 6"
+    },
+    {
+      "name": "unicode binding",
+      "kind": "bind",
+      "fields": {
+        "name": "éclair",
+        "value": [
+          "str",
+          "東京\n\"☃\""
+        ]
+      },
+      "line": "éclair = \"東京\\n\\\"☃\\\"\""
+    },
+    {
+      "name": "object allocation",
+      "kind": "allocate",
+      "fields": {
+        "name": "o1",
+        "kind": "object",
+        "properties": [
+          {
+            "key": "answer",
+            "value": [
+              "num",
+              6
+            ]
+          },
+          {
+            "key": "self",
+            "value": [
+              "ref",
+              "o1"
+            ]
+          }
+        ],
+        "invocation": "call1"
+      },
+      "line": "new @o1 object {\"answer\": 6, \"self\": @o1} in @call1"
+    },
+    {
+      "name": "array allocation",
+      "kind": "allocate",
+      "fields": {
+        "name": "a1",
+        "kind": "array",
+        "properties": [
+          {
+            "key": "0",
+            "value": [
+              "num",
+              6
+            ]
+          }
+        ],
+        "length": 1
+      },
+      "line": "new @a1 array {\"0\": 6} length 1"
+    },
+    {
+      "name": "closure allocation",
+      "kind": "allocate",
+      "fields": {
+        "name": "c1",
+        "kind": "closure",
+        "properties": [],
+        "code": "function:76",
+        "captures": [
+          {
+            "binding": "value",
+            "cell": "outerValue"
+          },
+          {
+            "binding": "again",
+            "cell": "outerValue"
+          }
+        ]
+      },
+      "line": "new @c1 closure {} code \"function:76\" captures {value: outerValue, again: outerValue}"
+    },
+    {
+      "name": "empty captures",
+      "kind": "allocate",
+      "fields": {
+        "name": "c2",
+        "kind": "closure",
+        "properties": [],
+        "code": "main",
+        "captures": []
+      },
+      "line": "new @c2 closure {} code \"main\" captures {}"
+    },
+    {
+      "name": "set allocation",
+      "kind": "allocate",
+      "fields": {
+        "name": "s1",
+        "kind": "set",
+        "properties": []
+      },
+      "line": "new @s1 set {}"
+    },
+    {
+      "name": "regexp allocation",
+      "kind": "allocate",
+      "fields": {
+        "name": "r1",
+        "kind": "regexp",
+        "properties": [
+          {
+            "key": "source",
+            "value": [
+              "str",
+              "a+"
+            ]
+          }
+        ]
+      },
+      "line": "new @r1 regexp {\"source\": \"a+\"}"
+    },
+    {
+      "name": "read",
+      "kind": "read",
+      "fields": {
+        "object": "o1",
+        "key": "answer",
+        "value": [
+          "num",
+          6
+        ],
+        "present": true
+      },
+      "line": "read @o1[\"answer\"] => 6"
+    },
+    {
+      "name": "missing read",
+      "kind": "read",
+      "fields": {
+        "object": "o1",
+        "key": "missing",
+        "value": [
+          "undefined"
+        ],
+        "present": false
+      },
+      "line": "read @o1[\"missing\"] => undefined absent"
+    },
+    {
+      "name": "write",
+      "kind": "write",
+      "fields": {
+        "object": "o1",
+        "key": "answer",
+        "value": [
+          "num",
+          7
+        ],
+        "present": true,
+        "invocation": "call1"
+      },
+      "line": "write @o1[\"answer\"] = 7 in @call1"
+    },
+    {
+      "name": "delete",
+      "kind": "write",
+      "fields": {
+        "object": "o1",
+        "key": "answer",
+        "value": [
+          "undefined"
+        ],
+        "present": false
+      },
+      "line": "write @o1[\"answer\"] = undefined absent"
+    },
+    {
+      "name": "guest call",
+      "kind": "call",
+      "fields": {
+        "child": "call1:child2",
+        "callee": "helper",
+        "receiver": [
+          "undefined"
+        ],
+        "arguments": [
+          [
+            "num",
+            4
+          ]
+        ],
+        "invocation": "call1"
+      },
+      "line": "call helper(4) this undefined -> @call1:child2 in @call1"
+    },
+    {
+      "name": "anonymous call",
+      "kind": "call",
+      "fields": {
+        "child": "call2",
+        "callee": "function:76",
+        "receiver": [
+          "ref",
+          "o1"
+        ],
+        "arguments": []
+      },
+      "line": "call \"function:76\"() this @o1 -> @call2"
+    },
+    {
+      "name": "all scalar spellings",
+      "kind": "call",
+      "fields": {
+        "child": "call3",
+        "callee": "scalars",
+        "receiver": [
+          "undefined"
+        ],
+        "arguments": [
+          [
+            "undefined"
+          ],
+          [
+            "null"
+          ],
+          [
+            "bool",
+            true
+          ],
+          [
+            "bool",
+            false
+          ],
+          [
+            "num",
+            0
+          ],
+          [
+            "num",
+            "-0"
+          ],
+          [
+            "num",
+            "NaN"
+          ],
+          [
+            "num",
+            "+Infinity"
+          ],
+          [
+            "num",
+            "-Infinity"
+          ],
+          [
+            "bigint",
+            "12"
+          ],
+          [
+            "bigint",
+            "-12345678901234567890"
+          ],
+          [
+            "str",
+            "text"
+          ],
+          [
+            "ref",
+            "o1"
+          ]
+        ]
+      },
+      "line": "call scalars(undefined, null, true, false, 0, -0, NaN, Infinity, -Infinity, 12n, -12345678901234567890n, \"text\", @o1) this undefined -> @call3"
+    },
+    {
+      "name": "return transfer",
+      "kind": "transfer",
+      "fields": {
+        "kind": "return",
+        "value": [
+          "num",
+          6
+        ],
+        "handler": "finally",
+        "invocation": "call1"
+      },
+      "line": "transfer return 6 via \"finally\" in @call1"
+    },
+    {
+      "name": "throw transfer",
+      "kind": "transfer",
+      "fields": {
+        "kind": "throw",
+        "value": [
+          "str",
+          "error"
+        ],
+        "handler": null
+      },
+      "line": "transfer throw \"error\" via null"
+    },
+    {
+      "name": "cleanup transfer",
+      "kind": "transfer",
+      "fields": {
+        "kind": "cleanup",
+        "value": [
+          "undefined"
+        ],
+        "handler": {
+          "next": "finally"
+        }
+      },
+      "line": "transfer cleanup undefined via {\"next\":\"finally\"}"
+    },
+    {
+      "name": "return",
+      "kind": "return",
+      "fields": {
+        "value": [
+          "num",
+          6
+        ],
+        "invocation": "call1"
+      },
+      "line": "return 6 in @call1"
+    },
+    {
+      "name": "throw",
+      "kind": "throw",
+      "fields": {
+        "value": [
+          "str",
+          "error"
+        ]
+      },
+      "line": "throw \"error\""
+    },
+    {
+      "name": "external request",
+      "kind": "request",
+      "fields": {
+        "effect": "e1",
+        "operation": "Host.log",
+        "arguments": [
+          [
+            "num",
+            6
+          ]
+        ],
+        "invocation": "call1",
+        "site": {
+          "start": 31,
+          "end": 42
+        },
+        "payload": "[6]"
+      },
+      "line": "request @e1 Host.log(6) payload [6] in @call1 at 31..42"
+    },
+    {
+      "name": "promise request",
+      "kind": "request",
+      "fields": {
+        "effect": "e2",
+        "operation": "host-operation",
+        "arguments": [
+          [
+            "ref",
+            "o1"
+          ]
+        ],
+        "invocation": "call1",
+        "site": {
+          "start": 50,
+          "end": 64
+        },
+        "payload": "{\"schema\":\"owned-graph/1\",\"roots\":[],\"objects\":[]}",
+        "promise": "p1"
+      },
+      "line": "request @e2 \"host-operation\"(@o1) payload {\"schema\":\"owned-graph/1\",\"roots\":[],\"objects\":[]} promise @p1 in @call1 at 50..64"
+    },
+    {
+      "name": "fulfilled observation",
+      "kind": "observe",
+      "fields": {
+        "effect": "e1",
+        "result": [
+          "num",
+          6
+        ],
+        "status": "fulfilled"
+      },
+      "line": "observe @e1 fulfilled 6"
+    },
+    {
+      "name": "rejected observation",
+      "kind": "observe",
+      "fields": {
+        "effect": "e1",
+        "result": [
+          "str",
+          "error"
+        ],
+        "status": "rejected"
+      },
+      "line": "observe @e1 rejected \"error\""
+    },
+    {
+      "name": "graph observation",
+      "kind": "observe",
+      "fields": {
+        "effect": "e2",
+        "result": [
+          "ref",
+          "o1"
+        ],
+        "status": "fulfilled",
+        "graph": {
+          "roots": [
+            [
+              "ref",
+              "o1"
+            ]
+          ],
+          "objects": [
+            {
+              "id": "o1",
+              "kind": "object",
+              "properties": [
+                {
+                  "key": "answer",
+                  "value": [
+                    "num",
+                    6
+                  ]
+                }
+              ]
+            }
+          ]
+        }
+      },
+      "line": "observe @e2 fulfilled @o1 graph {\"roots\":[[\"ref\",\"o1\"]],\"objects\":[{\"id\":\"o1\",\"kind\":\"object\",\"properties\":[{\"key\":\"answer\",\"value\":[\"num\",6]}]}]}"
+    },
+    {
+      "name": "enqueue job",
+      "kind": "job",
+      "fields": {
+        "action": "enqueue",
+        "job": "j1",
+        "owner": "call1",
+        "closure": "c1"
+      },
+      "line": "job enqueue @j1 for @call1 closure @c1"
+    },
+    {
+      "name": "dispatch job",
+      "kind": "job",
+      "fields": {
+        "action": "dispatch",
+        "job": "j1",
+        "owner": "call1"
+      },
+      "line": "job dispatch @j1 for @call1"
+    },
+    {
+      "name": "complete job",
+      "kind": "job",
+      "fields": {
+        "action": "complete",
+        "job": "j1",
+        "owner": "call1",
+        "result": {
+          "kind": "return",
+          "value": [
+            "num",
+            6
+          ]
+        }
+      },
+      "line": "job complete @j1 for @call1 result {\"kind\":\"return\",\"value\":[\"num\",6]}"
+    },
+    {
+      "name": "create promise",
+      "kind": "promise",
+      "fields": {
+        "action": "create",
+        "promise": "p1",
+        "invocation": "call1"
+      },
+      "line": "promise create @p1 in @call1"
+    },
+    {
+      "name": "resolve promise",
+      "kind": "promise",
+      "fields": {
+        "action": "resolve",
+        "promise": "p1",
+        "value": [
+          "num",
+          6
+        ]
+      },
+      "line": "promise resolve @p1 = 6"
+    },
+    {
+      "name": "reject promise",
+      "kind": "promise",
+      "fields": {
+        "action": "reject",
+        "promise": "p1",
+        "value": [
+          "str",
+          "error"
+        ]
+      },
+      "line": "promise reject @p1 = \"error\""
+    },
+    {
+      "name": "adopt promise",
+      "kind": "promise",
+      "fields": {
+        "action": "adopt",
+        "promise": "p1",
+        "target": "p2"
+      },
+      "line": "promise adopt @p1 -> @p2"
+    },
+    {
+      "name": "then promise",
+      "kind": "promise",
+      "fields": {
+        "action": "react",
+        "promise": "p1",
+        "job": "j1",
+        "reaction": "then",
+        "closure": "c1",
+        "rejectionClosure": "c2",
+        "target": "p2"
+      },
+      "line": "promise react @p1 then as @j1 closure @c1 reject @c2 target @p2"
+    },
+    {
+      "name": "catch promise",
+      "kind": "promise",
+      "fields": {
+        "action": "react",
+        "promise": "p1",
+        "job": "j2",
+        "reaction": "catch",
+        "closure": "c2"
+      },
+      "line": "promise react @p1 catch as @j2 closure @c2"
+    },
+    {
+      "name": "finally promise",
+      "kind": "promise",
+      "fields": {
+        "action": "react",
+        "promise": "p1",
+        "job": "j3",
+        "reaction": "finally",
+        "target": "p3"
+      },
+      "line": "promise react @p1 finally as @j3 target @p3"
+    },
+    {
+      "name": "await",
+      "kind": "await",
+      "fields": {
+        "promise": "p1",
+        "continuation": "k1",
+        "invocation": "call1"
+      },
+      "line": "await @p1 as @k1 in @call1"
+    },
+    {
+      "name": "async return promise",
+      "kind": "await",
+      "fields": {
+        "promise": "p1",
+        "continuation": "k1",
+        "invocation": "call1",
+        "returnPromise": "p2"
+      },
+      "line": "await @p1 as @k1 returns @p2 in @call1"
+    },
+    {
+      "name": "fulfilled resume",
+      "kind": "resume",
+      "fields": {
+        "continuation": "k1",
+        "invocation": "call1",
+        "result": [
+          "num",
+          6
+        ],
+        "status": "fulfilled"
+      },
+      "line": "resume @k1 fulfilled 6 in @call1"
+    },
+    {
+      "name": "rejected resume",
+      "kind": "resume",
+      "fields": {
+        "continuation": "k1",
+        "invocation": "call1",
+        "result": [
+          "str",
+          "error"
+        ],
+        "status": "rejected"
+      },
+      "line": "resume @k1 rejected \"error\" in @call1"
+    },
+    {
+      "name": "end return",
+      "kind": "end",
+      "fields": {
+        "kind": "return"
+      },
+      "line": "end return"
+    },
+    {
+      "name": "end throw",
+      "kind": "end",
+      "fields": {
+        "kind": "throw"
+      },
+      "line": "end throw"
+    },
+    {
+      "name": "pure region",
+      "kind": "summarize",
+      "fields": {
+        "entry": "twice",
+        "arguments": [
+          [
+            "num",
+            3
+          ]
+        ],
+        "result": [
+          "num",
+          6
+        ],
+        "profile": "pure-helper/1",
+        "invocation": "call1"
+      },
+      "line": "evaluate twice(3) => 6 in @call1"
+    },
+    {
+      "name": "control region",
+      "kind": "summarize",
+      "fields": {
+        "entry": "select",
+        "arguments": [
+          [
+            "num",
+            1
+          ]
+        ],
+        "result": [
+          "num",
+          6
+        ],
+        "profile": "pure-control-helper/1",
+        "decisions": [
+          {
+            "site": {
+              "start": 20,
+              "end": 25
+            },
+            "selected": "consequent"
+          },
+          {
+            "site": {
+              "start": 40,
+              "end": 48
+            },
+            "selected": "right"
+          },
+          {
+            "site": {
+              "start": 20,
+              "end": 25
+            },
+            "selected": "alternate"
+          },
+          {
+            "site": {
+              "start": 40,
+              "end": 48
+            },
+            "selected": "left"
+          }
+        ]
+      },
+      "line": "evaluate select(1) => 6 choosing 20..25:consequent, 40..48:right, 20..25:alternate, 40..48:left"
+    },
+    {
+      "name": "sum region",
+      "kind": "summarize",
+      "fields": {
+        "entry": "sum",
+        "arguments": [
+          [
+            "ref",
+            "a1"
+          ]
+        ],
+        "result": [
+          "num",
+          6
+        ],
+        "profile": "dense-array-sum/1",
+        "iterations": 3,
+        "accumulator": "total"
+      },
+      "line": "evaluate sum(@a1) => 6 over 3 items into total"
+    },
+    {
+      "name": "open frame",
+      "kind": "value-open",
+      "fields": {
+        "id": "r8",
+        "type": "semantic-record"
+      },
+      "line": "record @r8 type \"semantic-record\""
+    },
+    {
+      "name": "part frame",
+      "kind": "value-part",
+      "fields": {
+        "id": "r8",
+        "data": "return 6"
+      },
+      "line": "part @r8 \"return 6\""
+    },
+    {
+      "name": "close frame",
+      "kind": "value-close",
+      "fields": {
+        "id": "r8"
+      },
+      "line": "close @r8"
+    },
+    {
+      "name": "small exponential",
+      "kind": "return",
+      "fields": {
+        "value": [
+          "num",
+          1e-7
+        ]
+      },
+      "line": "return 1e-7"
+    },
+    {
+      "name": "decimal threshold",
+      "kind": "return",
+      "fields": {
+        "value": [
+          "num",
+          0.000001
+        ]
+      },
+      "line": "return 0.000001"
+    },
+    {
+      "name": "large decimal",
+      "kind": "return",
+      "fields": {
+        "value": [
+          "num",
+          100000000000000000000
+        ]
+      },
+      "line": "return 100000000000000000000"
+    },
+    {
+      "name": "exponential threshold",
+      "kind": "return",
+      "fields": {
+        "value": [
+          "num",
+          1e+21
+        ]
+      },
+      "line": "return 1e+21"
+    },
+    {
+      "name": "shortest decimal",
+      "kind": "return",
+      "fields": {
+        "value": [
+          "num",
+          1000000000000000100
+        ]
+      },
+      "line": "return 1000000000000000100"
+    },
+    {
+      "name": "smallest subnormal",
+      "kind": "return",
+      "fields": {
+        "value": [
+          "num",
+          5e-324
+        ]
+      },
+      "line": "return 5e-324"
+    },
+    {
+      "name": "maximum finite",
+      "kind": "return",
+      "fields": {
+        "value": [
+          "num",
+          1.7976931348623157e+308
+        ]
+      },
+      "line": "return 1.7976931348623157e+308"
+    },
+    {
+      "name": "lone high surrogate",
+      "kind": "return",
+      "fields": {
+        "value": [
+          "str",
+          "\ud800"
+        ]
+      },
+      "line": "return \"\\ud800\""
+    },
+    {
+      "name": "lone low surrogate",
+      "kind": "return",
+      "fields": {
+        "value": [
+          "str",
+          "\udfff"
+        ]
+      },
+      "line": "return \"\\udfff\""
+    },
+    {
+      "name": "string control escapes",
+      "kind": "return",
+      "fields": {
+        "value": [
+          "str",
+          "\b\t\n\f\r\u0000"
+        ]
+      },
+      "line": "return \"\\b\\t\\n\\f\\r\\u0000\""
+    },
+    {
+      "name": "literal Unicode line separator",
+      "kind": "return",
+      "fields": {
+        "value": [
+          "str",
+          "before after"
+        ]
+      },
+      "line": "return \"before after\""
+    },
+    {
+      "name": "unary keyword local typeof",
+      "kind": "compute",
+      "fields": {
+        "expr": {
+          "op": "binary",
+          "operator": "+",
+          "left": {
+            "op": "local",
+            "name": "typeof"
+          },
+          "right": {
+            "op": "literal",
+            "value": [
+              "num",
+              1
+            ]
+          }
+        },
+        "result": [
+          "num",
+          2
+        ]
+      },
+      "line": "compute (local(\"typeof\") + 1) => 2"
+    },
+    {
+      "name": "unary keyword local void",
+      "kind": "compute",
+      "fields": {
+        "expr": {
+          "op": "binary",
+          "operator": "+",
+          "left": {
+            "op": "local",
+            "name": "void"
+          },
+          "right": {
+            "op": "literal",
+            "value": [
+              "num",
+              1
+            ]
+          }
+        },
+        "result": [
+          "num",
+          2
+        ]
+      },
+      "line": "compute (local(\"void\") + 1) => 2"
+    },
+    {
+      "name": "negative decimal",
+      "kind": "return",
+      "fields": {
+        "value": [
+          "num",
+          -0.5
+        ]
+      },
+      "line": "return -0.5"
+    },
+    {
+      "name": "negative decimal threshold",
+      "kind": "return",
+      "fields": {
+        "value": [
+          "num",
+          -0.000001
+        ]
+      },
+      "line": "return -0.000001"
+    },
+    {
+      "name": "negative exponential",
+      "kind": "return",
+      "fields": {
+        "value": [
+          "num",
+          -1e-7
+        ]
+      },
+      "line": "return -1e-7"
+    },
+    {
+      "name": "ECMAScript ID_Start U+037A",
+      "kind": "compute",
+      "fields": {
+        "expr": {
+          "op": "local",
+          "name": "ͺ"
+        },
+        "result": [
+          "num",
+          1
+        ]
+      },
+      "line": "compute ͺ => 1"
+    },
+    {
+      "name": "ECMAScript ID_Start U+0E33",
+      "kind": "compute",
+      "fields": {
+        "expr": {
+          "op": "local",
+          "name": "ำ"
+        },
+        "result": [
+          "num",
+          1
+        ]
+      },
+      "line": "compute ำ => 1"
+    },
+    {
+      "name": "ECMAScript ID_Start U+0EB3",
+      "kind": "compute",
+      "fields": {
+        "expr": {
+          "op": "local",
+          "name": "ຳ"
+        },
+        "result": [
+          "num",
+          1
+        ]
+      },
+      "line": "compute ຳ => 1"
+    },
+    {
+      "name": "ECMAScript ID_Start U+309B",
+      "kind": "compute",
+      "fields": {
+        "expr": {
+          "op": "local",
+          "name": "゛"
+        },
+        "result": [
+          "num",
+          1
+        ]
+      },
+      "line": "compute ゛ => 1"
+    },
+    {
+      "name": "ECMAScript ID_Start U+309C",
+      "kind": "compute",
+      "fields": {
+        "expr": {
+          "op": "local",
+          "name": "゜"
+        },
+        "result": [
+          "num",
+          1
+        ]
+      },
+      "line": "compute ゜ => 1"
+    },
+    {
+      "name": "numeric JSON keys",
+      "kind": "transfer",
+      "fields": {
+        "kind": "cleanup",
+        "value": [
+          "undefined"
+        ],
+        "handler": {
+          "1": "first",
+          "2": "second",
+          "4294967295": "not an index",
+          "01": "not an index"
+        }
+      },
+      "line": "transfer cleanup undefined via {\"1\":\"first\",\"2\":\"second\",\"4294967295\":\"not an index\",\"01\":\"not an index\"}"
+    }
+  ],
+  "invalid": [
+    "return {\"value\":[\"num\",6]}",
+    "compute {\"expr\":{\"op\":\"literal\",\"value\":[\"num\",6]},\"result\":[\"num\",6]}",
+    "return 6 ",
+    " return 6",
+    "return  6",
+    "return\t6",
+    "return 6\nend return",
+    "return 6\r",
+    "return +6",
+    "return 06",
+    "return 6.0",
+    "return 6e0",
+    "return 1E+21",
+    "return 1e21",
+    "return 1e-6",
+    "return 0.0000001",
+    "return -0.0",
+    "return +Infinity",
+    "return Infinityn",
+    "return -0n",
+    "return 1_000",
+    "return 0x10",
+    "return 1e309",
+    "return \"\\u0061\"",
+    "return 'text'",
+    "return @O1",
+    "return @o:1",
+    "return [\"num\",6]",
+    "return undefined extra",
+    "compute x+2 => 6",
+    "compute (x + 2) => 6 extra",
+    "compute (x+2) => 6",
+    "compute local(\"x\") => 6",
+    "compute (random() + 1) => 1",
+    "compute Math.random() => 1",
+    "compute (-1) => -1",
+    "compute ((x + 1)) => 2",
+    "compute x => 6 at 0..0",
+    "choose x => true -> consequent",
+    "new @o1 object {\"a\": 1, \"a\": 2}",
+    "new @o1 object {} captures {}",
+    "new @a1 array {} length 01",
+    "new @a1 array {} length 4097",
+    "new @c1 closure {} captures {x: a, x: b}",
+    "read @o1.a => 1",
+    "write @o1[\"x\"] = 1 present",
+    "x = 1 from x",
+    "call helper(1,2) this undefined -> @call1",
+    "call \"helper\"() this undefined -> @call1",
+    "request @e1 Host.log(6) payload [ 6 ] in @call1 at 1..2",
+    "request @e1 Host.log(6) payload [6] at 1..2",
+    "request @e1 Host.log(6) payload [6] in @call1",
+    "observe @e1 resolved 6",
+    "job dispatch @j1 for @call1 closure @c1",
+    "promise create @p1 = 6",
+    "promise react @p1 catch as @j1 reject @c1",
+    "await @p1 as @k1",
+    "resume @k1 fulfilled 6",
+    "end return in @call1",
+    "end success",
+    "evaluate twice(3) => 6 choosing ",
+    "evaluate twice(3) => 6 choosing 1..2:then",
+    "evaluate sum(@a1) => 6 over 1025 items into total",
+    "evaluate sum(@a1) => 6 over -1 items into total",
+    "evaluate twice(3) => 6 at 1..2",
+    "evaluate \"twice\"(3) => 6",
+    "part @r8 6",
+    "close @r8 type \"semantic-record\"",
+    "source \"main\" = \"x\" sites [{\"a\":1,\"a\":2}]",
+    "input {\"roots\":[], \"objects\":[]}",
+    "return \"\\uD800\"",
+    "return \"\\/\"",
+    "return \"\\u000a\"",
+    "compute typeof => 1",
+    "compute void => 1",
+    "source \"main\" = \"x\" sites [[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]",
+    "transfer cleanup undefined via {\"2\":\"second\",\"1\":\"first\"}",
+    "call helper(-0n) this undefined -> @call1",
+    "call helper(@o:1) this undefined -> @call1",
+    "call helper() this @o:1 -> @call1",
+    "new @o_1 object {}",
+    "observe @e_1 fulfilled 1",
+    "record @r_1 type \"semantic-record\"",
+    "part @r_1 \"return 6\"",
+    "close @r_1",
+    "record @r1 type \"\""
+  ]
+}

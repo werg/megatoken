@@ -13,7 +13,7 @@ import json
 from pathlib import Path
 
 from megatoken.data.host_operations import canonical_json
-from megatoken.data.semantic_harness_v5 import adapt_selected_harness_v5
+from megatoken.data.semantic_harness_v6 import adapt_selected_harness_v6
 from megatoken.generation.codec import LING_TOKENIZER_SHA256, ByteCodec
 from megatoken.io import write_json
 from megatoken.training.semantic_evaluation import (
@@ -78,7 +78,7 @@ def verify(directory, codec):
                 )
             ):
                 raise ValueError(name + ": source reference receipt changed")
-            adapt_selected_harness_v5(
+            adapt_selected_harness_v6(
                 result["episode"],
                 codec=codec,
                 allow_local=True,
@@ -100,7 +100,7 @@ def verify(directory, codec):
                 raise ValueError("Coordinator budget fixture did not reach its declared refusal")
             if name == "native-invalid-child" and not any(
                 item.get("phase") == "semantic-validation"
-                and item.get("record") == 'return {"value":["ref","missing"]}'
+                and item.get("record") == "return @missing"
                 for item in result["rejections"]
             ):
                 raise ValueError("Invalid guest fixture lost its original rejected selection")

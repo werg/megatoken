@@ -20,13 +20,13 @@ from typing import Any, Literal, Protocol
 
 import numpy as np
 
+from megatoken.artifact_versions import PREPARED_SCHEMA_VERSION as SCHEMA_VERSION
 from megatoken.contracts import ROLE_TO_ID
 
 from .chunking import ChunkingConfig, segment_bytes
 from .media_assets import MEDIA_RECORD_TYPE
 from .token_offsets import token_edges
 
-SCHEMA_VERSION = 7
 Role = Literal["system", "user", "assistant", "tool", "document", "environment"]
 Provenance = Literal["natural", "teacher", "student", "executed", "simulated", "unknown"]
 Outcome = Literal["success", "failure", "unknown", "incomplete"]

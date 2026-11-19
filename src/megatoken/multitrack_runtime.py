@@ -598,6 +598,7 @@ class MultiTrackRuntime:
         controls: Sequence[bytes] | None = None,
         effort: int = 6,
         generator: torch.Generator | None = None,
+        continuation_mode: str = "sampled",
     ) -> PendingGroup:
         """Produce a candidate without committing raw state, KV or output."""
         output_bytes = self._output_capacity(session, tracks, specs, modality_options)
@@ -630,6 +631,7 @@ class MultiTrackRuntime:
             controls=controls,
             effort=effort,
             generator=generator,
+            continuation_mode=continuation_mode,
         )
         selected_at_ns = time.monotonic_ns()
         result = self.generator.render_selected(selected)
@@ -713,6 +715,7 @@ class MultiTrackRuntime:
         controls: Sequence[bytes] | None = None,
         effort: int = 6,
         generator: torch.Generator | None = None,
+        continuation_mode: str = "sampled",
     ) -> GroupGeneration:
         return self.accept(
             session,
@@ -725,6 +728,7 @@ class MultiTrackRuntime:
                 controls=controls,
                 effort=effort,
                 generator=generator,
+                continuation_mode=continuation_mode,
             ),
         )
 
@@ -1121,11 +1125,8 @@ class MultiTrackRuntime:
                 description = registry.change(address, operation, **values)
             # Publish only semantic fields. The address attaches the event to
             # its task through attention equality, never instruction bytes.
-            public = {
-                k: v
-                for k, v in asdict(description).items()
-                if k not in {"address", "parent", "prerequisites"}
-            }
+            from megatoken.lifecycle import track_description_observation
+
             window = None
             if description.status in {"completed", "cancelled"}:
                 window = {
@@ -1140,7 +1141,7 @@ class MultiTrackRuntime:
                     "cross_events": min(config.context_cross_events, config.max_history_chunks),
                     "pinned_events": [],
                 }
-            payload = json.dumps(public, sort_keys=True).encode()
+            payload = track_description_observation(description)
             self.observe_text(session, description.address, payload, role="system", effort=1)
             session.memory.state = self.generator.tracks.describe_track(
                 session.state, description.address, description.purpose, description.revision
@@ -1166,10 +1167,10 @@ class MultiTrackRuntime:
         if (
             not isinstance(program, dict)
             or not isinstance(invocation, dict)
-            or program.get("schema") != "semantic-execution/5"
+            or program.get("schema") != "semantic-execution/6"
             or program.get("kind") != "program"
             or program.get("mode") != "observed"
-            or invocation.get("schema") != "semantic-execution/5"
+            or invocation.get("schema") != "semantic-execution/6"
             or invocation.get("kind") != "invocation"
             or invocation.get("mode") != "observed"
             or not isinstance(program.get("source"), str)
@@ -1719,7 +1720,7 @@ class MultiTrackRuntime:
         group, teacher tool payload, or predicted return.
         """
         from megatoken.data.semantic_request import _host_request
-        from megatoken.data.witness_v5 import WitnessV5Error, parse_record
+        from megatoken.data.witness_v6 import WitnessV6Error, parse_record
 
         committed = dict(session.selected_groups)
         if allow_controlled_fixture:
@@ -1766,7 +1767,7 @@ class MultiTrackRuntime:
                 raise ValueError("Incomplete or invalid semantic requests cannot dispatch")
             try:
                 kind, fields = parse_record(raw.decode("utf-8", errors="strict"))
-            except (UnicodeDecodeError, WitnessV5Error) as error:
+            except (UnicodeDecodeError, WitnessV6Error) as error:
                 raise ValueError("Malformed committed semantic request") from error
             if kind != "request":
                 raise ValueError("Selected action must be a request witness")

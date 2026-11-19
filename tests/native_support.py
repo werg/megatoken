@@ -43,6 +43,7 @@ def group_tape(
         emitted_ids=(tuple(codec.encode(payload)) if emitted_ids is None else emitted_ids,),
         valid=(valid,),
         terminal=(terminal,),
+        continuation_mode="sampled",
         modalities=("text",),
         effort=effort,
         event_log_probs=(log_prob,),

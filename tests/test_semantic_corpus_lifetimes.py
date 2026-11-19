@@ -2,6 +2,7 @@
 
 import copy
 import gc
+import hashlib
 import json
 import os
 import weakref
@@ -37,6 +38,15 @@ def admitted_document(codec, index):
     document = copy.deepcopy(CONTRACT["fixtures"]["envelope"]["valid"][0])
     for row in document["public"]["timeline"]:
         row["session"] = f"session{index}"
+    # These are distinct retained-source cases, not renamed copies. Lifecycle
+    # acknowledgements add enough words to enable near-duplicate detection;
+    # unique source comments keep this lifetime test independent of that gate.
+    program = next(row for row in document["public"]["timeline"] if row["kind"] == "program")
+    program["source"] += "\n// " + " ".join(f"case{index}_word{word}" for word in range(24))
+    program["digest"] = hashlib.sha256(program["source"].encode()).hexdigest()
+    for row in document["public"]["timeline"]:
+        if row["kind"] == "invocation":
+            row["sourceDigest"] = program["digest"]
     document["sidecar"].update(
         admission="admitted",
         representation="compact",

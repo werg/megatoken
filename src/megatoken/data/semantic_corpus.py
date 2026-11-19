@@ -18,9 +18,9 @@ from .dedup import DedupConfig, DedupStore
 from .host_operations import CONTRACT_DIGEST, canonical_json
 from .semantic_admission import native_admission
 from .semantic_contract import FIXTURE_DIGEST, SCHEMA_DIGEST
-from .semantic_harness_v5 import adapt_selected_harness_v5
+from .semantic_harness_v6 import adapt_selected_harness_v6
 from .storage import export_prepared
-from .witness_v5 import parse_record
+from .witness_v6 import parse_record
 
 SOURCE_SCHEMA = "semantic-source-admission/4"
 
@@ -241,7 +241,7 @@ def prepare_semantic_corpus(
                         consumer_revision=consumer_revision,
                         codec=codec,
                     )
-                    episode, _ = adapt_selected_harness_v5(
+                    episode, _ = adapt_selected_harness_v6(
                         document,
                         codec=codec,
                         max_positions=max_positions,

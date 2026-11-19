@@ -259,6 +259,19 @@ def prepare_targets(
         for spec, row in zip(public_specs, ids, strict=True)
     ):
         raise ValueError("Text target length is outside its public output support")
+    for spec, payload, row, is_terminal in zip(public_specs, payloads, ids, terminals, strict=True):
+        if spec is None:
+            continue
+        if spec.require_terminal is not None and is_terminal is not spec.require_terminal:
+            raise ValueError("Text target terminal label is outside its public output support")
+        if spec.text_kind == "utf8":
+            try:
+                payload.decode("utf-8", errors="strict")
+            except UnicodeDecodeError as exc:
+                raise ValueError("UTF-8 text target is not valid UTF-8") from exc
+        allowed = frozenset(codec.allowed_ids(spec.text_kind))
+        if any(token not in allowed for token in row):
+            raise ValueError("Text target token is outside its public lexical support")
     lexical = sum(map(sum, masks))
     pairs = _native_pairs(codec, config, payloads, ids, roles, native_tapes)
     denominators = _denominators(

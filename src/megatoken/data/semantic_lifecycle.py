@@ -24,6 +24,7 @@ from .schema import (
     PhysicalRecord,
     Supervision,
     TrackEvent,
+    TrackRevision,
     TrackSpec,
     canonical_json,
     digest_bytes,
@@ -33,7 +34,7 @@ from .schema import (
 from .semantic_admission import native_admission, validate_native_visibility
 from .semantic_contract import FIXTURE_DIGEST, SCHEMA_DIGEST
 from .semantic_corpus import public_digest, verify_admission
-from .semantic_harness_v5 import adapt_selected_harness_v5
+from .semantic_harness_v6 import adapt_selected_harness_v6
 
 ORCHESTRATION_POLICY = {
     "schema": "semantic-orchestration-policy/4",
@@ -55,6 +56,8 @@ class _Recorder:
         self.seen = set()
         self.records, self.meridians, self.metadata = [], [], {}
         self.actions, self.dependencies = [], []
+        self.track_revisions = []
+        self.track_descriptions = {}
         self.roles = {number: name for name, number in ROLE_TO_ID.items()}
 
     def drain(self):
@@ -118,6 +121,29 @@ class _Recorder:
                 )
                 self.seen.add(identity)
                 result.append(row)
+            if self.roles[message[0].role_id] == "system":
+                public = json.loads(raw)
+                if "purpose" in public and "revision" in public:
+                    address = message[-1].track
+                    description = (public["purpose"], public["revision"])
+                    previous = self.track_descriptions.get(address)
+                    if previous == description:
+                        # Waiting, progress and completion publish a full
+                        # description without changing the task's purpose.
+                        # Keep those observations, but install its revision
+                        # only when the causal purpose actually advances.
+                        continue
+                    if previous is not None and description[1] <= previous[1]:
+                        raise ValueError("A changed track purpose needs a later public revision")
+                    self.track_descriptions[address] = description
+                    self.track_revisions.append(
+                        TrackRevision(
+                            message[-1].event_id,
+                            address,
+                            public["purpose"],
+                            public["revision"],
+                        )
+                    )
         return result
 
 
@@ -163,7 +189,7 @@ def collect_semantic_lifecycle(
             consumer_revision=consumer_revision,
             codec=codec,
         )
-        episode, imported = adapt_selected_harness_v5(
+        episode, imported = adapt_selected_harness_v6(
             document,
             codec=codec,
             max_positions=max_positions,
@@ -345,6 +371,10 @@ def collect_semantic_lifecycle(
         # Source/input were actually published by execute_lifecycle after the
         # creation acknowledgement. All later child bytes remain byte exact.
         for parts in episode.iter_logical_records():
+            # The coordinator already emitted its own actual child creation
+            # acknowledgement. Do not replay the standalone ingress version.
+            if parts[0].logical_id.startswith("semantic:lifecycle:"):
+                continue
             raw = b"".join(part.payload for part in parts)
             item = None if parts[0].policy_mask else json.loads(raw)
             if item is not None and item.get("kind") in {"program", "invocation"}:
@@ -433,13 +463,14 @@ def collect_semantic_lifecycle(
         sorted({key for _, episode, _, _, _ in prepared for key in episode.lineage.family_keys})
     )
     annotations = {
+        "session_metadata": {"task": "semantic-orchestration/4", "modality": "text"},
         "semantic_geometry": {
             "schema": "semantic-native-geometry/4",
             "maxPositions": max_positions,
             "maxHistory": max_history,
         },
         "semantic_execution": {
-            "schema": "semantic-execution/5",
+            "schema": "semantic-execution/6",
             "continuation": "teacher_conditioned",
             "representation": "compact",
             "orchestration": "runtime-certified",
@@ -465,9 +496,9 @@ def collect_semantic_lifecycle(
         dependencies=tuple(recorder.dependencies),
         meridians=tuple(recorder.meridians),
         tracks=tuple(
-            TrackSpec(track.address, "assistant", description=track.purpose)
-            for track in session.tracks.tracks.values()
+            TrackSpec(track.address, "assistant") for track in session.tracks.tracks.values()
         ),
+        track_revisions=tuple(recorder.track_revisions),
         stream="semantic_execution",
         tools_json=canonical_json(lifecycle_tools()),
         supervision=Supervision(

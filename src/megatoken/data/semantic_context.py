@@ -4,7 +4,7 @@ import hashlib
 
 from .host_operations import canonical_json
 from .semantic_contract import DEFINITION
-from .witness_v5 import parse_record, value
+from .witness_v6 import parse_record, value
 
 
 def realm_prefix(timeline, invocation_id):

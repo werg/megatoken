@@ -13,6 +13,7 @@ from itertools import accumulate
 from pathlib import Path
 from typing import Any, BinaryIO, NamedTuple
 
+from megatoken.artifact_versions import PREPARED_SCHEMA_VERSION as DATASET_VERSION
 from megatoken.io import (
     content_hash,
     fsync_directory,
@@ -25,8 +26,6 @@ from .dedup import DedupStore
 from .media_assets import MEDIA, MEDIA_RECORD_TYPE, MediaRecord, TensorAssetStore
 from .schema import Codec, Episode
 from .supply import SupplyCensus
-
-DATASET_VERSION = 7
 
 
 def _scored_media_outputs(episode: Episode) -> dict[str, int]:
