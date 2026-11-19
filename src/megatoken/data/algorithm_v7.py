@@ -1014,7 +1014,11 @@ def _to_string(value: list) -> str:
 
 
 def _number_from_string(text: str) -> float:
-    stripped = text.strip()
+    # StringNumericLiteral uses ECMAScript WhiteSpace and LineTerminator, not
+    # Python's wider Unicode whitespace classification (for example U+0085).
+    stripped = text.strip(
+        "\u0009\u000b\u000c\u0020\u00a0\u1680\u2000\u2001\u2002\u2003\u2004\u2005\u2006\u2007\u2008\u2009\u200a\u202f\u205f\u3000\ufeff\u000a\u000d\u2028\u2029"
+    )
     if not stripped:
         return 0.0
     if stripped in ("Infinity", "+Infinity"):
