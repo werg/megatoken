@@ -1,0 +1,1898 @@
+{
+  "definition": {
+    "schema": "semantic-algorithm-contract/1",
+    "status": "candidate",
+    "versions": {
+      "core": "semantic-algorithm/1",
+      "profile": "ecmascript-primitive/1",
+      "observation": "semantic-observation/1",
+      "receipt": "semantic-transformation-receipt/1",
+      "program": "semantic-algorithm-program/1",
+      "trace": "semantic-trace/7",
+      "execution": "semantic-execution/7",
+      "context": "semantic-context/7",
+      "continuation": "semantic-continuation/7"
+    },
+    "core": {
+      "fields": [
+        "schema",
+        "profile",
+        "inputs",
+        "steps"
+      ],
+      "inputFields": [
+        "id",
+        "type"
+      ],
+      "inputTypes": [
+        "scalar",
+        "number",
+        "dense-number-array",
+        "data"
+      ],
+      "steps": {
+        "compute": [
+          "kind",
+          "id",
+          "term"
+        ],
+        "request": [
+          "kind",
+          "id",
+          "boundary",
+          "operation",
+          "arguments"
+        ],
+        "observe": [
+          "kind",
+          "id",
+          "request"
+        ],
+        "write": [
+          "kind",
+          "object",
+          "key",
+          "value",
+          "present"
+        ],
+        "return": [
+          "kind",
+          "value"
+        ],
+        "throw": [
+          "kind",
+          "value"
+        ],
+        "suspend": [
+          "kind",
+          "requests",
+          "live"
+        ]
+      }
+    },
+    "terms": {
+      "literal": [
+        "op",
+        "value"
+      ],
+      "input": [
+        "op",
+        "id"
+      ],
+      "ref": [
+        "op",
+        "id"
+      ],
+      "project": [
+        "op",
+        "object",
+        "key"
+      ],
+      "operation": [
+        "op",
+        "args"
+      ],
+      "fold_left": [
+        "op",
+        "input",
+        "initial",
+        "step",
+        "order",
+        "profile"
+      ]
+    },
+    "operations": {
+      "add": {
+        "arity": 2,
+        "operator": "+",
+        "description": "add",
+        "reading": "the sum or primitive concatenation of {0} and {1}",
+        "lazy": false
+      },
+      "subtract": {
+        "arity": 2,
+        "operator": "-",
+        "description": "subtract",
+        "reading": "{0} minus {1}",
+        "lazy": false
+      },
+      "multiply": {
+        "arity": 2,
+        "operator": "*",
+        "description": "multiply",
+        "reading": "the product of {0} and {1}",
+        "lazy": false
+      },
+      "divide": {
+        "arity": 2,
+        "operator": "/",
+        "description": "divide",
+        "reading": "{0} divided by {1}",
+        "lazy": false
+      },
+      "remainder": {
+        "arity": 2,
+        "operator": "%",
+        "description": "take the remainder",
+        "reading": "the remainder of {0} divided by {1}",
+        "lazy": false
+      },
+      "power": {
+        "arity": 2,
+        "operator": "**",
+        "description": "raise to a power",
+        "reading": "{0} raised to {1}",
+        "lazy": false
+      },
+      "less": {
+        "arity": 2,
+        "operator": "<",
+        "description": "compare less than",
+        "reading": "whether {0} is less than {1}",
+        "lazy": false
+      },
+      "less_equal": {
+        "arity": 2,
+        "operator": "<=",
+        "description": "compare less than or equal",
+        "reading": "whether {0} is less than or equal to {1}",
+        "lazy": false
+      },
+      "greater": {
+        "arity": 2,
+        "operator": ">",
+        "description": "compare greater than",
+        "reading": "whether {0} is greater than {1}",
+        "lazy": false
+      },
+      "greater_equal": {
+        "arity": 2,
+        "operator": ">=",
+        "description": "compare greater than or equal",
+        "reading": "whether {0} is greater than or equal to {1}",
+        "lazy": false
+      },
+      "equal": {
+        "arity": 2,
+        "operator": "===",
+        "description": "compare strict equality",
+        "reading": "whether {0} strictly equals {1}",
+        "lazy": false
+      },
+      "not_equal": {
+        "arity": 2,
+        "operator": "!==",
+        "description": "compare strict inequality",
+        "reading": "whether {0} does not strictly equal {1}",
+        "lazy": false
+      },
+      "loose_equal": {
+        "arity": 2,
+        "operator": "==",
+        "description": "compare primitive equality",
+        "reading": "whether {0} equals {1} under primitive coercion",
+        "lazy": false
+      },
+      "loose_not_equal": {
+        "arity": 2,
+        "operator": "!=",
+        "description": "compare primitive inequality",
+        "reading": "whether {0} differs from {1} under primitive coercion",
+        "lazy": false
+      },
+      "bit_and": {
+        "arity": 2,
+        "operator": "&",
+        "description": "bitwise and",
+        "reading": "the bitwise AND of {0} and {1}",
+        "lazy": false
+      },
+      "bit_or": {
+        "arity": 2,
+        "operator": "|",
+        "description": "bitwise or",
+        "reading": "the bitwise OR of {0} and {1}",
+        "lazy": false
+      },
+      "bit_xor": {
+        "arity": 2,
+        "operator": "^",
+        "description": "bitwise exclusive or",
+        "reading": "the bitwise exclusive OR of {0} and {1}",
+        "lazy": false
+      },
+      "shift_left": {
+        "arity": 2,
+        "operator": "<<",
+        "description": "shift left",
+        "reading": "{0} shifted left by {1}",
+        "lazy": false
+      },
+      "shift_right": {
+        "arity": 2,
+        "operator": ">>",
+        "description": "shift right",
+        "reading": "{0} shifted right by {1}",
+        "lazy": false
+      },
+      "unsigned_shift_right": {
+        "arity": 2,
+        "operator": ">>>",
+        "description": "shift right unsigned",
+        "reading": "{0} shifted right by {1} with zero fill",
+        "lazy": false
+      },
+      "not": {
+        "arity": 1,
+        "operator": "!",
+        "description": "negate the truth value",
+        "reading": "the negation of the truth value of {0}",
+        "lazy": false
+      },
+      "positive": {
+        "arity": 1,
+        "operator": "+",
+        "description": "convert to a number",
+        "reading": "{0} converted to a Number",
+        "lazy": false
+      },
+      "negate": {
+        "arity": 1,
+        "operator": "-",
+        "description": "negate",
+        "reading": "the numeric negation of {0}",
+        "lazy": false
+      },
+      "bit_not": {
+        "arity": 1,
+        "operator": "~",
+        "description": "invert bits",
+        "reading": "the bitwise inversion of {0}",
+        "lazy": false
+      },
+      "type_of": {
+        "arity": 1,
+        "operator": "typeof",
+        "description": "inspect primitive type",
+        "reading": "the primitive type of {0}",
+        "lazy": false
+      },
+      "void": {
+        "arity": 1,
+        "operator": "void",
+        "description": "produce undefined",
+        "reading": "undefined after evaluating {0}",
+        "lazy": false
+      },
+      "select": {
+        "arity": 3,
+        "operator": "?:",
+        "description": "choose a value from the condition",
+        "reading": "{1} when {0} is truthy, otherwise {2}; evaluate only the selected branch",
+        "lazy": true
+      },
+      "and": {
+        "arity": 2,
+        "operator": "&&",
+        "description": "use the right value only when the left is truthy",
+        "reading": "{1} only when {0} is truthy, otherwise {0}",
+        "lazy": true
+      },
+      "or": {
+        "arity": 2,
+        "operator": "||",
+        "description": "use the right value only when the left is falsy",
+        "reading": "{1} only when {0} is falsy, otherwise {0}",
+        "lazy": true
+      },
+      "coalesce": {
+        "arity": 2,
+        "operator": "??",
+        "description": "use the fallback only for null or undefined",
+        "reading": "{1} only when {0} is null or undefined, otherwise {0}",
+        "lazy": true
+      }
+    },
+    "fold": {
+      "step": "add",
+      "order": "ascending",
+      "profile": "dense-number-array/1",
+      "inputs": "Ordinary dense arrays with only length and finite numeric elements; at most 128 items",
+      "semantics": "Binary64 left-to-right accumulation; no reassociation; preserve overflow and signed zero"
+    },
+    "records": {
+      "kinds": [
+        "compute",
+        "request",
+        "observe",
+        "write",
+        "return",
+        "throw",
+        "suspend"
+      ],
+      "fields": {
+        "compute": [
+          "kind",
+          "id",
+          "term",
+          "result"
+        ],
+        "request": [
+          "kind",
+          "id",
+          "boundary",
+          "operation",
+          "arguments"
+        ],
+        "observe": {
+          "completed": [
+            "kind",
+            "request",
+            "id",
+            "status"
+          ],
+          "fulfilled": [
+            "kind",
+            "request",
+            "id",
+            "status",
+            "value"
+          ],
+          "rejected": [
+            "kind",
+            "request",
+            "id",
+            "status",
+            "value"
+          ]
+        },
+        "write": [
+          "kind",
+          "object",
+          "key",
+          "value",
+          "present"
+        ],
+        "return": [
+          "kind",
+          "value"
+        ],
+        "throw": [
+          "kind",
+          "value"
+        ],
+        "suspend": [
+          "kind",
+          "requests",
+          "live"
+        ]
+      },
+      "extraFields": "rejected",
+      "canonicality": "parse then re-encode must equal exact original bytes"
+    },
+    "values": {
+      "tags": [
+        "undefined",
+        "null",
+        "bool",
+        "str",
+        "num",
+        "bigint",
+        "ref"
+      ],
+      "specialNumbers": [
+        "-0",
+        "NaN",
+        "+Infinity",
+        "-Infinity"
+      ],
+      "bigint": "Canonical decimal string with no leading zero or negative zero",
+      "identityPattern": "^[A-Za-z_$][A-Za-z0-9_$:-]*$",
+      "dependencySpelling": {
+        "input": "$id",
+        "value": "%id",
+        "object": "@id"
+      }
+    },
+    "limits": {
+      "steps": 256,
+      "termNodes": 512,
+      "depth": 64,
+      "foldItems": 128,
+      "recordBytes": 65536,
+      "arguments": 128
+    },
+    "execution": {
+      "fields": [
+        "schema",
+        "traceFormat",
+        "contextFormat",
+        "representation",
+        "profile",
+        "timeline",
+        "completion",
+        "claims",
+        "firstViolation"
+      ],
+      "representation": "algorithm",
+      "profile": "algorithm-execution/1",
+      "checkpoint": "semantic-algorithm-checkpoint/2",
+      "continuationFields": [
+        "schema",
+        "representation",
+        "program",
+        "inputGraph",
+        "capabilities",
+        "invocationId",
+        "sessionId",
+        "history",
+        "state",
+        "integrity"
+      ]
+    },
+    "context": {
+      "required": [
+        "schema",
+        "representation",
+        "definition",
+        "input",
+        "invocationId",
+        "state",
+        "visibleThrough",
+        "prefixDigest"
+      ],
+      "representation": "algorithm",
+      "optional": [
+        "program",
+        "inputGraph"
+      ],
+      "definitionIdentity": "program.definitionDigest",
+      "inputIdentity": "sha256(stableAlgorithmJSON(inputGraph))",
+      "publication": "Publish immutable program and input graph before referencing their identities",
+      "inputScope": "One immutable input graph identity per invocation; live semantic values are separate state",
+      "stateFields": [
+        "cursor",
+        "values",
+        "symbols",
+        "pending",
+        "abrupt",
+        "completion",
+        "firstViolation"
+      ],
+      "costBoundary": "Actual JS context snapshots; native framing and retrieval require separate measurement"
+    },
+    "authority": {
+      "generated": [
+        "compute",
+        "request",
+        "write",
+        "return",
+        "throw",
+        "suspend"
+      ],
+      "observed": [
+        "observe"
+      ],
+      "observationLoss": 0,
+      "capabilityRouting": "Immutable certified semantic boundary and committed arguments",
+      "payload": "Derived by host codec; absent from generated requests",
+      "unsupported": "Explicit refusal or separately labeled detailed artifact; no relabeling",
+      "nativeQualification": "Requires the actual independent companion and pinned tokenizer; fixtures alone do not qualify it"
+    },
+    "grammar": {
+      "generated": "root ::= computation | request | write | returned | thrown | suspended\ncomputation ::= identity \" = \" term \" => \" value\nrequest ::= \"request \" identity \" \" identity \": \" symbol \"(\" values? \")\"\nobservation ::= \"observe \" identity \" as \" identity \": \" (\"completed\" | status \" \" value)\nstatus ::= \"fulfilled\" | \"rejected\"\nwrite ::= \"write @\" identity \"[\" string \"] = \" value \" absent\"?\nreturned ::= \"return \" value\nthrown ::= \"throw \" value\nsuspended ::= \"suspend [\" identities \"] live [\" identities? \"]\"\nidentities ::= identity (\", \" identity)*\nvalues ::= value (\", \" value)*\nterm ::= value | \"$\" identity | \"%\" identity | \"project(\" term \", \" string \")\" | \"fold_left(\" term \", \" term \", add)\" | application\napplication ::= operation-2 \"(\" term \", \" term \")\" | operation-1 \"(\" term \")\" | operation-3 \"(\" term \", \" term \", \" term \")\"\noperation-2 ::= \"add\" | \"subtract\" | \"multiply\" | \"divide\" | \"remainder\" | \"power\" | \"less\" | \"less_equal\" | \"greater\" | \"greater_equal\" | \"equal\" | \"not_equal\" | \"loose_equal\" | \"loose_not_equal\" | \"bit_and\" | \"bit_or\" | \"bit_xor\" | \"shift_left\" | \"shift_right\" | \"unsigned_shift_right\" | \"and\" | \"or\" | \"coalesce\"\noperation-1 ::= \"not\" | \"positive\" | \"negate\" | \"bit_not\" | \"type_of\" | \"void\"\noperation-3 ::= \"select\"\nvalue ::= string | bigint | number | \"undefined\" | \"null\" | \"true\" | \"false\" | \"NaN\" | \"Infinity\" | \"-Infinity\" | \"@\" identity\nidentity ::= name | string\nsymbol ::= name (\".\" name)* | string\nname ::= [A-Za-z_$] [A-Za-z0-9_$]*\nbigint ::= \"-\"? uint \"n\"\nnumber ::= \"-\"? uint (\".\" [0-9]+)? (\"e\" (\"+\" | \"-\") [0-9]+)?\nuint ::= \"0\" | [1-9] [0-9]*\nstring ::= \"\\\"\" char* \"\\\"\"\nchar ::= [^\"\\\\\\x00-\\x1F] | \"\\\\\" ([\"\\\\bfnrt] | \"u\" hex hex hex hex)\nhex ::= [0-9a-f]\n",
+      "observed": "root ::= observation\ncomputation ::= identity \" = \" term \" => \" value\nrequest ::= \"request \" identity \" \" identity \": \" symbol \"(\" values? \")\"\nobservation ::= \"observe \" identity \" as \" identity \": \" (\"completed\" | status \" \" value)\nstatus ::= \"fulfilled\" | \"rejected\"\nwrite ::= \"write @\" identity \"[\" string \"] = \" value \" absent\"?\nreturned ::= \"return \" value\nthrown ::= \"throw \" value\nsuspended ::= \"suspend [\" identities \"] live [\" identities? \"]\"\nidentities ::= identity (\", \" identity)*\nvalues ::= value (\", \" value)*\nterm ::= value | \"$\" identity | \"%\" identity | \"project(\" term \", \" string \")\" | \"fold_left(\" term \", \" term \", add)\" | application\napplication ::= operation-2 \"(\" term \", \" term \")\" | operation-1 \"(\" term \")\" | operation-3 \"(\" term \", \" term \", \" term \")\"\noperation-2 ::= \"add\" | \"subtract\" | \"multiply\" | \"divide\" | \"remainder\" | \"power\" | \"less\" | \"less_equal\" | \"greater\" | \"greater_equal\" | \"equal\" | \"not_equal\" | \"loose_equal\" | \"loose_not_equal\" | \"bit_and\" | \"bit_or\" | \"bit_xor\" | \"shift_left\" | \"shift_right\" | \"unsigned_shift_right\" | \"and\" | \"or\" | \"coalesce\"\noperation-1 ::= \"not\" | \"positive\" | \"negate\" | \"bit_not\" | \"type_of\" | \"void\"\noperation-3 ::= \"select\"\nvalue ::= string | bigint | number | \"undefined\" | \"null\" | \"true\" | \"false\" | \"NaN\" | \"Infinity\" | \"-Infinity\" | \"@\" identity\nidentity ::= name | string\nsymbol ::= name (\".\" name)* | string\nname ::= [A-Za-z_$] [A-Za-z0-9_$]*\nbigint ::= \"-\"? uint \"n\"\nnumber ::= \"-\"? uint (\".\" [0-9]+)? (\"e\" (\"+\" | \"-\") [0-9]+)?\nuint ::= \"0\" | [1-9] [0-9]*\nstring ::= \"\\\"\" char* \"\\\"\"\nchar ::= [^\"\\\\\\x00-\\x1F] | \"\\\\\" ([\"\\\\bfnrt] | \"u\" hex hex hex hex)\nhex ::= [0-9a-f]\n",
+      "scope": "Syntax-only; strict value, binding, budget, capability, and causal checks still required"
+    }
+  },
+  "digest": "dcb76c95605ac50b0648a83214111b7905347a79c7d57d4f4da9fa7fbf7a0eec",
+  "fixtureDigest": "12078b6b63853ac7ad1016a872480fa997ee90dd6afa7d216bdad91a92655d99",
+  "fixtures": {
+    "scope": "Decoder fixtures test typed parsing; semantic examples separately test evaluation",
+    "canonical": [
+      {
+        "record": {
+          "kind": "compute",
+          "id": "v0",
+          "term": {
+            "op": "add",
+            "args": [
+              {
+                "op": "literal",
+                "value": [
+                  "num",
+                  1
+                ]
+              },
+              {
+                "op": "literal",
+                "value": [
+                  "num",
+                  2
+                ]
+              }
+            ]
+          },
+          "result": [
+            "num",
+            3
+          ]
+        },
+        "line": "v0 = add(1, 2) => 3",
+        "role": "generated"
+      },
+      {
+        "record": {
+          "kind": "compute",
+          "id": "v0",
+          "term": {
+            "op": "subtract",
+            "args": [
+              {
+                "op": "literal",
+                "value": [
+                  "num",
+                  1
+                ]
+              },
+              {
+                "op": "literal",
+                "value": [
+                  "num",
+                  2
+                ]
+              }
+            ]
+          },
+          "result": [
+            "num",
+            -1
+          ]
+        },
+        "line": "v0 = subtract(1, 2) => -1",
+        "role": "generated"
+      },
+      {
+        "record": {
+          "kind": "compute",
+          "id": "v0",
+          "term": {
+            "op": "multiply",
+            "args": [
+              {
+                "op": "literal",
+                "value": [
+                  "num",
+                  1
+                ]
+              },
+              {
+                "op": "literal",
+                "value": [
+                  "num",
+                  2
+                ]
+              }
+            ]
+          },
+          "result": [
+            "num",
+            2
+          ]
+        },
+        "line": "v0 = multiply(1, 2) => 2",
+        "role": "generated"
+      },
+      {
+        "record": {
+          "kind": "compute",
+          "id": "v0",
+          "term": {
+            "op": "divide",
+            "args": [
+              {
+                "op": "literal",
+                "value": [
+                  "num",
+                  1
+                ]
+              },
+              {
+                "op": "literal",
+                "value": [
+                  "num",
+                  2
+                ]
+              }
+            ]
+          },
+          "result": [
+            "num",
+            0.5
+          ]
+        },
+        "line": "v0 = divide(1, 2) => 0.5",
+        "role": "generated"
+      },
+      {
+        "record": {
+          "kind": "compute",
+          "id": "v0",
+          "term": {
+            "op": "remainder",
+            "args": [
+              {
+                "op": "literal",
+                "value": [
+                  "num",
+                  1
+                ]
+              },
+              {
+                "op": "literal",
+                "value": [
+                  "num",
+                  2
+                ]
+              }
+            ]
+          },
+          "result": [
+            "num",
+            1
+          ]
+        },
+        "line": "v0 = remainder(1, 2) => 1",
+        "role": "generated"
+      },
+      {
+        "record": {
+          "kind": "compute",
+          "id": "v0",
+          "term": {
+            "op": "power",
+            "args": [
+              {
+                "op": "literal",
+                "value": [
+                  "num",
+                  1
+                ]
+              },
+              {
+                "op": "literal",
+                "value": [
+                  "num",
+                  2
+                ]
+              }
+            ]
+          },
+          "result": [
+            "num",
+            1
+          ]
+        },
+        "line": "v0 = power(1, 2) => 1",
+        "role": "generated"
+      },
+      {
+        "record": {
+          "kind": "compute",
+          "id": "v0",
+          "term": {
+            "op": "less",
+            "args": [
+              {
+                "op": "literal",
+                "value": [
+                  "num",
+                  1
+                ]
+              },
+              {
+                "op": "literal",
+                "value": [
+                  "num",
+                  2
+                ]
+              }
+            ]
+          },
+          "result": [
+            "bool",
+            true
+          ]
+        },
+        "line": "v0 = less(1, 2) => true",
+        "role": "generated"
+      },
+      {
+        "record": {
+          "kind": "compute",
+          "id": "v0",
+          "term": {
+            "op": "less_equal",
+            "args": [
+              {
+                "op": "literal",
+                "value": [
+                  "num",
+                  1
+                ]
+              },
+              {
+                "op": "literal",
+                "value": [
+                  "num",
+                  2
+                ]
+              }
+            ]
+          },
+          "result": [
+            "bool",
+            true
+          ]
+        },
+        "line": "v0 = less_equal(1, 2) => true",
+        "role": "generated"
+      },
+      {
+        "record": {
+          "kind": "compute",
+          "id": "v0",
+          "term": {
+            "op": "greater",
+            "args": [
+              {
+                "op": "literal",
+                "value": [
+                  "num",
+                  1
+                ]
+              },
+              {
+                "op": "literal",
+                "value": [
+                  "num",
+                  2
+                ]
+              }
+            ]
+          },
+          "result": [
+            "bool",
+            false
+          ]
+        },
+        "line": "v0 = greater(1, 2) => false",
+        "role": "generated"
+      },
+      {
+        "record": {
+          "kind": "compute",
+          "id": "v0",
+          "term": {
+            "op": "greater_equal",
+            "args": [
+              {
+                "op": "literal",
+                "value": [
+                  "num",
+                  1
+                ]
+              },
+              {
+                "op": "literal",
+                "value": [
+                  "num",
+                  2
+                ]
+              }
+            ]
+          },
+          "result": [
+            "bool",
+            false
+          ]
+        },
+        "line": "v0 = greater_equal(1, 2) => false",
+        "role": "generated"
+      },
+      {
+        "record": {
+          "kind": "compute",
+          "id": "v0",
+          "term": {
+            "op": "equal",
+            "args": [
+              {
+                "op": "literal",
+                "value": [
+                  "num",
+                  1
+                ]
+              },
+              {
+                "op": "literal",
+                "value": [
+                  "num",
+                  2
+                ]
+              }
+            ]
+          },
+          "result": [
+            "bool",
+            false
+          ]
+        },
+        "line": "v0 = equal(1, 2) => false",
+        "role": "generated"
+      },
+      {
+        "record": {
+          "kind": "compute",
+          "id": "v0",
+          "term": {
+            "op": "not_equal",
+            "args": [
+              {
+                "op": "literal",
+                "value": [
+                  "num",
+                  1
+                ]
+              },
+              {
+                "op": "literal",
+                "value": [
+                  "num",
+                  2
+                ]
+              }
+            ]
+          },
+          "result": [
+            "bool",
+            true
+          ]
+        },
+        "line": "v0 = not_equal(1, 2) => true",
+        "role": "generated"
+      },
+      {
+        "record": {
+          "kind": "compute",
+          "id": "v0",
+          "term": {
+            "op": "loose_equal",
+            "args": [
+              {
+                "op": "literal",
+                "value": [
+                  "num",
+                  1
+                ]
+              },
+              {
+                "op": "literal",
+                "value": [
+                  "num",
+                  2
+                ]
+              }
+            ]
+          },
+          "result": [
+            "bool",
+            false
+          ]
+        },
+        "line": "v0 = loose_equal(1, 2) => false",
+        "role": "generated"
+      },
+      {
+        "record": {
+          "kind": "compute",
+          "id": "v0",
+          "term": {
+            "op": "loose_not_equal",
+            "args": [
+              {
+                "op": "literal",
+                "value": [
+                  "num",
+                  1
+                ]
+              },
+              {
+                "op": "literal",
+                "value": [
+                  "num",
+                  2
+                ]
+              }
+            ]
+          },
+          "result": [
+            "bool",
+            true
+          ]
+        },
+        "line": "v0 = loose_not_equal(1, 2) => true",
+        "role": "generated"
+      },
+      {
+        "record": {
+          "kind": "compute",
+          "id": "v0",
+          "term": {
+            "op": "bit_and",
+            "args": [
+              {
+                "op": "literal",
+                "value": [
+                  "num",
+                  1
+                ]
+              },
+              {
+                "op": "literal",
+                "value": [
+                  "num",
+                  2
+                ]
+              }
+            ]
+          },
+          "result": [
+            "num",
+            0
+          ]
+        },
+        "line": "v0 = bit_and(1, 2) => 0",
+        "role": "generated"
+      },
+      {
+        "record": {
+          "kind": "compute",
+          "id": "v0",
+          "term": {
+            "op": "bit_or",
+            "args": [
+              {
+                "op": "literal",
+                "value": [
+                  "num",
+                  1
+                ]
+              },
+              {
+                "op": "literal",
+                "value": [
+                  "num",
+                  2
+                ]
+              }
+            ]
+          },
+          "result": [
+            "num",
+            3
+          ]
+        },
+        "line": "v0 = bit_or(1, 2) => 3",
+        "role": "generated"
+      },
+      {
+        "record": {
+          "kind": "compute",
+          "id": "v0",
+          "term": {
+            "op": "bit_xor",
+            "args": [
+              {
+                "op": "literal",
+                "value": [
+                  "num",
+                  1
+                ]
+              },
+              {
+                "op": "literal",
+                "value": [
+                  "num",
+                  2
+                ]
+              }
+            ]
+          },
+          "result": [
+            "num",
+            3
+          ]
+        },
+        "line": "v0 = bit_xor(1, 2) => 3",
+        "role": "generated"
+      },
+      {
+        "record": {
+          "kind": "compute",
+          "id": "v0",
+          "term": {
+            "op": "shift_left",
+            "args": [
+              {
+                "op": "literal",
+                "value": [
+                  "num",
+                  1
+                ]
+              },
+              {
+                "op": "literal",
+                "value": [
+                  "num",
+                  2
+                ]
+              }
+            ]
+          },
+          "result": [
+            "num",
+            4
+          ]
+        },
+        "line": "v0 = shift_left(1, 2) => 4",
+        "role": "generated"
+      },
+      {
+        "record": {
+          "kind": "compute",
+          "id": "v0",
+          "term": {
+            "op": "shift_right",
+            "args": [
+              {
+                "op": "literal",
+                "value": [
+                  "num",
+                  1
+                ]
+              },
+              {
+                "op": "literal",
+                "value": [
+                  "num",
+                  2
+                ]
+              }
+            ]
+          },
+          "result": [
+            "num",
+            0
+          ]
+        },
+        "line": "v0 = shift_right(1, 2) => 0",
+        "role": "generated"
+      },
+      {
+        "record": {
+          "kind": "compute",
+          "id": "v0",
+          "term": {
+            "op": "unsigned_shift_right",
+            "args": [
+              {
+                "op": "literal",
+                "value": [
+                  "num",
+                  1
+                ]
+              },
+              {
+                "op": "literal",
+                "value": [
+                  "num",
+                  2
+                ]
+              }
+            ]
+          },
+          "result": [
+            "num",
+            0
+          ]
+        },
+        "line": "v0 = unsigned_shift_right(1, 2) => 0",
+        "role": "generated"
+      },
+      {
+        "record": {
+          "kind": "compute",
+          "id": "v0",
+          "term": {
+            "op": "not",
+            "args": [
+              {
+                "op": "literal",
+                "value": [
+                  "num",
+                  1
+                ]
+              }
+            ]
+          },
+          "result": [
+            "bool",
+            false
+          ]
+        },
+        "line": "v0 = not(1) => false",
+        "role": "generated"
+      },
+      {
+        "record": {
+          "kind": "compute",
+          "id": "v0",
+          "term": {
+            "op": "positive",
+            "args": [
+              {
+                "op": "literal",
+                "value": [
+                  "num",
+                  1
+                ]
+              }
+            ]
+          },
+          "result": [
+            "num",
+            1
+          ]
+        },
+        "line": "v0 = positive(1) => 1",
+        "role": "generated"
+      },
+      {
+        "record": {
+          "kind": "compute",
+          "id": "v0",
+          "term": {
+            "op": "negate",
+            "args": [
+              {
+                "op": "literal",
+                "value": [
+                  "num",
+                  1
+                ]
+              }
+            ]
+          },
+          "result": [
+            "num",
+            -1
+          ]
+        },
+        "line": "v0 = negate(1) => -1",
+        "role": "generated"
+      },
+      {
+        "record": {
+          "kind": "compute",
+          "id": "v0",
+          "term": {
+            "op": "bit_not",
+            "args": [
+              {
+                "op": "literal",
+                "value": [
+                  "num",
+                  1
+                ]
+              }
+            ]
+          },
+          "result": [
+            "num",
+            -2
+          ]
+        },
+        "line": "v0 = bit_not(1) => -2",
+        "role": "generated"
+      },
+      {
+        "record": {
+          "kind": "compute",
+          "id": "v0",
+          "term": {
+            "op": "type_of",
+            "args": [
+              {
+                "op": "literal",
+                "value": [
+                  "num",
+                  1
+                ]
+              }
+            ]
+          },
+          "result": [
+            "str",
+            "number"
+          ]
+        },
+        "line": "v0 = type_of(1) => \"number\"",
+        "role": "generated"
+      },
+      {
+        "record": {
+          "kind": "compute",
+          "id": "v0",
+          "term": {
+            "op": "void",
+            "args": [
+              {
+                "op": "literal",
+                "value": [
+                  "num",
+                  1
+                ]
+              }
+            ]
+          },
+          "result": [
+            "undefined"
+          ]
+        },
+        "line": "v0 = void(1) => undefined",
+        "role": "generated"
+      },
+      {
+        "record": {
+          "kind": "compute",
+          "id": "v0",
+          "term": {
+            "op": "select",
+            "args": [
+              {
+                "op": "literal",
+                "value": [
+                  "num",
+                  1
+                ]
+              },
+              {
+                "op": "literal",
+                "value": [
+                  "num",
+                  2
+                ]
+              },
+              {
+                "op": "literal",
+                "value": [
+                  "num",
+                  3
+                ]
+              }
+            ]
+          },
+          "result": [
+            "num",
+            2
+          ]
+        },
+        "line": "v0 = select(1, 2, 3) => 2",
+        "role": "generated"
+      },
+      {
+        "record": {
+          "kind": "compute",
+          "id": "v0",
+          "term": {
+            "op": "and",
+            "args": [
+              {
+                "op": "literal",
+                "value": [
+                  "num",
+                  1
+                ]
+              },
+              {
+                "op": "literal",
+                "value": [
+                  "num",
+                  2
+                ]
+              }
+            ]
+          },
+          "result": [
+            "num",
+            2
+          ]
+        },
+        "line": "v0 = and(1, 2) => 2",
+        "role": "generated"
+      },
+      {
+        "record": {
+          "kind": "compute",
+          "id": "v0",
+          "term": {
+            "op": "or",
+            "args": [
+              {
+                "op": "literal",
+                "value": [
+                  "num",
+                  1
+                ]
+              },
+              {
+                "op": "literal",
+                "value": [
+                  "num",
+                  2
+                ]
+              }
+            ]
+          },
+          "result": [
+            "num",
+            1
+          ]
+        },
+        "line": "v0 = or(1, 2) => 1",
+        "role": "generated"
+      },
+      {
+        "record": {
+          "kind": "compute",
+          "id": "v0",
+          "term": {
+            "op": "coalesce",
+            "args": [
+              {
+                "op": "literal",
+                "value": [
+                  "num",
+                  1
+                ]
+              },
+              {
+                "op": "literal",
+                "value": [
+                  "num",
+                  2
+                ]
+              }
+            ]
+          },
+          "result": [
+            "num",
+            1
+          ]
+        },
+        "line": "v0 = coalesce(1, 2) => 1",
+        "role": "generated"
+      },
+      {
+        "record": {
+          "kind": "compute",
+          "id": "v0",
+          "term": {
+            "op": "fold_left",
+            "input": {
+              "op": "input",
+              "id": "a0"
+            },
+            "initial": {
+              "op": "literal",
+              "value": [
+                "num",
+                0
+              ]
+            },
+            "step": "add",
+            "order": "ascending",
+            "profile": "dense-number-array/1"
+          },
+          "result": [
+            "num",
+            9
+          ]
+        },
+        "line": "v0 = fold_left($a0, 0, add) => 9",
+        "role": "generated"
+      },
+      {
+        "record": {
+          "kind": "compute",
+          "id": "v0",
+          "term": {
+            "op": "project",
+            "object": {
+              "op": "input",
+              "id": "a0"
+            },
+            "key": "n"
+          },
+          "result": [
+            "undefined"
+          ]
+        },
+        "line": "v0 = project($a0, \"n\") => undefined",
+        "role": "generated"
+      },
+      {
+        "record": {
+          "kind": "request",
+          "id": "r0",
+          "boundary": "b0",
+          "operation": "demo.readAsync",
+          "arguments": [
+            [
+              "str",
+              "counter"
+            ]
+          ]
+        },
+        "line": "request r0 b0: demo.readAsync(\"counter\")",
+        "role": "generated"
+      },
+      {
+        "record": {
+          "kind": "request",
+          "id": "r1",
+          "boundary": "b1",
+          "operation": "demo.store",
+          "arguments": [
+            [
+              "str",
+              "counter"
+            ],
+            [
+              "num",
+              8
+            ]
+          ]
+        },
+        "line": "request r1 b1: demo.store(\"counter\", 8)",
+        "role": "generated"
+      },
+      {
+        "record": {
+          "kind": "observe",
+          "request": "r0",
+          "id": "v0",
+          "status": "fulfilled",
+          "value": [
+            "num",
+            7
+          ]
+        },
+        "line": "observe r0 as v0: fulfilled 7",
+        "role": "observed"
+      },
+      {
+        "record": {
+          "kind": "observe",
+          "request": "r0",
+          "id": "v0",
+          "status": "rejected",
+          "value": [
+            "str",
+            "missing"
+          ]
+        },
+        "line": "observe r0 as v0: rejected \"missing\"",
+        "role": "observed"
+      },
+      {
+        "record": {
+          "kind": "observe",
+          "request": "r1",
+          "id": "v2",
+          "status": "completed"
+        },
+        "line": "observe r1 as v2: completed",
+        "role": "observed"
+      },
+      {
+        "record": {
+          "kind": "observe",
+          "request": "r1",
+          "id": "v2",
+          "status": "fulfilled",
+          "value": [
+            "undefined"
+          ]
+        },
+        "line": "observe r1 as v2: fulfilled undefined",
+        "role": "observed"
+      },
+      {
+        "record": {
+          "kind": "write",
+          "object": [
+            "ref",
+            "o1"
+          ],
+          "key": "n",
+          "value": [
+            "num",
+            2
+          ],
+          "present": true
+        },
+        "line": "write @o1[\"n\"] = 2",
+        "role": "generated"
+      },
+      {
+        "record": {
+          "kind": "write",
+          "object": [
+            "ref",
+            "o1"
+          ],
+          "key": "n",
+          "value": [
+            "undefined"
+          ],
+          "present": false
+        },
+        "line": "write @o1[\"n\"] = undefined absent",
+        "role": "generated"
+      },
+      {
+        "record": {
+          "kind": "suspend",
+          "requests": [
+            "r0"
+          ],
+          "live": [
+            "v0"
+          ]
+        },
+        "line": "suspend [r0] live [v0]",
+        "role": "generated"
+      },
+      {
+        "record": {
+          "kind": "return",
+          "value": [
+            "num",
+            8
+          ]
+        },
+        "line": "return 8",
+        "role": "generated"
+      },
+      {
+        "record": {
+          "kind": "throw",
+          "value": [
+            "str",
+            "missing"
+          ]
+        },
+        "line": "throw \"missing\"",
+        "role": "generated"
+      },
+      {
+        "record": {
+          "kind": "return",
+          "value": [
+            "undefined"
+          ]
+        },
+        "line": "return undefined",
+        "role": "generated"
+      },
+      {
+        "record": {
+          "kind": "return",
+          "value": [
+            "null"
+          ]
+        },
+        "line": "return null",
+        "role": "generated"
+      },
+      {
+        "record": {
+          "kind": "return",
+          "value": [
+            "bool",
+            true
+          ]
+        },
+        "line": "return true",
+        "role": "generated"
+      },
+      {
+        "record": {
+          "kind": "return",
+          "value": [
+            "str",
+            "a\n\"é"
+          ]
+        },
+        "line": "return \"a\\n\\\"é\"",
+        "role": "generated"
+      },
+      {
+        "record": {
+          "kind": "return",
+          "value": [
+            "num",
+            "-0"
+          ]
+        },
+        "line": "return -0",
+        "role": "generated"
+      },
+      {
+        "record": {
+          "kind": "return",
+          "value": [
+            "num",
+            "NaN"
+          ]
+        },
+        "line": "return NaN",
+        "role": "generated"
+      },
+      {
+        "record": {
+          "kind": "return",
+          "value": [
+            "num",
+            "+Infinity"
+          ]
+        },
+        "line": "return Infinity",
+        "role": "generated"
+      },
+      {
+        "record": {
+          "kind": "return",
+          "value": [
+            "num",
+            "-Infinity"
+          ]
+        },
+        "line": "return -Infinity",
+        "role": "generated"
+      },
+      {
+        "record": {
+          "kind": "return",
+          "value": [
+            "num",
+            1e+21
+          ]
+        },
+        "line": "return 1e+21",
+        "role": "generated"
+      },
+      {
+        "record": {
+          "kind": "return",
+          "value": [
+            "bigint",
+            "12345678901234567890"
+          ]
+        },
+        "line": "return 12345678901234567890n",
+        "role": "generated"
+      },
+      {
+        "record": {
+          "kind": "return",
+          "value": [
+            "ref",
+            "object:1"
+          ]
+        },
+        "line": "return @\"object:1\"",
+        "role": "generated"
+      }
+    ],
+    "invalid": [
+      "return 1.0",
+      "return 01",
+      "return 1e0",
+      "return -0n",
+      "return 1e999",
+      "return \"\\u0061\"",
+      "evaluate run(1) => 2",
+      "compute (a + 1) => 2",
+      "return {\"value\":[\"num\",1]}",
+      "v0 = add(1) => 1",
+      "v0 = add(1,2) => 3",
+      "v0 = unknown(1) => 1",
+      "v0 = fold_left($a0, 0, multiply) => 0",
+      "observe r0 as v0: pending 1",
+      "observe r0 as v0: completed undefined",
+      "suspend [] live []",
+      "suspend [r0, r0] live []",
+      "request r0 b0: demo.store(\"counter\", 8) payload [\"counter\",8]",
+      "return 1\nreturn 2"
+    ],
+    "invalidGenerated": [
+      "observe r0 as v0: fulfilled 7"
+    ],
+    "invalidObserved": [
+      "v0 = add(1, 2) => 3"
+    ],
+    "cores": {
+      "valid": [
+        {
+          "schema": "semantic-algorithm/1",
+          "profile": "ecmascript-primitive/1",
+          "inputs": [
+            {
+              "id": "a0",
+              "type": "number"
+            }
+          ],
+          "steps": [
+            {
+              "kind": "compute",
+              "id": "v0",
+              "term": {
+                "op": "add",
+                "args": [
+                  {
+                    "op": "input",
+                    "id": "a0"
+                  },
+                  {
+                    "op": "literal",
+                    "value": [
+                      "num",
+                      1
+                    ]
+                  }
+                ]
+              }
+            },
+            {
+              "kind": "return",
+              "value": {
+                "op": "ref",
+                "id": "v0"
+              }
+            }
+          ]
+        }
+      ],
+      "invalid": [
+        {
+          "schema": "semantic-algorithm/1",
+          "profile": "ecmascript-primitive/1",
+          "inputs": [
+            {
+              "id": "a0",
+              "type": "number"
+            }
+          ],
+          "steps": [
+            {
+              "kind": "compute",
+              "id": "v0",
+              "term": {
+                "op": "add",
+                "args": [
+                  {
+                    "op": "input",
+                    "id": "future"
+                  },
+                  {
+                    "op": "literal",
+                    "value": [
+                      "num",
+                      1
+                    ]
+                  }
+                ]
+              }
+            },
+            {
+              "kind": "return",
+              "value": {
+                "op": "ref",
+                "id": "v0"
+              }
+            }
+          ]
+        }
+      ]
+    },
+    "semanticExamples": [
+      {
+        "core": {
+          "schema": "semantic-algorithm/1",
+          "profile": "ecmascript-primitive/1",
+          "inputs": [
+            {
+              "id": "a0",
+              "type": "number"
+            }
+          ],
+          "steps": [
+            {
+              "kind": "compute",
+              "id": "v0",
+              "term": {
+                "op": "add",
+                "args": [
+                  {
+                    "op": "input",
+                    "id": "a0"
+                  },
+                  {
+                    "op": "literal",
+                    "value": [
+                      "num",
+                      1
+                    ]
+                  }
+                ]
+              }
+            },
+            {
+              "kind": "return",
+              "value": {
+                "op": "ref",
+                "id": "v0"
+              }
+            }
+          ]
+        },
+        "arguments": [
+          [
+            "num",
+            4
+          ]
+        ],
+        "expectedCompletion": {
+          "kind": "return",
+          "value": [
+            "num",
+            5
+          ]
+        }
+      }
+    ]
+  }
+}

@@ -1,0 +1,4060 @@
+{
+  "definition": {
+    "schema": "semantic-execution-contract/7",
+    "status": "candidate",
+    "execution": "semantic-execution/7",
+    "trace": "semantic-trace/7",
+    "context": "semantic-context/7",
+    "representations": [
+      "algorithm",
+      "detailed"
+    ],
+    "profiles": {
+      "algorithm": {
+        "schema": "semantic-algorithm-contract/1",
+        "status": "candidate",
+        "versions": {
+          "core": "semantic-algorithm/1",
+          "profile": "ecmascript-primitive/1",
+          "observation": "semantic-observation/1",
+          "receipt": "semantic-transformation-receipt/1",
+          "program": "semantic-algorithm-program/1",
+          "trace": "semantic-trace/7",
+          "execution": "semantic-execution/7",
+          "context": "semantic-context/7",
+          "continuation": "semantic-continuation/7"
+        },
+        "core": {
+          "fields": [
+            "schema",
+            "profile",
+            "inputs",
+            "steps"
+          ],
+          "inputFields": [
+            "id",
+            "type"
+          ],
+          "inputTypes": [
+            "scalar",
+            "number",
+            "dense-number-array",
+            "data"
+          ],
+          "steps": {
+            "compute": [
+              "kind",
+              "id",
+              "term"
+            ],
+            "request": [
+              "kind",
+              "id",
+              "boundary",
+              "operation",
+              "arguments"
+            ],
+            "observe": [
+              "kind",
+              "id",
+              "request"
+            ],
+            "write": [
+              "kind",
+              "object",
+              "key",
+              "value",
+              "present"
+            ],
+            "return": [
+              "kind",
+              "value"
+            ],
+            "throw": [
+              "kind",
+              "value"
+            ],
+            "suspend": [
+              "kind",
+              "requests",
+              "live"
+            ]
+          }
+        },
+        "terms": {
+          "literal": [
+            "op",
+            "value"
+          ],
+          "input": [
+            "op",
+            "id"
+          ],
+          "ref": [
+            "op",
+            "id"
+          ],
+          "project": [
+            "op",
+            "object",
+            "key"
+          ],
+          "operation": [
+            "op",
+            "args"
+          ],
+          "fold_left": [
+            "op",
+            "input",
+            "initial",
+            "step",
+            "order",
+            "profile"
+          ]
+        },
+        "operations": {
+          "add": {
+            "arity": 2,
+            "operator": "+",
+            "description": "add",
+            "reading": "the sum or primitive concatenation of {0} and {1}",
+            "lazy": false
+          },
+          "subtract": {
+            "arity": 2,
+            "operator": "-",
+            "description": "subtract",
+            "reading": "{0} minus {1}",
+            "lazy": false
+          },
+          "multiply": {
+            "arity": 2,
+            "operator": "*",
+            "description": "multiply",
+            "reading": "the product of {0} and {1}",
+            "lazy": false
+          },
+          "divide": {
+            "arity": 2,
+            "operator": "/",
+            "description": "divide",
+            "reading": "{0} divided by {1}",
+            "lazy": false
+          },
+          "remainder": {
+            "arity": 2,
+            "operator": "%",
+            "description": "take the remainder",
+            "reading": "the remainder of {0} divided by {1}",
+            "lazy": false
+          },
+          "power": {
+            "arity": 2,
+            "operator": "**",
+            "description": "raise to a power",
+            "reading": "{0} raised to {1}",
+            "lazy": false
+          },
+          "less": {
+            "arity": 2,
+            "operator": "<",
+            "description": "compare less than",
+            "reading": "whether {0} is less than {1}",
+            "lazy": false
+          },
+          "less_equal": {
+            "arity": 2,
+            "operator": "<=",
+            "description": "compare less than or equal",
+            "reading": "whether {0} is less than or equal to {1}",
+            "lazy": false
+          },
+          "greater": {
+            "arity": 2,
+            "operator": ">",
+            "description": "compare greater than",
+            "reading": "whether {0} is greater than {1}",
+            "lazy": false
+          },
+          "greater_equal": {
+            "arity": 2,
+            "operator": ">=",
+            "description": "compare greater than or equal",
+            "reading": "whether {0} is greater than or equal to {1}",
+            "lazy": false
+          },
+          "equal": {
+            "arity": 2,
+            "operator": "===",
+            "description": "compare strict equality",
+            "reading": "whether {0} strictly equals {1}",
+            "lazy": false
+          },
+          "not_equal": {
+            "arity": 2,
+            "operator": "!==",
+            "description": "compare strict inequality",
+            "reading": "whether {0} does not strictly equal {1}",
+            "lazy": false
+          },
+          "loose_equal": {
+            "arity": 2,
+            "operator": "==",
+            "description": "compare primitive equality",
+            "reading": "whether {0} equals {1} under primitive coercion",
+            "lazy": false
+          },
+          "loose_not_equal": {
+            "arity": 2,
+            "operator": "!=",
+            "description": "compare primitive inequality",
+            "reading": "whether {0} differs from {1} under primitive coercion",
+            "lazy": false
+          },
+          "bit_and": {
+            "arity": 2,
+            "operator": "&",
+            "description": "bitwise and",
+            "reading": "the bitwise AND of {0} and {1}",
+            "lazy": false
+          },
+          "bit_or": {
+            "arity": 2,
+            "operator": "|",
+            "description": "bitwise or",
+            "reading": "the bitwise OR of {0} and {1}",
+            "lazy": false
+          },
+          "bit_xor": {
+            "arity": 2,
+            "operator": "^",
+            "description": "bitwise exclusive or",
+            "reading": "the bitwise exclusive OR of {0} and {1}",
+            "lazy": false
+          },
+          "shift_left": {
+            "arity": 2,
+            "operator": "<<",
+            "description": "shift left",
+            "reading": "{0} shifted left by {1}",
+            "lazy": false
+          },
+          "shift_right": {
+            "arity": 2,
+            "operator": ">>",
+            "description": "shift right",
+            "reading": "{0} shifted right by {1}",
+            "lazy": false
+          },
+          "unsigned_shift_right": {
+            "arity": 2,
+            "operator": ">>>",
+            "description": "shift right unsigned",
+            "reading": "{0} shifted right by {1} with zero fill",
+            "lazy": false
+          },
+          "not": {
+            "arity": 1,
+            "operator": "!",
+            "description": "negate the truth value",
+            "reading": "the negation of the truth value of {0}",
+            "lazy": false
+          },
+          "positive": {
+            "arity": 1,
+            "operator": "+",
+            "description": "convert to a number",
+            "reading": "{0} converted to a Number",
+            "lazy": false
+          },
+          "negate": {
+            "arity": 1,
+            "operator": "-",
+            "description": "negate",
+            "reading": "the numeric negation of {0}",
+            "lazy": false
+          },
+          "bit_not": {
+            "arity": 1,
+            "operator": "~",
+            "description": "invert bits",
+            "reading": "the bitwise inversion of {0}",
+            "lazy": false
+          },
+          "type_of": {
+            "arity": 1,
+            "operator": "typeof",
+            "description": "inspect primitive type",
+            "reading": "the primitive type of {0}",
+            "lazy": false
+          },
+          "void": {
+            "arity": 1,
+            "operator": "void",
+            "description": "produce undefined",
+            "reading": "undefined after evaluating {0}",
+            "lazy": false
+          },
+          "select": {
+            "arity": 3,
+            "operator": "?:",
+            "description": "choose a value from the condition",
+            "reading": "{1} when {0} is truthy, otherwise {2}; evaluate only the selected branch",
+            "lazy": true
+          },
+          "and": {
+            "arity": 2,
+            "operator": "&&",
+            "description": "use the right value only when the left is truthy",
+            "reading": "{1} only when {0} is truthy, otherwise {0}",
+            "lazy": true
+          },
+          "or": {
+            "arity": 2,
+            "operator": "||",
+            "description": "use the right value only when the left is falsy",
+            "reading": "{1} only when {0} is falsy, otherwise {0}",
+            "lazy": true
+          },
+          "coalesce": {
+            "arity": 2,
+            "operator": "??",
+            "description": "use the fallback only for null or undefined",
+            "reading": "{1} only when {0} is null or undefined, otherwise {0}",
+            "lazy": true
+          }
+        },
+        "fold": {
+          "step": "add",
+          "order": "ascending",
+          "profile": "dense-number-array/1",
+          "inputs": "Ordinary dense arrays with only length and finite numeric elements; at most 128 items",
+          "semantics": "Binary64 left-to-right accumulation; no reassociation; preserve overflow and signed zero"
+        },
+        "records": {
+          "kinds": [
+            "compute",
+            "request",
+            "observe",
+            "write",
+            "return",
+            "throw",
+            "suspend"
+          ],
+          "fields": {
+            "compute": [
+              "kind",
+              "id",
+              "term",
+              "result"
+            ],
+            "request": [
+              "kind",
+              "id",
+              "boundary",
+              "operation",
+              "arguments"
+            ],
+            "observe": {
+              "completed": [
+                "kind",
+                "request",
+                "id",
+                "status"
+              ],
+              "fulfilled": [
+                "kind",
+                "request",
+                "id",
+                "status",
+                "value"
+              ],
+              "rejected": [
+                "kind",
+                "request",
+                "id",
+                "status",
+                "value"
+              ]
+            },
+            "write": [
+              "kind",
+              "object",
+              "key",
+              "value",
+              "present"
+            ],
+            "return": [
+              "kind",
+              "value"
+            ],
+            "throw": [
+              "kind",
+              "value"
+            ],
+            "suspend": [
+              "kind",
+              "requests",
+              "live"
+            ]
+          },
+          "extraFields": "rejected",
+          "canonicality": "parse then re-encode must equal exact original bytes"
+        },
+        "values": {
+          "tags": [
+            "undefined",
+            "null",
+            "bool",
+            "str",
+            "num",
+            "bigint",
+            "ref"
+          ],
+          "specialNumbers": [
+            "-0",
+            "NaN",
+            "+Infinity",
+            "-Infinity"
+          ],
+          "bigint": "Canonical decimal string with no leading zero or negative zero",
+          "identityPattern": "^[A-Za-z_$][A-Za-z0-9_$:-]*$",
+          "dependencySpelling": {
+            "input": "$id",
+            "value": "%id",
+            "object": "@id"
+          }
+        },
+        "limits": {
+          "steps": 256,
+          "termNodes": 512,
+          "depth": 64,
+          "foldItems": 128,
+          "recordBytes": 65536,
+          "arguments": 128
+        },
+        "execution": {
+          "fields": [
+            "schema",
+            "traceFormat",
+            "contextFormat",
+            "representation",
+            "profile",
+            "timeline",
+            "completion",
+            "claims",
+            "firstViolation"
+          ],
+          "representation": "algorithm",
+          "profile": "algorithm-execution/1",
+          "checkpoint": "semantic-algorithm-checkpoint/2",
+          "continuationFields": [
+            "schema",
+            "representation",
+            "program",
+            "inputGraph",
+            "capabilities",
+            "invocationId",
+            "sessionId",
+            "history",
+            "state",
+            "integrity"
+          ]
+        },
+        "context": {
+          "required": [
+            "schema",
+            "representation",
+            "definition",
+            "input",
+            "invocationId",
+            "state",
+            "visibleThrough",
+            "prefixDigest"
+          ],
+          "representation": "algorithm",
+          "optional": [
+            "program",
+            "inputGraph"
+          ],
+          "definitionIdentity": "program.definitionDigest",
+          "inputIdentity": "sha256(stableAlgorithmJSON(inputGraph))",
+          "publication": "Publish immutable program and input graph before referencing their identities",
+          "inputScope": "One immutable input graph identity per invocation; live semantic values are separate state",
+          "stateFields": [
+            "cursor",
+            "values",
+            "symbols",
+            "pending",
+            "abrupt",
+            "completion",
+            "firstViolation"
+          ],
+          "costBoundary": "Actual JS context snapshots; native framing and retrieval require separate measurement"
+        },
+        "authority": {
+          "generated": [
+            "compute",
+            "request",
+            "write",
+            "return",
+            "throw",
+            "suspend"
+          ],
+          "observed": [
+            "observe"
+          ],
+          "observationLoss": 0,
+          "capabilityRouting": "Immutable certified semantic boundary and committed arguments",
+          "payload": "Derived by host codec; absent from generated requests",
+          "unsupported": "Explicit refusal or separately labeled detailed artifact; no relabeling",
+          "nativeQualification": "Requires the actual independent companion and pinned tokenizer; fixtures alone do not qualify it"
+        },
+        "grammar": {
+          "generated": "root ::= computation | request | write | returned | thrown | suspended\ncomputation ::= identity \" = \" term \" => \" value\nrequest ::= \"request \" identity \" \" identity \": \" symbol \"(\" values? \")\"\nobservation ::= \"observe \" identity \" as \" identity \": \" (\"completed\" | status \" \" value)\nstatus ::= \"fulfilled\" | \"rejected\"\nwrite ::= \"write @\" identity \"[\" string \"] = \" value \" absent\"?\nreturned ::= \"return \" value\nthrown ::= \"throw \" value\nsuspended ::= \"suspend [\" identities \"] live [\" identities? \"]\"\nidentities ::= identity (\", \" identity)*\nvalues ::= value (\", \" value)*\nterm ::= value | \"$\" identity | \"%\" identity | \"project(\" term \", \" string \")\" | \"fold_left(\" term \", \" term \", add)\" | application\napplication ::= operation-2 \"(\" term \", \" term \")\" | operation-1 \"(\" term \")\" | operation-3 \"(\" term \", \" term \", \" term \")\"\noperation-2 ::= \"add\" | \"subtract\" | \"multiply\" | \"divide\" | \"remainder\" | \"power\" | \"less\" | \"less_equal\" | \"greater\" | \"greater_equal\" | \"equal\" | \"not_equal\" | \"loose_equal\" | \"loose_not_equal\" | \"bit_and\" | \"bit_or\" | \"bit_xor\" | \"shift_left\" | \"shift_right\" | \"unsigned_shift_right\" | \"and\" | \"or\" | \"coalesce\"\noperation-1 ::= \"not\" | \"positive\" | \"negate\" | \"bit_not\" | \"type_of\" | \"void\"\noperation-3 ::= \"select\"\nvalue ::= string | bigint | number | \"undefined\" | \"null\" | \"true\" | \"false\" | \"NaN\" | \"Infinity\" | \"-Infinity\" | \"@\" identity\nidentity ::= name | string\nsymbol ::= name (\".\" name)* | string\nname ::= [A-Za-z_$] [A-Za-z0-9_$]*\nbigint ::= \"-\"? uint \"n\"\nnumber ::= \"-\"? uint (\".\" [0-9]+)? (\"e\" (\"+\" | \"-\") [0-9]+)?\nuint ::= \"0\" | [1-9] [0-9]*\nstring ::= \"\\\"\" char* \"\\\"\"\nchar ::= [^\"\\\\\\x00-\\x1F] | \"\\\\\" ([\"\\\\bfnrt] | \"u\" hex hex hex hex)\nhex ::= [0-9a-f]\n",
+          "observed": "root ::= observation\ncomputation ::= identity \" = \" term \" => \" value\nrequest ::= \"request \" identity \" \" identity \": \" symbol \"(\" values? \")\"\nobservation ::= \"observe \" identity \" as \" identity \": \" (\"completed\" | status \" \" value)\nstatus ::= \"fulfilled\" | \"rejected\"\nwrite ::= \"write @\" identity \"[\" string \"] = \" value \" absent\"?\nreturned ::= \"return \" value\nthrown ::= \"throw \" value\nsuspended ::= \"suspend [\" identities \"] live [\" identities? \"]\"\nidentities ::= identity (\", \" identity)*\nvalues ::= value (\", \" value)*\nterm ::= value | \"$\" identity | \"%\" identity | \"project(\" term \", \" string \")\" | \"fold_left(\" term \", \" term \", add)\" | application\napplication ::= operation-2 \"(\" term \", \" term \")\" | operation-1 \"(\" term \")\" | operation-3 \"(\" term \", \" term \", \" term \")\"\noperation-2 ::= \"add\" | \"subtract\" | \"multiply\" | \"divide\" | \"remainder\" | \"power\" | \"less\" | \"less_equal\" | \"greater\" | \"greater_equal\" | \"equal\" | \"not_equal\" | \"loose_equal\" | \"loose_not_equal\" | \"bit_and\" | \"bit_or\" | \"bit_xor\" | \"shift_left\" | \"shift_right\" | \"unsigned_shift_right\" | \"and\" | \"or\" | \"coalesce\"\noperation-1 ::= \"not\" | \"positive\" | \"negate\" | \"bit_not\" | \"type_of\" | \"void\"\noperation-3 ::= \"select\"\nvalue ::= string | bigint | number | \"undefined\" | \"null\" | \"true\" | \"false\" | \"NaN\" | \"Infinity\" | \"-Infinity\" | \"@\" identity\nidentity ::= name | string\nsymbol ::= name (\".\" name)* | string\nname ::= [A-Za-z_$] [A-Za-z0-9_$]*\nbigint ::= \"-\"? uint \"n\"\nnumber ::= \"-\"? uint (\".\" [0-9]+)? (\"e\" (\"+\" | \"-\") [0-9]+)?\nuint ::= \"0\" | [1-9] [0-9]*\nstring ::= \"\\\"\" char* \"\\\"\"\nchar ::= [^\"\\\\\\x00-\\x1F] | \"\\\\\" ([\"\\\\bfnrt] | \"u\" hex hex hex hex)\nhex ::= [0-9a-f]\n",
+          "scope": "Syntax-only; strict value, binding, budget, capability, and causal checks still required"
+        }
+      },
+      "detailed": {
+        "schema": "semantic-detailed-contract/7",
+        "execution": "semantic-execution/7",
+        "trace": "semantic-trace/7",
+        "context": "semantic-context/7",
+        "continuation": "semantic-continuation/7",
+        "profile": "selected-detailed/1",
+        "representation": "detailed",
+        "publicFields": [
+          "schema",
+          "profile",
+          "traceFormat",
+          "contextFormat",
+          "representation",
+          "timeline"
+        ],
+        "completionPolicies": [
+          "call-return",
+          "await-returned-promise",
+          "owned-quiescence"
+        ],
+        "commonFields": [
+          "schema",
+          "session",
+          "sequence",
+          "ownerSequence",
+          "track",
+          "mode",
+          "kind"
+        ],
+        "witness": {
+          "allowed": {
+            "code": [
+              "entry",
+              "source",
+              "sites",
+              "randomSeed"
+            ],
+            "input": [
+              "graph",
+              "retained"
+            ],
+            "compute": [
+              "expr",
+              "result",
+              "bind",
+              "invocation",
+              "site"
+            ],
+            "choose": [
+              "expr",
+              "decision",
+              "path",
+              "invocation",
+              "site"
+            ],
+            "allocate": [
+              "name",
+              "kind",
+              "length",
+              "properties",
+              "code",
+              "captures",
+              "invocation"
+            ],
+            "read": [
+              "object",
+              "key",
+              "value",
+              "present",
+              "invocation"
+            ],
+            "write": [
+              "object",
+              "key",
+              "value",
+              "present",
+              "invocation"
+            ],
+            "bind": [
+              "name",
+              "value",
+              "from",
+              "invocation"
+            ],
+            "call": [
+              "child",
+              "callee",
+              "receiver",
+              "arguments",
+              "invocation"
+            ],
+            "transfer": [
+              "kind",
+              "value",
+              "handler",
+              "invocation"
+            ],
+            "return": [
+              "value",
+              "invocation"
+            ],
+            "throw": [
+              "value",
+              "invocation"
+            ],
+            "request": [
+              "effect",
+              "operation",
+              "arguments",
+              "invocation",
+              "site",
+              "payload",
+              "promise"
+            ],
+            "observe": [
+              "effect",
+              "result",
+              "status",
+              "graph"
+            ],
+            "job": [
+              "action",
+              "job",
+              "owner",
+              "result",
+              "closure"
+            ],
+            "promise": [
+              "action",
+              "promise",
+              "value",
+              "target",
+              "job",
+              "reaction",
+              "closure",
+              "rejectionClosure",
+              "invocation"
+            ],
+            "await": [
+              "promise",
+              "continuation",
+              "invocation",
+              "returnPromise"
+            ],
+            "resume": [
+              "continuation",
+              "invocation",
+              "result",
+              "status"
+            ],
+            "end": [
+              "kind"
+            ],
+            "summarize": [
+              "entry",
+              "arguments",
+              "result",
+              "profile",
+              "decisions",
+              "iterations",
+              "accumulator",
+              "invocation"
+            ]
+          },
+          "required": {
+            "code": [
+              "entry",
+              "source",
+              "sites"
+            ],
+            "input": [
+              "graph"
+            ],
+            "compute": [
+              "expr",
+              "result"
+            ],
+            "choose": [
+              "expr",
+              "decision",
+              "path"
+            ],
+            "allocate": [
+              "name",
+              "kind",
+              "properties"
+            ],
+            "read": [
+              "object",
+              "key",
+              "value",
+              "present"
+            ],
+            "write": [
+              "object",
+              "key",
+              "value",
+              "present"
+            ],
+            "bind": [
+              "name",
+              "value"
+            ],
+            "call": [
+              "child",
+              "callee",
+              "receiver",
+              "arguments"
+            ],
+            "transfer": [
+              "kind",
+              "value",
+              "handler"
+            ],
+            "return": [
+              "value"
+            ],
+            "throw": [
+              "value"
+            ],
+            "request": [
+              "effect",
+              "operation",
+              "arguments",
+              "invocation",
+              "site",
+              "payload"
+            ],
+            "observe": [
+              "effect",
+              "result",
+              "status"
+            ],
+            "job": [
+              "action",
+              "job",
+              "owner"
+            ],
+            "end": [
+              "kind"
+            ],
+            "promise": [
+              "action",
+              "promise"
+            ],
+            "summarize": [
+              "entry",
+              "arguments",
+              "result",
+              "profile"
+            ],
+            "await": [
+              "promise",
+              "continuation",
+              "invocation"
+            ],
+            "resume": [
+              "continuation",
+              "invocation",
+              "result",
+              "status"
+            ]
+          },
+          "wrapperFields": [
+            "kind",
+            "fields"
+          ],
+          "prefix": "detail ",
+          "canonicality": "stableAlgorithmJSON with exact parse/re-encode equality",
+          "generated": [
+            "compute",
+            "choose",
+            "allocate",
+            "read",
+            "write",
+            "bind",
+            "call",
+            "transfer",
+            "return",
+            "throw",
+            "request",
+            "job",
+            "promise",
+            "await",
+            "resume",
+            "end",
+            "summarize"
+          ],
+          "observed": [
+            "observe"
+          ],
+          "logicalFragments": "forbidden; only native physical fragmentation is supported"
+        },
+        "envelope": {
+          "program": {
+            "mode": "observed",
+            "required": [
+              "programId",
+              "digest",
+              "entry",
+              "source",
+              "sites",
+              "functions",
+              "capabilities",
+              "dependencies",
+              "sourceMap",
+              "languageProfile",
+              "module",
+              "sourceMetadata"
+            ],
+            "optional": [
+              "randomSeed"
+            ]
+          },
+          "invocation": {
+            "mode": "observed",
+            "required": [
+              "programId",
+              "invocationId",
+              "realmId",
+              "triggerId",
+              "completionPolicy",
+              "realmPolicy",
+              "inputGraph",
+              "entry",
+              "sourceDigest",
+              "receiver",
+              "closureId",
+              "activation",
+              "parentInvocationId",
+              "taskRevision",
+              "deadline",
+              "bindings",
+              "ingressKey"
+            ],
+            "optional": []
+          },
+          "semantic": {
+            "mode": "generated",
+            "required": [
+              "invocationId",
+              "traceFormat",
+              "line"
+            ],
+            "optional": []
+          },
+          "handler": {
+            "mode": "observed",
+            "required": [
+              "subscriptionId",
+              "programId",
+              "realmId",
+              "trackId",
+              "realmPolicy",
+              "entry",
+              "queueLimit",
+              "closureId",
+              "lifetime",
+              "ownerInvocationId"
+            ],
+            "optional": []
+          },
+          "event": {
+            "mode": "observed",
+            "required": [
+              "subscriptionId",
+              "eventId",
+              "invocationId",
+              "triggerId",
+              "programId",
+              "realmId"
+            ],
+            "optional": []
+          },
+          "handler-close": {
+            "mode": "observed",
+            "required": [
+              "subscriptionId",
+              "discarded"
+            ],
+            "optional": []
+          },
+          "dispatch": {
+            "mode": "observed",
+            "required": [
+              "invocationId",
+              "effectId",
+              "key",
+              "attempt"
+            ],
+            "optional": [
+              "nativeAction"
+            ]
+          },
+          "result": {
+            "mode": "observed",
+            "required": [
+              "invocationId",
+              "effectId",
+              "status",
+              "result",
+              "line",
+              "errorOrigin"
+            ],
+            "optional": []
+          },
+          "source-evict": {
+            "mode": "observed",
+            "required": [
+              "programId",
+              "digest"
+            ],
+            "optional": []
+          },
+          "source-read": {
+            "mode": "observed",
+            "required": [
+              "programId",
+              "digest",
+              "source"
+            ],
+            "optional": []
+          },
+          "model-context": {
+            "mode": "observed",
+            "required": [
+              "invocationId",
+              "sourceReads"
+            ],
+            "optional": [
+              "selectedState",
+              "realmPrefixDigest",
+              "visibleThrough"
+            ]
+          },
+          "cancel": {
+            "mode": "observed",
+            "required": [
+              "invocationId",
+              "reason",
+              "uncertain"
+            ],
+            "optional": []
+          },
+          "reconcile": {
+            "mode": "observed",
+            "required": [
+              "invocationId",
+              "effectId",
+              "disposition",
+              "evidenceId"
+            ],
+            "optional": []
+          },
+          "callback-reattach": {
+            "mode": "observed",
+            "required": [
+              "subscriptionId",
+              "realmId",
+              "evidenceId"
+            ],
+            "optional": []
+          }
+        },
+        "identity": {
+          "routing": "^[a-z][a-z0-9:_-]*$",
+          "owned": "^[a-z][a-z0-9]*$"
+        },
+        "modelContext": {
+          "stateSchema": "semantic-continuation/7",
+          "stateFields": [
+            "schema",
+            "heap",
+            "locals",
+            "captureAliases",
+            "stack",
+            "continuations",
+            "ready",
+            "callReturn",
+            "pending",
+            "completion",
+            "randomState"
+          ],
+          "prefixDigest": "sha256-stableAlgorithmJSON-realm-prefix",
+          "visibleThrough": "receipt.sequence-1",
+          "sourceRead": "immediately-preceding-checked-source-read",
+          "observationLoss": 0
+        },
+        "contextEnvelope": {
+          "fields": [
+            "schema",
+            "representation",
+            "prefix",
+            "visibleThrough",
+            "prefixDigest"
+          ],
+          "prefixSchema": "selected-inference-prefix/3",
+          "prefixFields": [
+            "schema",
+            "representation",
+            "traceFormat",
+            "programId",
+            "entry",
+            "source",
+            "sourceDigest",
+            "invocationId",
+            "trackId",
+            "realmId",
+            "committed",
+            "realmCommitted",
+            "completionPolicy",
+            "maxOutstanding",
+            "taskRevision",
+            "parentInvocationId",
+            "receiver",
+            "closureId",
+            "activation",
+            "selectedState"
+          ],
+          "prefixDigest": "sha256-stableAlgorithmJSON-prefix",
+          "publication": "Full exact current public prefix at every generated record"
+        },
+        "limits": {
+          "expressionOperators": 8,
+          "expressionNodes": 32,
+          "argumentRoots": 32,
+          "inputGraphObjects": 256,
+          "arrayLength": 4096,
+          "generatedRecordBytes": 65536
+        },
+        "authority": {
+          "generated": [
+            "semantic"
+          ],
+          "observed": [
+            "program",
+            "invocation",
+            "handler",
+            "event",
+            "handler-close",
+            "dispatch",
+            "result",
+            "source-evict",
+            "source-read",
+            "model-context",
+            "cancel",
+            "reconcile",
+            "callback-reattach"
+          ],
+          "observationLoss": 0,
+          "transportCreatesGuestBoundary": false,
+          "requestsPerCommittedSelection": 1
+        }
+      }
+    },
+    "nativeTransport": {
+      "schema": "semantic-native-transport/7",
+      "track": "assistant",
+      "ordering": "Public timeline order, exact current full context, then generated record",
+      "sourceOwnership": "Semantic track and invocation identities remain in checked public payloads",
+      "lifecycleAnnouncements": false,
+      "automaticContextWindows": false,
+      "fragmentation": "Byte-exact native physical records; no guest execution boundary",
+      "observationLoss": 0,
+      "generatedLoss": "Only the canonical selected record and its terminator"
+    },
+    "identity": {
+      "canonicalJSON": "stableAlgorithmJSON",
+      "digest": "sha256-utf8",
+      "public": "hash(public)",
+      "contexts": "hash(contexts)",
+      "source": "separate fresh source/reference/journal replay receipt"
+    },
+    "nativeAdmission": {
+      "schema": "semantic-native-admission/7",
+      "componentGate": "native-consumer-only",
+      "fields": [
+        "schema",
+        "componentGate",
+        "traceFormat",
+        "representation",
+        "episodeDigest",
+        "contextsDigest",
+        "nativeTrainingDigest",
+        "datasetBindingDigest",
+        "consumerRevision",
+        "schemaDigest",
+        "fixtureDigest",
+        "contractDigest",
+        "tokenizerIdentity",
+        "tokenizerSha256",
+        "generatedTokens",
+        "observedTokens",
+        "physicalRecords",
+        "actions",
+        "lossMaskValidated",
+        "visibilityValidated",
+        "fragmentationValidated",
+        "contextValidated",
+        "continuationValidated",
+        "admitted",
+        "optimizerSteps"
+      ],
+      "sourceAuthority": "Never inferred from this native-only receipt"
+    },
+    "sourceAdmission": {
+      "schema": "semantic-source-admission/7",
+      "fields": [
+        "schema",
+        "producerRevision",
+        "episodeDigest",
+        "contextsDigest",
+        "datasetBindingDigest",
+        "sourceValidated",
+        "journalValidated",
+        "replayValidated",
+        "referenceStatus",
+        "optimizerSteps"
+      ]
+    },
+    "datasets": {
+      "familyRegistry": "semantic-family-registry/1",
+      "splitIdentity": "semantic-split-identity/2",
+      "trainingPolicy": {
+        "schema": "semantic-training-policy/7",
+        "fields": [
+          "schema",
+          "producerRevision",
+          "consumerRevision",
+          "registryDigest"
+        ],
+        "authority": "Explicit training configuration pins; never inferred from incoming episodes"
+      },
+      "rule": "Declared semantic relatives, identical normalized cores and exact source aliases share one split",
+      "legacyArtifacts": "Rejected. Regenerate public records, native receipts, prepared data and model-bound indexes."
+    }
+  },
+  "digest": "55e7be0a4287be57a4165eaab106d131dcda027a65ed175d98f1a7ad8b47303c",
+  "fixtureDigest": "2f34d35060fde7e15fdf8bb0f5fcc25429b0697fcc02df3d45b26968aad0e196",
+  "fixtures": {
+    "algorithm": {
+      "scope": "Decoder fixtures test typed parsing; semantic examples separately test evaluation",
+      "canonical": [
+        {
+          "record": {
+            "kind": "compute",
+            "id": "v0",
+            "term": {
+              "op": "add",
+              "args": [
+                {
+                  "op": "literal",
+                  "value": [
+                    "num",
+                    1
+                  ]
+                },
+                {
+                  "op": "literal",
+                  "value": [
+                    "num",
+                    2
+                  ]
+                }
+              ]
+            },
+            "result": [
+              "num",
+              3
+            ]
+          },
+          "line": "v0 = add(1, 2) => 3",
+          "role": "generated"
+        },
+        {
+          "record": {
+            "kind": "compute",
+            "id": "v0",
+            "term": {
+              "op": "subtract",
+              "args": [
+                {
+                  "op": "literal",
+                  "value": [
+                    "num",
+                    1
+                  ]
+                },
+                {
+                  "op": "literal",
+                  "value": [
+                    "num",
+                    2
+                  ]
+                }
+              ]
+            },
+            "result": [
+              "num",
+              -1
+            ]
+          },
+          "line": "v0 = subtract(1, 2) => -1",
+          "role": "generated"
+        },
+        {
+          "record": {
+            "kind": "compute",
+            "id": "v0",
+            "term": {
+              "op": "multiply",
+              "args": [
+                {
+                  "op": "literal",
+                  "value": [
+                    "num",
+                    1
+                  ]
+                },
+                {
+                  "op": "literal",
+                  "value": [
+                    "num",
+                    2
+                  ]
+                }
+              ]
+            },
+            "result": [
+              "num",
+              2
+            ]
+          },
+          "line": "v0 = multiply(1, 2) => 2",
+          "role": "generated"
+        },
+        {
+          "record": {
+            "kind": "compute",
+            "id": "v0",
+            "term": {
+              "op": "divide",
+              "args": [
+                {
+                  "op": "literal",
+                  "value": [
+                    "num",
+                    1
+                  ]
+                },
+                {
+                  "op": "literal",
+                  "value": [
+                    "num",
+                    2
+                  ]
+                }
+              ]
+            },
+            "result": [
+              "num",
+              0.5
+            ]
+          },
+          "line": "v0 = divide(1, 2) => 0.5",
+          "role": "generated"
+        },
+        {
+          "record": {
+            "kind": "compute",
+            "id": "v0",
+            "term": {
+              "op": "remainder",
+              "args": [
+                {
+                  "op": "literal",
+                  "value": [
+                    "num",
+                    1
+                  ]
+                },
+                {
+                  "op": "literal",
+                  "value": [
+                    "num",
+                    2
+                  ]
+                }
+              ]
+            },
+            "result": [
+              "num",
+              1
+            ]
+          },
+          "line": "v0 = remainder(1, 2) => 1",
+          "role": "generated"
+        },
+        {
+          "record": {
+            "kind": "compute",
+            "id": "v0",
+            "term": {
+              "op": "power",
+              "args": [
+                {
+                  "op": "literal",
+                  "value": [
+                    "num",
+                    1
+                  ]
+                },
+                {
+                  "op": "literal",
+                  "value": [
+                    "num",
+                    2
+                  ]
+                }
+              ]
+            },
+            "result": [
+              "num",
+              1
+            ]
+          },
+          "line": "v0 = power(1, 2) => 1",
+          "role": "generated"
+        },
+        {
+          "record": {
+            "kind": "compute",
+            "id": "v0",
+            "term": {
+              "op": "less",
+              "args": [
+                {
+                  "op": "literal",
+                  "value": [
+                    "num",
+                    1
+                  ]
+                },
+                {
+                  "op": "literal",
+                  "value": [
+                    "num",
+                    2
+                  ]
+                }
+              ]
+            },
+            "result": [
+              "bool",
+              true
+            ]
+          },
+          "line": "v0 = less(1, 2) => true",
+          "role": "generated"
+        },
+        {
+          "record": {
+            "kind": "compute",
+            "id": "v0",
+            "term": {
+              "op": "less_equal",
+              "args": [
+                {
+                  "op": "literal",
+                  "value": [
+                    "num",
+                    1
+                  ]
+                },
+                {
+                  "op": "literal",
+                  "value": [
+                    "num",
+                    2
+                  ]
+                }
+              ]
+            },
+            "result": [
+              "bool",
+              true
+            ]
+          },
+          "line": "v0 = less_equal(1, 2) => true",
+          "role": "generated"
+        },
+        {
+          "record": {
+            "kind": "compute",
+            "id": "v0",
+            "term": {
+              "op": "greater",
+              "args": [
+                {
+                  "op": "literal",
+                  "value": [
+                    "num",
+                    1
+                  ]
+                },
+                {
+                  "op": "literal",
+                  "value": [
+                    "num",
+                    2
+                  ]
+                }
+              ]
+            },
+            "result": [
+              "bool",
+              false
+            ]
+          },
+          "line": "v0 = greater(1, 2) => false",
+          "role": "generated"
+        },
+        {
+          "record": {
+            "kind": "compute",
+            "id": "v0",
+            "term": {
+              "op": "greater_equal",
+              "args": [
+                {
+                  "op": "literal",
+                  "value": [
+                    "num",
+                    1
+                  ]
+                },
+                {
+                  "op": "literal",
+                  "value": [
+                    "num",
+                    2
+                  ]
+                }
+              ]
+            },
+            "result": [
+              "bool",
+              false
+            ]
+          },
+          "line": "v0 = greater_equal(1, 2) => false",
+          "role": "generated"
+        },
+        {
+          "record": {
+            "kind": "compute",
+            "id": "v0",
+            "term": {
+              "op": "equal",
+              "args": [
+                {
+                  "op": "literal",
+                  "value": [
+                    "num",
+                    1
+                  ]
+                },
+                {
+                  "op": "literal",
+                  "value": [
+                    "num",
+                    2
+                  ]
+                }
+              ]
+            },
+            "result": [
+              "bool",
+              false
+            ]
+          },
+          "line": "v0 = equal(1, 2) => false",
+          "role": "generated"
+        },
+        {
+          "record": {
+            "kind": "compute",
+            "id": "v0",
+            "term": {
+              "op": "not_equal",
+              "args": [
+                {
+                  "op": "literal",
+                  "value": [
+                    "num",
+                    1
+                  ]
+                },
+                {
+                  "op": "literal",
+                  "value": [
+                    "num",
+                    2
+                  ]
+                }
+              ]
+            },
+            "result": [
+              "bool",
+              true
+            ]
+          },
+          "line": "v0 = not_equal(1, 2) => true",
+          "role": "generated"
+        },
+        {
+          "record": {
+            "kind": "compute",
+            "id": "v0",
+            "term": {
+              "op": "loose_equal",
+              "args": [
+                {
+                  "op": "literal",
+                  "value": [
+                    "num",
+                    1
+                  ]
+                },
+                {
+                  "op": "literal",
+                  "value": [
+                    "num",
+                    2
+                  ]
+                }
+              ]
+            },
+            "result": [
+              "bool",
+              false
+            ]
+          },
+          "line": "v0 = loose_equal(1, 2) => false",
+          "role": "generated"
+        },
+        {
+          "record": {
+            "kind": "compute",
+            "id": "v0",
+            "term": {
+              "op": "loose_not_equal",
+              "args": [
+                {
+                  "op": "literal",
+                  "value": [
+                    "num",
+                    1
+                  ]
+                },
+                {
+                  "op": "literal",
+                  "value": [
+                    "num",
+                    2
+                  ]
+                }
+              ]
+            },
+            "result": [
+              "bool",
+              true
+            ]
+          },
+          "line": "v0 = loose_not_equal(1, 2) => true",
+          "role": "generated"
+        },
+        {
+          "record": {
+            "kind": "compute",
+            "id": "v0",
+            "term": {
+              "op": "bit_and",
+              "args": [
+                {
+                  "op": "literal",
+                  "value": [
+                    "num",
+                    1
+                  ]
+                },
+                {
+                  "op": "literal",
+                  "value": [
+                    "num",
+                    2
+                  ]
+                }
+              ]
+            },
+            "result": [
+              "num",
+              0
+            ]
+          },
+          "line": "v0 = bit_and(1, 2) => 0",
+          "role": "generated"
+        },
+        {
+          "record": {
+            "kind": "compute",
+            "id": "v0",
+            "term": {
+              "op": "bit_or",
+              "args": [
+                {
+                  "op": "literal",
+                  "value": [
+                    "num",
+                    1
+                  ]
+                },
+                {
+                  "op": "literal",
+                  "value": [
+                    "num",
+                    2
+                  ]
+                }
+              ]
+            },
+            "result": [
+              "num",
+              3
+            ]
+          },
+          "line": "v0 = bit_or(1, 2) => 3",
+          "role": "generated"
+        },
+        {
+          "record": {
+            "kind": "compute",
+            "id": "v0",
+            "term": {
+              "op": "bit_xor",
+              "args": [
+                {
+                  "op": "literal",
+                  "value": [
+                    "num",
+                    1
+                  ]
+                },
+                {
+                  "op": "literal",
+                  "value": [
+                    "num",
+                    2
+                  ]
+                }
+              ]
+            },
+            "result": [
+              "num",
+              3
+            ]
+          },
+          "line": "v0 = bit_xor(1, 2) => 3",
+          "role": "generated"
+        },
+        {
+          "record": {
+            "kind": "compute",
+            "id": "v0",
+            "term": {
+              "op": "shift_left",
+              "args": [
+                {
+                  "op": "literal",
+                  "value": [
+                    "num",
+                    1
+                  ]
+                },
+                {
+                  "op": "literal",
+                  "value": [
+                    "num",
+                    2
+                  ]
+                }
+              ]
+            },
+            "result": [
+              "num",
+              4
+            ]
+          },
+          "line": "v0 = shift_left(1, 2) => 4",
+          "role": "generated"
+        },
+        {
+          "record": {
+            "kind": "compute",
+            "id": "v0",
+            "term": {
+              "op": "shift_right",
+              "args": [
+                {
+                  "op": "literal",
+                  "value": [
+                    "num",
+                    1
+                  ]
+                },
+                {
+                  "op": "literal",
+                  "value": [
+                    "num",
+                    2
+                  ]
+                }
+              ]
+            },
+            "result": [
+              "num",
+              0
+            ]
+          },
+          "line": "v0 = shift_right(1, 2) => 0",
+          "role": "generated"
+        },
+        {
+          "record": {
+            "kind": "compute",
+            "id": "v0",
+            "term": {
+              "op": "unsigned_shift_right",
+              "args": [
+                {
+                  "op": "literal",
+                  "value": [
+                    "num",
+                    1
+                  ]
+                },
+                {
+                  "op": "literal",
+                  "value": [
+                    "num",
+                    2
+                  ]
+                }
+              ]
+            },
+            "result": [
+              "num",
+              0
+            ]
+          },
+          "line": "v0 = unsigned_shift_right(1, 2) => 0",
+          "role": "generated"
+        },
+        {
+          "record": {
+            "kind": "compute",
+            "id": "v0",
+            "term": {
+              "op": "not",
+              "args": [
+                {
+                  "op": "literal",
+                  "value": [
+                    "num",
+                    1
+                  ]
+                }
+              ]
+            },
+            "result": [
+              "bool",
+              false
+            ]
+          },
+          "line": "v0 = not(1) => false",
+          "role": "generated"
+        },
+        {
+          "record": {
+            "kind": "compute",
+            "id": "v0",
+            "term": {
+              "op": "positive",
+              "args": [
+                {
+                  "op": "literal",
+                  "value": [
+                    "num",
+                    1
+                  ]
+                }
+              ]
+            },
+            "result": [
+              "num",
+              1
+            ]
+          },
+          "line": "v0 = positive(1) => 1",
+          "role": "generated"
+        },
+        {
+          "record": {
+            "kind": "compute",
+            "id": "v0",
+            "term": {
+              "op": "negate",
+              "args": [
+                {
+                  "op": "literal",
+                  "value": [
+                    "num",
+                    1
+                  ]
+                }
+              ]
+            },
+            "result": [
+              "num",
+              -1
+            ]
+          },
+          "line": "v0 = negate(1) => -1",
+          "role": "generated"
+        },
+        {
+          "record": {
+            "kind": "compute",
+            "id": "v0",
+            "term": {
+              "op": "bit_not",
+              "args": [
+                {
+                  "op": "literal",
+                  "value": [
+                    "num",
+                    1
+                  ]
+                }
+              ]
+            },
+            "result": [
+              "num",
+              -2
+            ]
+          },
+          "line": "v0 = bit_not(1) => -2",
+          "role": "generated"
+        },
+        {
+          "record": {
+            "kind": "compute",
+            "id": "v0",
+            "term": {
+              "op": "type_of",
+              "args": [
+                {
+                  "op": "literal",
+                  "value": [
+                    "num",
+                    1
+                  ]
+                }
+              ]
+            },
+            "result": [
+              "str",
+              "number"
+            ]
+          },
+          "line": "v0 = type_of(1) => \"number\"",
+          "role": "generated"
+        },
+        {
+          "record": {
+            "kind": "compute",
+            "id": "v0",
+            "term": {
+              "op": "void",
+              "args": [
+                {
+                  "op": "literal",
+                  "value": [
+                    "num",
+                    1
+                  ]
+                }
+              ]
+            },
+            "result": [
+              "undefined"
+            ]
+          },
+          "line": "v0 = void(1) => undefined",
+          "role": "generated"
+        },
+        {
+          "record": {
+            "kind": "compute",
+            "id": "v0",
+            "term": {
+              "op": "select",
+              "args": [
+                {
+                  "op": "literal",
+                  "value": [
+                    "num",
+                    1
+                  ]
+                },
+                {
+                  "op": "literal",
+                  "value": [
+                    "num",
+                    2
+                  ]
+                },
+                {
+                  "op": "literal",
+                  "value": [
+                    "num",
+                    3
+                  ]
+                }
+              ]
+            },
+            "result": [
+              "num",
+              2
+            ]
+          },
+          "line": "v0 = select(1, 2, 3) => 2",
+          "role": "generated"
+        },
+        {
+          "record": {
+            "kind": "compute",
+            "id": "v0",
+            "term": {
+              "op": "and",
+              "args": [
+                {
+                  "op": "literal",
+                  "value": [
+                    "num",
+                    1
+                  ]
+                },
+                {
+                  "op": "literal",
+                  "value": [
+                    "num",
+                    2
+                  ]
+                }
+              ]
+            },
+            "result": [
+              "num",
+              2
+            ]
+          },
+          "line": "v0 = and(1, 2) => 2",
+          "role": "generated"
+        },
+        {
+          "record": {
+            "kind": "compute",
+            "id": "v0",
+            "term": {
+              "op": "or",
+              "args": [
+                {
+                  "op": "literal",
+                  "value": [
+                    "num",
+                    1
+                  ]
+                },
+                {
+                  "op": "literal",
+                  "value": [
+                    "num",
+                    2
+                  ]
+                }
+              ]
+            },
+            "result": [
+              "num",
+              1
+            ]
+          },
+          "line": "v0 = or(1, 2) => 1",
+          "role": "generated"
+        },
+        {
+          "record": {
+            "kind": "compute",
+            "id": "v0",
+            "term": {
+              "op": "coalesce",
+              "args": [
+                {
+                  "op": "literal",
+                  "value": [
+                    "num",
+                    1
+                  ]
+                },
+                {
+                  "op": "literal",
+                  "value": [
+                    "num",
+                    2
+                  ]
+                }
+              ]
+            },
+            "result": [
+              "num",
+              1
+            ]
+          },
+          "line": "v0 = coalesce(1, 2) => 1",
+          "role": "generated"
+        },
+        {
+          "record": {
+            "kind": "compute",
+            "id": "v0",
+            "term": {
+              "op": "fold_left",
+              "input": {
+                "op": "input",
+                "id": "a0"
+              },
+              "initial": {
+                "op": "literal",
+                "value": [
+                  "num",
+                  0
+                ]
+              },
+              "step": "add",
+              "order": "ascending",
+              "profile": "dense-number-array/1"
+            },
+            "result": [
+              "num",
+              9
+            ]
+          },
+          "line": "v0 = fold_left($a0, 0, add) => 9",
+          "role": "generated"
+        },
+        {
+          "record": {
+            "kind": "compute",
+            "id": "v0",
+            "term": {
+              "op": "project",
+              "object": {
+                "op": "input",
+                "id": "a0"
+              },
+              "key": "n"
+            },
+            "result": [
+              "undefined"
+            ]
+          },
+          "line": "v0 = project($a0, \"n\") => undefined",
+          "role": "generated"
+        },
+        {
+          "record": {
+            "kind": "request",
+            "id": "r0",
+            "boundary": "b0",
+            "operation": "demo.readAsync",
+            "arguments": [
+              [
+                "str",
+                "counter"
+              ]
+            ]
+          },
+          "line": "request r0 b0: demo.readAsync(\"counter\")",
+          "role": "generated"
+        },
+        {
+          "record": {
+            "kind": "request",
+            "id": "r1",
+            "boundary": "b1",
+            "operation": "demo.store",
+            "arguments": [
+              [
+                "str",
+                "counter"
+              ],
+              [
+                "num",
+                8
+              ]
+            ]
+          },
+          "line": "request r1 b1: demo.store(\"counter\", 8)",
+          "role": "generated"
+        },
+        {
+          "record": {
+            "kind": "observe",
+            "request": "r0",
+            "id": "v0",
+            "status": "fulfilled",
+            "value": [
+              "num",
+              7
+            ]
+          },
+          "line": "observe r0 as v0: fulfilled 7",
+          "role": "observed"
+        },
+        {
+          "record": {
+            "kind": "observe",
+            "request": "r0",
+            "id": "v0",
+            "status": "rejected",
+            "value": [
+              "str",
+              "missing"
+            ]
+          },
+          "line": "observe r0 as v0: rejected \"missing\"",
+          "role": "observed"
+        },
+        {
+          "record": {
+            "kind": "observe",
+            "request": "r1",
+            "id": "v2",
+            "status": "completed"
+          },
+          "line": "observe r1 as v2: completed",
+          "role": "observed"
+        },
+        {
+          "record": {
+            "kind": "observe",
+            "request": "r1",
+            "id": "v2",
+            "status": "fulfilled",
+            "value": [
+              "undefined"
+            ]
+          },
+          "line": "observe r1 as v2: fulfilled undefined",
+          "role": "observed"
+        },
+        {
+          "record": {
+            "kind": "write",
+            "object": [
+              "ref",
+              "o1"
+            ],
+            "key": "n",
+            "value": [
+              "num",
+              2
+            ],
+            "present": true
+          },
+          "line": "write @o1[\"n\"] = 2",
+          "role": "generated"
+        },
+        {
+          "record": {
+            "kind": "write",
+            "object": [
+              "ref",
+              "o1"
+            ],
+            "key": "n",
+            "value": [
+              "undefined"
+            ],
+            "present": false
+          },
+          "line": "write @o1[\"n\"] = undefined absent",
+          "role": "generated"
+        },
+        {
+          "record": {
+            "kind": "suspend",
+            "requests": [
+              "r0"
+            ],
+            "live": [
+              "v0"
+            ]
+          },
+          "line": "suspend [r0] live [v0]",
+          "role": "generated"
+        },
+        {
+          "record": {
+            "kind": "return",
+            "value": [
+              "num",
+              8
+            ]
+          },
+          "line": "return 8",
+          "role": "generated"
+        },
+        {
+          "record": {
+            "kind": "throw",
+            "value": [
+              "str",
+              "missing"
+            ]
+          },
+          "line": "throw \"missing\"",
+          "role": "generated"
+        },
+        {
+          "record": {
+            "kind": "return",
+            "value": [
+              "undefined"
+            ]
+          },
+          "line": "return undefined",
+          "role": "generated"
+        },
+        {
+          "record": {
+            "kind": "return",
+            "value": [
+              "null"
+            ]
+          },
+          "line": "return null",
+          "role": "generated"
+        },
+        {
+          "record": {
+            "kind": "return",
+            "value": [
+              "bool",
+              true
+            ]
+          },
+          "line": "return true",
+          "role": "generated"
+        },
+        {
+          "record": {
+            "kind": "return",
+            "value": [
+              "str",
+              "a\n\"é"
+            ]
+          },
+          "line": "return \"a\\n\\\"é\"",
+          "role": "generated"
+        },
+        {
+          "record": {
+            "kind": "return",
+            "value": [
+              "num",
+              "-0"
+            ]
+          },
+          "line": "return -0",
+          "role": "generated"
+        },
+        {
+          "record": {
+            "kind": "return",
+            "value": [
+              "num",
+              "NaN"
+            ]
+          },
+          "line": "return NaN",
+          "role": "generated"
+        },
+        {
+          "record": {
+            "kind": "return",
+            "value": [
+              "num",
+              "+Infinity"
+            ]
+          },
+          "line": "return Infinity",
+          "role": "generated"
+        },
+        {
+          "record": {
+            "kind": "return",
+            "value": [
+              "num",
+              "-Infinity"
+            ]
+          },
+          "line": "return -Infinity",
+          "role": "generated"
+        },
+        {
+          "record": {
+            "kind": "return",
+            "value": [
+              "num",
+              1e+21
+            ]
+          },
+          "line": "return 1e+21",
+          "role": "generated"
+        },
+        {
+          "record": {
+            "kind": "return",
+            "value": [
+              "bigint",
+              "12345678901234567890"
+            ]
+          },
+          "line": "return 12345678901234567890n",
+          "role": "generated"
+        },
+        {
+          "record": {
+            "kind": "return",
+            "value": [
+              "ref",
+              "object:1"
+            ]
+          },
+          "line": "return @\"object:1\"",
+          "role": "generated"
+        }
+      ],
+      "invalid": [
+        "return 1.0",
+        "return 01",
+        "return 1e0",
+        "return -0n",
+        "return 1e999",
+        "return \"\\u0061\"",
+        "evaluate run(1) => 2",
+        "compute (a + 1) => 2",
+        "return {\"value\":[\"num\",1]}",
+        "v0 = add(1) => 1",
+        "v0 = add(1,2) => 3",
+        "v0 = unknown(1) => 1",
+        "v0 = fold_left($a0, 0, multiply) => 0",
+        "observe r0 as v0: pending 1",
+        "observe r0 as v0: completed undefined",
+        "suspend [] live []",
+        "suspend [r0, r0] live []",
+        "request r0 b0: demo.store(\"counter\", 8) payload [\"counter\",8]",
+        "return 1\nreturn 2"
+      ],
+      "invalidGenerated": [
+        "observe r0 as v0: fulfilled 7"
+      ],
+      "invalidObserved": [
+        "v0 = add(1, 2) => 3"
+      ],
+      "cores": {
+        "valid": [
+          {
+            "schema": "semantic-algorithm/1",
+            "profile": "ecmascript-primitive/1",
+            "inputs": [
+              {
+                "id": "a0",
+                "type": "number"
+              }
+            ],
+            "steps": [
+              {
+                "kind": "compute",
+                "id": "v0",
+                "term": {
+                  "op": "add",
+                  "args": [
+                    {
+                      "op": "input",
+                      "id": "a0"
+                    },
+                    {
+                      "op": "literal",
+                      "value": [
+                        "num",
+                        1
+                      ]
+                    }
+                  ]
+                }
+              },
+              {
+                "kind": "return",
+                "value": {
+                  "op": "ref",
+                  "id": "v0"
+                }
+              }
+            ]
+          }
+        ],
+        "invalid": [
+          {
+            "schema": "semantic-algorithm/1",
+            "profile": "ecmascript-primitive/1",
+            "inputs": [
+              {
+                "id": "a0",
+                "type": "number"
+              }
+            ],
+            "steps": [
+              {
+                "kind": "compute",
+                "id": "v0",
+                "term": {
+                  "op": "add",
+                  "args": [
+                    {
+                      "op": "input",
+                      "id": "future"
+                    },
+                    {
+                      "op": "literal",
+                      "value": [
+                        "num",
+                        1
+                      ]
+                    }
+                  ]
+                }
+              },
+              {
+                "kind": "return",
+                "value": {
+                  "op": "ref",
+                  "id": "v0"
+                }
+              }
+            ]
+          }
+        ]
+      },
+      "semanticExamples": [
+        {
+          "core": {
+            "schema": "semantic-algorithm/1",
+            "profile": "ecmascript-primitive/1",
+            "inputs": [
+              {
+                "id": "a0",
+                "type": "number"
+              }
+            ],
+            "steps": [
+              {
+                "kind": "compute",
+                "id": "v0",
+                "term": {
+                  "op": "add",
+                  "args": [
+                    {
+                      "op": "input",
+                      "id": "a0"
+                    },
+                    {
+                      "op": "literal",
+                      "value": [
+                        "num",
+                        1
+                      ]
+                    }
+                  ]
+                }
+              },
+              {
+                "kind": "return",
+                "value": {
+                  "op": "ref",
+                  "id": "v0"
+                }
+              }
+            ]
+          },
+          "arguments": [
+            [
+              "num",
+              4
+            ]
+          ],
+          "expectedCompletion": {
+            "kind": "return",
+            "value": [
+              "num",
+              5
+            ]
+          }
+        }
+      ]
+    },
+    "detailed": {
+      "canonical": [
+        {
+          "record": {
+            "kind": "code",
+            "fields": {
+              "entry": "main",
+              "source": "function main(x){return x+2}",
+              "sites": [],
+              "randomSeed": 0
+            }
+          },
+          "line": "detail {\"fields\":{\"entry\":\"main\",\"randomSeed\":0,\"sites\":[],\"source\":\"function main(x){return x+2}\"},\"kind\":\"code\"}",
+          "role": "any"
+        },
+        {
+          "record": {
+            "kind": "code",
+            "fields": {
+              "entry": "function:76",
+              "source": "x=>x",
+              "sites": [
+                {
+                  "start": 0,
+                  "end": 4
+                }
+              ]
+            }
+          },
+          "line": "detail {\"fields\":{\"entry\":\"function:76\",\"sites\":[{\"end\":4,\"start\":0}],\"source\":\"x=>x\"},\"kind\":\"code\"}",
+          "role": "any"
+        },
+        {
+          "record": {
+            "kind": "input",
+            "fields": {
+              "graph": {
+                "roots": [
+                  [
+                    "num",
+                    4
+                  ]
+                ],
+                "objects": []
+              }
+            }
+          },
+          "line": "detail {\"fields\":{\"graph\":{\"objects\":[],\"roots\":[[\"num\",4]]}},\"kind\":\"input\"}",
+          "role": "any"
+        },
+        {
+          "record": {
+            "kind": "input",
+            "fields": {
+              "graph": {
+                "roots": [
+                  [
+                    "ref",
+                    "o1"
+                  ]
+                ],
+                "objects": []
+              },
+              "retained": [
+                "o1"
+              ]
+            }
+          },
+          "line": "detail {\"fields\":{\"graph\":{\"objects\":[],\"roots\":[[\"ref\",\"o1\"]]},\"retained\":[\"o1\"]},\"kind\":\"input\"}",
+          "role": "any"
+        },
+        {
+          "record": {
+            "kind": "compute",
+            "fields": {
+              "expr": {
+                "op": "binary",
+                "operator": "+",
+                "left": {
+                  "op": "local",
+                  "name": "x"
+                },
+                "right": {
+                  "op": "literal",
+                  "value": [
+                    "num",
+                    2
+                  ]
+                }
+              },
+              "result": [
+                "num",
+                6
+              ],
+              "bind": "y",
+              "invocation": "call1",
+              "site": {
+                "start": 20,
+                "end": 25
+              }
+            }
+          },
+          "line": "detail {\"fields\":{\"bind\":\"y\",\"expr\":{\"left\":{\"name\":\"x\",\"op\":\"local\"},\"op\":\"binary\",\"operator\":\"+\",\"right\":{\"op\":\"literal\",\"value\":[\"num\",2]}},\"invocation\":\"call1\",\"result\":[\"num\",6],\"site\":{\"end\":25,\"start\":20}},\"kind\":\"compute\"}",
+          "role": "generated"
+        },
+        {
+          "record": {
+            "kind": "compute",
+            "fields": {
+              "expr": {
+                "op": "read",
+                "object": "o1",
+                "key": "two words"
+              },
+              "result": [
+                "num",
+                6
+              ]
+            }
+          },
+          "line": "detail {\"fields\":{\"expr\":{\"key\":\"two words\",\"object\":\"o1\",\"op\":\"read\"},\"result\":[\"num\",6]},\"kind\":\"compute\"}",
+          "role": "generated"
+        },
+        {
+          "record": {
+            "kind": "compute",
+            "fields": {
+              "expr": {
+                "op": "unary",
+                "operator": "typeof",
+                "arg": {
+                  "op": "local",
+                  "name": "x"
+                }
+              },
+              "result": [
+                "str",
+                "number"
+              ]
+            }
+          },
+          "line": "detail {\"fields\":{\"expr\":{\"arg\":{\"name\":\"x\",\"op\":\"local\"},\"op\":\"unary\",\"operator\":\"typeof\"},\"result\":[\"str\",\"number\"]},\"kind\":\"compute\"}",
+          "role": "generated"
+        },
+        {
+          "record": {
+            "kind": "compute",
+            "fields": {
+              "expr": {
+                "op": "binary",
+                "operator": "-",
+                "left": {
+                  "op": "literal",
+                  "value": [
+                    "num",
+                    -1
+                  ]
+                },
+                "right": {
+                  "op": "literal",
+                  "value": [
+                    "num",
+                    2
+                  ]
+                }
+              },
+              "result": [
+                "num",
+                -3
+              ]
+            }
+          },
+          "line": "detail {\"fields\":{\"expr\":{\"left\":{\"op\":\"literal\",\"value\":[\"num\",-1]},\"op\":\"binary\",\"operator\":\"-\",\"right\":{\"op\":\"literal\",\"value\":[\"num\",2]}},\"result\":[\"num\",-3]},\"kind\":\"compute\"}",
+          "role": "generated"
+        },
+        {
+          "record": {
+            "kind": "compute",
+            "fields": {
+              "expr": {
+                "op": "unary",
+                "operator": "-",
+                "arg": {
+                  "op": "literal",
+                  "value": [
+                    "num",
+                    1
+                  ]
+                }
+              },
+              "result": [
+                "num",
+                -1
+              ]
+            }
+          },
+          "line": "detail {\"fields\":{\"expr\":{\"arg\":{\"op\":\"literal\",\"value\":[\"num\",1]},\"op\":\"unary\",\"operator\":\"-\"},\"result\":[\"num\",-1]},\"kind\":\"compute\"}",
+          "role": "generated"
+        },
+        {
+          "record": {
+            "kind": "compute",
+            "fields": {
+              "expr": {
+                "op": "local",
+                "name": "undefined"
+              },
+              "result": [
+                "num",
+                1
+              ]
+            }
+          },
+          "line": "detail {\"fields\":{\"expr\":{\"name\":\"undefined\",\"op\":\"local\"},\"result\":[\"num\",1]},\"kind\":\"compute\"}",
+          "role": "generated"
+        },
+        {
+          "record": {
+            "kind": "compute",
+            "fields": {
+              "expr": {
+                "op": "random"
+              },
+              "result": [
+                "num",
+                0.5
+              ]
+            }
+          },
+          "line": "detail {\"fields\":{\"expr\":{\"op\":\"random\"},\"result\":[\"num\",0.5]},\"kind\":\"compute\"}",
+          "role": "generated"
+        },
+        {
+          "record": {
+            "kind": "choose",
+            "fields": {
+              "expr": {
+                "op": "local",
+                "name": "x"
+              },
+              "decision": [
+                "bool",
+                true
+              ],
+              "path": "then"
+            }
+          },
+          "line": "detail {\"fields\":{\"decision\":[\"bool\",true],\"expr\":{\"name\":\"x\",\"op\":\"local\"},\"path\":\"then\"},\"kind\":\"choose\"}",
+          "role": "generated"
+        },
+        {
+          "record": {
+            "kind": "choose",
+            "fields": {
+              "expr": {
+                "op": "local",
+                "name": "x"
+              },
+              "decision": [
+                "bool",
+                false
+              ],
+              "path": "else"
+            }
+          },
+          "line": "detail {\"fields\":{\"decision\":[\"bool\",false],\"expr\":{\"name\":\"x\",\"op\":\"local\"},\"path\":\"else\"},\"kind\":\"choose\"}",
+          "role": "generated"
+        },
+        {
+          "record": {
+            "kind": "choose",
+            "fields": {
+              "expr": {
+                "op": "local",
+                "name": "x"
+              },
+              "decision": [
+                "num",
+                4
+              ],
+              "path": "use-left"
+            }
+          },
+          "line": "detail {\"fields\":{\"decision\":[\"num\",4],\"expr\":{\"name\":\"x\",\"op\":\"local\"},\"path\":\"use-left\"},\"kind\":\"choose\"}",
+          "role": "generated"
+        },
+        {
+          "record": {
+            "kind": "choose",
+            "fields": {
+              "expr": {
+                "op": "local",
+                "name": "x"
+              },
+              "decision": [
+                "null"
+              ],
+              "path": "evaluate-right"
+            }
+          },
+          "line": "detail {\"fields\":{\"decision\":[\"null\"],\"expr\":{\"name\":\"x\",\"op\":\"local\"},\"path\":\"evaluate-right\"},\"kind\":\"choose\"}",
+          "role": "generated"
+        },
+        {
+          "record": {
+            "kind": "bind",
+            "fields": {
+              "name": "answer",
+              "value": [
+                "num",
+                6
+              ]
+            }
+          },
+          "line": "detail {\"fields\":{\"name\":\"answer\",\"value\":[\"num\",6]},\"kind\":\"bind\"}",
+          "role": "generated"
+        },
+        {
+          "record": {
+            "kind": "bind",
+            "fields": {
+              "name": "next",
+              "value": [
+                "num",
+                6
+              ],
+              "from": "current",
+              "invocation": "call1"
+            }
+          },
+          "line": "detail {\"fields\":{\"from\":\"current\",\"invocation\":\"call1\",\"name\":\"next\",\"value\":[\"num\",6]},\"kind\":\"bind\"}",
+          "role": "generated"
+        },
+        {
+          "record": {
+            "kind": "bind",
+            "fields": {
+              "name": "return",
+              "value": [
+                "num",
+                6
+              ]
+            }
+          },
+          "line": "detail {\"fields\":{\"name\":\"return\",\"value\":[\"num\",6]},\"kind\":\"bind\"}",
+          "role": "generated"
+        },
+        {
+          "record": {
+            "kind": "bind",
+            "fields": {
+              "name": "éclair",
+              "value": [
+                "str",
+                "東京\n\"☃\""
+              ]
+            }
+          },
+          "line": "detail {\"fields\":{\"name\":\"éclair\",\"value\":[\"str\",\"東京\\n\\\"☃\\\"\"]},\"kind\":\"bind\"}",
+          "role": "generated"
+        },
+        {
+          "record": {
+            "kind": "allocate",
+            "fields": {
+              "name": "o1",
+              "kind": "object",
+              "properties": [
+                {
+                  "key": "answer",
+                  "value": [
+                    "num",
+                    6
+                  ]
+                },
+                {
+                  "key": "self",
+                  "value": [
+                    "ref",
+                    "o1"
+                  ]
+                }
+              ],
+              "invocation": "call1"
+            }
+          },
+          "line": "detail {\"fields\":{\"invocation\":\"call1\",\"kind\":\"object\",\"name\":\"o1\",\"properties\":[{\"key\":\"answer\",\"value\":[\"num\",6]},{\"key\":\"self\",\"value\":[\"ref\",\"o1\"]}]},\"kind\":\"allocate\"}",
+          "role": "generated"
+        },
+        {
+          "record": {
+            "kind": "allocate",
+            "fields": {
+              "name": "a1",
+              "kind": "array",
+              "properties": [
+                {
+                  "key": "0",
+                  "value": [
+                    "num",
+                    6
+                  ]
+                }
+              ],
+              "length": 1
+            }
+          },
+          "line": "detail {\"fields\":{\"kind\":\"array\",\"length\":1,\"name\":\"a1\",\"properties\":[{\"key\":\"0\",\"value\":[\"num\",6]}]},\"kind\":\"allocate\"}",
+          "role": "generated"
+        },
+        {
+          "record": {
+            "kind": "allocate",
+            "fields": {
+              "name": "c1",
+              "kind": "closure",
+              "properties": [],
+              "code": "function:76",
+              "captures": [
+                {
+                  "binding": "value",
+                  "cell": "outerValue"
+                },
+                {
+                  "binding": "again",
+                  "cell": "outerValue"
+                }
+              ]
+            }
+          },
+          "line": "detail {\"fields\":{\"captures\":[{\"binding\":\"value\",\"cell\":\"outerValue\"},{\"binding\":\"again\",\"cell\":\"outerValue\"}],\"code\":\"function:76\",\"kind\":\"closure\",\"name\":\"c1\",\"properties\":[]},\"kind\":\"allocate\"}",
+          "role": "generated"
+        },
+        {
+          "record": {
+            "kind": "allocate",
+            "fields": {
+              "name": "c2",
+              "kind": "closure",
+              "properties": [],
+              "code": "main",
+              "captures": []
+            }
+          },
+          "line": "detail {\"fields\":{\"captures\":[],\"code\":\"main\",\"kind\":\"closure\",\"name\":\"c2\",\"properties\":[]},\"kind\":\"allocate\"}",
+          "role": "generated"
+        },
+        {
+          "record": {
+            "kind": "allocate",
+            "fields": {
+              "name": "s1",
+              "kind": "set",
+              "properties": []
+            }
+          },
+          "line": "detail {\"fields\":{\"kind\":\"set\",\"name\":\"s1\",\"properties\":[]},\"kind\":\"allocate\"}",
+          "role": "generated"
+        },
+        {
+          "record": {
+            "kind": "allocate",
+            "fields": {
+              "name": "r1",
+              "kind": "regexp",
+              "properties": [
+                {
+                  "key": "source",
+                  "value": [
+                    "str",
+                    "a+"
+                  ]
+                }
+              ]
+            }
+          },
+          "line": "detail {\"fields\":{\"kind\":\"regexp\",\"name\":\"r1\",\"properties\":[{\"key\":\"source\",\"value\":[\"str\",\"a+\"]}]},\"kind\":\"allocate\"}",
+          "role": "generated"
+        },
+        {
+          "record": {
+            "kind": "read",
+            "fields": {
+              "object": "o1",
+              "key": "answer",
+              "value": [
+                "num",
+                6
+              ],
+              "present": true
+            }
+          },
+          "line": "detail {\"fields\":{\"key\":\"answer\",\"object\":\"o1\",\"present\":true,\"value\":[\"num\",6]},\"kind\":\"read\"}",
+          "role": "generated"
+        },
+        {
+          "record": {
+            "kind": "read",
+            "fields": {
+              "object": "o1",
+              "key": "missing",
+              "value": [
+                "undefined"
+              ],
+              "present": false
+            }
+          },
+          "line": "detail {\"fields\":{\"key\":\"missing\",\"object\":\"o1\",\"present\":false,\"value\":[\"undefined\"]},\"kind\":\"read\"}",
+          "role": "generated"
+        },
+        {
+          "record": {
+            "kind": "write",
+            "fields": {
+              "object": "o1",
+              "key": "answer",
+              "value": [
+                "num",
+                7
+              ],
+              "present": true,
+              "invocation": "call1"
+            }
+          },
+          "line": "detail {\"fields\":{\"invocation\":\"call1\",\"key\":\"answer\",\"object\":\"o1\",\"present\":true,\"value\":[\"num\",7]},\"kind\":\"write\"}",
+          "role": "generated"
+        },
+        {
+          "record": {
+            "kind": "write",
+            "fields": {
+              "object": "o1",
+              "key": "answer",
+              "value": [
+                "undefined"
+              ],
+              "present": false
+            }
+          },
+          "line": "detail {\"fields\":{\"key\":\"answer\",\"object\":\"o1\",\"present\":false,\"value\":[\"undefined\"]},\"kind\":\"write\"}",
+          "role": "generated"
+        },
+        {
+          "record": {
+            "kind": "call",
+            "fields": {
+              "callee": "helper",
+              "arguments": [
+                [
+                  "num",
+                  4
+                ]
+              ],
+              "receiver": [
+                "undefined"
+              ],
+              "child": "call1:child2",
+              "invocation": "call1"
+            }
+          },
+          "line": "detail {\"fields\":{\"arguments\":[[\"num\",4]],\"callee\":\"helper\",\"child\":\"call1:child2\",\"invocation\":\"call1\",\"receiver\":[\"undefined\"]},\"kind\":\"call\"}",
+          "role": "generated"
+        },
+        {
+          "record": {
+            "kind": "call",
+            "fields": {
+              "callee": "function:76",
+              "arguments": [],
+              "receiver": [
+                "ref",
+                "o1"
+              ],
+              "child": "call2"
+            }
+          },
+          "line": "detail {\"fields\":{\"arguments\":[],\"callee\":\"function:76\",\"child\":\"call2\",\"receiver\":[\"ref\",\"o1\"]},\"kind\":\"call\"}",
+          "role": "generated"
+        },
+        {
+          "record": {
+            "kind": "call",
+            "fields": {
+              "callee": "scalars",
+              "arguments": [
+                [
+                  "undefined"
+                ],
+                [
+                  "null"
+                ],
+                [
+                  "bool",
+                  true
+                ],
+                [
+                  "bool",
+                  false
+                ],
+                [
+                  "num",
+                  0
+                ],
+                [
+                  "num",
+                  "-0"
+                ],
+                [
+                  "num",
+                  "NaN"
+                ],
+                [
+                  "num",
+                  "+Infinity"
+                ],
+                [
+                  "num",
+                  "-Infinity"
+                ],
+                [
+                  "bigint",
+                  "12"
+                ],
+                [
+                  "bigint",
+                  "-12345678901234567890"
+                ],
+                [
+                  "str",
+                  "text"
+                ],
+                [
+                  "ref",
+                  "o1"
+                ]
+              ],
+              "receiver": [
+                "undefined"
+              ],
+              "child": "call3"
+            }
+          },
+          "line": "detail {\"fields\":{\"arguments\":[[\"undefined\"],[\"null\"],[\"bool\",true],[\"bool\",false],[\"num\",0],[\"num\",\"-0\"],[\"num\",\"NaN\"],[\"num\",\"+Infinity\"],[\"num\",\"-Infinity\"],[\"bigint\",\"12\"],[\"bigint\",\"-12345678901234567890\"],[\"str\",\"text\"],[\"ref\",\"o1\"]],\"callee\":\"scalars\",\"child\":\"call3\",\"receiver\":[\"undefined\"]},\"kind\":\"call\"}",
+          "role": "generated"
+        },
+        {
+          "record": {
+            "kind": "transfer",
+            "fields": {
+              "kind": "return",
+              "value": [
+                "num",
+                6
+              ],
+              "handler": "finally",
+              "invocation": "call1"
+            }
+          },
+          "line": "detail {\"fields\":{\"handler\":\"finally\",\"invocation\":\"call1\",\"kind\":\"return\",\"value\":[\"num\",6]},\"kind\":\"transfer\"}",
+          "role": "generated"
+        },
+        {
+          "record": {
+            "kind": "transfer",
+            "fields": {
+              "kind": "throw",
+              "value": [
+                "str",
+                "error"
+              ],
+              "handler": null
+            }
+          },
+          "line": "detail {\"fields\":{\"handler\":null,\"kind\":\"throw\",\"value\":[\"str\",\"error\"]},\"kind\":\"transfer\"}",
+          "role": "generated"
+        },
+        {
+          "record": {
+            "kind": "transfer",
+            "fields": {
+              "kind": "cleanup",
+              "value": [
+                "undefined"
+              ],
+              "handler": {
+                "next": "finally"
+              }
+            }
+          },
+          "line": "detail {\"fields\":{\"handler\":{\"next\":\"finally\"},\"kind\":\"cleanup\",\"value\":[\"undefined\"]},\"kind\":\"transfer\"}",
+          "role": "generated"
+        },
+        {
+          "record": {
+            "kind": "return",
+            "fields": {
+              "value": [
+                "num",
+                6
+              ],
+              "invocation": "call1"
+            }
+          },
+          "line": "detail {\"fields\":{\"invocation\":\"call1\",\"value\":[\"num\",6]},\"kind\":\"return\"}",
+          "role": "generated"
+        },
+        {
+          "record": {
+            "kind": "throw",
+            "fields": {
+              "value": [
+                "str",
+                "error"
+              ]
+            }
+          },
+          "line": "detail {\"fields\":{\"value\":[\"str\",\"error\"]},\"kind\":\"throw\"}",
+          "role": "generated"
+        },
+        {
+          "record": {
+            "kind": "request",
+            "fields": {
+              "effect": "e1",
+              "operation": "Host.log",
+              "arguments": [
+                [
+                  "num",
+                  6
+                ]
+              ],
+              "payload": "[6]",
+              "invocation": "call1",
+              "site": {
+                "start": 31,
+                "end": 42
+              }
+            }
+          },
+          "line": "detail {\"fields\":{\"arguments\":[[\"num\",6]],\"effect\":\"e1\",\"invocation\":\"call1\",\"operation\":\"Host.log\",\"payload\":\"[6]\",\"site\":{\"end\":42,\"start\":31}},\"kind\":\"request\"}",
+          "role": "generated"
+        },
+        {
+          "record": {
+            "kind": "request",
+            "fields": {
+              "effect": "e2",
+              "operation": "host-operation",
+              "arguments": [
+                [
+                  "ref",
+                  "o1"
+                ]
+              ],
+              "payload": "{\"schema\":\"owned-graph/1\",\"roots\":[],\"objects\":[]}",
+              "promise": "p1",
+              "invocation": "call1",
+              "site": {
+                "start": 50,
+                "end": 64
+              }
+            }
+          },
+          "line": "detail {\"fields\":{\"arguments\":[[\"ref\",\"o1\"]],\"effect\":\"e2\",\"invocation\":\"call1\",\"operation\":\"host-operation\",\"payload\":\"{\\\"schema\\\":\\\"owned-graph/1\\\",\\\"roots\\\":[],\\\"objects\\\":[]}\",\"promise\":\"p1\",\"site\":{\"end\":64,\"start\":50}},\"kind\":\"request\"}",
+          "role": "generated"
+        },
+        {
+          "record": {
+            "kind": "observe",
+            "fields": {
+              "effect": "e1",
+              "status": "fulfilled",
+              "result": [
+                "num",
+                6
+              ]
+            }
+          },
+          "line": "detail {\"fields\":{\"effect\":\"e1\",\"result\":[\"num\",6],\"status\":\"fulfilled\"},\"kind\":\"observe\"}",
+          "role": "observed"
+        },
+        {
+          "record": {
+            "kind": "observe",
+            "fields": {
+              "effect": "e1",
+              "status": "rejected",
+              "result": [
+                "str",
+                "error"
+              ]
+            }
+          },
+          "line": "detail {\"fields\":{\"effect\":\"e1\",\"result\":[\"str\",\"error\"],\"status\":\"rejected\"},\"kind\":\"observe\"}",
+          "role": "observed"
+        },
+        {
+          "record": {
+            "kind": "observe",
+            "fields": {
+              "effect": "e2",
+              "status": "fulfilled",
+              "result": [
+                "ref",
+                "o1"
+              ],
+              "graph": {
+                "roots": [
+                  [
+                    "ref",
+                    "o1"
+                  ]
+                ],
+                "objects": [
+                  {
+                    "id": "o1",
+                    "kind": "object",
+                    "properties": [
+                      {
+                        "key": "answer",
+                        "value": [
+                          "num",
+                          6
+                        ]
+                      }
+                    ]
+                  }
+                ]
+              }
+            }
+          },
+          "line": "detail {\"fields\":{\"effect\":\"e2\",\"graph\":{\"objects\":[{\"id\":\"o1\",\"kind\":\"object\",\"properties\":[{\"key\":\"answer\",\"value\":[\"num\",6]}]}],\"roots\":[[\"ref\",\"o1\"]]},\"result\":[\"ref\",\"o1\"],\"status\":\"fulfilled\"},\"kind\":\"observe\"}",
+          "role": "observed"
+        },
+        {
+          "record": {
+            "kind": "job",
+            "fields": {
+              "action": "enqueue",
+              "job": "j1",
+              "owner": "call1",
+              "closure": "c1"
+            }
+          },
+          "line": "detail {\"fields\":{\"action\":\"enqueue\",\"closure\":\"c1\",\"job\":\"j1\",\"owner\":\"call1\"},\"kind\":\"job\"}",
+          "role": "generated"
+        },
+        {
+          "record": {
+            "kind": "job",
+            "fields": {
+              "action": "dispatch",
+              "job": "j1",
+              "owner": "call1"
+            }
+          },
+          "line": "detail {\"fields\":{\"action\":\"dispatch\",\"job\":\"j1\",\"owner\":\"call1\"},\"kind\":\"job\"}",
+          "role": "generated"
+        },
+        {
+          "record": {
+            "kind": "job",
+            "fields": {
+              "action": "complete",
+              "job": "j1",
+              "owner": "call1",
+              "result": {
+                "kind": "return",
+                "value": [
+                  "num",
+                  6
+                ]
+              }
+            }
+          },
+          "line": "detail {\"fields\":{\"action\":\"complete\",\"job\":\"j1\",\"owner\":\"call1\",\"result\":{\"kind\":\"return\",\"value\":[\"num\",6]}},\"kind\":\"job\"}",
+          "role": "generated"
+        },
+        {
+          "record": {
+            "kind": "promise",
+            "fields": {
+              "action": "create",
+              "promise": "p1",
+              "invocation": "call1"
+            }
+          },
+          "line": "detail {\"fields\":{\"action\":\"create\",\"invocation\":\"call1\",\"promise\":\"p1\"},\"kind\":\"promise\"}",
+          "role": "generated"
+        },
+        {
+          "record": {
+            "kind": "promise",
+            "fields": {
+              "action": "resolve",
+              "promise": "p1",
+              "value": [
+                "num",
+                6
+              ]
+            }
+          },
+          "line": "detail {\"fields\":{\"action\":\"resolve\",\"promise\":\"p1\",\"value\":[\"num\",6]},\"kind\":\"promise\"}",
+          "role": "generated"
+        },
+        {
+          "record": {
+            "kind": "promise",
+            "fields": {
+              "action": "reject",
+              "promise": "p1",
+              "value": [
+                "str",
+                "error"
+              ]
+            }
+          },
+          "line": "detail {\"fields\":{\"action\":\"reject\",\"promise\":\"p1\",\"value\":[\"str\",\"error\"]},\"kind\":\"promise\"}",
+          "role": "generated"
+        },
+        {
+          "record": {
+            "kind": "promise",
+            "fields": {
+              "action": "adopt",
+              "promise": "p1",
+              "target": "p2"
+            }
+          },
+          "line": "detail {\"fields\":{\"action\":\"adopt\",\"promise\":\"p1\",\"target\":\"p2\"},\"kind\":\"promise\"}",
+          "role": "generated"
+        },
+        {
+          "record": {
+            "kind": "promise",
+            "fields": {
+              "action": "react",
+              "promise": "p1",
+              "reaction": "then",
+              "job": "j1",
+              "closure": "c1",
+              "rejectionClosure": "c2",
+              "target": "p2"
+            }
+          },
+          "line": "detail {\"fields\":{\"action\":\"react\",\"closure\":\"c1\",\"job\":\"j1\",\"promise\":\"p1\",\"reaction\":\"then\",\"rejectionClosure\":\"c2\",\"target\":\"p2\"},\"kind\":\"promise\"}",
+          "role": "generated"
+        },
+        {
+          "record": {
+            "kind": "promise",
+            "fields": {
+              "action": "react",
+              "promise": "p1",
+              "reaction": "catch",
+              "job": "j2",
+              "closure": "c2"
+            }
+          },
+          "line": "detail {\"fields\":{\"action\":\"react\",\"closure\":\"c2\",\"job\":\"j2\",\"promise\":\"p1\",\"reaction\":\"catch\"},\"kind\":\"promise\"}",
+          "role": "generated"
+        },
+        {
+          "record": {
+            "kind": "promise",
+            "fields": {
+              "action": "react",
+              "promise": "p1",
+              "reaction": "finally",
+              "job": "j3",
+              "target": "p3"
+            }
+          },
+          "line": "detail {\"fields\":{\"action\":\"react\",\"job\":\"j3\",\"promise\":\"p1\",\"reaction\":\"finally\",\"target\":\"p3\"},\"kind\":\"promise\"}",
+          "role": "generated"
+        },
+        {
+          "record": {
+            "kind": "await",
+            "fields": {
+              "promise": "p1",
+              "continuation": "k1",
+              "invocation": "call1"
+            }
+          },
+          "line": "detail {\"fields\":{\"continuation\":\"k1\",\"invocation\":\"call1\",\"promise\":\"p1\"},\"kind\":\"await\"}",
+          "role": "generated"
+        },
+        {
+          "record": {
+            "kind": "await",
+            "fields": {
+              "promise": "p1",
+              "continuation": "k1",
+              "returnPromise": "p2",
+              "invocation": "call1"
+            }
+          },
+          "line": "detail {\"fields\":{\"continuation\":\"k1\",\"invocation\":\"call1\",\"promise\":\"p1\",\"returnPromise\":\"p2\"},\"kind\":\"await\"}",
+          "role": "generated"
+        },
+        {
+          "record": {
+            "kind": "resume",
+            "fields": {
+              "continuation": "k1",
+              "status": "fulfilled",
+              "result": [
+                "num",
+                6
+              ],
+              "invocation": "call1"
+            }
+          },
+          "line": "detail {\"fields\":{\"continuation\":\"k1\",\"invocation\":\"call1\",\"result\":[\"num\",6],\"status\":\"fulfilled\"},\"kind\":\"resume\"}",
+          "role": "generated"
+        },
+        {
+          "record": {
+            "kind": "resume",
+            "fields": {
+              "continuation": "k1",
+              "status": "rejected",
+              "result": [
+                "str",
+                "error"
+              ],
+              "invocation": "call1"
+            }
+          },
+          "line": "detail {\"fields\":{\"continuation\":\"k1\",\"invocation\":\"call1\",\"result\":[\"str\",\"error\"],\"status\":\"rejected\"},\"kind\":\"resume\"}",
+          "role": "generated"
+        },
+        {
+          "record": {
+            "kind": "end",
+            "fields": {
+              "kind": "return"
+            }
+          },
+          "line": "detail {\"fields\":{\"kind\":\"return\"},\"kind\":\"end\"}",
+          "role": "generated"
+        },
+        {
+          "record": {
+            "kind": "end",
+            "fields": {
+              "kind": "throw"
+            }
+          },
+          "line": "detail {\"fields\":{\"kind\":\"throw\"},\"kind\":\"end\"}",
+          "role": "generated"
+        },
+        {
+          "record": {
+            "kind": "summarize",
+            "fields": {
+              "entry": "twice",
+              "arguments": [
+                [
+                  "num",
+                  3
+                ]
+              ],
+              "result": [
+                "num",
+                6
+              ],
+              "profile": "pure-helper/1",
+              "invocation": "call1"
+            }
+          },
+          "line": "detail {\"fields\":{\"arguments\":[[\"num\",3]],\"entry\":\"twice\",\"invocation\":\"call1\",\"profile\":\"pure-helper/1\",\"result\":[\"num\",6]},\"kind\":\"summarize\"}",
+          "role": "generated"
+        },
+        {
+          "record": {
+            "kind": "summarize",
+            "fields": {
+              "entry": "select",
+              "arguments": [
+                [
+                  "num",
+                  1
+                ]
+              ],
+              "result": [
+                "num",
+                6
+              ],
+              "profile": "pure-control-helper/1",
+              "decisions": [
+                {
+                  "site": {
+                    "start": 20,
+                    "end": 25
+                  },
+                  "selected": "consequent"
+                },
+                {
+                  "site": {
+                    "start": 40,
+                    "end": 48
+                  },
+                  "selected": "right"
+                },
+                {
+                  "site": {
+                    "start": 20,
+                    "end": 25
+                  },
+                  "selected": "alternate"
+                },
+                {
+                  "site": {
+                    "start": 40,
+                    "end": 48
+                  },
+                  "selected": "left"
+                }
+              ]
+            }
+          },
+          "line": "detail {\"fields\":{\"arguments\":[[\"num\",1]],\"decisions\":[{\"selected\":\"consequent\",\"site\":{\"end\":25,\"start\":20}},{\"selected\":\"right\",\"site\":{\"end\":48,\"start\":40}},{\"selected\":\"alternate\",\"site\":{\"end\":25,\"start\":20}},{\"selected\":\"left\",\"site\":{\"end\":48,\"start\":40}}],\"entry\":\"select\",\"profile\":\"pure-control-helper/1\",\"result\":[\"num\",6]},\"kind\":\"summarize\"}",
+          "role": "generated"
+        },
+        {
+          "record": {
+            "kind": "summarize",
+            "fields": {
+              "entry": "sum",
+              "arguments": [
+                [
+                  "ref",
+                  "a1"
+                ]
+              ],
+              "result": [
+                "num",
+                6
+              ],
+              "profile": "dense-array-sum/1",
+              "iterations": 3,
+              "accumulator": "total"
+            }
+          },
+          "line": "detail {\"fields\":{\"accumulator\":\"total\",\"arguments\":[[\"ref\",\"a1\"]],\"entry\":\"sum\",\"iterations\":3,\"profile\":\"dense-array-sum/1\",\"result\":[\"num\",6]},\"kind\":\"summarize\"}",
+          "role": "generated"
+        },
+        {
+          "record": {
+            "kind": "return",
+            "fields": {
+              "value": [
+                "num",
+                1e-7
+              ]
+            }
+          },
+          "line": "detail {\"fields\":{\"value\":[\"num\",1e-7]},\"kind\":\"return\"}",
+          "role": "generated"
+        },
+        {
+          "record": {
+            "kind": "return",
+            "fields": {
+              "value": [
+                "num",
+                0.000001
+              ]
+            }
+          },
+          "line": "detail {\"fields\":{\"value\":[\"num\",0.000001]},\"kind\":\"return\"}",
+          "role": "generated"
+        },
+        {
+          "record": {
+            "kind": "return",
+            "fields": {
+              "value": [
+                "num",
+                100000000000000000000
+              ]
+            }
+          },
+          "line": "detail {\"fields\":{\"value\":[\"num\",100000000000000000000]},\"kind\":\"return\"}",
+          "role": "generated"
+        },
+        {
+          "record": {
+            "kind": "return",
+            "fields": {
+              "value": [
+                "num",
+                1e+21
+              ]
+            }
+          },
+          "line": "detail {\"fields\":{\"value\":[\"num\",1e+21]},\"kind\":\"return\"}",
+          "role": "generated"
+        },
+        {
+          "record": {
+            "kind": "return",
+            "fields": {
+              "value": [
+                "num",
+                1000000000000000100
+              ]
+            }
+          },
+          "line": "detail {\"fields\":{\"value\":[\"num\",1000000000000000100]},\"kind\":\"return\"}",
+          "role": "generated"
+        },
+        {
+          "record": {
+            "kind": "return",
+            "fields": {
+              "value": [
+                "num",
+                5e-324
+              ]
+            }
+          },
+          "line": "detail {\"fields\":{\"value\":[\"num\",5e-324]},\"kind\":\"return\"}",
+          "role": "generated"
+        },
+        {
+          "record": {
+            "kind": "return",
+            "fields": {
+              "value": [
+                "num",
+                1.7976931348623157e+308
+              ]
+            }
+          },
+          "line": "detail {\"fields\":{\"value\":[\"num\",1.7976931348623157e+308]},\"kind\":\"return\"}",
+          "role": "generated"
+        },
+        {
+          "record": {
+            "kind": "return",
+            "fields": {
+              "value": [
+                "str",
+                "\ud800"
+              ]
+            }
+          },
+          "line": "detail {\"fields\":{\"value\":[\"str\",\"\\ud800\"]},\"kind\":\"return\"}",
+          "role": "generated"
+        },
+        {
+          "record": {
+            "kind": "return",
+            "fields": {
+              "value": [
+                "str",
+                "\udfff"
+              ]
+            }
+          },
+          "line": "detail {\"fields\":{\"value\":[\"str\",\"\\udfff\"]},\"kind\":\"return\"}",
+          "role": "generated"
+        },
+        {
+          "record": {
+            "kind": "return",
+            "fields": {
+              "value": [
+                "str",
+                "\b\t\n\f\r\u0000"
+              ]
+            }
+          },
+          "line": "detail {\"fields\":{\"value\":[\"str\",\"\\b\\t\\n\\f\\r\\u0000\"]},\"kind\":\"return\"}",
+          "role": "generated"
+        },
+        {
+          "record": {
+            "kind": "return",
+            "fields": {
+              "value": [
+                "str",
+                "before after"
+              ]
+            }
+          },
+          "line": "detail {\"fields\":{\"value\":[\"str\",\"before after\"]},\"kind\":\"return\"}",
+          "role": "generated"
+        },
+        {
+          "record": {
+            "kind": "compute",
+            "fields": {
+              "expr": {
+                "op": "binary",
+                "operator": "+",
+                "left": {
+                  "op": "local",
+                  "name": "typeof"
+                },
+                "right": {
+                  "op": "literal",
+                  "value": [
+                    "num",
+                    1
+                  ]
+                }
+              },
+              "result": [
+                "num",
+                2
+              ]
+            }
+          },
+          "line": "detail {\"fields\":{\"expr\":{\"left\":{\"name\":\"typeof\",\"op\":\"local\"},\"op\":\"binary\",\"operator\":\"+\",\"right\":{\"op\":\"literal\",\"value\":[\"num\",1]}},\"result\":[\"num\",2]},\"kind\":\"compute\"}",
+          "role": "generated"
+        },
+        {
+          "record": {
+            "kind": "compute",
+            "fields": {
+              "expr": {
+                "op": "binary",
+                "operator": "+",
+                "left": {
+                  "op": "local",
+                  "name": "void"
+                },
+                "right": {
+                  "op": "literal",
+                  "value": [
+                    "num",
+                    1
+                  ]
+                }
+              },
+              "result": [
+                "num",
+                2
+              ]
+            }
+          },
+          "line": "detail {\"fields\":{\"expr\":{\"left\":{\"name\":\"void\",\"op\":\"local\"},\"op\":\"binary\",\"operator\":\"+\",\"right\":{\"op\":\"literal\",\"value\":[\"num\",1]}},\"result\":[\"num\",2]},\"kind\":\"compute\"}",
+          "role": "generated"
+        },
+        {
+          "record": {
+            "kind": "return",
+            "fields": {
+              "value": [
+                "num",
+                -0.5
+              ]
+            }
+          },
+          "line": "detail {\"fields\":{\"value\":[\"num\",-0.5]},\"kind\":\"return\"}",
+          "role": "generated"
+        },
+        {
+          "record": {
+            "kind": "return",
+            "fields": {
+              "value": [
+                "num",
+                -0.000001
+              ]
+            }
+          },
+          "line": "detail {\"fields\":{\"value\":[\"num\",-0.000001]},\"kind\":\"return\"}",
+          "role": "generated"
+        },
+        {
+          "record": {
+            "kind": "return",
+            "fields": {
+              "value": [
+                "num",
+                -1e-7
+              ]
+            }
+          },
+          "line": "detail {\"fields\":{\"value\":[\"num\",-1e-7]},\"kind\":\"return\"}",
+          "role": "generated"
+        },
+        {
+          "record": {
+            "kind": "compute",
+            "fields": {
+              "expr": {
+                "op": "local",
+                "name": "ͺ"
+              },
+              "result": [
+                "num",
+                1
+              ]
+            }
+          },
+          "line": "detail {\"fields\":{\"expr\":{\"name\":\"ͺ\",\"op\":\"local\"},\"result\":[\"num\",1]},\"kind\":\"compute\"}",
+          "role": "generated"
+        },
+        {
+          "record": {
+            "kind": "compute",
+            "fields": {
+              "expr": {
+                "op": "local",
+                "name": "ำ"
+              },
+              "result": [
+                "num",
+                1
+              ]
+            }
+          },
+          "line": "detail {\"fields\":{\"expr\":{\"name\":\"ำ\",\"op\":\"local\"},\"result\":[\"num\",1]},\"kind\":\"compute\"}",
+          "role": "generated"
+        },
+        {
+          "record": {
+            "kind": "compute",
+            "fields": {
+              "expr": {
+                "op": "local",
+                "name": "ຳ"
+              },
+              "result": [
+                "num",
+                1
+              ]
+            }
+          },
+          "line": "detail {\"fields\":{\"expr\":{\"name\":\"ຳ\",\"op\":\"local\"},\"result\":[\"num\",1]},\"kind\":\"compute\"}",
+          "role": "generated"
+        },
+        {
+          "record": {
+            "kind": "compute",
+            "fields": {
+              "expr": {
+                "op": "local",
+                "name": "゛"
+              },
+              "result": [
+                "num",
+                1
+              ]
+            }
+          },
+          "line": "detail {\"fields\":{\"expr\":{\"name\":\"゛\",\"op\":\"local\"},\"result\":[\"num\",1]},\"kind\":\"compute\"}",
+          "role": "generated"
+        },
+        {
+          "record": {
+            "kind": "compute",
+            "fields": {
+              "expr": {
+                "op": "local",
+                "name": "゜"
+              },
+              "result": [
+                "num",
+                1
+              ]
+            }
+          },
+          "line": "detail {\"fields\":{\"expr\":{\"name\":\"゜\",\"op\":\"local\"},\"result\":[\"num\",1]},\"kind\":\"compute\"}",
+          "role": "generated"
+        },
+        {
+          "record": {
+            "kind": "transfer",
+            "fields": {
+              "kind": "cleanup",
+              "value": [
+                "undefined"
+              ],
+              "handler": {
+                "1": "first",
+                "2": "second",
+                "4294967295": "not an index",
+                "01": "not an index"
+              }
+            }
+          },
+          "line": "detail {\"fields\":{\"handler\":{\"1\":\"first\",\"2\":\"second\",\"01\":\"not an index\",\"4294967295\":\"not an index\"},\"kind\":\"cleanup\",\"value\":[\"undefined\"]},\"kind\":\"transfer\"}",
+          "role": "generated"
+        }
+      ],
+      "invalid": [
+        "return 9",
+        "end return",
+        "compute (1 + 2) => 3",
+        "detail {\"kind\":\"return\",\"fields\":{\"value\":[\"num\",9]}}",
+        "detail {\"fields\":{\"value\":[\"num\",9]},\"kind\":\"return\",\"future\":true}",
+        "detail {\"fields\":{\"value\":[\"num\",9]},\"kind\":\"return\",\"kind\":\"return\"}",
+        "detail {\"fields\":{\"value\":[\"num\",-0]},\"kind\":\"return\"}",
+        "detail {\"fields\":{\"id\":\"r1\",\"data\":\"return 9\"},\"kind\":\"value-part\"}",
+        "detail {\"fields\":{\"value\":[\"num\",9],\"privateFuture\":true},\"kind\":\"return\"}",
+        "detail {\"fields\":{\"value\":[\"num\",9]},\"kind\":\"return\"}\n"
+      ],
+      "invalidGenerated": [
+        "detail {\"fields\":{\"effect\":\"e1\",\"result\":[\"num\",6],\"status\":\"fulfilled\"},\"kind\":\"observe\"}"
+      ],
+      "invalidObserved": [
+        "detail {\"fields\":{\"invocation\":\"call1\",\"value\":[\"num\",6]},\"kind\":\"return\"}"
+      ]
+    }
+  }
+}

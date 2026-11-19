@@ -2,6 +2,11 @@
 
 This project is a software prototype, not a pretrained model. Training quality, performance and release fitness have **not** been established.
 
+The [semantic execution v7 integration](docs/SEMANTIC_V7.md) adds independent
+compact and detailed trace consumers, native admission, matching model-serving
+inputs, and prepared training with frozen semantic-family splits. It is a
+candidate integration; serving-cost and comprehension qualification remain open.
+
 ## One architecture
 
 One selected raw-facet representation powers ordinary E/C/P/R generation, and one learned memory sits beside it: the [Continuous State Transducer](docs/continuous-state-transducer-plan.md) (v10, implemented, not yet trained). At chosen boundaries the model emits a query, searches a sparse bank of location-to-location edges with an agenda-wide neighbourhood search, and admits what it finds as extra attention slots ("knowledge megatokens"). Edges carry FP8 routing vectors and 32,768-wide FP4 values; a momentum-free local-scale optimizer trains them, hindsight writes fill them, and error-driven growth adds and splits them. The transducer is always on: there is no switch and no older retrieval stack (the v9 source catalog, search index and embedding-alignment sidecars were removed). The implementation and executed checks define current behavior; design documents describe intended work.

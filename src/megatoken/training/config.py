@@ -155,12 +155,21 @@ class TrainConfig:
     allow_byte_codec: bool = False
     allow_unverified_data: bool = False
     semantic_experiment: dict[str, Any] | None = None
+    semantic_v7_policy: dict[str, Any] | None = None
     use_stage_mixture: bool | None = None
     use_effort_mixture: bool | None = None
     engram_import: str | None = None
     engram_imports: list[str] | None = None
 
     def __post_init__(self) -> None:
+        if self.semantic_v7_policy is not None:
+            from .semantic_v7 import validate_semantic_training_policy_v7
+
+            validate_semantic_training_policy_v7(self.semantic_v7_policy)
+            if self.semantic_experiment is not None:
+                raise ValueError(
+                    "V7 training cannot reuse a historical semantic experiment contract"
+                )
         if self.semantic_experiment is not None:
             from .semantic_budget import SemanticExperimentConfig
 

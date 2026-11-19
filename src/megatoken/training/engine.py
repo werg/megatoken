@@ -134,7 +134,24 @@ def prepare_batches(
     }
     for item in windows:
         episode = item.episode
-        if config.semantic_experiment is not None:
+        semantic_version = (
+            json.loads(episode.supervision.annotations_json)
+            .get("semantic_execution", {})
+            .get("schema")
+        )
+        if semantic_version == "semantic-execution/7":
+            from .semantic_v7 import validate_semantic_episode_v7
+
+            if config.semantic_experiment is not None:
+                raise ValueError("V7 data cannot use a historical semantic experiment contract")
+            validate_semantic_episode_v7(
+                episode,
+                codec=model.codec,
+                policy=config.semantic_v7_policy,
+                max_history=model.config.max_history_chunks,
+                max_positions=model.config.max_capacity,
+            )
+        elif config.semantic_experiment is not None:
             from .semantic_budget import validate_semantic_episode, validate_semantic_geometry
 
             validate_semantic_episode(
@@ -289,6 +306,7 @@ def _resume_compatible(old: dict[str, Any], config: TrainConfig, phase_transitio
             "hindsight_targets",
             "hindsight_distill_weight",
             "semantic_experiment",
+            "semantic_v7_policy",
         )
     for key in critical:
         if key not in old or old[key] != current[key]:
@@ -389,6 +407,30 @@ def train(
         dataset = PreparedCorpus(config.datasets)
         if dataset.codec_fingerprint != codec.fingerprint:
             raise ValueError("Prepared datasets use a different codec")
+        has_v7 = any(
+            receipt.get("schema") == "semantic-preparation/7"
+            for part in dataset.parts
+            for receipt in part.manifest.get("sources", [])
+        )
+        if has_v7 or config.semantic_v7_policy is not None:
+            from .semantic_v7 import (
+                validate_prepared_semantic_v7,
+                validate_semantic_training_policy_v7,
+            )
+
+            v7_policy = validate_semantic_training_policy_v7(config.semantic_v7_policy)
+            v7_supply = validate_prepared_semantic_v7(
+                config.datasets,
+                codec=codec,
+                producer_revision=v7_policy["producerRevision"],
+                consumer_revision=v7_policy["consumerRevision"],
+                max_history=model_config.max_history_chunks,
+                max_positions=model_config.max_capacity,
+            )
+            if v7_supply["registryDigest"] != v7_policy["registryDigest"]:
+                raise ValueError(
+                    "V7 prepared data differs from the explicitly frozen training registry"
+                )
         if experiment is not None:
             from .semantic_budget import validate_stage_supply
 
