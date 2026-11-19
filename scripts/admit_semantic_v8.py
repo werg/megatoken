@@ -36,6 +36,7 @@ def main():
     document=json.loads(args.input.read_text())
     result=validate_v8_artifact(document)
     sidecar=document.get("sidecar",{})
+    source_artifact=sidecar.get("sourceArtifact") if isinstance(sidecar,dict) else None
     public=document["public"]; contexts=document["contexts"]
     source_binding="untested"
     if isinstance(sidecar,dict) and sidecar.get("schema") in (
@@ -47,12 +48,24 @@ def main():
             sidecar.get("publicDigest")!=stable_algorithm_hash(public) or
             sidecar.get("contextDigest")!=stable_algorithm_hash(contexts)):
             raise ValueError("V8 source evidence no longer binds this public projection")
-        if sidecar.get("schema")=="semantic-protocol-region-evidence/1" and (
-            sidecar.get("admission")!="locally_verified" or
-            sidecar.get("profile")!="compositional-regions/1" or
-            sidecar.get("protocolProfile")!="symbols-ordinary-properties/1"
-        ):
-            raise ValueError("V8 protocol source evidence has an unsupported admission profile")
+        if sidecar.get("schema")=="semantic-protocol-region-evidence/1":
+            if sidecar.get("admission")!="locally_verified" or sidecar.get("profile")!="compositional-regions/1":
+                raise ValueError("V8 protocol source evidence has an unsupported region profile")
+            profile=sidecar.get("protocolProfile")
+            extensions=sidecar.get("protocolExtensions",[])
+            source_projection=(source_artifact or {}).get("sidecar",{}).get("compiler",{})
+            source_extensions=source_projection.get("extensions",[])
+            if profile=="symbols-ordinary-properties/1":
+                if extensions not in (None,[]) or source_extensions not in (None,[]):
+                    raise ValueError("Base protocol source evidence cannot claim extensions")
+            elif profile=="protocol-source-extensions/1":
+                supported={"owned-binary-memory/1","builtin-iterator/1"}
+                if (not isinstance(extensions,list) or not extensions or len(extensions)!=len(set(extensions)) or
+                    any(value not in supported for value in extensions) or
+                    source_extensions!=extensions):
+                    raise ValueError("V8 protocol source evidence has unsupported or mismatched extensions")
+            else:
+                raise ValueError("V8 protocol source evidence has an unsupported protocol profile")
         source_binding="passed"
     tokenizer={"status":"untested","identity":None,"sha256":None}; training=None
     if args.tokenizer_json is not None:
@@ -68,10 +81,12 @@ def main():
             tokenizer["status"]="resource_limited"
     checks=dict(result["checks"]); checks["tokenizer"]=tokenizer["status"]; checks["sourceBinding"]=source_binding
     checks["masks"]="passed" if training is not None and training["maskValidation"] and training["generatedRecords"]==result["counts"]["generatedRecords"] and training["contexts"]==len(contexts) else "untested"
-    source_artifact=sidecar.get("sourceArtifact")
     receipt={"schema":"semantic-native-admission/8","traceFormat":"semantic-trace/8","contextFormat":"semantic-context/8","representation":"mixed","componentGate":"native-consumer-only",
              "publicDigest":stable_algorithm_hash(public),"contextsDigest":stable_algorithm_hash(contexts),
              "sourceArtifactDigest":stable_algorithm_hash(source_artifact) if source_artifact is not None else None,
+             "sourceProfile":sidecar.get("profile") if isinstance(sidecar,dict) else None,
+             "protocolProfile":sidecar.get("protocolProfile") if isinstance(sidecar,dict) else None,
+             "protocolExtensions":sidecar.get("protocolExtensions",[]) if isinstance(sidecar,dict) else [],
              "datasetBindingDigest":stable_algorithm_hash(sidecar["datasetBinding"]) if isinstance(sidecar,dict) and sidecar.get("datasetBinding") is not None else None,
              "consumerRevision":revision,"contractDigest":CONTRACT_DIGEST,"fixtureDigest":CONTRACT["fixtureDigest"],"interoperabilityDigest":INTEROPERABILITY_DIGEST,
              "tokenizer":tokenizer,"checks":checks,"counts":{"records":len(public["timeline"]),"contexts":result["counts"]["contexts"],"generatedRecords":result["counts"]["generatedRecords"],"algorithmRecords":result["counts"].get("algorithmRecords",0),"regionRecords":result["counts"].get("regionRecords",0),"detailedRecords":result["counts"].get("detailedRecords",0),"protocolRecords":result["counts"].get("protocolRecords",0),"generatedTokens":training["generatedTokens"] if training else None,"observedTokens":training["observedTokens"] if training else None},
