@@ -26,17 +26,75 @@ def checked_revision(root, expected):
     return actual
 
 
+def recheck_source_binding(document, input_path, producer_root, producer_revision):
+    """Ask the exact clean JS producer checkout to replay source correspondence."""
+    if producer_root is None or producer_revision is None:
+        return None
+    root = Path(producer_root).resolve()
+    if not root.is_dir():
+        return None  # Authority is not installed; this cannot admit the artifact.
+    command = [
+        "node",
+        str(root / "tools" / "recheck-semantic-native-source.mjs"),
+        "--producer-root",
+        str(root),
+        "--producer-revision",
+        producer_revision,
+        "--input",
+        str(input_path.resolve()),
+    ]
+    try:
+        completed = subprocess.run(
+            command,
+            cwd=root,
+            check=False,
+            capture_output=True,
+            text=True,
+            timeout=30,
+        )
+    except (FileNotFoundError, subprocess.TimeoutExpired):
+        return None
+    if completed.returncode != 0:
+        raise ValueError("Pinned producer rejected semantic source correspondence")
+    if len(completed.stdout.encode("utf-8")) > 65536 or completed.stderr:
+        raise ValueError("Pinned producer source receipt was not bounded and clean")
+    try:
+        receipt = json.loads(completed.stdout)
+    except json.JSONDecodeError as error:
+        raise ValueError("Pinned producer returned a malformed source receipt") from error
+    sidecar = document.get("sidecar", {})
+    expected = {
+        "schema": "semantic-native-source-recheck/1",
+        "producerRevision": producer_revision,
+        "producerTreeClean": True,
+        "artifactSha256": hashlib.sha256(input_path.read_bytes()).hexdigest(),
+        "sourceArtifactDigest": stable_algorithm_hash(sidecar.get("sourceArtifact")),
+        "publicDigest": stable_algorithm_hash(document.get("public")),
+        "contextDigest": stable_algorithm_hash(document.get("contexts")),
+        "sourceValidated": True,
+        "projectionValidated": True,
+        "replayValidated": True,
+    }
+    if not isinstance(receipt, dict) or any(receipt.get(key) != value for key, value in expected.items()):
+        raise ValueError("Pinned producer source receipt does not bind this artifact")
+    return receipt
+
+
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--input", type=Path, required=True)
     parser.add_argument("--output", type=Path, required=True)
     parser.add_argument("--consumer-revision", required=True)
     parser.add_argument("--tokenizer-json", type=Path)
+    parser.add_argument("--producer-root", type=Path)
+    parser.add_argument("--producer-revision")
     args = parser.parse_args()
     if args.input.resolve() == args.output.resolve():
         parser.error("Input and receipt paths must differ")
     root = Path(__file__).resolve().parents[1]
     revision = checked_revision(root, args.consumer_revision)
+    if (args.producer_root is None) != (args.producer_revision is None):
+        parser.error("--producer-root and --producer-revision must be provided together")
     document = json.loads(args.input.read_text())
     result = validate_v8_artifact(document)
     sidecar = document.get("sidecar", {})
@@ -44,6 +102,7 @@ def main():
     public = document["public"]
     contexts = document["contexts"]
     source_binding = "untested"
+    source_verification = None
     if isinstance(sidecar, dict) and sidecar.get("schema") in (
         "semantic-region-evidence/1",
         "semantic-protocol-region-evidence/1",
@@ -98,11 +157,11 @@ def main():
                     )
             else:
                 raise ValueError("V8 protocol source evidence has an unsupported protocol profile")
-        # Matching hashes and producer-supplied status strings establish only
-        # internal consistency. They do not independently replay the original
-        # recording or prove its correspondence to this public projection.
-        # Keep sourceBinding untested until such a verifier is available;
-        # even a structurally valid, tokenizer-checked fixture is not admission.
+        source_verification = recheck_source_binding(
+            document, args.input, args.producer_root, args.producer_revision
+        )
+        if source_verification is not None:
+            source_binding = "passed"
     tokenizer = {"status": "untested", "identity": None, "sha256": None}
     training = None
     if args.tokenizer_json is not None:
@@ -150,6 +209,7 @@ def main():
         "sourceArtifactDigest": stable_algorithm_hash(source_artifact)
         if source_artifact is not None
         else None,
+        "sourceVerification": source_verification,
         "sourceProfile": sidecar.get("profile") if isinstance(sidecar, dict) else None,
         "protocolProfile": sidecar.get("protocolProfile") if isinstance(sidecar, dict) else None,
         "protocolExtensions": sidecar.get("protocolExtensions", [])

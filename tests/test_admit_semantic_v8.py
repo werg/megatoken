@@ -7,6 +7,7 @@ import gzip
 import io
 import json
 import tempfile
+import os
 import unittest
 from pathlib import Path
 from unittest.mock import patch
@@ -48,7 +49,7 @@ class NativeV8AdmissionTests(unittest.TestCase):
             )
         return document
 
-    def run_cli(self, document):
+    def run_cli(self, document, *, producer_root=None, producer_revision=None):
         # This codec exercises real physical framing and masks; patching the
         # loader isolates the source-admission gate from a large tokenizer file.
         codec = ByteCodec.byte_fallback()
@@ -70,6 +71,10 @@ class NativeV8AdmissionTests(unittest.TestCase):
                 "--tokenizer-json",
                 str(tokenizer),
             ]
+            if producer_root is not None:
+                arguments.extend(
+                    ["--producer-root", str(producer_root), "--producer-revision", producer_revision]
+                )
             with (
                 patch("sys.argv", arguments),
                 patch.object(admit_semantic_v8, "checked_revision", return_value="test-revision"),
@@ -109,6 +114,36 @@ class NativeV8AdmissionTests(unittest.TestCase):
         )
         with self.assertRaisesRegex(ValueError, "mismatched extensions"):
             self.run_cli(document)
+
+    def test_live_producer_rejects_internally_consistent_but_false_source_evidence(self):
+        producer_root = os.environ.get("MEGATOKEN_NATIVE_SOURCE_PRODUCER")
+        if not producer_root:
+            self.skipTest("set MEGATOKEN_NATIVE_SOURCE_PRODUCER to run the live V8 authority test")
+        root = Path(producer_root)
+        revision = __import__("subprocess").check_output(
+            ["git", "rev-parse", "HEAD"], cwd=root, text=True
+        ).strip()
+        for mutation in ("source", "public", "contexts"):
+            with self.subTest(mutation=mutation):
+                document = self.source_document()
+                if mutation == "source":
+                    document["sidecar"]["sourceArtifact"]["invented"] = "internally consistent"
+                    document["sidecar"]["sourceArtifactDigest"] = stable_algorithm_hash(
+                        document["sidecar"]["sourceArtifact"]
+                    )
+                elif mutation == "public":
+                    document["public"]["timeline"][0]["fields"]["invented"] = True
+                    document["sidecar"]["publicDigest"] = stable_algorithm_hash(document["public"])
+                else:
+                    document["contexts"][0]["visibleThrough"] += 1
+                    document["sidecar"]["contextDigest"] = stable_algorithm_hash(document["contexts"])
+                with tempfile.TemporaryDirectory() as folder:
+                    artifact = Path(folder) / "artifact.json"
+                    artifact.write_text(json.dumps(document))
+                    with self.assertRaisesRegex(ValueError, "Pinned producer rejected"):
+                        admit_semantic_v8.recheck_source_binding(
+                            document, artifact, root, revision
+                        )
 
 
 if __name__ == "__main__":
