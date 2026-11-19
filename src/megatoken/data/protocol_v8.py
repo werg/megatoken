@@ -25,6 +25,9 @@ from .memory_v8 import FIELDS as MEMORY_FIELDS
 from .memory_v8 import apply_record as apply_memory_record
 from .memory_v8 import validate_record as validate_memory_record
 from .memory_v8 import validate_state as validate_memory_state
+from .promise_join_v8 import FIELDS as PROMISE_JOIN_FIELDS
+from .promise_join_v8 import apply_record as apply_promise_join_record
+from .promise_join_v8 import validate_record as validate_promise_join_record
 
 PREFIX = "protocol "
 SCHEMA = "semantic-protocol-record/1"
@@ -86,6 +89,7 @@ class ProtocolV8Error(ValueError):
 FIELDS.update(CONSTRUCTION_FIELDS)
 FIELDS.update(MEMORY_FIELDS)
 FIELDS.update(ITERATOR_FIELDS)
+FIELDS.update(PROMISE_JOIN_FIELDS)
 
 
 def _fail(message):
@@ -197,6 +201,14 @@ def _expression(term, depth=0, budget=None):
 
 
 def validate_protocol_record(record):
+    if type(record) is dict and record.get("kind") in PROMISE_JOIN_FIELDS:
+        try:
+            validate_promise_join_record(record)
+        except ProtocolV8Error:
+            raise
+        except (TypeError, KeyError, IndexError) as error:
+            raise ProtocolV8Error("Invalid Promise join record") from error
+        return True
     if type(record) is dict and record.get("kind") in CONSTRUCTION_FIELDS:
         try:
             validate_construction_record(record)
@@ -666,7 +678,7 @@ def _apply(machine, record):
         _fail("property finish must consume child completion")
     if machine.get("completion") is not None:
         _fail("record after completion")
-    if not machine["stack"] and record["kind"] != "end":
+    if not machine["stack"] and record["kind"] not in ("end", "promise.join.step"):
         _fail("active invocation required")
     kind = record["kind"]
     if p.get("construction") is not None:
@@ -678,6 +690,10 @@ def _apply(machine, record):
     if kind in ITERATOR_FIELDS:
         if not apply_iterator_record(machine, record):
             _fail("unsupported iterator transition")
+        return
+    if kind in PROMISE_JOIN_FIELDS:
+        if not apply_promise_join_record(machine, record):
+            _fail("unsupported Promise join transition")
         return
     if kind in CONSTRUCTION_FIELDS:
         if not apply_construction_record(machine, record):
@@ -1349,6 +1365,9 @@ def validate_protocol_state(snapshot, heap_ids=(), shared_state=None):
         )
         validate_memory_state(memory_machine)
         validate_iterator_state(memory_machine)
+        from .promise_join_v8 import validate_state as validate_promise_join_state
+
+        validate_promise_join_state(memory_machine)
     return True
 
 

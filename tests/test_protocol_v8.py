@@ -114,6 +114,43 @@ class ProtocolV8CodecTests(unittest.TestCase):
             validate_protocol_state(bad)
 
 
+class PromiseJoinNativeTests(unittest.TestCase):
+    def test_bounded_promise_all_join_uses_fifo_and_checks_settlement_claims(self):
+        machine = {
+            "protocol": create_protocol_state(), "heap": {
+                "p1": {"kind": "promise", "properties": {}, "state": "fulfilled", "result": ["num", 7], "reactions": []},
+                "p2": {"kind": "promise", "properties": {}, "state": "fulfilled", "result": ["str", "ok"], "reactions": []},
+                "joined": {"kind": "promise", "properties": {}, "state": "pending", "result": None, "reactions": []},
+            },
+            "locals": {}, "stack": ["invocation"], "effects": [], "jobs": [], "ready": [],
+            "scheduler": {"registration": 0, "ready": 0}, "continuations": [],
+            "captureAliases": {}, "frameFunctions": {},
+            "completion": None, "activeJob": None,
+        }
+        apply_protocol_record(machine, {"kind": "promise.join", "mode": "all", "result": "joined",
+                                        "inputs": ["p1", "p2"], "jobs": ["j1", "j2"],
+                                        "output": None, "error": None})
+        self.assertEqual(machine["ready"], ["j1", "j2"])
+        machine["stack"] = []
+        first = {"kind": "promise.join.step", "result": "joined", "job": "j1", "entry": None,
+                 "output": None, "error": None, "status": "pending", "value": None}
+        apply_protocol_record(machine, first)
+        second = {"kind": "promise.join.step", "result": "joined", "job": "j2", "entry": None,
+                  "output": "out", "error": None, "status": "fulfilled", "value": ["ref", "out"]}
+        apply_protocol_record(machine, second)
+        self.assertEqual(machine["heap"]["joined"]["state"], "fulfilled")
+        self.assertEqual(machine["heap"]["out"]["properties"]["1"], ["str", "ok"])
+        external = _external_machine(machine)
+        self.assertTrue(validate_protocol_state(external["protocol"], external["heap"], external))
+        broken = json.loads(json.dumps(external))
+        joined = dict(broken["heap"])["joined"]
+        joined["join"]["jobs"][0] = "forged"
+        with self.assertRaises(ProtocolV8Error):
+            validate_protocol_state(broken["protocol"], broken["heap"], broken)
+        with self.assertRaises(ProtocolV8Error):
+            apply_protocol_record(machine, {**second, "job": "j1"})
+
+
 class IteratorProtocolNativeTests(unittest.TestCase):
     @classmethod
     def setUpClass(cls):
