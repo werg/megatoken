@@ -62,7 +62,7 @@ def main():
                 if extensions not in (None,[]) or source_extensions not in (None,[]):
                     raise ValueError("Base protocol source evidence cannot claim extensions")
             elif profile=="protocol-source-extensions/1":
-                supported={"owned-binary-memory/1","builtin-iterator/1"}
+                supported={"owned-binary-memory/1","builtin-iterator/1","class-private-source/1"}
                 if (not isinstance(extensions,list) or not extensions or
                     not all(type(value) is str and value in supported for value in extensions) or
                     len(extensions)!=len(set(extensions)) or not isinstance(source_extensions,list) or

@@ -6,7 +6,6 @@ heap and protocol namespace; this module does not execute JavaScript source.
 from __future__ import annotations
 
 import copy
-import re
 
 STATE_SCHEMA = "semantic-construction-state/1"
 STATE_FIELDS = {"schema", "privateNames", "frames", "lastCompletion"}
@@ -175,7 +174,7 @@ def _apply_private(machine, record):
     if kind == "private.declare":
         identity = record["id"]
         occupied = identity in machine["heap"] or any(row["id"] == identity for row in machine["protocol"]["symbols"])
-        if occupied or not re.fullmatch(r"o[1-9][0-9]*", identity): _fail("private identity collision or format")
+        if occupied: _fail("private identity collision")
         if any(row["id"] == identity for row in state["privateNames"]) or any(row["owner"] == record["owner"] and row["name"] == record["name"] for row in state["privateNames"]):
             _fail("duplicate private identity or class name")
         if len(state["privateNames"]) >= 4096: _fail("private identity bound")
@@ -346,7 +345,8 @@ def apply_record(machine, record):
         info["homeObject"] = copy.deepcopy(record["home"])
         return True
     if kind == "class.link":
-        info = _metadata(machine, record["object"]); proto = _node(machine, record["prototype"][1]); node = _node(machine, record["object"])
+        info = _metadata(machine, record["object"])
+        proto = _node(machine, record["prototype"][1]); node = _node(machine, record["object"])
         if not info["classConstructor"] or info["homeObject"] is not None: _fail("class already linked or not a class")
         if proto["kind"] != "object" or record["object"] == record["prototype"][1]: _fail("class prototype must be a distinct ordinary object")
         instance_parent = "ordinary"; constructor_parent = "ordinary"
@@ -369,6 +369,9 @@ def apply_record(machine, record):
         existing = _desc(node, "prototype"); back = _desc(proto, "constructor")
         if existing and (existing["kind"] != "data" or existing["value"] != record["prototype"]): _fail("class prototype identity changed")
         if back and (back["kind"] != "data" or back["value"] != ["ref", record["object"]]): _fail("class constructor backlink changed")
+        if "keyOrder" not in proto:
+            from .protocol_v8 import _ordered
+            proto["keyOrder"] = _ordered(proto)
         node["prototype"] = copy.deepcopy(constructor_parent); proto["prototype"] = copy.deepcopy(instance_parent); info["homeObject"] = copy.deepcopy(record["prototype"])
         _install(machine, node, "prototype", {"kind": "data", "value": copy.deepcopy(record["prototype"]), "writable": False, "enumerable": False, "configurable": False})
         _install(machine, proto, "constructor", {"kind": "data", "value": ["ref", record["object"]], "writable": True, "enumerable": False, "configurable": True})

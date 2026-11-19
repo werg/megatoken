@@ -216,7 +216,6 @@ def _node(machine,identity):
     node=machine["heap"].get(identity)
     if not isinstance(node,dict) or node.get("kind") not in ("object","array","closure"): _fail("ordinary object required")
     node.setdefault("properties",{}); node.setdefault("descriptors",{})
-    if "keyOrder" not in node: node["keyOrder"]=_ordered(node)
     node.setdefault("prototype","ordinary"); node.setdefault("extensible",True)
     return node
 def _descriptor(node,key):
@@ -366,9 +365,15 @@ def _apply(machine,record):
             descriptor=copy.deepcopy(record["descriptor"]); old=_descriptor(node,key)
             compatible=old is None and node["extensible"] or old is not None and (old["configurable"] or not descriptor["configurable"] and descriptor["enumerable"]==old["enumerable"] and descriptor["kind"]==old["kind"] and (descriptor["kind"]=="accessor" and descriptor["get"]==old["get"] and descriptor["set"]==old["set"] or descriptor["kind"]=="data" and (old["writable"] or not descriptor["writable"] and old["value"]==descriptor["value"])))
             if compatible!=record["success"]: _fail("false descriptor compatibility")
-            if compatible: _install(node,key,descriptor)
+            if compatible:
+                if "keyOrder" not in node: node["keyOrder"]=_ordered(node)
+                _install(node,key,descriptor)
         elif kind=="property.get":
-            descriptor=_descriptor(node,key)
+            descriptor=_descriptor(node,key); prototype_seen={record["object"]}; prototype=node.get("prototype","ordinary")
+            while descriptor is None and isinstance(prototype,list) and prototype[0]=="ref":
+                if prototype[1] in prototype_seen: _fail("prototype cycle")
+                prototype_seen.add(prototype[1]); inherited=_node(machine,prototype[1])
+                descriptor=_descriptor(inherited,key); prototype=inherited.get("prototype","ordinary")
             if descriptor and descriptor["kind"]=="accessor" and descriptor["get"]!=["undefined"]: _fail("getter needs call boundary")
             expected=descriptor["value"] if descriptor and descriptor["kind"]=="data" else ["undefined"]
             if expected!=record["result"]: _fail("false property read")
