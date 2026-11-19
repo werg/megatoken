@@ -144,20 +144,24 @@ def prepare_native_v8_training(document,*,codec,max_positions=8192,max_history=1
     episode=physical_semantic_episode(episode,codec=codec,max_positions=max_positions,max_history=max_history,
         selection_instruction=lambda continuation=False:semantic_selection_instruction(continuation=continuation),emit_context_windows=False)
     encoded=encode_episode(episode,codec)
-    token_rows=[]; generated_tokens=observed_tokens=0
+    token_rows=[]; generated_tokens=observed_tokens=0; masked_logicals=set(); unmasked_targets=set()
     for item in encoded:
         record=item.record; labels=[token if eligible else -100 for token,eligible in zip(item.token_ids,item.free_mask,strict=True)]
-        if record.policy_mask: generated_tokens+=item.P
+        if record.policy_mask:
+            generated_tokens+=item.P; masked_logicals.add(record.logical_id)
+        elif record.logical_id.startswith("semantic:v8:target:"): unmasked_targets.add(record.logical_id)
         else: observed_tokens+=item.tokens
         token_rows.append({"recordId":record.record_id,"logicalId":record.logical_id,"partIndex":record.part_index,
             "partCount":record.part_count,"role":record.role,"policyMask":record.policy_mask,
             "payloadSha256":__import__("hashlib").sha256(record.payload).hexdigest(),
             "tokenIds":list(item.token_ids),"labels":labels,"codecFingerprint":item.codec_fingerprint})
     native_digest=stable_algorithm_hash({"schema":"semantic-native-training/8","codecFingerprint":codec.fingerprint,"rows":token_rows})
+    expected_targets={f"semantic:v8:target:{row['sequence']}" for row in timeline if row["mode"]=="generated"}
+    if masked_logicals!=expected_targets or unmasked_targets: raise NativeV8Error("Native v8 physical policy masks do not match generated targets")
     return episode,{"nativeTrainingDigest":native_digest,"generatedTokens":generated_tokens,"observedTokens":observed_tokens,
                     "physicalRecords":len(episode.records),"logicalRecords":len(timeline)+len(contexts),"contexts":len(contexts),
                     "generatedRecords":len(generated),"eosTokenId":None,"terminalTokens":0,
-                    "framing":"native-physical-record-boundaries/1"}
+                    "maskValidation":True,"framing":"native-physical-record-boundaries/1"}
 
 
 def _replay_region(program,context,line,entry):

@@ -59,7 +59,7 @@ def main():
         except ImportError:
             tokenizer["status"]="resource_limited"
     checks=dict(result["checks"]); checks["tokenizer"]=tokenizer["status"]; checks["sourceBinding"]=source_binding
-    checks["masks"]="passed" if training is not None and training["generatedRecords"]==len(public["timeline"]) and training["contexts"]==len(contexts) else "untested"
+    checks["masks"]="passed" if training is not None and training["maskValidation"] and training["generatedRecords"]==result["counts"]["generatedRecords"] and training["contexts"]==len(contexts) else "untested"
     source_artifact=sidecar.get("sourceArtifact")
     receipt={"schema":"semantic-native-admission/8","traceFormat":"semantic-trace/8","contextFormat":"semantic-context/8","representation":"mixed","componentGate":"native-consumer-only",
              "publicDigest":stable_algorithm_hash(public),"contextsDigest":stable_algorithm_hash(contexts),
