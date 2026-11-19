@@ -1265,7 +1265,7 @@
       "reason": "old artifacts require their original contract"
     }
   ],
-  "interoperabilityDigest": "ffe91c3265e22a792dbb80d5a4b80faa22561c7143eb9ac8819e7a9f9432af33",
+  "interoperabilityDigest": "35bbf42498dcc44d159f94548b4da29f22d3cb05dc2b5531b8630b7ca8a6419a",
   "interoperability": [
     {
       "id": "ordered-map",
@@ -1286,6 +1286,11 @@
       "id": "protocol-machine",
       "schema": "semantic-protocol-fixtures/1",
       "fixtureDigest": "e2f1db4a8605644cc9d8ab06642a182c19cc345460596c6a2e29b90ad30bd704"
+    },
+    {
+      "id": "protocol-region:source-symbol-getter-arithmetic",
+      "publicDigest": "7c8071a7861d80003a8ce020b5dca313e8af1935177a36eeab9b435473d43ddf",
+      "contextDigest": "40a30688f85533e69f2090a99ff89b5fc9e315111451ee517078203c5c3ddee9"
     }
   ]
 }
