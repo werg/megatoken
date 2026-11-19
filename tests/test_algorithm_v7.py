@@ -311,6 +311,12 @@ class StableAlgorithmJsonTests(unittest.TestCase):
                          '"min":5e-324,"tiny":1e-7,"upper":1e+21,"😀":3,"\ue000":2}')
         self.assertEqual(stable_algorithm_hash({}), "44136fa355b3678a1146ad16f7e8649e94fb4fc21fe77e8310c060f61caaff8a")
         self.assertEqual(stable_algorithm_hash("a"), hashlib.sha256(b"a").hexdigest())
+        self.assertEqual(
+            stable_algorithm_json({"01": "not-index", "1": "first", "2": "second",
+                                   "4294967295": "not-index", "4294967294": "index"}),
+            '{"1":"first","2":"second","4294967294":"index",'
+            '"01":"not-index","4294967295":"not-index"}',
+        )
 
     def test_extreme_number_spellings_and_surrogate_string_codec(self):
         numbers = [5e-324, 2.2250738585072014e-308, 1e-6, 1e-7, 1e20, 1e21,

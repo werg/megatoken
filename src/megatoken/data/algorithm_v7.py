@@ -105,6 +105,16 @@ def _js_string_units(value: str) -> tuple[int, ...]:
     return tuple((raw[i] << 8) | raw[i + 1] for i in range(0, len(raw), 2))
 
 
+def _array_index(key: str) -> int | None:
+    """Return the ECMAScript array-index value for an enumerable string key."""
+    if not key or not key.isascii() or not key.isdecimal():
+        return None
+    if key != "0" and key.startswith("0"):
+        return None
+    number = int(key)
+    return number if number < 0xFFFFFFFF else None
+
+
 def _quote_string(value: str) -> str:
     if type(value) is not str:
         _error("JSON string required")
@@ -202,7 +212,21 @@ def _stable_json(value: Any, active: set[int]) -> str:
                 return "[" + ",".join(_stable_json(item, active) for item in value) + "]"
             if any(type(key) is not str for key in value):
                 _error("JSON object keys must be strings")
-            keys = sorted(value, key=_js_string_units)
+            # `stableAlgorithmJSON` sorts keys before constructing an ordinary
+            # JS object, then JSON.stringify applies ECMAScript's own property
+            # enumeration order. Canonical array-index keys therefore move to
+            # the front in numeric order, even when lexical sorting put them
+            # among ordinary keys (for example "1" sorts after "01" but is
+            # serialized before it).
+            indexed = []
+            ordinary = []
+            for key in value:
+                index = _array_index(key)
+                if index is None:
+                    ordinary.append(key)
+                else:
+                    indexed.append((index, key))
+            keys = [key for _, key in sorted(indexed)] + sorted(ordinary, key=_js_string_units)
             return "{" + ",".join(_quote_string(key) + ":" + _stable_json(value[key], active)
                                   for key in keys) + "}"
         finally:

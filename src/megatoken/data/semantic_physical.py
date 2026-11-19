@@ -74,7 +74,10 @@ def validate_semantic_creation_observations(episode: Episode) -> None:
             raise ValueError("Semantic creation must match its exact public ingress receipt")
 
 
-def physical_semantic_episode(episode: Episode, *, codec, max_positions: int, max_history: int):
+def physical_semantic_episode(
+    episode: Episode, *, codec, max_positions: int, max_history: int,
+    selection_instruction=None,
+):
     if type(max_positions) is not int or max_positions < 1:
         raise ValueError("Semantic physical token budget must be positive")
     if type(max_history) is not int or max_history < 1:
@@ -122,13 +125,14 @@ def physical_semantic_episode(episode: Episode, *, codec, max_positions: int, ma
         for chunk_index, chunk in enumerate(chunks):
             chunk_event = event
             if record.policy_mask and chunk_index > 0:
-                from megatoken.controls import semantic_selection_instruction
-
-                chunk_event = replace(
-                    event, instruction=semantic_selection_instruction(continuation=True)
-                )
+                if selection_instruction is None:
+                    from megatoken.controls import semantic_selection_instruction
+                    instruction = semantic_selection_instruction(continuation=True)
+                else:
+                    instruction = selection_instruction(continuation=True)
+                chunk_event = replace(event, instruction=instruction)
             append_chunk(chunk, chunk_event)
-        if not record.policy_mask:
+        if not record.policy_mask and record.payload.startswith(b"{"):
             observation = json.loads(record.payload)
             kind = observation.get("kind")
             if (
@@ -170,7 +174,7 @@ def physical_semantic_episode(episode: Episode, *, codec, max_positions: int, ma
     )
     annotations = json.loads(episode.supervision.annotations_json)
     annotations["semantic_geometry"] = {
-        "schema": "semantic-native-geometry/4",
+        "schema": "semantic-native-geometry/7" if annotations.get("semantic_execution", {}).get("schema") == "semantic-execution/7" else "semantic-native-geometry/4",
         "maxPositions": max_positions,
         "maxHistory": max_history,
     }
