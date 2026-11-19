@@ -6,7 +6,8 @@ from pathlib import Path
 
 from megatoken.data.algorithm_v7 import stable_algorithm_hash
 from megatoken.data.native_v8 import NativeV8Error, validate_v8_artifact
-from megatoken.data.protocol_v8 import ProtocolV8Error, decode_protocol_record, encode_protocol_record, replay_protocol_case, validate_protocol_state
+from megatoken.data.protocol_v8 import (ProtocolV8Error, apply_protocol_record, create_protocol_state,
+    decode_protocol_record, encode_protocol_record, replay_protocol_case, validate_protocol_state, _external_machine)
 
 FIXTURE=Path(__file__).parent/"fixtures"/"semantic-protocol-v8.json"
 REGION_FIXTURE=Path(__file__).parent/"fixtures"/"semantic-protocol-region-v8.json.gz.b64"
@@ -91,6 +92,77 @@ class ProtocolV8NativeReplayTests(unittest.TestCase):
         target["kind"]="semantic"
         target["fields"]["line"]="detail end {}"
         with self.assertRaises(NativeV8Error): validate_v8_artifact(bad)
+
+
+class ConstructionProtocolNativeTests(unittest.TestCase):
+    def setUp(self):
+        self.machine={"protocol":create_protocol_state(),"heap":{},"stack":["root"],"locals":{},
+            "captureAliases":{},"frameFunctions":{"root":"root"},"receiver":["undefined"],
+            "pending":None,"lastReturn":None,"completion":None}
+
+    def send(self,kind,**fields):
+        return apply_protocol_record(self.machine,{"kind":kind,**fields})
+
+    def allocate(self,name,kind="object",code=None):
+        self.send("allocate",name=name,objectKind=kind,length=None,properties=[],code=code,captures=[],
+            functionKind="ordinary" if kind=="closure" else None,lexicalReceiver=None)
+
+    def class_(self,name,heritage=("undefined",)):
+        self.allocate(name,"closure",name+"-code");self.allocate(name+"-prototype")
+        self.send("callable.define",object=name,constructorKind="base" if heritage[0]=="undefined" else "derived",classConstructor=True)
+        self.send("class.link",object=name,prototype=["ref",name+"-prototype"],heritage=list(heritage))
+
+    def test_class_descriptor_and_constructor_receiver_follow_new_target(self):
+        self.class_("Base");self.class_("Child",("ref","Base"))
+        self.send("construct.enter",id="construct-1",child="child-body",callee=["ref","Base"],newTarget=["ref","Child"],arguments=[],receiver=["ref","instance"],mode="ordinary",owner=None)
+        self.assertEqual(self.machine["heap"]["instance"]["prototype"],["ref","Child-prototype"])
+        self.send("construct.target",invocation="child-body",result=["ref","Child"])
+        self.send("construct.this",invocation="child-body",result=["ref","instance"])
+        self.send("return",value=["num",2],invocation="child-body")
+        with self.assertRaisesRegex(ProtocolV8Error,"pending constructor"):
+            self.send("bind",name="bad",value=["num",1])
+        self.send("construct.finish",id="construct-1",completion={"kind":"normal","value":["ref","instance"]})
+        node=self.machine["heap"]["Base"]
+        self.assertEqual(node["descriptors"]["prototype"],{"kind":"data","writable":False,"enumerable":False,"configurable":False})
+        external=_external_machine(self.machine)
+        validate_protocol_state(external["protocol"],external["heap"],external)
+
+    def test_private_names_and_fields_share_heap_and_reject_false_claims(self):
+        self.class_("C");self.allocate("instance");self.allocate("other")
+        self.send("private.declare",id="o20",owner="C",name="secret")
+        self.send("private.define",object="instance",privateId="o20",elementKind="field",value=["num",1])
+        self.send("private.has",object="instance",privateId="o20",result=True)
+        self.send("private.set",object="instance",privateId="o20",value=["num",3])
+        self.send("private.get",object="instance",privateId="o20",result=["num",3])
+        self.send("private.has",object="other",privateId="o20",result=False)
+        with self.assertRaisesRegex(ProtocolV8Error,"false private read"):
+            self.send("private.get",object="instance",privateId="o20",result=["num",99])
+        serialized=self.machine["heap"]["instance"]["privateElements"]
+        self.assertEqual(serialized["o20"],{"kind":"field","value":["num",3],"version":2})
+        external=_external_machine(self.machine)
+        validate_protocol_state(external["protocol"],external["heap"],external)
+
+    def test_derived_super_binding_runs_initializer_before_body_resumes(self):
+        self.class_("Base");self.class_("Derived",("ref","Base"))
+        self.allocate("derived-init","closure","derived-init-code")
+        self.send("callable.define",object="derived-init",constructorKind=None,classConstructor=False)
+        self.send("callable.home",object="derived-init",home=["ref","Derived-prototype"])
+        self.send("class.initializer",object="Derived",placement="instance",initializer=["ref","derived-init"])
+        self.send("construct.enter",id="derived-construction",child="derived-body",callee=["ref","Derived"],newTarget=["ref","Derived"],arguments=[],receiver=["undefined"],mode="ordinary",owner=None)
+        self.send("super.select",owner="derived-construction",callee=["ref","Base"])
+        self.send("construct.enter",id="base-construction",child="base-body",callee=["ref","Base"],newTarget=["ref","Derived"],arguments=[],receiver=["ref","base-instance"],mode="super",owner="derived-construction")
+        self.send("return",value=["undefined"],invocation="base-body")
+        self.send("construct.finish",id="base-construction",completion={"kind":"normal","value":["ref","base-instance"]})
+        self.send("super.bind",owner="derived-construction",receiver=["ref","base-instance"],child="derived-init-body")
+        external=_external_machine(self.machine)
+        validate_protocol_state(external["protocol"],external["heap"],external)
+        self.send("return",value=["undefined"],invocation="derived-init-body")
+        self.send("super.finish",owner="derived-construction",result=["ref","base-instance"])
+        self.send("construct.this",invocation="derived-body",result=["ref","base-instance"])
+        self.send("return",value=["undefined"],invocation="derived-body")
+        self.send("construct.finish",id="derived-construction",completion={"kind":"normal","value":["ref","base-instance"]})
+        external=_external_machine(self.machine)
+        validate_protocol_state(external["protocol"],external["heap"],external)
 
 
 if __name__ == "__main__": unittest.main()

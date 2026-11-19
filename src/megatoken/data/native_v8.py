@@ -67,7 +67,7 @@ def validate_v8_artifact(document):
             value_validator(state["receiver"])
         except (TypeError,ValueError) as e: raise NativeV8Error(f"Malformed tagged v8 continuation value: {e}") from e
         if state["protocol"] is not None:
-            try: validate_protocol_state(state["protocol"],[row[0] for row in state["heap"]])
+            try: validate_protocol_state(state["protocol"],[row[0] for row in state["heap"]],state)
             except ProtocolV8Error as e: raise NativeV8Error(f"Malformed shared protocol state: {e}") from e
         if not isinstance(context["regionCursor"],dict) or set(context["regionCursor"])!={"active","consumed"} or not isinstance(context["regionCursor"]["consumed"],list): _fail("V8 region cursor")
         if not isinstance(context["obligations"],dict) or set(context["obligations"])!={"intents","handlers","callbacks","closureQueue"} or any(not isinstance(v,list) for v in context["obligations"].values()): _fail("V8 obligations")

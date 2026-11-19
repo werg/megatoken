@@ -40,6 +40,12 @@ class ProtocolV8Error(ValueError):
     pass
 
 
+from .construction_v8 import (FIELDS as CONSTRUCTION_FIELDS, apply_record as apply_construction_record,
+    validate_record as validate_construction_record, validate_state as validate_construction_record_state,
+    assert_next as assert_construction_next)
+FIELDS.update(CONSTRUCTION_FIELDS)
+
+
 def _fail(message):
     raise ProtocolV8Error(f"Invalid {SCHEMA}: {message}")
 
@@ -100,6 +106,11 @@ def _expression(term, depth=0, budget=None):
 
 
 def validate_protocol_record(record):
+    if type(record) is dict and record.get("kind") in CONSTRUCTION_FIELDS:
+        try: validate_construction_record(record)
+        except ProtocolV8Error: raise
+        except (TypeError, KeyError, IndexError) as error: raise ProtocolV8Error("Invalid construction record") from error
+        return True
     if type(record) is not dict or record.get("kind") not in FIELDS: _fail("record kind")
     _exact(record, FIELDS[record["kind"]], "record")
     for key in ("id", "name", "object", "child", "invocation"):
@@ -260,13 +271,18 @@ def _apply(machine,record):
     if machine.get("completion") is not None: _fail("record after completion")
     if not machine["stack"] and record["kind"]!="end": _fail("active invocation required")
     kind=record["kind"]
+    if "construction" in p: assert_construction_next(machine,record)
+    if kind in CONSTRUCTION_FIELDS:
+        if not apply_construction_record(machine,record): _fail("unsupported construction transition")
+        return
     if kind in ("symbol.create","symbol.for"):
         if kind=="symbol.for":
             existing=next((row for row in p["symbols"] if row["kind"]=="registry" and row["key"]==record["key"]),None)
             if existing:
                 if record["id"]!=existing["id"]: _fail("registry identity changed")
                 return
-        if any(row["id"]==record["id"] for row in p["symbols"]) or record["id"] in machine["heap"] or not __import__("re").fullmatch(r"o[1-9][0-9]*",record["id"]): _fail("Symbol identity collision or format")
+        reserved={row["id"] for row in p.get("construction",{}).get("privateNames",[])}
+        if any(row["id"]==record["id"] for row in p["symbols"]) or record["id"] in machine["heap"] or record["id"] in reserved or not __import__("re").fullmatch(r"o[1-9][0-9]*",record["id"]): _fail("Symbol identity collision or format")
         p["symbols"].append({"id":record["id"],"kind":"unique","description":copy.deepcopy(record["description"])} if kind=="symbol.create" else
             {"id":record["id"],"kind":"registry","description":["str",record["key"]],"key":record["key"]})
     elif kind=="symbol.read":
@@ -275,7 +291,8 @@ def _apply(machine,record):
         if record["result"]!=expected: _fail("false Symbol conversion claim")
         if record["bind"] is not None: machine["locals"][machine.get("captureAliases",{}).get(record["bind"],record["bind"])]=record["result"]
     elif kind=="allocate":
-        if record["name"] in machine["heap"] or any(x["id"]==record["name"] for x in p["symbols"]): _fail("duplicate heap identity")
+        reserved={row["id"] for row in p.get("construction",{}).get("privateNames",[])}
+        if record["name"] in machine["heap"] or any(x["id"]==record["name"] for x in p["symbols"]) or record["name"] in reserved: _fail("duplicate heap identity")
         captures=[{**copy.deepcopy(capture),"cell":machine.get("captureAliases",{}).get(capture["cell"],capture["cell"])} for capture in record["captures"]]
         node={"kind":record["objectKind"],"code":record["code"],"captures":captures,"prototype":"ordinary","properties":{},"descriptors":{},"keyOrder":[],"extensible":True}
         if record["objectKind"]=="array": node["properties"]["length"]=["num",record["length"]]
@@ -293,6 +310,7 @@ def _apply(machine,record):
     elif kind=="call":
         callee=_known(machine,record["callee"]); node=_node(machine,callee[1]) if callee[0]=="ref" else None
         if node is None or node["kind"]!="closure" or record["child"] in machine["frameFunctions"]: _fail("owned callable required")
+        if node.get("callable",{}).get("classConstructor"): _fail("class constructor cannot be called without construction")
         p["callFrames"].append({"child":record["child"],"parent":machine["stack"][-1],"priorReceiver":copy.deepcopy(machine.get("receiver",["undefined"])),"priorAliases":[[key,value] for key,value in machine.get("captureAliases",{}).items()],"arguments":copy.deepcopy(record["arguments"])})
         machine["receiver"]=copy.deepcopy(node.get("lexicalReceiver") if node.get("functionKind")=="arrow" else record["receiver"])
         machine["captureAliases"]={row["binding"]:row["cell"] for row in node["captures"]}
@@ -386,6 +404,7 @@ def _internal_machine(initial):
         n["properties"]={_key(key) if isinstance(key,list) else key:value for key,value in n.get("properties",[])}
         n["descriptors"]={_key(key) if isinstance(key,list) else key:value for key,value in n.get("descriptors",[])}
         n["keyOrder"]=[_key(key) if isinstance(key,list) else key for key in n.get("keyOrder",[])]
+        if isinstance(n.get("privateElements"),list): n["privateElements"]={key:copy.deepcopy(value) for key,value in n["privateElements"]}
         machine["heap"][identity]=n
     for field in ("locals","captureAliases","frameFunctions"):
         machine[field]=dict(initial[field]) if isinstance(initial[field],list) else copy.deepcopy(initial[field])
@@ -405,6 +424,7 @@ def _external_machine(machine):
             n["keyOrder"]=[key if isinstance(key,str) else ["symbol",key[1]] for key in n.get("keyOrder",[])]
         else: n.pop("keyOrder",None)
         if n.get("extensible",True) is True and not n.get("descriptors"): n.pop("extensible",None)
+        if isinstance(n.get("privateElements"),dict): n["privateElements"]=[[key,copy.deepcopy(value)] for key,value in n["privateElements"].items()]
         result["heap"].append([identity,n])
     for field in ("locals","captureAliases","frameFunctions"):
         result[field]=[[key,value] for key,value in machine[field].items()]
@@ -426,8 +446,21 @@ def replay_protocol_case(case):
     return _external_machine(machine)
 
 
-def validate_protocol_state(snapshot, heap_ids=()):
-    _exact(snapshot,{"schema","symbols","pendingCalls","callFrames","sequence"},"shared protocol state")
+def validate_protocol_state(snapshot, heap_ids=(), shared_state=None):
+    base_fields={"schema","symbols","pendingCalls","callFrames","sequence"}
+    if type(snapshot) is dict and "construction" in snapshot:
+        _exact(snapshot,base_fields|{"construction"},"shared protocol state")
+    else: _exact(snapshot,base_fields,"shared protocol state")
+    heap_nodes = heap_ids if isinstance(heap_ids,dict) else None
+    if isinstance(heap_ids,list) and all(isinstance(row,list) and len(row)==2 for row in heap_ids):
+        heap_nodes={}
+        for identity,node in heap_ids:
+            converted=copy.deepcopy(node)
+            for field in ("properties","descriptors"):
+                if isinstance(converted.get(field),list): converted[field]={_key(key) if isinstance(key,list) else key:value for key,value in converted[field]}
+            if isinstance(converted.get("keyOrder"),list): converted["keyOrder"]=[_key(key) if isinstance(key,list) else key for key in converted["keyOrder"]]
+            if isinstance(converted.get("privateElements"),list): converted["privateElements"]={key:value for key,value in converted["privateElements"]}
+            heap_nodes[identity]=converted
     if snapshot["schema"]!=STATE_SCHEMA or type(snapshot["sequence"]) is not int or not 0<=snapshot["sequence"]<=32768: _fail("protocol state schema or sequence")
     if not isinstance(snapshot["symbols"],list) or len(snapshot["symbols"])>4096: _fail("symbol table bound")
     identities=set(); registry=set()
@@ -468,6 +501,10 @@ def validate_protocol_state(snapshot, heap_ids=()):
             if not isinstance(pair,list) or len(pair)!=2 or any(not isinstance(x,str) for x in pair) or pair[0] in seen: _fail("call frame aliases")
             seen.add(pair[0])
         for value in frame["arguments"]: validate_protocol_value(value)
+    if "construction" in snapshot:
+        if heap_nodes is None: _fail("construction validation requires full shared heap")
+        construction_machine=(_internal_machine(shared_state) if shared_state is not None else {"heap":heap_nodes,"protocol":snapshot})
+        validate_construction_record_state(snapshot["construction"],construction_machine)
     return True
 
 
@@ -476,7 +513,8 @@ def apply_protocol_to_shared_state(shared_state,line):
     record=decode_protocol_record(line)
     machine=_internal_machine(shared_state)
     if machine.get("protocol") is None: machine["protocol"]=create_protocol_state()
-    validate_protocol_state(machine["protocol"],machine["heap"])
+    external=_external_machine(machine)
+    validate_protocol_state(external["protocol"],external["heap"],external)
     apply_protocol_record(machine,record)
     return _external_machine(machine)
 
