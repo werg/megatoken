@@ -47,8 +47,12 @@ _IDENTITY_TOKEN = re.compile(r"^[A-Za-z_$][A-Za-z0-9_$]*")
 _SYMBOL_TOKEN = re.compile(r"^[A-Za-z_$][A-Za-z0-9_$]*(?:\.[A-Za-z_$][A-Za-z0-9_$]*)*")
 
 
+class AlgorithmV7Error(ValueError):
+    """Invalid v7 data, syntax, bindings, or profile shape."""
+
+
 def _error(message: str) -> None:
-    raise TypeError(f"Invalid {ALGORITHM_VERSION}: {message}")
+    raise AlgorithmV7Error(f"Invalid {ALGORITHM_VERSION}: {message}")
 
 
 def _plain_dict(value: Any) -> bool:
@@ -1177,7 +1181,7 @@ def _lookup(mapping: Any, identity: str) -> Any:
             if type(row) is list and len(row) == 2 and row[0] == identity:
                 return row[1]
         return _MISSING
-    raise TypeError("Algorithm state must be a data record or list of pairs")
+    raise AlgorithmV7Error("Algorithm state must be a data record or list of pairs")
 
 
 _MISSING = object()
@@ -1190,12 +1194,12 @@ def _property_rows(properties: Any) -> list[tuple[str, Any]]:
             if type(prop) is list:
                 _data_list(prop, "data property")
                 if len(prop) != 2:
-                    raise TypeError("Algorithm data property pair")
+                    raise AlgorithmV7Error("Algorithm data property pair")
                 key, value = prop
             elif _plain_dict(prop) and "key" in prop and "value" in prop:
                 key, value = prop["key"], prop["value"]
             else:
-                raise TypeError("Algorithm data property descriptor")
+                raise AlgorithmV7Error("Algorithm data property descriptor")
             rows.append((key, value))
     elif type(properties) is dict:
         for key, raw in properties.items():
@@ -1207,13 +1211,13 @@ def _property_rows(properties: Any) -> list[tuple[str, Any]]:
                 value = ["undefined"]
             rows.append((key, value))
     else:
-        raise TypeError("Algorithm needs committed data properties")
+        raise AlgorithmV7Error("Algorithm needs committed data properties")
     result: dict[str, Any] = {}
     for key, value in rows:
         if type(key) is not str or key == "__proto__":
-            raise TypeError("Algorithm data property key")
+            raise AlgorithmV7Error("Algorithm data property key")
         if key in result:
-            raise TypeError("Duplicate algorithm data property")
+            raise AlgorithmV7Error("Duplicate algorithm data property")
         _validate_value(value)
         result[key] = value
     return list(result.items())
@@ -1223,7 +1227,7 @@ def _heap_map(heap: Any) -> dict[str, dict]:
     if heap is None:
         return {}
     if not _plain_dict(heap):
-        raise TypeError("Algorithm heap must be an ordinary data record")
+        raise AlgorithmV7Error("Algorithm heap must be an ordinary data record")
     if "objects" in heap and "roots" in heap:
         for root in _data_list(heap["roots"], "heap graph roots"):
             _validate_value(root)
@@ -1232,10 +1236,10 @@ def _heap_map(heap: Any) -> dict[str, dict]:
         for source in objects:
             if not _plain_dict(source) or not {"id", "kind", "properties"}.issubset(source) or \
                     set(source) - {"id", "kind", "prototype", "properties", "shapeVersion"}:
-                raise TypeError("Algorithm graph node schema")
+                raise AlgorithmV7Error("Algorithm graph node schema")
             identity = _identity(source["id"], "heap identity")
             if identity in result:
-                raise TypeError("Duplicate algorithm heap identity")
+                raise AlgorithmV7Error("Duplicate algorithm heap identity")
             result[identity] = {"kind": source["kind"],
                                 **({"prototype": source["prototype"]} if "prototype" in source else {}),
                                 "properties": source["properties"]}
@@ -1246,17 +1250,17 @@ def _heap_map(heap: Any) -> dict[str, dict]:
 def _heap_node(heap: dict[str, dict], identity: str) -> tuple[dict, dict[str, list]]:
     node = heap.get(identity, _MISSING)
     if not _plain_dict(node) or node.get("kind") not in ("array", "object"):
-        raise TypeError("Algorithm needs an ordinary data object")
+        raise AlgorithmV7Error("Algorithm needs an ordinary data object")
     if "accessors" in node and (not _plain_dict(node["accessors"]) or len(node["accessors"]) != 0):
-        raise TypeError("Algorithm needs an ordinary data object")
+        raise AlgorithmV7Error("Algorithm needs an ordinary data object")
     if "proxy" in node or "iterator" in node:
-        raise TypeError("Algorithm needs an ordinary data object")
+        raise AlgorithmV7Error("Algorithm needs an ordinary data object")
     prototype = node.get("prototype", _MISSING)
     if prototype is not _MISSING and prototype is not None and \
             prototype != ("Array.prototype" if node["kind"] == "array" else "Object.prototype"):
-        raise TypeError("Algorithm needs an ordinary data object")
+        raise AlgorithmV7Error("Algorithm needs an ordinary data object")
     if node["kind"] == "array" and prototype is None:
-        raise TypeError("Array prototype is outside the dense profile")
+        raise AlgorithmV7Error("Array prototype is outside the dense profile")
     properties: dict[str, list] = {}
     for key, value in _property_rows(node.get("properties")):
         properties[key] = value
@@ -1266,7 +1270,7 @@ def _heap_node(heap: dict[str, dict], identity: str) -> tuple[dict, dict[str, li
 def _snapshot_heap(heap: Any) -> dict[str, dict]:
     raw = _heap_map(heap)
     if len(raw) > 256:
-        raise TypeError("Algorithm heap shape or node budget")
+        raise AlgorithmV7Error("Algorithm heap shape or node budget")
     result: dict[str, dict] = {}
     for identity in raw:
         _identity(identity, "heap identity")
@@ -1277,31 +1281,31 @@ def _snapshot_heap(heap: Any) -> dict[str, dict]:
     for node in result.values():
         for value in node["properties"].values():
             if value[0] == "ref" and value[1] not in result:
-                raise TypeError("Dangling algorithm heap reference " + value[1])
+                raise AlgorithmV7Error("Dangling algorithm heap reference " + value[1])
     return result
 
 
 def _dense_items(value: list, heap: dict[str, dict]) -> list[list]:
     _validate_value(value)
     if value[0] != "ref":
-        raise TypeError("Ordered fold requires a dense numeric array identity")
+        raise AlgorithmV7Error("Ordered fold requires a dense numeric array identity")
     node, props = _heap_node(heap, value[1])
     length = props.get("length")
     if node["kind"] != "array" or length is None or length[0] != "num" or type(length[1]) not in (int, float):
-        raise TypeError("Ordered fold array bound")
+        raise AlgorithmV7Error("Ordered fold array bound")
     count_float = _as_js_number(length[1])
     if not math.isfinite(count_float) or not count_float.is_integer() or count_float < 0 or \
             count_float > LIMITS["fold_items"]:
-        raise TypeError("Ordered fold array bound")
+        raise AlgorithmV7Error("Ordered fold array bound")
     count = int(count_float)
     if len(props) != count + 1:
-        raise TypeError("Ordered fold refuses holes or extra properties")
+        raise AlgorithmV7Error("Ordered fold refuses holes or extra properties")
     items = []
     for index in range(count):
         item = props.get(str(index))
         if item is None or item[0] != "num" or type(item[1]) not in (int, float) or \
                 not math.isfinite(_as_js_number(item[1])):
-            raise TypeError("Ordered fold requires dense finite binary64 elements")
+            raise AlgorithmV7Error("Ordered fold requires dense finite binary64 elements")
         items.append(item)
     return items
 
@@ -1310,16 +1314,16 @@ def validate_algorithm_inputs(core: Any, arguments: Any, *, heap: Any = None) ->
     validate_algorithm(core)
     args = _data_list(arguments, "input values")
     if len(args) != len(core["inputs"]):
-        raise TypeError("Exact algorithm input arity required")
+        raise AlgorithmV7Error("Exact algorithm input arity required")
     actual_heap = _snapshot_heap(heap)
     inputs: dict[str, list] = {}
     for value, input_row in zip(args, core["inputs"]):
         _validate_value(value)
         kind = input_row["type"]
         if kind == "scalar" and value[0] == "ref":
-            raise TypeError("Algorithm scalar input required")
+            raise AlgorithmV7Error("Algorithm scalar input required")
         if kind == "number" and value[0] != "num":
-            raise TypeError("Algorithm binary64 number input required")
+            raise AlgorithmV7Error("Algorithm binary64 number input required")
         if kind == "dense-number-array":
             _dense_items(value, actual_heap)
         if kind == "data" and value[0] == "ref":
@@ -1333,7 +1337,7 @@ def evaluate_term(term: Any, environment: dict | None = None) -> list:
     if environment is None:
         environment = {}
     if not _plain_dict(environment):
-        raise TypeError("Algorithm environment must be an ordinary data record")
+        raise AlgorithmV7Error("Algorithm environment must be an ordinary data record")
     inputs = environment.get("inputs", {})
     values = environment.get("values", {})
     heap = _snapshot_heap(environment.get("heap"))
@@ -1352,12 +1356,12 @@ def evaluate_term(term: Any, environment: dict | None = None) -> list:
             mapping = inputs if op == "input" else values
             value = _lookup(mapping, node["id"])
             if value is _MISSING:
-                raise TypeError("Uncommitted algorithm dependency " + node["id"])
+                raise AlgorithmV7Error("Uncommitted algorithm dependency " + node["id"])
             return committed(value)
         if op == "project":
             obj = visit(node["object"])
             if obj[0] != "ref":
-                raise TypeError("Data projection requires an object identity")
+                raise AlgorithmV7Error("Data projection requires an object identity")
             _node, properties = _heap_node(heap, obj[1])
             return committed(properties.get(node["key"], ["undefined"]))
         if op == "fold_left":
@@ -1365,7 +1369,7 @@ def evaluate_term(term: Any, environment: dict | None = None) -> list:
             initial = visit(node["initial"])
             items = _dense_items(collection, heap)
             if initial[0] != "num":
-                raise TypeError("Ordered fold initial value must be binary64")
+                raise AlgorithmV7Error("Ordered fold initial value must be binary64")
             total = _decode_scalar(initial)
             for item in items:
                 # Python float addition is IEEE-754 binary64, with the same
@@ -1418,12 +1422,12 @@ def evaluate_algorithm(core: Any, arguments: Any, *, heap: Any = None,
             observation = observations[cursor]
             if not _plain_dict(observation) or any(key not in ("request", "status", "result", "mode")
                                                    for key in observation):
-                raise TypeError("Algorithm observation authority or delivery order")
+                raise AlgorithmV7Error("Algorithm observation authority or delivery order")
             if observation.get("request") != step["request"] or \
                     observation.get("status") not in ("fulfilled", "rejected", "completed") or \
                     observation.get("mode") not in (None, "observed") or \
                     ((observation["status"] == "completed") == ("result" in observation)):
-                raise TypeError("Algorithm observation authority or delivery order")
+                raise AlgorithmV7Error("Algorithm observation authority or delivery order")
             value = ["undefined"] if observation["status"] == "completed" else observation["result"]
             _validate_value(value)
             cursor += 1
@@ -1437,10 +1441,10 @@ def evaluate_algorithm(core: Any, arguments: Any, *, heap: Any = None,
             obj = evaluate_term(step["object"], environment)
             value = evaluate_term(step["value"], environment)
             if obj[0] != "ref":
-                raise TypeError("Visible write requires an identity")
+                raise AlgorithmV7Error("Visible write requires an identity")
             node, properties = _heap_node(public_heap, obj[1])
             if node["kind"] == "array":
-                raise TypeError("Array writes require a separate shape profile")
+                raise AlgorithmV7Error("Array writes require a separate shape profile")
             if step["present"]:
                 properties[step["key"]] = value.copy()
             else:
@@ -1458,7 +1462,7 @@ def evaluate_algorithm(core: Any, arguments: Any, *, heap: Any = None,
             claims.append({"step": index, "kind": "suspend", "requests": step["requests"].copy(),
                            "live": step["live"].copy()})
     if cursor != len(observations):
-        raise TypeError("Unconsumed or future algorithm observation")
+        raise AlgorithmV7Error("Unconsumed or future algorithm observation")
     return {"completion": completion, "claims": claims, "values": values, "requests": requests,
             "observations": delivered, "heap": public_heap}
 
@@ -1471,7 +1475,7 @@ def canonical_algorithm_graph(graph: Any, *, input_ids: Any = None) -> dict:
     """
     if not _plain_dict(graph) or set(graph) - {"roots", "objects"} or \
             "roots" not in graph or "objects" not in graph:
-        raise TypeError("Observable graph schema")
+        raise AlgorithmV7Error("Observable graph schema")
     roots = _data_list(graph["roots"], "observable roots")
     source_nodes = _data_list(graph["objects"], "observable objects")
     source: dict[str, dict] = {}
@@ -1479,25 +1483,25 @@ def canonical_algorithm_graph(graph: Any, *, input_ids: Any = None) -> dict:
         if not _plain_dict(node) or node.get("kind") not in ("object", "array") or \
                 not {"id", "kind", "properties"}.issubset(node) or \
                 set(node) - {"id", "kind", "prototype", "properties", "shapeVersion"}:
-            raise TypeError("Observable object schema")
+            raise AlgorithmV7Error("Observable object schema")
         identity = _identity(node["id"])
         if identity in source:
-            raise TypeError("Duplicate observable identity")
+            raise AlgorithmV7Error("Duplicate observable identity")
         prototype = node.get("prototype", _MISSING)
         if prototype is not _MISSING and prototype is not None:
-            raise TypeError("Observable prototype profile")
+            raise AlgorithmV7Error("Observable prototype profile")
         if node["kind"] == "array" and prototype is None:
-            raise TypeError("Observable array prototype")
+            raise AlgorithmV7Error("Observable array prototype")
         source[identity] = node
         _data_list(node["properties"], "observable properties")
     input_ids = [] if input_ids is None else _data_list(input_ids, "input identity anchors")
     if len(set(input_ids)) != len(input_ids):
-        raise TypeError("Observable input identity anchors")
+        raise AlgorithmV7Error("Observable input identity anchors")
     ids: dict[str, str] = {}
     for index, identity in enumerate(input_ids):
         _identity(identity)
         if identity not in source:
-            raise TypeError("Missing input identity anchor")
+            raise AlgorithmV7Error("Missing input identity anchor")
         ids[identity] = "i" + str(index)
     objects: list[dict] = []
     active: set[str] = set()
@@ -1509,7 +1513,7 @@ def canonical_algorithm_graph(graph: Any, *, input_ids: Any = None) -> dict:
         identity = value[1]
         node = source.get(identity)
         if node is None:
-            raise TypeError("Dangling observable identity " + identity)
+            raise AlgorithmV7Error("Dangling observable identity " + identity)
         if identity not in ids:
             ids[identity] = "g" + str(sum(1 for item in ids.values() if item.startswith("g")))
         canonical_id = ids[identity]
@@ -1528,9 +1532,9 @@ def canonical_algorithm_graph(graph: Any, *, input_ids: Any = None) -> dict:
                         not (set(prop) - {"key", "value", "version"}):
                     key, child = prop["key"], prop["value"]
                 else:
-                    raise TypeError("Observable data property")
+                    raise AlgorithmV7Error("Observable data property")
                 if type(key) is not str or key == "__proto__" or key in seen_keys:
-                    raise TypeError("Observable property identity")
+                    raise AlgorithmV7Error("Observable property identity")
                 seen_keys.add(key)
                 row["properties"].append([key, rewrite(child)])
             if node["kind"] == "array":
@@ -1539,7 +1543,7 @@ def canonical_algorithm_graph(graph: Any, *, input_ids: Any = None) -> dict:
                         not math.isfinite(_as_js_number(length[1])) or \
                         not _as_js_number(length[1]).is_integer() or _as_js_number(length[1]) < 0 or \
                         _as_js_number(length[1]) > 9007199254740991:
-                    raise TypeError("Observable array length")
+                    raise AlgorithmV7Error("Observable array length")
             active.remove(identity)
         return ["ref", canonical_id]
 
@@ -1553,15 +1557,15 @@ def canonical_algorithm_graph(graph: Any, *, input_ids: Any = None) -> dict:
 def algorithm_heap_from_graph(graph: Any) -> dict[str, dict]:
     """Convert the v7 input graph envelope into the heap accepted by the core."""
     if not _plain_dict(graph) or "objects" not in graph or "roots" not in graph:
-        raise TypeError("Algorithm input graph schema")
+        raise AlgorithmV7Error("Algorithm input graph schema")
     _data_list(graph["roots"], "input graph roots")
     result = {}
     for node in _data_list(graph["objects"], "input graph objects"):
         if not _plain_dict(node) or not {"id", "kind", "properties"}.issubset(node):
-            raise TypeError("Algorithm graph node schema")
+            raise AlgorithmV7Error("Algorithm graph node schema")
         identity = _identity(node["id"])
         if identity in result:
-            raise TypeError("Duplicate algorithm heap identity")
+            raise AlgorithmV7Error("Duplicate algorithm heap identity")
         props = []
         for prop in _data_list(node["properties"], "input graph properties"):
             if _plain_dict(prop) and {"key", "value"}.issubset(prop):
@@ -1569,7 +1573,7 @@ def algorithm_heap_from_graph(graph: Any) -> dict[str, dict]:
             elif type(prop) is list and len(prop) == 2:
                 props.append(prop)
             else:
-                raise TypeError("Algorithm graph property")
+                raise AlgorithmV7Error("Algorithm graph property")
         result[identity] = {"kind": node["kind"],
                             **({"prototype": node["prototype"]} if "prototype" in node else {}),
                             "properties": props}

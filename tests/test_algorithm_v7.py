@@ -3,6 +3,7 @@ import math
 import unittest
 
 from megatoken.data.algorithm_v7 import (
+    AlgorithmV7Error,
     ALGORITHM_PROFILE,
     ALGORITHM_VERSION,
     OPERATIONS,
@@ -82,7 +83,7 @@ class AlgorithmV7CodecTests(unittest.TestCase):
             line = encode_algorithm_record(record)
             self.assertEqual(parse_algorithm_record(line), record, name)
             invalid = dict(record, term=op(name, *[lit(["num", 0]) for _ in range(arity + 1)]))
-            with self.assertRaises(TypeError, msg=name):
+            with self.assertRaises(AlgorithmV7Error, msg=name):
                 encode_algorithm_record(invalid)
 
     def test_parser_rejects_noncanonical_malformed_and_v6_records(self):
@@ -97,15 +98,15 @@ class AlgorithmV7CodecTests(unittest.TestCase):
             "suspend [] live []", "suspend [r0, r0] live []", "return 1\nreturn 2",
         ]
         for line in invalid:
-            with self.subTest(line=line), self.assertRaises(TypeError):
+            with self.subTest(line=line), self.assertRaises(AlgorithmV7Error):
                 parse_algorithm_record(line)
-        with self.assertRaises(TypeError):
+        with self.assertRaises(AlgorithmV7Error):
             parse_algorithm_record("observe r0 as v0: fulfilled 7", "generated")
-        with self.assertRaises(TypeError):
+        with self.assertRaises(AlgorithmV7Error):
             parse_algorithm_record("return 7", "observed")
-        with self.assertRaises(TypeError):
+        with self.assertRaises(AlgorithmV7Error):
             encode_algorithm_record({"kind": "return", "value": ["num", 1], "payload": []})
-        with self.assertRaises(TypeError):
+        with self.assertRaises(AlgorithmV7Error):
             encode_algorithm_record({"kind": "write", "object": ["ref", "o0"], "key": "__proto__",
                                      "value": ["null"], "present": True})
 
@@ -113,11 +114,11 @@ class AlgorithmV7CodecTests(unittest.TestCase):
         deep = lit(["num", 0])
         for _ in range(65):
             deep = {"op": "negate", "args": [deep]}
-        with self.assertRaises(TypeError):
+        with self.assertRaises(AlgorithmV7Error):
             validate_term(deep)
-        with self.assertRaises(TypeError):
+        with self.assertRaises(AlgorithmV7Error):
             parse_algorithm_record("return \"" + "x" * 65536 + "\"")
-        with self.assertRaises(TypeError):
+        with self.assertRaises(AlgorithmV7Error):
             encode_algorithm_record({"kind": "request", "id": "r0", "boundary": "b0",
                                      "operation": "demo.call", "arguments": [["num", 1]] * 129})
 
@@ -149,7 +150,7 @@ class AlgorithmV7CoreTests(unittest.TestCase):
                                  {"kind": "observe", "id": "v1", "request": "r0"},
                                  {"kind": "return", "value": lit(["num", 0])}]))
         for invalid in invalids:
-            with self.subTest(core=invalid), self.assertRaises(TypeError):
+            with self.subTest(core=invalid), self.assertRaises(AlgorithmV7Error):
                 validate_algorithm(invalid)
 
     def test_primitive_binary64_string_bigint_and_lazy_semantics(self):
@@ -162,7 +163,31 @@ class AlgorithmV7CoreTests(unittest.TestCase):
         self.assertEqual(run(op("multiply", lit(["num", "-0"]), lit(["num", 2]))), ["num", "-0"])
         self.assertEqual(run(op("equal", lit(["num", "NaN"]), lit(["num", "NaN"]))), ["bool", False])
         self.assertEqual(run(op("loose_equal", lit(["num", 1]), lit(["str", "1"]))), ["bool", True])
+        self.assertEqual(run(op("loose_equal", lit(["null"]), lit(["undefined"]))), ["bool", True])
+        self.assertEqual(run(op("equal", lit(["num", "-0"]), lit(["num", 0]))), ["bool", True])
         self.assertEqual(run(op("type_of", lit(["null"]))), ["str", "object"])
+        self.assertEqual(run(op("less", lit(["str", "😀"]), lit(["str", "\ue000"]))), ["bool", True])
+        self.assertEqual(run(op("add", lit(["num", 1e20]), lit(["str", "x"]))),
+                         ["str", "100000000000000000000x"])
+        self.assertEqual(run(op("add", lit(["bigint", "7"]), lit(["str", "x"]))), ["str", "7x"])
+        self.assertEqual(run(op("loose_equal", lit(["bigint", "0"]), lit(["str", ""]))),
+                         ["bool", True])
+        self.assertEqual(run(op("loose_equal", lit(["bigint", "16"]), lit(["str", "0x10"]))),
+                         ["bool", True])
+        self.assertEqual(run(op("loose_equal", lit(["bigint", "1"]), lit(["str", "1.0"]))),
+                         ["bool", False])
+        self.assertEqual(run(op("less", lit(["bigint", "1"]), lit(["str", "1.5"]))),
+                         ["bool", False])
+        self.assertEqual(run(op("divide", lit(["num", 0]), lit(["num", "-Infinity"]))),
+                         ["num", "-0"])
+        self.assertEqual(run(op("power", lit(["num", "NaN"]), lit(["num", 0]))), ["num", 1.0])
+        self.assertEqual(run(op("power", lit(["num", "-0"]), lit(["num", 3]))), ["num", "-0"])
+        self.assertEqual(run(op("power", lit(["num", "-0"]), lit(["num", -3]))),
+                         ["num", "-Infinity"])
+        self.assertEqual(run(op("power", lit(["num", -1]), lit(["num", "+Infinity"]))),
+                         ["num", "NaN"])
+        self.assertEqual(run(op("add", lit(["num", 0.1]), lit(["num", 0.2]))),
+                         ["num", 0.30000000000000004])
         self.assertEqual(run(op("divide", lit(["bigint", "-7"]), lit(["bigint", "3"]))),
                          ["bigint", "-2"])
         self.assertEqual(run(op("remainder", lit(["bigint", "-7"]), lit(["bigint", "3"]))),
@@ -202,7 +227,7 @@ class AlgorithmV7CoreTests(unittest.TestCase):
             [["length", ["num", 1]], ["0", ["num", math.inf]]],
         ):
             bad_heap = {"a0": {"kind": "array", "properties": properties}}
-            with self.assertRaises(TypeError):
+            with self.assertRaises(AlgorithmV7Error):
                 evaluate_algorithm(program, [["ref", "a0"]], heap=bad_heap)
 
     def test_projection_writes_aliases_and_cycles_are_kept_in_rooted_graphs(self):
@@ -259,7 +284,7 @@ class AlgorithmV7CoreTests(unittest.TestCase):
             {"request": "r0", "status": "rejected", "result": ["str", "denied"]},
         ])
         self.assertEqual(rejected["completion"], {"kind": "throw", "value": ["str", "denied"]})
-        with self.assertRaises(TypeError):
+        with self.assertRaises(AlgorithmV7Error):
             evaluate_algorithm(program, [["str", "counter"]], observations=[
                 {"request": "r1", "status": "fulfilled", "result": ["num", 7]},
             ])
@@ -287,11 +312,27 @@ class StableAlgorithmJsonTests(unittest.TestCase):
         self.assertEqual(stable_algorithm_hash({}), "44136fa355b3678a1146ad16f7e8649e94fb4fc21fe77e8310c060f61caaff8a")
         self.assertEqual(stable_algorithm_hash("a"), hashlib.sha256(b"a").hexdigest())
 
+    def test_extreme_number_spellings_and_surrogate_string_codec(self):
+        numbers = [5e-324, 2.2250738585072014e-308, 1e-6, 1e-7, 1e20, 1e21,
+                   1000000000000000128, 1.7976931348623157e308,
+                   1.0000000000000002, 0.0000010000000000000002]
+        expected = ["5e-324", "2.2250738585072014e-308", "0.000001", "1e-7",
+                    "100000000000000000000", "1e+21", "1000000000000000100",
+                    "1.7976931348623157e+308", "1.0000000000000002",
+                    "0.0000010000000000000002"]
+        self.assertEqual([stable_algorithm_json(number) for number in numbers], expected)
+        for value in ("é", "😀", "\ud800", "\ud83d\ude00", "\u2028", "\x01"):
+            line = encode_algorithm_record({"kind": "return", "value": ["str", value]})
+            expected_string = "😀" if value == "\ud83d\ude00" else value
+            self.assertEqual(parse_algorithm_record(line)["value"], ["str", expected_string])
+            self.assertEqual(encode_algorithm_record(parse_algorithm_record(line)), line)
+        self.assertEqual(stable_algorithm_hash("\ud800"), hashlib.sha256("\ufffd".encode()).hexdigest())
+
     def test_stable_json_refuses_cycles_nonfinite_and_signed_zero(self):
         cycle = []
         cycle.append(cycle)
         for value in (cycle, {"x": math.nan}, {"x": math.inf}, {"x": -0.0}, {1: "bad"}):
-            with self.subTest(value=value), self.assertRaises(TypeError):
+            with self.subTest(value=value), self.assertRaises(AlgorithmV7Error):
                 stable_algorithm_json(value)
 
 
