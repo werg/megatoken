@@ -1,0 +1,1712 @@
+{
+  "schema": "semantic-v8-interoperability/1",
+  "contractDigest": "fe1eed56bafa5c0012354b29ebb3b40bbe33f085f063d6990fcb3f26cb261cc2",
+  "examples": [
+    {
+      "id": "ordered-map",
+      "public": {
+        "schema": "semantic-execution/8",
+        "traceFormat": "semantic-trace/8",
+        "contextFormat": "semantic-context/8",
+        "representation": "mixed",
+        "profile": "compositional-regions/1",
+        "timeline": [
+          {
+            "sequence": 1,
+            "mode": "observed",
+            "kind": "program",
+            "fields": {
+              "session": "teacher1",
+              "track": "host",
+              "programId": "program1",
+              "digest": "e522ffcee97c02daf8eeea7440b4e8138144a5d10fd0f24c93d495ef8383a3cc",
+              "entry": "run",
+              "source": "\"use strict\";function run(xs){return xs.map(x=>x*2);}",
+              "sites": [
+                {
+                  "id": "s1",
+                  "start": 0,
+                  "end": 12,
+                  "role": "Literal"
+                },
+                {
+                  "id": "s2",
+                  "start": 13,
+                  "end": 53,
+                  "role": "FunctionDeclaration"
+                },
+                {
+                  "id": "s3",
+                  "start": 22,
+                  "end": 25,
+                  "role": "Identifier"
+                },
+                {
+                  "id": "s4",
+                  "start": 26,
+                  "end": 28,
+                  "role": "Identifier"
+                },
+                {
+                  "id": "s5",
+                  "start": 30,
+                  "end": 52,
+                  "role": "ReturnStatement"
+                },
+                {
+                  "id": "s6",
+                  "start": 37,
+                  "end": 39,
+                  "role": "Identifier"
+                },
+                {
+                  "id": "s7",
+                  "start": 37,
+                  "end": 43,
+                  "role": "MemberExpression"
+                },
+                {
+                  "id": "s8",
+                  "start": 37,
+                  "end": 51,
+                  "role": "CallExpression"
+                },
+                {
+                  "id": "s9",
+                  "start": 40,
+                  "end": 43,
+                  "role": "Identifier"
+                },
+                {
+                  "id": "s10",
+                  "start": 44,
+                  "end": 45,
+                  "role": "Identifier"
+                },
+                {
+                  "id": "s11",
+                  "start": 44,
+                  "end": 50,
+                  "role": "ArrowFunctionExpression"
+                },
+                {
+                  "id": "s12",
+                  "start": 47,
+                  "end": 48,
+                  "role": "Identifier"
+                },
+                {
+                  "id": "s13",
+                  "start": 47,
+                  "end": 50,
+                  "role": "BinaryExpression"
+                },
+                {
+                  "id": "s14",
+                  "start": 49,
+                  "end": 50,
+                  "role": "Literal"
+                }
+              ],
+              "functions": [
+                {
+                  "start": 13,
+                  "end": 53,
+                  "name": "run",
+                  "params": [
+                    "xs"
+                  ]
+                },
+                {
+                  "start": 44,
+                  "end": 50,
+                  "name": null,
+                  "params": [
+                    "x"
+                  ]
+                }
+              ],
+              "capabilities": [],
+              "dependencies": [],
+              "sourceMap": null,
+              "languageProfile": "owned-javascript/1",
+              "module": false,
+              "sourceMetadata": null,
+              "regionProgram": {
+                "schema": "semantic-region-program/1",
+                "traceFormat": "semantic-trace/8",
+                "profile": "compositional-regions/1",
+                "source": "\"use strict\";function run(xs){return xs.map(x=>x*2);}",
+                "entry": "run",
+                "sourceDigest": "e522ffcee97c02daf8eeea7440b4e8138144a5d10fd0f24c93d495ef8383a3cc",
+                "regions": [],
+                "algorithm": {
+                  "schema": "semantic-algorithm/2",
+                  "profile": "ecmascript-pure-regions/1",
+                  "inputs": [
+                    {
+                      "id": "a0",
+                      "type": "dense-number-array"
+                    }
+                  ],
+                  "steps": [
+                    {
+                      "kind": "compute",
+                      "id": "v0",
+                      "term": {
+                        "op": "traverse",
+                        "mode": "map",
+                        "input": {
+                          "op": "input",
+                          "id": "a0"
+                        },
+                        "initial": null,
+                        "callback": {
+                          "arity": 3,
+                          "body": {
+                            "op": "multiply",
+                            "args": [
+                              {
+                                "op": "bound",
+                                "depth": 0,
+                                "index": 0
+                              },
+                              {
+                                "op": "literal",
+                                "value": [
+                                  "num",
+                                  2
+                                ]
+                              }
+                            ]
+                          }
+                        },
+                        "profile": "dense-primitive-array/1",
+                        "order": "ascending"
+                      }
+                    },
+                    {
+                      "kind": "return",
+                      "value": {
+                        "op": "ref",
+                        "id": "v0"
+                      }
+                    }
+                  ]
+                },
+                "definitionDigest": "56862ffa7443e0b3a3eb7153fef6dfae954be51fa7a3aa8e98c895e420831cf8"
+              }
+            }
+          },
+          {
+            "sequence": 2,
+            "mode": "observed",
+            "kind": "invocation",
+            "fields": {
+              "session": "teacher1",
+              "track": "worker1",
+              "programId": "program1",
+              "invocationId": "invocation1",
+              "realmId": "realm1",
+              "triggerId": "teacher-entry",
+              "completionPolicy": "await-returned-promise",
+              "realmPolicy": "retained",
+              "inputGraph": {
+                "roots": [
+                  [
+                    "ref",
+                    "o2"
+                  ]
+                ],
+                "objects": [
+                  {
+                    "id": "o2",
+                    "kind": "array",
+                    "properties": [
+                      {
+                        "key": "0",
+                        "value": [
+                          "num",
+                          2
+                        ]
+                      },
+                      {
+                        "key": "1",
+                        "value": [
+                          "num",
+                          3
+                        ]
+                      },
+                      {
+                        "key": "2",
+                        "value": [
+                          "num",
+                          4
+                        ]
+                      },
+                      {
+                        "key": "length",
+                        "value": [
+                          "num",
+                          3
+                        ]
+                      }
+                    ]
+                  }
+                ]
+              },
+              "entry": "run",
+              "sourceDigest": "e522ffcee97c02daf8eeea7440b4e8138144a5d10fd0f24c93d495ef8383a3cc",
+              "receiver": [
+                "undefined"
+              ],
+              "closureId": null,
+              "activation": "call",
+              "parentInvocationId": null,
+              "taskRevision": 1,
+              "deadline": null,
+              "bindings": {},
+              "ingressKey": "teacher-entry"
+            }
+          },
+          {
+            "sequence": 3,
+            "mode": "generated",
+            "kind": "algorithm",
+            "fields": {
+              "session": "teacher1",
+              "track": "worker1",
+              "invocationId": "invocation1",
+              "entry": {
+                "definition": "56862ffa7443e0b3a3eb7153fef6dfae954be51fa7a3aa8e98c895e420831cf8",
+                "region": "whole",
+                "regionDigest": "5e109014554279cb9e5f8b10fbb1d6b02204fa8a98a34ac56fba32b1acdbdd48",
+                "visibleThrough": 2,
+                "stateDigest": "3b153d72a560be72ce776593c4ed15186ee1eb5359de440d0ff986a4c06451b8"
+              },
+              "line": "algorithm {\"allocations\":[{\"id\":\"o0\",\"kind\":\"array\",\"properties\":[{\"key\":\"0\",\"value\":[\"num\",4]},{\"key\":\"1\",\"value\":[\"num\",6]},{\"key\":\"2\",\"value\":[\"num\",8]},{\"key\":\"length\",\"value\":[\"num\",3]}]}],\"claims\":[{\"id\":\"v0\",\"kind\":\"compute\",\"result\":[\"ref\",\"o0\"],\"step\":0},{\"kind\":\"return\",\"step\":1,\"value\":[\"ref\",\"o0\"]}],\"completion\":{\"kind\":\"return\",\"value\":[\"ref\",\"o0\"]}}"
+            }
+          },
+          {
+            "sequence": 4,
+            "mode": "generated",
+            "kind": "semantic",
+            "fields": {
+              "session": "teacher1",
+              "track": "worker1",
+              "invocationId": "invocation1",
+              "line": "detail {\"fields\":{\"kind\":\"return\"},\"kind\":\"end\"}"
+            }
+          }
+        ]
+      },
+      "contexts": [
+        {
+          "schema": "semantic-context/8",
+          "representation": "mixed",
+          "profile": "compositional-regions/1",
+          "invocationId": "invocation1",
+          "programs": [
+            {
+              "id": "program1",
+              "program": {
+                "schema": "semantic-region-program/1",
+                "traceFormat": "semantic-trace/8",
+                "profile": "compositional-regions/1",
+                "source": "\"use strict\";function run(xs){return xs.map(x=>x*2);}",
+                "entry": "run",
+                "sourceDigest": "e522ffcee97c02daf8eeea7440b4e8138144a5d10fd0f24c93d495ef8383a3cc",
+                "regions": [],
+                "algorithm": {
+                  "schema": "semantic-algorithm/2",
+                  "profile": "ecmascript-pure-regions/1",
+                  "inputs": [
+                    {
+                      "id": "a0",
+                      "type": "dense-number-array"
+                    }
+                  ],
+                  "steps": [
+                    {
+                      "kind": "compute",
+                      "id": "v0",
+                      "term": {
+                        "op": "traverse",
+                        "mode": "map",
+                        "input": {
+                          "op": "input",
+                          "id": "a0"
+                        },
+                        "initial": null,
+                        "callback": {
+                          "arity": 3,
+                          "body": {
+                            "op": "multiply",
+                            "args": [
+                              {
+                                "op": "bound",
+                                "depth": 0,
+                                "index": 0
+                              },
+                              {
+                                "op": "literal",
+                                "value": [
+                                  "num",
+                                  2
+                                ]
+                              }
+                            ]
+                          }
+                        },
+                        "profile": "dense-primitive-array/1",
+                        "order": "ascending"
+                      }
+                    },
+                    {
+                      "kind": "return",
+                      "value": {
+                        "op": "ref",
+                        "id": "v0"
+                      }
+                    }
+                  ]
+                },
+                "definitionDigest": "56862ffa7443e0b3a3eb7153fef6dfae954be51fa7a3aa8e98c895e420831cf8"
+              }
+            }
+          ],
+          "input": {
+            "graph": {
+              "roots": [
+                [
+                  "ref",
+                  "o2"
+                ]
+              ],
+              "objects": [
+                {
+                  "id": "o2",
+                  "kind": "array",
+                  "properties": [
+                    {
+                      "key": "0",
+                      "value": [
+                        "num",
+                        2
+                      ]
+                    },
+                    {
+                      "key": "1",
+                      "value": [
+                        "num",
+                        3
+                      ]
+                    },
+                    {
+                      "key": "2",
+                      "value": [
+                        "num",
+                        4
+                      ]
+                    },
+                    {
+                      "key": "length",
+                      "value": [
+                        "num",
+                        3
+                      ]
+                    }
+                  ]
+                }
+              ]
+            }
+          },
+          "state": {
+            "heap": [
+              [
+                "o2",
+                {
+                  "kind": "array",
+                  "prototype": "ordinary",
+                  "properties": [
+                    [
+                      "0",
+                      [
+                        "num",
+                        2
+                      ]
+                    ],
+                    [
+                      "1",
+                      [
+                        "num",
+                        3
+                      ]
+                    ],
+                    [
+                      "2",
+                      [
+                        "num",
+                        4
+                      ]
+                    ],
+                    [
+                      "length",
+                      [
+                        "num",
+                        3
+                      ]
+                    ]
+                  ]
+                }
+              ]
+            ],
+            "locals": [
+              [
+                "a0b0",
+                [
+                  "ref",
+                  "o2"
+                ]
+              ]
+            ],
+            "stack": [
+              "invocation1"
+            ],
+            "effects": [],
+            "jobs": [],
+            "ready": [],
+            "randomState": null,
+            "pending": null,
+            "lastReturn": null,
+            "completion": null,
+            "receiver": [
+              "undefined"
+            ],
+            "captureAliases": [
+              [
+                "xs",
+                "a0b0"
+              ]
+            ],
+            "continuations": [],
+            "reactionSequence": 0,
+            "blockedSync": null,
+            "callReturn": null,
+            "activeJob": null,
+            "scheduler": {
+              "registration": 0,
+              "ready": 0
+            },
+            "frameFunctions": [
+              [
+                "invocation1",
+                "run"
+              ]
+            ],
+            "jobErrors": []
+          },
+          "regionCursor": {
+            "active": null,
+            "consumed": []
+          },
+          "obligations": {
+            "intents": [],
+            "handlers": [],
+            "callbacks": [],
+            "closureQueue": []
+          },
+          "visibleThrough": 2,
+          "prefixDigest": "ca05409ab545862ea4987a1c835874114e5a50f75804f923bc60a149dc6822ca"
+        },
+        {
+          "schema": "semantic-context/8",
+          "representation": "mixed",
+          "profile": "compositional-regions/1",
+          "invocationId": "invocation1",
+          "programs": [
+            {
+              "id": "program1",
+              "program": {
+                "schema": "semantic-region-program/1",
+                "traceFormat": "semantic-trace/8",
+                "profile": "compositional-regions/1",
+                "source": "\"use strict\";function run(xs){return xs.map(x=>x*2);}",
+                "entry": "run",
+                "sourceDigest": "e522ffcee97c02daf8eeea7440b4e8138144a5d10fd0f24c93d495ef8383a3cc",
+                "regions": [],
+                "algorithm": {
+                  "schema": "semantic-algorithm/2",
+                  "profile": "ecmascript-pure-regions/1",
+                  "inputs": [
+                    {
+                      "id": "a0",
+                      "type": "dense-number-array"
+                    }
+                  ],
+                  "steps": [
+                    {
+                      "kind": "compute",
+                      "id": "v0",
+                      "term": {
+                        "op": "traverse",
+                        "mode": "map",
+                        "input": {
+                          "op": "input",
+                          "id": "a0"
+                        },
+                        "initial": null,
+                        "callback": {
+                          "arity": 3,
+                          "body": {
+                            "op": "multiply",
+                            "args": [
+                              {
+                                "op": "bound",
+                                "depth": 0,
+                                "index": 0
+                              },
+                              {
+                                "op": "literal",
+                                "value": [
+                                  "num",
+                                  2
+                                ]
+                              }
+                            ]
+                          }
+                        },
+                        "profile": "dense-primitive-array/1",
+                        "order": "ascending"
+                      }
+                    },
+                    {
+                      "kind": "return",
+                      "value": {
+                        "op": "ref",
+                        "id": "v0"
+                      }
+                    }
+                  ]
+                },
+                "definitionDigest": "56862ffa7443e0b3a3eb7153fef6dfae954be51fa7a3aa8e98c895e420831cf8"
+              }
+            }
+          ],
+          "input": {
+            "graph": {
+              "roots": [
+                [
+                  "ref",
+                  "o2"
+                ]
+              ],
+              "objects": [
+                {
+                  "id": "o2",
+                  "kind": "array",
+                  "properties": [
+                    {
+                      "key": "0",
+                      "value": [
+                        "num",
+                        2
+                      ]
+                    },
+       …66868 tokens truncated…75114127af903b09b9e6cddd8a56036ce361a6eed7ecc10162ba5",
+                "regions": [
+                  {
+                    "id": "r0",
+                    "owner": "run",
+                    "kind": "compact",
+                    "profile": "local-primitive-block/1",
+                    "inputs": [
+                      "current"
+                    ],
+                    "outputs": [
+                      "next"
+                    ],
+                    "operations": [
+                      {
+                        "kind": "bind",
+                        "binding": "next",
+                        "term": {
+                          "op": "binary",
+                          "operator": "+",
+                          "left": {
+                            "op": "local",
+                            "name": "current"
+                          },
+                          "right": {
+                            "op": "literal",
+                            "value": [
+                              "num",
+                              1
+                            ]
+                          }
+                        }
+                      }
+                    ],
+                    "effects": {
+                      "reads": [
+                        "current"
+                      ],
+                      "writes": [
+                        "next"
+                      ],
+                      "calls": [],
+                      "mayThrow": true,
+                      "maySuspend": false,
+                      "allocates": false,
+                      "identityEscapes": false,
+                      "cleanup": false,
+                      "propertyAccess": false
+                    },
+                    "completion": "normal",
+                    "obligations": [],
+                    "digest": "f4d8806b701090b3f0a0195dcdc45f95fd4100f4b07b29592ba3f13625bcd9c0"
+                  },
+                  {
+                    "id": "r1",
+                    "owner": "run",
+                    "kind": "compact",
+                    "profile": "local-primitive-block/1",
+                    "inputs": [
+                      "next"
+                    ],
+                    "outputs": [],
+                    "operations": [
+                      {
+                        "kind": "return",
+                        "term": {
+                          "op": "local",
+                          "name": "next"
+                        }
+                      }
+                    ],
+                    "effects": {
+                      "reads": [
+                        "next"
+                      ],
+                      "writes": [],
+                      "calls": [],
+                      "mayThrow": true,
+                      "maySuspend": false,
+                      "allocates": false,
+                      "identityEscapes": false,
+                      "cleanup": false,
+                      "propertyAccess": false
+                    },
+                    "completion": "return",
+                    "obligations": [],
+                    "digest": "9ad07f2238a1356a196bbede133d6aa7c2f91c6744e8fa8884830b1d70d66760"
+                  }
+                ],
+                "algorithm": null,
+                "definitionDigest": "cdd27502e58664525953366a2b3b20a6ac19a9fbef2aad8b646ea0de3c1acae7"
+              }
+            }
+          ],
+          "input": {
+            "graph": {
+              "roots": [
+                [
+                  "str",
+                  "counter"
+                ]
+              ],
+              "objects": []
+            }
+          },
+          "state": {
+            "heap": [
+              [
+                "p1",
+                {
+                  "kind": "promise",
+                  "properties": [],
+                  "state": "pending",
+                  "result": null,
+                  "adopted": null,
+                  "external": null,
+                  "reactions": []
+                }
+              ],
+              [
+                "p2",
+                {
+                  "kind": "promise",
+                  "properties": [],
+                  "state": "fulfilled",
+                  "result": [
+                    "num",
+                    7
+                  ],
+                  "adopted": null,
+                  "external": "e1",
+                  "reactions": []
+                }
+              ]
+            ],
+            "locals": [
+              [
+                "a0b0",
+                [
+                  "str",
+                  "counter"
+                ]
+              ],
+              [
+                "current",
+                [
+                  "num",
+                  7
+                ]
+              ],
+              [
+                "next",
+                [
+                  "num",
+                  8
+                ]
+              ]
+            ],
+            "stack": [
+              "invocation1"
+            ],
+            "effects": [
+              [
+                "e1",
+                {
+                  "operation": "demo.readAsync",
+                  "invocation": "invocation1",
+                  "site": {
+                    "start": 57,
+                    "end": 76
+                  },
+                  "payload": "[\"counter\"]",
+                  "arguments": [
+                    "counter"
+                  ],
+                  "argumentCodec": "canonical-json/1",
+                  "status": "fulfilled",
+                  "fixture": null,
+                  "promise": "p2",
+                  "result": [
+                    "num",
+                    7
+                  ]
+                }
+              ],
+              [
+                "e2",
+                {
+                  "operation": "demo.store",
+                  "invocation": "invocation1",
+                  "site": {
+                    "start": 98,
+                    "end": 118
+                  },
+                  "payload": "[\"counter\",8]",
+                  "arguments": [
+                    "counter",
+                    8
+                  ],
+                  "argumentCodec": "canonical-json/1",
+                  "status": "fulfilled",
+                  "fixture": null,
+                  "promise": null,
+                  "result": [
+                    "undefined"
+                  ]
+                }
+              ]
+            ],
+            "jobs": [],
+            "ready": [],
+            "randomState": null,
+            "pending": null,
+            "lastReturn": null,
+            "completion": null,
+            "receiver": [
+              "undefined"
+            ],
+            "captureAliases": [
+              [
+                "key",
+                "a0b0"
+              ]
+            ],
+            "continuations": [
+              [
+                "continuation1",
+                {
+                  "state": "resumed",
+                  "promise": "p2",
+                  "invocation": "invocation1",
+                  "sequence": 1,
+                  "activeJob": null,
+                  "captureAliases": [
+                    [
+                      "key",
+                      "a0b0"
+                    ]
+                  ],
+                  "readySequence": 1
+                }
+              ]
+            ],
+            "reactionSequence": 0,
+            "blockedSync": null,
+            "callReturn": {
+              "kind": "return",
+              "value": [
+                "ref",
+                "p1"
+              ]
+            },
+            "activeJob": null,
+            "scheduler": {
+              "registration": 1,
+              "ready": 1
+            },
+            "frameFunctions": [
+              [
+                "invocation1",
+                "run"
+              ]
+            ],
+            "jobErrors": []
+          },
+          "regionCursor": {
+            "active": null,
+            "consumed": [
+              {
+                "invocationId": "invocation1",
+                "frame": "invocation1",
+                "region": "r0"
+              }
+            ]
+          },
+          "obligations": {
+            "intents": [
+              [
+                "invocation1/e1",
+                {
+                  "status": "settled",
+                  "operation": "demo.readAsync",
+                  "payload": "[\"counter\"]",
+                  "invocationId": "invocation1",
+                  "effectId": "e1",
+                  "attempts": 1,
+                  "taskRevision": 1,
+                  "payloadDigest": "9b54c98313fcb683c1fcdb04f015904e090f296e027db21b91563b89c53e7d60",
+                  "witness": "request @e1 demo.readAsync(\"counter\") payload [\"counter\"] promise @p2 in @invocation1 at 57..76",
+                  "result": {
+                    "schema": "semantic-execution/6",
+                    "session": "teacher1",
+                    "sequence": 8,
+                    "ownerSequence": 7,
+                    "track": "worker1",
+                    "mode": "observed",
+                    "kind": "result",
+                    "invocationId": "invocation1",
+                    "effectId": "e1",
+                    "status": "fulfilled",
+                    "result": [
+                      "num",
+                      7
+                    ],
+                    "line": "observe @e1 fulfilled 7",
+                    "errorOrigin": null
+                  }
+                }
+              ],
+              [
+                "invocation1/e2",
+                {
+                  "status": "settled",
+                  "operation": "demo.store",
+                  "payload": "[\"counter\",8]",
+                  "invocationId": "invocation1",
+                  "effectId": "e2",
+                  "attempts": 1,
+                  "taskRevision": 1,
+                  "payloadDigest": "748328adf4a3449bb05301a61c1c35577aee8e9a591a65c660497478e7bbc967",
+                  "witness": "request @e2 demo.store(\"counter\", 8) payload [\"counter\",8] in @invocation1 at 98..118",
+                  "result": {
+                    "schema": "semantic-execution/6",
+                    "session": "teacher1",
+                    "sequence": 14,
+                    "ownerSequence": 13,
+                    "track": "worker1",
+                    "mode": "observed",
+                    "kind": "result",
+                    "invocationId": "invocation1",
+                    "effectId": "e2",
+                    "status": "fulfilled",
+                    "result": [
+                      "undefined"
+                    ],
+                    "line": "observe @e2 fulfilled undefined",
+                    "errorOrigin": null
+                  }
+                }
+              ]
+            ],
+            "handlers": [],
+            "callbacks": [],
+            "closureQueue": []
+          },
+          "visibleThrough": 14,
+          "prefixDigest": "ded7ca199253c903f1144088d3769f143fc2082f7f2f3f871f97ad2ba308dfe5"
+        },
+        {
+          "schema": "semantic-context/8",
+          "representation": "mixed",
+          "profile": "compositional-regions/1",
+          "invocationId": "invocation1",
+          "programs": [
+            {
+              "id": "program1",
+              "program": {
+                "schema": "semantic-region-program/1",
+                "traceFormat": "semantic-trace/8",
+                "profile": "compositional-regions/1",
+                "source": "\"use strict\";async function run(key){const current=await host.readAsync(key);const next=current+1;host.store(key,next);return next;}",
+                "entry": "run",
+                "sourceDigest": "a66d7c5931a75114127af903b09b9e6cddd8a56036ce361a6eed7ecc10162ba5",
+                "regions": [
+                  {
+                    "id": "r0",
+                    "owner": "run",
+                    "kind": "compact",
+                    "profile": "local-primitive-block/1",
+                    "inputs": [
+                      "current"
+                    ],
+                    "outputs": [
+                      "next"
+                    ],
+                    "operations": [
+                      {
+                        "kind": "bind",
+                        "binding": "next",
+                        "term": {
+                          "op": "binary",
+                          "operator": "+",
+                          "left": {
+                            "op": "local",
+                            "name": "current"
+                          },
+                          "right": {
+                            "op": "literal",
+                            "value": [
+                              "num",
+                              1
+                            ]
+                          }
+                        }
+                      }
+                    ],
+                    "effects": {
+                      "reads": [
+                        "current"
+                      ],
+                      "writes": [
+                        "next"
+                      ],
+                      "calls": [],
+                      "mayThrow": true,
+                      "maySuspend": false,
+                      "allocates": false,
+                      "identityEscapes": false,
+                      "cleanup": false,
+                      "propertyAccess": false
+                    },
+                    "completion": "normal",
+                    "obligations": [],
+                    "digest": "f4d8806b701090b3f0a0195dcdc45f95fd4100f4b07b29592ba3f13625bcd9c0"
+                  },
+                  {
+                    "id": "r1",
+                    "owner": "run",
+                    "kind": "compact",
+                    "profile": "local-primitive-block/1",
+                    "inputs": [
+                      "next"
+                    ],
+                    "outputs": [],
+                    "operations": [
+                      {
+                        "kind": "return",
+                        "term": {
+                          "op": "local",
+                          "name": "next"
+                        }
+                      }
+                    ],
+                    "effects": {
+                      "reads": [
+                        "next"
+                      ],
+                      "writes": [],
+                      "calls": [],
+                      "mayThrow": true,
+                      "maySuspend": false,
+                      "allocates": false,
+                      "identityEscapes": false,
+                      "cleanup": false,
+                      "propertyAccess": false
+                    },
+                    "completion": "return",
+                    "obligations": [],
+                    "digest": "9ad07f2238a1356a196bbede133d6aa7c2f91c6744e8fa8884830b1d70d66760"
+                  }
+                ],
+                "algorithm": null,
+                "definitionDigest": "cdd27502e58664525953366a2b3b20a6ac19a9fbef2aad8b646ea0de3c1acae7"
+              }
+            }
+          ],
+          "input": {
+            "graph": {
+              "roots": [
+                [
+                  "str",
+                  "counter"
+                ]
+              ],
+              "objects": []
+            }
+          },
+          "state": {
+            "heap": [
+              [
+                "p1",
+                {
+                  "kind": "promise",
+                  "properties": [],
+                  "state": "fulfilled",
+                  "result": [
+                    "num",
+                    8
+                  ],
+                  "adopted": null,
+                  "external": null,
+                  "reactions": []
+                }
+              ],
+              [
+                "p2",
+                {
+                  "kind": "promise",
+                  "properties": [],
+                  "state": "fulfilled",
+                  "result": [
+                    "num",
+                    7
+                  ],
+                  "adopted": null,
+                  "external": "e1",
+                  "reactions": []
+                }
+              ]
+            ],
+            "locals": [
+              [
+                "a0b0",
+                [
+                  "str",
+                  "counter"
+                ]
+              ],
+              [
+                "current",
+                [
+                  "num",
+                  7
+                ]
+              ],
+              [
+                "next",
+                [
+                  "num",
+                  8
+                ]
+              ]
+            ],
+            "stack": [
+              "invocation1"
+            ],
+            "effects": [
+              [
+                "e1",
+                {
+                  "operation": "demo.readAsync",
+                  "invocation": "invocation1",
+                  "site": {
+                    "start": 57,
+                    "end": 76
+                  },
+                  "payload": "[\"counter\"]",
+                  "arguments": [
+                    "counter"
+                  ],
+                  "argumentCodec": "canonical-json/1",
+                  "status": "fulfilled",
+                  "fixture": null,
+                  "promise": "p2",
+                  "result": [
+                    "num",
+                    7
+                  ]
+                }
+              ],
+              [
+                "e2",
+                {
+                  "operation": "demo.store",
+                  "invocation": "invocation1",
+                  "site": {
+                    "start": 98,
+                    "end": 118
+                  },
+                  "payload": "[\"counter\",8]",
+                  "arguments": [
+                    "counter",
+                    8
+                  ],
+                  "argumentCodec": "canonical-json/1",
+                  "status": "fulfilled",
+                  "fixture": null,
+                  "promise": null,
+                  "result": [
+                    "undefined"
+                  ]
+                }
+              ]
+            ],
+            "jobs": [],
+            "ready": [],
+            "randomState": null,
+            "pending": null,
+            "lastReturn": null,
+            "completion": null,
+            "receiver": [
+              "undefined"
+            ],
+            "captureAliases": [
+              [
+                "key",
+                "a0b0"
+              ]
+            ],
+            "continuations": [
+              [
+                "continuation1",
+                {
+                  "state": "resumed",
+                  "promise": "p2",
+                  "invocation": "invocation1",
+                  "sequence": 1,
+                  "activeJob": null,
+                  "captureAliases": [
+                    [
+                      "key",
+                      "a0b0"
+                    ]
+                  ],
+                  "readySequence": 1
+                }
+              ]
+            ],
+            "reactionSequence": 0,
+            "blockedSync": null,
+            "callReturn": {
+              "kind": "return",
+              "value": [
+                "ref",
+                "p1"
+              ]
+            },
+            "activeJob": null,
+            "scheduler": {
+              "registration": 1,
+              "ready": 1
+            },
+            "frameFunctions": [
+              [
+                "invocation1",
+                "run"
+              ]
+            ],
+            "jobErrors": []
+          },
+          "regionCursor": {
+            "active": null,
+            "consumed": [
+              {
+                "invocationId": "invocation1",
+                "frame": "invocation1",
+                "region": "r0"
+              }
+            ]
+          },
+          "obligations": {
+            "intents": [
+              [
+                "invocation1/e1",
+                {
+                  "status": "settled",
+                  "operation": "demo.readAsync",
+                  "payload": "[\"counter\"]",
+                  "invocationId": "invocation1",
+                  "effectId": "e1",
+                  "attempts": 1,
+                  "taskRevision": 1,
+                  "payloadDigest": "9b54c98313fcb683c1fcdb04f015904e090f296e027db21b91563b89c53e7d60",
+                  "witness": "request @e1 demo.readAsync(\"counter\") payload [\"counter\"] promise @p2 in @invocation1 at 57..76",
+                  "result": {
+                    "schema": "semantic-execution/6",
+                    "session": "teacher1",
+                    "sequence": 8,
+                    "ownerSequence": 7,
+                    "track": "worker1",
+                    "mode": "observed",
+                    "kind": "result",
+                    "invocationId": "invocation1",
+                    "effectId": "e1",
+                    "status": "fulfilled",
+                    "result": [
+                      "num",
+                      7
+                    ],
+                    "line": "observe @e1 fulfilled 7",
+                    "errorOrigin": null
+                  }
+                }
+              ],
+              [
+                "invocation1/e2",
+                {
+                  "status": "settled",
+                  "operation": "demo.store",
+                  "payload": "[\"counter\",8]",
+                  "invocationId": "invocation1",
+                  "effectId": "e2",
+                  "attempts": 1,
+                  "taskRevision": 1,
+                  "payloadDigest": "748328adf4a3449bb05301a61c1c35577aee8e9a591a65c660497478e7bbc967",
+                  "witness": "request @e2 demo.store(\"counter\", 8) payload [\"counter\",8] in @invocation1 at 98..118",
+                  "result": {
+                    "schema": "semantic-execution/6",
+                    "session": "teacher1",
+                    "sequence": 14,
+                    "ownerSequence": 13,
+                    "track": "worker1",
+                    "mode": "observed",
+                    "kind": "result",
+                    "invocationId": "invocation1",
+                    "effectId": "e2",
+                    "status": "fulfilled",
+                    "result": [
+                      "undefined"
+                    ],
+                    "line": "observe @e2 fulfilled undefined",
+                    "errorOrigin": null
+                  }
+                }
+              ]
+            ],
+            "handlers": [],
+            "callbacks": [],
+            "closureQueue": []
+          },
+          "visibleThrough": 15,
+          "prefixDigest": "4b4d58ed7cd87f06dd932ce1c7574d9148061143cd392608f593d01659a04e09"
+        },
+        {
+          "schema": "semantic-context/8",
+          "representation": "mixed",
+          "profile": "compositional-regions/1",
+          "invocationId": "invocation1",
+          "programs": [
+            {
+              "id": "program1",
+              "program": {
+                "schema": "semantic-region-program/1",
+                "traceFormat": "semantic-trace/8",
+                "profile": "compositional-regions/1",
+                "source": "\"use strict\";async function run(key){const current=await host.readAsync(key);const next=current+1;host.store(key,next);return next;}",
+                "entry": "run",
+                "sourceDigest": "a66d7c5931a75114127af903b09b9e6cddd8a56036ce361a6eed7ecc10162ba5",
+                "regions": [
+                  {
+                    "id": "r0",
+                    "owner": "run",
+                    "kind": "compact",
+                    "profile": "local-primitive-block/1",
+                    "inputs": [
+                      "current"
+                    ],
+                    "outputs": [
+                      "next"
+                    ],
+                    "operations": [
+                      {
+                        "kind": "bind",
+                        "binding": "next",
+                        "term": {
+                          "op": "binary",
+                          "operator": "+",
+                          "left": {
+                            "op": "local",
+                            "name": "current"
+                          },
+                          "right": {
+                            "op": "literal",
+                            "value": [
+                              "num",
+                              1
+                            ]
+                          }
+                        }
+                      }
+                    ],
+                    "effects": {
+                      "reads": [
+                        "current"
+                      ],
+                      "writes": [
+                        "next"
+                      ],
+                      "calls": [],
+                      "mayThrow": true,
+                      "maySuspend": false,
+                      "allocates": false,
+                      "identityEscapes": false,
+                      "cleanup": false,
+                      "propertyAccess": false
+                    },
+                    "completion": "normal",
+                    "obligations": [],
+                    "digest": "f4d8806b701090b3f0a0195dcdc45f95fd4100f4b07b29592ba3f13625bcd9c0"
+                  },
+                  {
+                    "id": "r1",
+                    "owner": "run",
+                    "kind": "compact",
+                    "profile": "local-primitive-block/1",
+                    "inputs": [
+                      "next"
+                    ],
+                    "outputs": [],
+                    "operations": [
+                      {
+                        "kind": "return",
+                        "term": {
+                          "op": "local",
+                          "name": "next"
+                        }
+                      }
+                    ],
+                    "effects": {
+                      "reads": [
+                        "next"
+                      ],
+                      "writes": [],
+                      "calls": [],
+                      "mayThrow": true,
+                      "maySuspend": false,
+                      "allocates": false,
+                      "identityEscapes": false,
+                      "cleanup": false,
+                      "propertyAccess": false
+                    },
+                    "completion": "return",
+                    "obligations": [],
+                    "digest": "9ad07f2238a1356a196bbede133d6aa7c2f91c6744e8fa8884830b1d70d66760"
+                  }
+                ],
+                "algorithm": null,
+                "definitionDigest": "cdd27502e58664525953366a2b3b20a6ac19a9fbef2aad8b646ea0de3c1acae7"
+              }
+            }
+          ],
+          "input": {
+            "graph": {
+              "roots": [
+                [
+                  "str",
+                  "counter"
+                ]
+              ],
+              "objects": []
+            }
+          },
+          "state": {
+            "heap": [
+              [
+                "p1",
+                {
+                  "kind": "promise",
+                  "properties": [],
+                  "state": "fulfilled",
+                  "result": [
+                    "num",
+                    8
+                  ],
+                  "adopted": null,
+                  "external": null,
+                  "reactions": []
+                }
+              ],
+              [
+                "p2",
+                {
+                  "kind": "promise",
+                  "properties": [],
+                  "state": "fulfilled",
+                  "result": [
+                    "num",
+                    7
+                  ],
+                  "adopted": null,
+                  "external": "e1",
+                  "reactions": []
+                }
+              ]
+            ],
+            "locals": [
+              [
+                "a0b0",
+                [
+                  "str",
+                  "counter"
+                ]
+              ],
+              [
+                "current",
+                [
+                  "num",
+                  7
+                ]
+              ],
+              [
+                "next",
+                [
+                  "num",
+                  8
+                ]
+              ]
+            ],
+            "stack": [],
+            "effects": [
+              [
+                "e1",
+                {
+                  "operation": "demo.readAsync",
+                  "invocation": "invocation1",
+                  "site": {
+                    "start": 57,
+                    "end": 76
+                  },
+                  "payload": "[\"counter\"]",
+                  "arguments": [
+                    "counter"
+                  ],
+                  "argumentCodec": "canonical-json/1",
+                  "status": "fulfilled",
+                  "fixture": null,
+                  "promise": "p2",
+                  "result": [
+                    "num",
+                    7
+                  ]
+                }
+              ],
+              [
+                "e2",
+                {
+                  "operation": "demo.store",
+                  "invocation": "invocation1",
+                  "site": {
+                    "start": 98,
+                    "end": 118
+                  },
+                  "payload": "[\"counter\",8]",
+                  "arguments": [
+                    "counter",
+                    8
+                  ],
+                  "argumentCodec": "canonical-json/1",
+                  "status": "fulfilled",
+                  "fixture": null,
+                  "promise": null,
+                  "result": [
+                    "undefined"
+                  ]
+                }
+              ]
+            ],
+            "jobs": [],
+            "ready": [],
+            "randomState": null,
+            "pending": {
+              "kind": "return",
+              "value": [
+                "ref",
+                "p1"
+              ]
+            },
+            "lastReturn": null,
+            "completion": null,
+            "receiver": [
+              "undefined"
+            ],
+            "captureAliases": [
+              [
+                "key",
+                "a0b0"
+              ]
+            ],
+            "continuations": [
+              [
+                "continuation1",
+                {
+                  "state": "resumed",
+                  "promise": "p2",
+                  "invocation": "invocation1",
+                  "sequence": 1,
+                  "activeJob": null,
+                  "captureAliases": [
+                    [
+                      "key",
+                      "a0b0"
+                    ]
+                  ],
+                  "readySequence": 1
+                }
+              ]
+            ],
+            "reactionSequence": 0,
+            "blockedSync": null,
+            "callReturn": {
+              "kind": "return",
+              "value": [
+                "ref",
+                "p1"
+              ]
+            },
+            "activeJob": null,
+            "scheduler": {
+              "registration": 1,
+              "ready": 1
+            },
+            "frameFunctions": [
+              [
+                "invocation1",
+                "run"
+              ]
+            ],
+            "jobErrors": []
+          },
+          "regionCursor": {
+            "active": null,
+            "consumed": [
+              {
+                "invocationId": "invocation1",
+                "frame": "invocation1",
+                "region": "r0"
+              }
+            ]
+          },
+          "obligations": {
+            "intents": [
+              [
+                "invocation1/e1",
+                {
+                  "status": "settled",
+                  "operation": "demo.readAsync",
+                  "payload": "[\"counter\"]",
+                  "invocationId": "invocation1",
+                  "effectId": "e1",
+                  "attempts": 1,
+                  "taskRevision": 1,
+                  "payloadDigest": "9b54c98313fcb683c1fcdb04f015904e090f296e027db21b91563b89c53e7d60",
+                  "witness": "request @e1 demo.readAsync(\"counter\") payload [\"counter\"] promise @p2 in @invocation1 at 57..76",
+                  "result": {
+                    "schema": "semantic-execution/6",
+                    "session": "teacher1",
+                    "sequence": 8,
+                    "ownerSequence": 7,
+                    "track": "worker1",
+                    "mode": "observed",
+                    "kind": "result",
+                    "invocationId": "invocation1",
+                    "effectId": "e1",
+                    "status": "fulfilled",
+                    "result": [
+                      "num",
+                      7
+                    ],
+                    "line": "observe @e1 fulfilled 7",
+                    "errorOrigin": null
+                  }
+                }
+              ],
+              [
+                "invocation1/e2",
+                {
+                  "status": "settled",
+                  "operation": "demo.store",
+                  "payload": "[\"counter\",8]",
+                  "invocationId": "invocation1",
+                  "effectId": "e2",
+                  "attempts": 1,
+                  "taskRevision": 1,
+                  "payloadDigest": "748328adf4a3449bb05301a61c1c35577aee8e9a591a65c660497478e7bbc967",
+                  "witness": "request @e2 demo.store(\"counter\", 8) payload [\"counter\",8] in @invocation1 at 98..118",
+                  "result": {
+                    "schema": "semantic-execution/6",
+                    "session": "teacher1",
+                    "sequence": 14,
+                    "ownerSequence": 13,
+                    "track": "worker1",
+                    "mode": "observed",
+                    "kind": "result",
+                    "invocationId": "invocation1",
+                    "effectId": "e2",
+                    "status": "fulfilled",
+                    "result": [
+                      "undefined"
+                    ],
+                    "line": "observe @e2 fulfilled undefined",
+                    "errorOrigin": null
+                  }
+                }
+              ]
+            ],
+            "handlers": [],
+            "callbacks": [],
+            "closureQueue": []
+          },
+          "visibleThrough": 16,
+          "prefixDigest": "984062c26b97b2544d28a10aa1ba3740ea2daa6965ec51fefd9bf35411338f84"
+        }
+      ],
+      "sourceCheck": "agreed",
+      "regionCoverage": {
+        "compactRegions": 1,
+        "detailedRegions": 2,
+        "compactRecords": 1,
+        "detailedRecords": 10,
+        "compactBytes": 100,
+        "detailedBytes": 1099,
+        "detailTokenShare": null,
+        "tokenMeasurement": "untested"
+      }
+    }
+  ]
+}
