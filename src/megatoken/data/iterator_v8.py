@@ -165,35 +165,21 @@ def _array_length(machine, identity):
 
 
 def _read_index(machine, identity, index):
-    seen = set()
-    while True:
-        if identity in seen:
-            _fail("cyclic iterator prototype")
-        seen.add(identity)
-        node = machine["heap"].get(identity)
-        if not node:
-            _fail("iterator source node missing")
-        descriptor = _descriptor(node, ["str", str(index)])
-        if descriptor:
-            if descriptor["kind"] != "data":
-                if descriptor["get"][0] != "undefined":
-                    _fail("iterator index getter requires scoped call record")
-                return ["undefined"]
-            return copy.deepcopy(descriptor["value"])
-        prototype = node.get("prototype", "ordinary")
-        if prototype in (None, "ordinary"):
-            return ["undefined"]
-        _known(machine, prototype)
-        if prototype[0] != "ref":
-            _fail("iterator prototype reference")
-        identity = prototype[1]
+    from .protocol_v8 import _lookup_descriptor
+
+    _, descriptor = _lookup_descriptor(machine, identity, str(index))
+    if descriptor is None:
+        return ["undefined"]
+    if descriptor["kind"] != "data":
+        if descriptor["get"][0] != "undefined":
+            _fail("iterator index getter requires scoped call record")
+        return ["undefined"]
+    return copy.deepcopy(descriptor["value"])
 
 
 def _utf16_units(text):
-    return list(
-        text.encode("utf-16-le", "surrogatepass")[i : i + 2]
-        for i in range(0, len(text.encode("utf-16-le", "surrogatepass")), 2)
-    )
+    raw = text.encode("utf-16-le", "surrogatepass")
+    return [raw[i : i + 2] for i in range(0, len(raw), 2)]
 
 
 def _utf16_slice(units, start, width):

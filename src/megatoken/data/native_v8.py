@@ -15,6 +15,8 @@ from collections.abc import Mapping
 
 from megatoken.controls import canonical_semantic_observation, semantic_selection_instruction
 
+from . import algorithm_v7 as v7
+from .algorithm_v7 import _truthy as _detail_truthy
 from .algorithm_v7 import stable_algorithm_hash
 from .algorithm_v8 import replay_algorithm_line
 from .detailed_v7 import parse_record
@@ -43,6 +45,15 @@ from .semantic_contract_v8 import (
     validate_public,
 )
 from .semantic_physical import physical_semantic_episode
+
+_UNARY_OPERATORS = {
+    operator: name for name, (arity, operator) in v7.OPERATIONS.items() if arity == 1
+}
+_BINARY_OPERATORS = {
+    operator: name
+    for name, (arity, operator) in v7.OPERATIONS.items()
+    if arity == 2 and name not in {"and", "or", "coalesce"}
+}
 
 
 class NativeV8Error(ValueError):
@@ -83,7 +94,7 @@ def validate_v8_artifact(document):
     detail_count = 0
     region_count = 0
     protocol_count = 0
-    for context, (_, row) in zip(contexts, generated, strict=True):
+    for context, (_index, row) in zip(contexts, generated, strict=True):
         _exact(
             context,
             {
@@ -493,22 +504,14 @@ def _replay_region(program, context, line, entry):
             return values.get(name, locals_.get(name))
         if op == "select":
             c = term(node["test"])
-            truth = (
-                bool(c[1])
-                if c[0] == "bool"
-                else c[0] not in ("null", "undefined") and c[1] != 0 and c[1] != ""
-            )
+            truth = _detail_truthy(c)
             selected = "consequent" if truth else "alternate"
             decisions.append({"kind": "select", "selected": selected})
             return term(node[selected])
         if op == "logical":
             left = term(node["left"])
             operator = node["operator"]
-            truth = (
-                bool(left[1])
-                if left[0] == "bool"
-                else left[0] not in ("null", "undefined") and left[1] != 0 and left[1] != ""
-            )
+            truth = _detail_truthy(left)
             take_right = (
                 (operator == "&&" and truth)
                 or (operator == "||" and not truth)
@@ -518,34 +521,7 @@ def _replay_region(program, context, line, entry):
             return term(node["right"]) if take_right else left
         if op in ("binary", "unary"):
             operator = node["operator"]
-            mappings = {
-                "+": "add",
-                "-": "subtract",
-                "*": "multiply",
-                "/": "divide",
-                "%": "remainder",
-                "**": "power",
-                "===": "equal",
-                "!==": "not_equal",
-                "==": "loose_equal",
-                "!=": "loose_not_equal",
-                "<": "less",
-                "<=": "less_equal",
-                ">": "greater",
-                ">=": "greater_equal",
-                "&": "bit_and",
-                "|": "bit_or",
-                "^": "bit_xor",
-                "<<": "shift_left",
-                ">>": "shift_right",
-                ">>>": "unsigned_shift_right",
-                "!": "not",
-                "+u": "positive",
-                "-u": "negate",
-                "~": "bit_not",
-                "typeof": "type_of",
-                "void": "void",
-            }
+            mappings = _UNARY_OPERATORS if op == "unary" else _BINARY_OPERATORS
             operation = mappings.get(operator)
             if operation is None:
                 _fail("Unsupported local primitive operator")
@@ -936,21 +912,6 @@ def _table(state, field):
     return {key: value for key, value in state[field]}
 
 
-def _detail_truthy(value):
-    if value[0] in ("undefined", "null"):
-        return False
-    if value[0] == "bool":
-        return value[1]
-    if value[0] == "str":
-        return bool(value[1])
-    if value[0] == "num":
-        item = value[1]
-        if isinstance(item, str):
-            return item not in ("-0", "NaN")
-        return item != 0
-    return True
-
-
 def _eval_detail_expression(expr, state):
     from . import algorithm_v7 as v7
 
@@ -973,42 +934,14 @@ def _eval_detail_expression(expr, state):
         _fail("Random transition needs explicit checked state")
     if op == "unary":
         arg = _eval_detail_expression(expr["arg"], state)
-        mapping = {
-            "!": "not",
-            "+": "positive",
-            "-": "negate",
-            "~": "bit_not",
-            "typeof": "type_of",
-            "void": "void",
-        }
+        mapping = _UNARY_OPERATORS
         if expr["operator"] not in mapping:
             _fail("Unsupported unary operator")
         return v7._operation(mapping[expr["operator"]], [arg])
     if op == "binary":
         left = _eval_detail_expression(expr["left"], state)
         right = _eval_detail_expression(expr["right"], state)
-        mapping = {
-            "+": "add",
-            "-": "subtract",
-            "*": "multiply",
-            "/": "divide",
-            "%": "remainder",
-            "**": "power",
-            "===": "equal",
-            "!==": "not_equal",
-            "==": "loose_equal",
-            "!=": "loose_not_equal",
-            "<": "less",
-            "<=": "less_equal",
-            ">": "greater",
-            ">=": "greater_equal",
-            "&": "bit_and",
-            "|": "bit_or",
-            "^": "bit_xor",
-            "<<": "shift_left",
-            ">>": "shift_right",
-            ">>>": "unsigned_shift_right",
-        }
+        mapping = _BINARY_OPERATORS
         if expr["operator"] not in mapping:
             _fail("Unsupported binary operator")
         return v7._operation(mapping[expr["operator"]], [left, right])
@@ -1040,7 +973,6 @@ def _apply_region(state, target):
 
 def _apply_algorithm(state, core, graph, line):
     expected = json.loads(line[10:])
-    _table(state, "heap")
     for allocation in expected["allocations"]:
         _set_row(
             state["heap"],

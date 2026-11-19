@@ -98,7 +98,11 @@ def main():
                     )
             else:
                 raise ValueError("V8 protocol source evidence has an unsupported protocol profile")
-        source_binding = "passed"
+        # Matching hashes and producer-supplied status strings establish only
+        # internal consistency. They do not independently replay the original
+        # recording or prove its correspondence to this public projection.
+        # Keep sourceBinding untested until such a verifier is available;
+        # even a structurally valid, tokenizer-checked fixture is not admission.
     tokenizer = {"status": "untested", "identity": None, "sha256": None}
     training = None
     if args.tokenizer_json is not None:

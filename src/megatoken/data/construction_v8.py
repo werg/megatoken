@@ -715,6 +715,8 @@ def apply_record(machine, record):
         )
         if not info["classConstructor"] or info["homeObject"] is None or info[field] is not None:
             _fail("initializer already declared or class unlinked")
+        if _node(machine, initializer).get("functionKind") == "arrow":
+            _fail("class initializer cannot have lexical this")
         if (
             init["constructorKind"] is not None
             or init["classConstructor"]
@@ -796,6 +798,8 @@ def validate_state(snapshot, machine):
                         or init["homeObject"] != expected_home
                     ):
                         _fail("initializer ownership")
+                    if _node(machine, initializer[1]).get("functionKind") == "arrow":
+                        _fail("class initializer cannot have lexical this")
         if "privateElements" in node:
             entries = node["privateElements"]
             if not isinstance(entries, dict):

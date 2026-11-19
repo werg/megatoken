@@ -6,6 +6,8 @@ import copy
 import math
 import struct
 
+from . import algorithm_v7
+
 PROFILE = "owned-binary-memory/1"
 TYPE_INFO = {
     "Int8Array": (1, "b", False, True),
@@ -116,44 +118,10 @@ def validate_record(record):
 
 def _number(value):
     validate_protocol_value(value)
-    tag = value[0]
-    if tag == "num":
-        x = value[1]
-        if x == "NaN":
-            return math.nan
-        if x == "Infinity":
-            return math.inf
-        if x == "-Infinity":
-            return -math.inf
-        if x == "-0":
-            return -0.0
-        return float(x)
-    if tag == "bool":
-        return 1.0 if value[1] else 0.0
-    if tag == "null":
-        return 0.0
-    if tag == "undefined":
-        return math.nan
-    if tag == "str":
-        raw = value[1].strip()
-        if not raw:
-            return 0.0
-        try:
-            return float(raw)
-        except ValueError:
-            try:
-                if raw.lower().startswith("0x"):
-                    return float(int(raw, 16))
-                if raw.lower().startswith("0b"):
-                    return float(int(raw, 2))
-                if raw.lower().startswith("0o"):
-                    return float(int(raw, 8))
-            except ValueError:
-                pass
-            return math.nan
-    if tag in ("bigint", "symbol"):
+    try:
+        return algorithm_v7._to_number(value)
+    except TypeError:
         _fail("cannot convert value to Number")
-    _fail("object coercion requires an explicit continuation")
 
 
 def _integer(value):
@@ -180,27 +148,35 @@ def _element(value, spec):
         if value[0] == "bool":
             return int(value[1])
         if value[0] == "str":
-            try:
-                return int(value[1], 10)
-            except ValueError:
+            converted = algorithm_v7._bigint_string(value[1])
+            if converted is None:
                 _fail("invalid BigInt conversion")
+            return converted
         _fail("cannot convert value to BigInt")
     if value[0] not in ("num", "str", "bool", "null", "undefined"):
         _fail("object coercion requires an explicit continuation")
     return _number(value)
 
 
+def _integer_element(value, spec):
+    """Apply ECMAScript's modulo conversion for integer storage elements."""
+    width, fmt, bigint, _ = spec
+    converted = _element(value, spec)
+    if bigint:
+        raw = int(converted) % (1 << (width * 8))
+    else:
+        if not math.isfinite(converted) or converted == 0:
+            return 0
+        raw = math.trunc(converted) % (1 << (width * 8))
+    if fmt in ("b", "h", "i", "q") and raw >= (1 << (width * 8 - 1)):
+        raw -= 1 << (width * 8)
+    return raw
+
+
 def _tag_number(value):
-    if isinstance(value, float):
-        if math.isnan(value):
-            return ["num", "NaN"]
-        if math.isinf(value):
-            return ["num", "Infinity" if value > 0 else "-Infinity"]
-        if value == 0 and math.copysign(1, value) < 0:
-            return ["num", "-0"]
-        if value.is_integer():
-            return ["num", int(value)]
-    return ["num", value]
+    if type(value) is int:
+        value = float(value)
+    return algorithm_v7._encode_scalar(value)
 
 
 def _node(machine, identity):
@@ -406,19 +382,15 @@ def _write_typed(buffer, view, index, value):
     width, fmt, big, _ = TYPE_INFO[view["elementType"]]
     if not isinstance(index, int) or index < 0 or index >= _effective_length(buffer, view):
         _fail("typed array index bounds")
-    converted = _element(value, TYPE_INFO[view["elementType"]])
+    spec = TYPE_INFO[view["elementType"]]
+    converted = _integer_element(value, spec) if spec[3] else _element(value, spec)
     try:
         packed = struct.pack("<" + fmt, converted)
-    except (struct.error, OverflowError):
-        # Integer typed arrays use modulo conversion; BigInt is two's-complement.
-        if fmt in ("b", "B", "h", "H", "i", "I", "q", "Q"):
-            bits = width * 8
-            raw = int(converted) % (1 << bits)
-            if fmt in ("b", "h", "i", "q") and raw >= (1 << (bits - 1)):
-                raw -= 1 << bits
-            packed = struct.pack("<" + fmt, raw)
-        else:
+    except OverflowError:
+        # Float32 conversion overflows to signed infinity in ECMAScript.
+        if fmt != "f" or not math.isfinite(converted):
             raise
+        packed = struct.pack("<f", math.copysign(math.inf, converted))
     offset = view["byteOffset"] + index * width
     buffer["bytes"][offset : offset + width] = packed
 
@@ -499,17 +471,7 @@ def _set_property(machine, identity, key, value):
 
 
 def _truth(value):
-    tag = value[0]
-    if tag in ("undefined", "null"):
-        return False
-    if tag == "bool":
-        return bool(value[1])
-    if tag == "num":
-        x = _number(value)
-        return x != 0 and not math.isnan(x)
-    if tag == "str":
-        return bool(value[1])
-    return True
+    return value[0] == "symbol" or algorithm_v7._truthy(value)
 
 
 def _call(machine, record):
@@ -558,19 +520,16 @@ def _call(machine, record):
                 return ["num", 0]
             if len(args) != 4 or _number(args[3]) != 0:
                 _fail("only zero-timeout wait is owned")
-            target = _element(args[2], TYPE_INFO[view["elementType"]])
+            target = _integer_element(args[2], TYPE_INFO[view["elementType"]])
             actual = int(old[1]) if old[0] == "bigint" else _number(old)
             return ["str", "timed-out" if actual == target else "not-equal"]
         spec = TYPE_INFO[view["elementType"]]
-        new = _element(args[2], spec)
-        old_raw = int(old[1]) if old[0] == "bigint" else _number(old)
         if op == "store":
+            converted = _element(args[2], spec) if spec[2] else _integer(args[2])
             _write_typed(buffer, view, index, args[2])
-            return (
-                ["bigint", str(int(new))]
-                if spec[2]
-                else _tag_number(float(new) if isinstance(new, float) else new)
-            )
+            return ["bigint", str(converted)] if spec[2] else _tag_number(converted)
+        new = _integer_element(args[2], spec)
+        old_raw = int(old[1]) if old[0] == "bigint" else _number(old)
         if op == "add":
             new = old_raw + new
         elif op == "sub":
@@ -584,8 +543,8 @@ def _call(machine, record):
         elif op == "exchange":
             pass
         elif op == "compareExchange":
-            expected = _element(args[2], spec)
-            replacement = _element(args[3], spec)
+            expected = _integer_element(args[2], spec)
+            replacement = _integer_element(args[3], spec)
             new = replacement if old_raw == expected else old_raw
         else:
             _fail("unknown atomic operation")
@@ -621,18 +580,13 @@ def _call(machine, record):
         little = _truth(args[2 if setter else 1]) if len(args) > (2 if setter else 1) else False
         endian = "<" if little else ">"
         if setter:
-            converted = _element(args[1], spec)
+            converted = _integer_element(args[1], spec) if spec[3] else _element(args[1], spec)
             try:
                 packed = struct.pack(endian + spec[1], converted)
-            except (struct.error, OverflowError):
-                if spec[1] in ("b", "B", "h", "H", "i", "I", "q", "Q"):
-                    bits = spec[0] * 8
-                    raw = int(converted) % (1 << bits)
-                    if spec[1] in ("b", "h", "i", "q") and raw >= (1 << (bits - 1)):
-                        raw -= 1 << bits
-                    packed = struct.pack(endian + spec[1], raw)
-                else:
+            except OverflowError:
+                if spec[1] != "f" or not math.isfinite(converted):
                     raise
+                packed = struct.pack(endian + "f", math.copysign(math.inf, converted))
             buffer["bytes"][offset : offset + spec[0]] = packed
             return ["undefined"]
         val = struct.unpack_from(endian + spec[1], bytes(buffer["bytes"]), offset)[0]

@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import copy
 import json
+import math
 
 from . import algorithm_v7 as v7
 from .algorithm_v7 import stable_algorithm_json
@@ -413,6 +414,22 @@ def _descriptor(node, key):
     }
 
 
+def _lookup_descriptor(machine, identity, key):
+    """Find an own or inherited descriptor and its owning object."""
+    seen = set()
+    while identity is not None:
+        if identity in seen:
+            _fail("prototype cycle")
+        seen.add(identity)
+        node = _node(machine, identity)
+        descriptor = _descriptor(node, key)
+        if descriptor is not None:
+            return node, descriptor
+        prototype = node.get("prototype", "ordinary")
+        identity = prototype[1] if isinstance(prototype, list) and prototype[0] == "ref" else None
+    return None, None
+
+
 def _install(node, key, d):
     if _descriptor(node, key) is None:
         if "keyOrder" not in node:
@@ -433,25 +450,84 @@ def _remove(node, key):
         node["keyOrder"] = [item for item in node["keyOrder"] if item != key]
 
 
+def _array_index(key):
+    """Return an array index for a canonical array-index string, else None."""
+    if (
+        not isinstance(key, str)
+        or len(key) > 10
+        or not key.isascii()
+        or not key.isdecimal()
+        or key.startswith("0")
+        and key != "0"
+    ):
+        return None
+    index = int(key)
+    return index if index < 4294967295 else None
+
+
+def _array_length(value):
+    # ArraySetLength applies ToNumber/ToUint32 before comparing the values.
+    # Abrupt conversions need an explicit throw record, not a false success flag.
+    try:
+        number = v7._to_number(value)
+    except TypeError:
+        _fail("array length coercion requires an explicit abrupt boundary")
+    if not math.isfinite(number) or not 0 <= number <= 4294967295 or int(number) != number:
+        _fail("invalid array length")
+    return int(number)
+
+
+def _set_array_length(node, new_length, writable=None):
+    """Apply array length shrink/growth, including partial failure at a fixed index."""
+    old = _descriptor(node, "length")
+    current = old["value"][1]
+    if new_length > current:
+        node["properties"]["length"] = ["num", new_length]
+    elif new_length < current:
+        blockers = sorted(
+            (
+                i
+                for key in set(node["properties"]) | set(node["descriptors"])
+                if (i := _array_index(key)) is not None and i >= new_length
+            ),
+            reverse=True,
+        )
+        for index in blockers:
+            key = str(index)
+            descriptor = _descriptor(node, key)
+            if descriptor is None:
+                continue
+            if not descriptor["configurable"]:
+                node["properties"]["length"] = ["num", index + 1]
+                if writable is False:
+                    node["descriptors"]["length"] = {
+                        "kind": "data",
+                        "writable": False,
+                        "enumerable": False,
+                        "configurable": False,
+                    }
+                return False
+            _remove(node, key)
+        node["properties"]["length"] = ["num", new_length]
+    if writable is not None:
+        node["descriptors"]["length"] = {
+            "kind": "data",
+            "writable": writable,
+            "enumerable": False,
+            "configurable": False,
+        }
+    return True
+
+
 def _ordered(node):
     keys = []
     descriptors = node.get("descriptors", {})
     for key in [*node.get("keyOrder", []), *node["properties"], *descriptors]:
         if key not in keys and (key in node["properties"] or key in descriptors):
             keys.append(key)
-
-    def index(key):
-        return (
-            isinstance(key, str)
-            and key.isascii()
-            and key.isdecimal()
-            and (key == "0" or not key.startswith("0"))
-            and int(key) < 4294967295
-        )
-
     return (
-        sorted((key for key in keys if index(key)), key=int)
-        + [key for key in keys if isinstance(key, str) and not index(key)]
+        sorted((key for key in keys if _array_index(key) is not None), key=int)
+        + [key for key in keys if isinstance(key, str) and _array_index(key) is None]
         + [key for key in keys if isinstance(key, tuple)]
     )
 
@@ -467,6 +543,30 @@ def _compatible(node, key, d):
     if old["kind"] == "accessor":
         return old["get"] == d["get"] and old["set"] == d["set"]
     return old["writable"] or not d["writable"] and old["value"] == d["value"]
+
+
+def _define_own_property(node, key, descriptor):
+    """Apply the same descriptor/array rules to definitions and receiver writes."""
+    index = None
+    if node["kind"] == "array":
+        length = _descriptor(node, "length")
+        if key == "length":
+            if descriptor["kind"] != "data":
+                return False
+            new_length = _array_length(descriptor["value"])
+            descriptor = {**descriptor, "value": ["num", new_length]}
+            if not _compatible(node, key, descriptor):
+                return False
+            return _set_array_length(node, new_length, descriptor["writable"])
+        index = _array_index(key)
+        if index is not None and index >= length["value"][1] and not length["writable"]:
+            return False
+    if not _compatible(node, key, descriptor):
+        return False
+    _install(node, key, descriptor)
+    if index is not None and index >= length["value"][1]:
+        node["properties"]["length"] = ["num", index + 1]
+    return True
 
 
 def _local(machine, name):
@@ -583,6 +683,16 @@ def _apply(machine, record):
         if not apply_construction_record(machine, record):
             _fail("unsupported construction transition")
         return
+    for field in ("value", "receiver", "result", "decision", "callee"):
+        if field in record:
+            _known(machine, record[field])
+    if "arguments" in record:
+        for value in record["arguments"]:
+            _known(machine, value)
+    if kind.startswith("property.") and "key" in record and record["key"][0] == "symbol":
+        _symbol(machine, record["key"][1])
+    if kind == "property.prototype" and record["prototype"] is not None:
+        _known(machine, record["prototype"])
     if kind in ("symbol.create", "symbol.for"):
         if kind == "symbol.for":
             existing = next(
@@ -654,6 +764,8 @@ def _apply(machine, record):
             }
             for capture in record["captures"]
         ]
+        if record["objectKind"] == "closure" and record["functionKind"] == "arrow":
+            _known(machine, record["lexicalReceiver"], record["name"])
         node = {
             "kind": record["objectKind"],
             "code": record["code"],
@@ -668,15 +780,13 @@ def _apply(machine, record):
         for prop in record["properties"]:
             key = _key(prop["key"])
             _known(machine, prop["value"], record["name"])
+            if prop["key"][0] == "symbol":
+                _symbol(machine, prop["key"][1])
+            index = _array_index(key)
             if (
                 key in node["properties"]
                 or record["objectKind"] == "array"
-                and (
-                    key == "length"
-                    or isinstance(key, str)
-                    and key.isdecimal()
-                    and int(key) >= record["length"]
-                )
+                and (key == "length" or index is not None and index >= record["length"])
             ):
                 _fail("duplicate or out-of-bounds allocation key")
             node["properties"][key] = copy.deepcopy(prop["value"])
@@ -694,6 +804,12 @@ def _apply(machine, record):
         claimed = record["result"] if kind == "compute" else record["decision"]
         if result != claimed:
             _fail("false protocol computation")
+        if kind == "choose":
+            if record["path"] not in ("then", "else"):
+                _fail("unsupported short-circuit path")
+            truthy = result[0] == "symbol" or v7._truthy(result)
+            if record["path"] == "then" and not truthy or record["path"] == "else" and truthy:
+                _fail("false branch path")
         if kind == "compute" and record["bind"] is not None:
             machine["locals"][
                 machine.get("captureAliases", {}).get(record["bind"], record["bind"])
@@ -780,46 +896,21 @@ def _apply(machine, record):
         key = _key(record["key"]) if "key" in record else None
         if kind == "property.define":
             descriptor = copy.deepcopy(record["descriptor"])
-            old = _descriptor(node, key)
-            compatible = (
-                old is None
-                and node["extensible"]
-                or old is not None
-                and (
-                    old["configurable"]
-                    or not descriptor["configurable"]
-                    and descriptor["enumerable"] == old["enumerable"]
-                    and descriptor["kind"] == old["kind"]
-                    and (
-                        descriptor["kind"] == "accessor"
-                        and descriptor["get"] == old["get"]
-                        and descriptor["set"] == old["set"]
-                        or descriptor["kind"] == "data"
-                        and (
-                            old["writable"]
-                            or not descriptor["writable"]
-                            and old["value"] == descriptor["value"]
-                        )
-                    )
-                )
-            )
-            if compatible != record["success"]:
+            for field in ("value",) if descriptor["kind"] == "data" else ("get", "set"):
+                value = _known(machine, descriptor[field])
+                if (
+                    field in ("get", "set")
+                    and value[0] == "ref"
+                    and _node(machine, value[1])["kind"] != "closure"
+                ):
+                    _fail("property accessor must be callable")
+            success = _define_own_property(node, key, descriptor)
+            if success != record["success"]:
                 _fail("false descriptor compatibility")
-            if compatible:
-                if "keyOrder" not in node:
-                    node["keyOrder"] = _ordered(node)
-                _install(node, key, descriptor)
+            if success and "keyOrder" not in node:
+                node["keyOrder"] = _ordered(node)
         elif kind == "property.get":
-            descriptor = _descriptor(node, key)
-            prototype_seen = {record["object"]}
-            prototype = node.get("prototype", "ordinary")
-            while descriptor is None and isinstance(prototype, list) and prototype[0] == "ref":
-                if prototype[1] in prototype_seen:
-                    _fail("prototype cycle")
-                prototype_seen.add(prototype[1])
-                inherited = _node(machine, prototype[1])
-                descriptor = _descriptor(inherited, key)
-                prototype = inherited.get("prototype", "ordinary")
+            _, descriptor = _lookup_descriptor(machine, record["object"], key)
             if (
                 descriptor
                 and descriptor["kind"] == "accessor"
@@ -834,42 +925,35 @@ def _apply(machine, record):
             if expected != record["result"]:
                 _fail("false property read")
         elif kind == "property.set":
-            descriptor = _descriptor(node, key)
-            old = descriptor
-            success = (
-                not descriptor or descriptor["kind"] == "data" and descriptor["writable"]
-            ) and (key in node["properties"] or node["extensible"])
+            _known(machine, record["value"])
+            _, descriptor = _lookup_descriptor(machine, record["object"], key)
             if (
-                node["kind"] == "array"
-                and isinstance(key, str)
-                and key.isascii()
-                and key.isdecimal()
-                and (key == "0" or not key.startswith("0"))
-                and int(key) < 4294967295
+                descriptor
+                and descriptor["kind"] == "accessor"
+                and descriptor["set"] != ["undefined"]
             ):
-                length_descriptor = _descriptor(node, "length")
-                length = length_descriptor["value"][1]
-                if int(key) >= length and not length_descriptor["writable"]:
-                    success = False
+                _fail("setter needs call boundary")
+            receiver = record["receiver"]
+            receiver_node = _node(machine, receiver[1]) if receiver[0] == "ref" else None
+            success = (
+                descriptor is None or descriptor["kind"] == "data" and descriptor["writable"]
+            ) and receiver_node is not None
             if success:
-                current = old or {
-                    "kind": "data",
-                    "writable": True,
-                    "enumerable": True,
-                    "configurable": True,
-                }
-                _install(node, key, {**current, "value": copy.deepcopy(record["value"])})
-                if (
-                    node["kind"] == "array"
-                    and isinstance(key, str)
-                    and key.isascii()
-                    and key.isdecimal()
-                    and (key == "0" or not key.startswith("0"))
-                    and int(key) < 4294967295
+                receiver_own = _descriptor(receiver_node, key)
+                if receiver_own is not None and (
+                    receiver_own["kind"] != "data" or not receiver_own["writable"]
                 ):
-                    length_descriptor = _descriptor(node, "length")
-                    if int(key) >= length_descriptor["value"][1]:
-                        node["properties"]["length"] = ["num", int(key) + 1]
+                    success = False
+                else:
+                    current = receiver_own or {
+                        "kind": "data",
+                        "writable": True,
+                        "enumerable": True,
+                        "configurable": True,
+                    }
+                    success = _define_own_property(
+                        receiver_node, key, {**current, "value": copy.deepcopy(record["value"])}
+                    )
             if success != record["success"]:
                 _fail("false property write")
         elif kind == "property.delete":
@@ -906,14 +990,29 @@ def _apply(machine, record):
         elif kind == "property.preventExtensions":
             node["extensible"] = False
         elif kind == "property.prototype":
+            if isinstance(record["prototype"], list):
+                _known(machine, record["prototype"])
             before = node.get("prototype", "ordinary")
             success = before == record["prototype"] or node["extensible"]
+            if success and isinstance(record["prototype"], list):
+                target = record["prototype"][1]
+                seen = set()
+                while True:
+                    if target == record["object"] or target in seen:
+                        success = False
+                        break
+                    seen.add(target)
+                    ancestor = _node(machine, target)
+                    parent = ancestor.get("prototype", "ordinary")
+                    if not isinstance(parent, list) or parent[0] != "ref":
+                        break
+                    target = parent[1]
             if success:
                 node["prototype"] = copy.deepcopy(record["prototype"])
             if success != record["success"]:
                 _fail("false prototype transition")
         elif kind in ("property.get.call", "property.set.call"):
-            descriptor = _descriptor(node, key)
+            _, descriptor = _lookup_descriptor(machine, record["object"], key)
             operation = "get" if kind.endswith("get.call") else "set"
             callee = (
                 descriptor.get(operation)
@@ -1072,12 +1171,16 @@ def validate_protocol_state(snapshot, heap_ids=(), shared_state=None):
         _exact(snapshot, base_fields | {"construction"}, "shared protocol state")
     else:
         _exact(snapshot, base_fields, "shared protocol state")
-    heap_nodes = heap_ids if isinstance(heap_ids, dict) else None
-    if isinstance(heap_ids, list) and all(
-        isinstance(row, list) and len(row) == 2 for row in heap_ids
+    heap_nodes = None
+    if (
+        isinstance(heap_ids, dict)
+        or isinstance(heap_ids, list)
+        and all(isinstance(row, list) and len(row) == 2 for row in heap_ids)
     ):
         heap_nodes = {}
-        for identity, node in heap_ids:
+        for identity, node in heap_ids.items() if isinstance(heap_ids, dict) else heap_ids:
+            if identity in heap_nodes:
+                _fail("duplicate heap identity")
             converted = copy.deepcopy(node)
             for field in ("properties", "descriptors"):
                 if isinstance(converted.get(field), list):
@@ -1135,7 +1238,7 @@ def validate_protocol_state(snapshot, heap_ids=(), shared_state=None):
             registry.add(row["key"])
         else:
             _fail("symbol kind")
-        if row["id"] in heap_ids:
+        if row["id"] in (heap_nodes if heap_nodes is not None else heap_ids):
             _fail("symbol/heap identity collision")
     if not all(
         any(
@@ -1207,6 +1310,40 @@ def validate_protocol_state(snapshot, heap_ids=(), shared_state=None):
         )
         validate_construction_record_state(snapshot["construction"], construction_machine)
     if heap_nodes is not None:
+        known_machine = {"heap": heap_nodes, "protocol": snapshot}
+        for identity, node in heap_nodes.items():
+            if not isinstance(node, dict):
+                continue
+            for key, value in node.get("properties", {}).items():
+                if isinstance(key, tuple):
+                    _symbol(known_machine, key[1])
+                _known(known_machine, value, identity)
+            for key, descriptor in node.get("descriptors", {}).items():
+                if isinstance(key, tuple):
+                    _symbol(known_machine, key[1])
+                if descriptor.get("kind") == "data":
+                    _exact(
+                        descriptor,
+                        {"kind", "writable", "enumerable", "configurable"},
+                        "stored data descriptor",
+                    )
+                    if key not in node.get("properties", {}):
+                        _fail("data descriptor lacks stored value")
+                    _validate_descriptor({**descriptor, "value": node["properties"][key]})
+                else:
+                    _validate_descriptor(descriptor)
+                    for field in ("get", "set"):
+                        value = _known(known_machine, descriptor[field], identity)
+                        if (
+                            value[0] == "ref"
+                            and _node(known_machine, value[1])["kind"] != "closure"
+                        ):
+                            _fail("property accessor must be callable")
+            prototype = node.get("prototype", "ordinary")
+            if isinstance(prototype, list):
+                _known(known_machine, prototype, identity)
+            if node.get("functionKind") == "arrow":
+                _known(known_machine, node.get("lexicalReceiver"), identity)
         memory_machine = (
             _internal_machine(shared_state) if shared_state is not None else {"heap": heap_nodes}
         )
