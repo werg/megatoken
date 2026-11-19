@@ -63,6 +63,8 @@ def validate_record(record):
     _exact(record, fields, "record")
     for key in ("object", "id", "owner", "privateId", "child", "invocation"):
         if key in record and record[key] is not None: _id(record[key])
+    if kind in ("construct.enter","construct.body") and record["child"] is None: _fail("constructor child invocation")
+    if kind in ("construct.target","construct.this") and record["invocation"] is None: _fail("constructor invocation")
     if kind == "callable.define":
         if record["constructorKind"] not in (None, "base", "derived") or type(record["classConstructor"]) is not bool:
             _fail("callable construction capability")
