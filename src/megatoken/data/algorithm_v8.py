@@ -16,7 +16,7 @@ VERSION = "semantic-algorithm/2"
 PROFILE = "ecmascript-pure-regions/1"
 TRAVERSAL_PROFILE = "dense-primitive-array/1"
 MAX_ITEMS = 128
-MAX_NODES = 4096
+MAX_NODES = 2048
 
 
 class AlgorithmV8Error(ValueError):
@@ -78,7 +78,7 @@ def validate_term(term: Any, *, scopes=(), inputs=None, values=None, budget=None
                     seen.add(p["key"]); visit(p["value"],depth+1)
         elif op == "let":
             _exact(t,("op","bindings","body")); binds=t["bindings"]
-            if type(binds) is not list or len(binds)>128: _fail("let bindings")
+            if type(binds) is not list or not binds or len(binds)>128: _fail("let bindings")
             prior = 0
             for i,b in enumerate(binds):
                 _exact(b,("id","value")); v7._identity(b["id"])
@@ -90,7 +90,9 @@ def validate_term(term: Any, *, scopes=(), inputs=None, values=None, budget=None
             _exact(t,("op","mode","input","initial","callback","profile","order"))
             if t["mode"] not in {"fold","scan","map","filter","find","find_index","some","every"} or t["profile"]!=TRAVERSAL_PROFILE or t["order"]!="ascending": _fail("traversal profile")
             visit(t["input"],depth+1,lexical)
-            if t["mode"] in {"fold","scan"}: visit(t["initial"],depth+1,lexical)
+            if t["mode"] in {"fold","scan"}:
+                if t["initial"] is None: _fail("fold requires an explicit initial value")
+                visit(t["initial"],depth+1,lexical)
             elif t["initial"] is not None: _fail("non-fold initial")
             cb=t["callback"]; _exact(cb,("arity","body")); arity=4 if t["mode"] in {"fold","scan"} else 3
             if cb["arity"]!=arity: _fail("callback arity")
@@ -137,41 +139,67 @@ def _primitive_array(value, heap):
     node, props = v7._heap_node(heap, value[1])
     if node.get("kind") != "array": _fail("traverse input array")
     length=props.get("length")
-    if not length or length[0]!="num" or type(length[1]) is not int or not 0<=length[1]<=MAX_ITEMS: _fail("array length")
-    result=[]
-    for i in range(length[1]):
+    if not length or length[0]!="num" or type(length[1]) not in (int,float) or int(length[1])!=length[1] or not 0<=length[1]<=MAX_ITEMS: _fail("array length")
+    count=int(length[1]); result=[]
+    for i in range(count):
         item=props.get(str(i))
         if item is None: _fail("sparse array")
         v7._validate_value(item)
-        if item[0] in ("ref","undefined"): _fail("non-primitive traversal item")
+        if item[0] == "ref": _fail("non-primitive traversal item")
         result.append(item.copy())
-    if set(props)-{"length",*(str(i) for i in range(length[1]))}: _fail("extra array property")
+    if set(props)-{"length",*(str(i) for i in range(count))}: _fail("extra array property")
     return result
 
 
-def evaluate_term(term, *, inputs=None, values=None, heap=None, allocator=None, scopes=()):
-    inputs=inputs or {}; values=values or {}; heap=v7._snapshot_heap(heap); allocator=allocator if allocator is not None else {"prefix":"v8","next":0}
+def _ordered_properties(properties):
+    indexed=[]; ordinary=[]
+    for key,value in properties.items():
+        idx=v7._array_index(key)
+        if idx is None: ordinary.append((key,value))
+        else: indexed.append((idx,key,value))
+    return {key:value for _,key,value in sorted(indexed)} | dict(ordinary)
+
+
+def evaluate_term(term, *, inputs=None, values=None, heap=None, allocator=None, scopes=(), budget=None):
+    inputs=inputs or {}; values=values or {}; heap=v7._snapshot_heap(heap); allocator=allocator if allocator is not None else {"prefix":"v8","next":0}; budget=budget if budget is not None else {"remaining":32768}
+    if type(budget) is not dict or set(budget)!={"remaining"} or type(budget["remaining"]) is not int or not 0<=budget["remaining"]<=32768: _fail("semantic work budget")
     validate_term(term, scopes=scopes)
+    def committed(value):
+        v7._validate_value(value)
+        if value[0]=="ref": v7._heap_node(heap,value[1])
+        return value.copy()
     def alloc(kind, props):
         while True:
+            if allocator["next"]>=1024: _fail("allocation budget")
             ident=f"{allocator['prefix']}:{allocator['next']}"; allocator['next']+=1
             if ident not in heap: break
         heap[ident]={"kind":kind,"properties":copy.deepcopy(props)}
         return ["ref",ident]
     def visit(t, env_inputs=inputs, env_values=values, env_scopes=scopes):
+        budget["remaining"]-=1
+        if budget["remaining"]<0: _fail("semantic work budget")
         op=t["op"]
-        if op=="literal": return t["value"].copy()
+        if op=="literal": return committed(t["value"])
         if op in ("input","ref"):
             src=env_inputs if op=="input" else env_values
             v=src.get(t["id"])
             if v is None: _fail("uncommitted dependency")
-            return v.copy()
+            return committed(v)
         if op=="bound": return env_scopes[-1-t["depth"]][t["index"]].copy()
         if op in ("project","get"):
             obj=visit(t["object"],env_inputs,env_values,env_scopes)
-            key=t["key"] if op=="project" else v7._decode_scalar(visit(t["key"],env_inputs,env_values,env_scopes))
-            if obj[0]!="ref" or type(key) is not str: _fail("ordinary own-data get")
-            _,props=v7._heap_node(heap,obj[1]); return copy.deepcopy(props.get(key,["undefined"]))
+            key=t["key"] if op=="project" else v7._to_string(visit(t["key"],env_inputs,env_values,env_scopes))
+            if obj[0]=="str":
+                if key=="length": return ["num",len(obj[1].encode("utf-16-le","surrogatepass"))//2]
+                if key.isascii() and key.isdecimal() and (key=="0" or not key.startswith("0")):
+                    units=obj[1].encode("utf-16-le","surrogatepass"); ix=int(key)
+                    if ix<len(units)//2: return ["str",units[2*ix:2*ix+2].decode("utf-16-le","surrogatepass")]
+                _fail("string property outside ordinary index profile")
+            if obj[0]!="ref": _fail("ordinary own-data get")
+            node,props=v7._heap_node(heap,obj[1])
+            inherited={"__proto__","constructor","toString","toLocaleString","valueOf","hasOwnProperty","isPrototypeOf","propertyIsEnumerable","__defineGetter__","__defineSetter__","__lookupGetter__","__lookupSetter__"}
+            if key not in props and (key in inherited or node["kind"]=="array" and key!="length" and not (key.isascii() and key.isdecimal() and (key=="0" or not key.startswith("0")))): _fail("inherited property requires detailed access")
+            return committed(copy.deepcopy(props.get(key,["undefined"])))
         if op=="default_undefined":
             v=visit(t["args"][0],env_inputs,env_values,env_scopes); return visit(t["args"][1],env_inputs,env_values,env_scopes) if v[0]=="undefined" else v
         if op=="let":
@@ -179,11 +207,14 @@ def evaluate_term(term, *, inputs=None, values=None, heap=None, allocator=None, 
             for b in t["bindings"]: scope.append(visit(b["value"],env_inputs,env_values,(*env_scopes,scope)))
             return visit(t["body"],env_inputs,env_values,(*env_scopes,scope))
         if op=="array": return alloc("array",{**{str(i):visit(x,env_inputs,env_values,env_scopes) for i,x in enumerate(t["items"])},"length":["num",len(t["items"])]})
-        if op=="object": return alloc("object",{p["key"]:visit(p["value"],env_inputs,env_values,env_scopes) for p in t["properties"]})
+        if op=="object": return alloc("object",_ordered_properties({p["key"]:visit(p["value"],env_inputs,env_values,env_scopes) for p in t["properties"]}))
         if op=="traverse":
-            items=_primitive_array(visit(t["input"],env_inputs,env_values,env_scopes),heap); mode=t["mode"]; cb=t["callback"]; acc=visit(t["initial"],env_inputs,env_values,env_scopes) if mode in ("fold","scan") else None; out=[]
+            input_value=visit(t["input"],env_inputs,env_values,env_scopes)
+            items=_primitive_array(input_value,heap); mode=t["mode"]; cb=t["callback"]; acc=visit(t["initial"],env_inputs,env_values,env_scopes) if mode in ("fold","scan") else None; out=[]
             for i,item in enumerate(items):
-                argv=[acc,item,["num",i],visit(t["input"],env_inputs,env_values,env_scopes)] if mode in ("fold","scan") else [item,["num",i],visit(t["input"],env_inputs,env_values,env_scopes)]
+                argv=[acc,item,["num",i],input_value] if mode in ("fold","scan") else [item,["num",i],input_value]
+                budget["remaining"]-=1
+                if budget["remaining"]<0: _fail("semantic work budget")
                 result=visit(cb["body"],env_inputs,env_values,(*env_scopes,argv))
                 if mode=="fold": acc=result
                 elif mode=="scan": acc=result; out.append(acc.copy())
@@ -224,22 +255,26 @@ def evaluate_algorithm(core, arguments, *, heap=None, allocator=None):
         if kind == "nullable-data" and arg[0] not in ("ref", "null", "undefined"): _fail("nullable-data input type")
         if arg[0] == "ref": v7._heap_node(actual_heap,arg[1])
         if kind == "dense-number-array": v7._dense_items(arg,actual_heap)
+        if kind == "dense-primitive-array": _primitive_array(arg,actual_heap)
         inputs[declaration["id"]]=arg.copy()
     allocator = allocator if allocator is not None else {"prefix":"v8","next":0}
     if type(allocator) is not dict or set(allocator)!={"prefix","next"} or type(allocator["prefix"]) is not str or type(allocator["next"]) is not int or allocator["next"]<0: _fail("allocator")
-    values={}; claims=[]; completion=None; work=0
+    v7._identity(allocator["prefix"],"allocator prefix")
+    if allocator["next"]>1024: _fail("allocation budget")
+    values={}; claims=[]; completion=None; budget={"remaining":32768}
     for index,step in enumerate(core["steps"]):
         if step["kind"]=="compute":
-            result,actual_heap,allocator=evaluate_term(step["term"],inputs=inputs,values=values,heap=actual_heap,allocator=allocator)
+            result,actual_heap,allocator=evaluate_term(step["term"],inputs=inputs,values=values,heap=actual_heap,allocator=allocator,budget=budget)
             values[step["id"]]=result.copy(); claims.append({"step":index,"kind":"compute","id":step["id"],"result":result.copy()})
-            work += 1
         else:
-            result,actual_heap,allocator=evaluate_term(step["value"],inputs=inputs,values=values,heap=actual_heap,allocator=allocator)
+            result,actual_heap,allocator=evaluate_term(step["value"],inputs=inputs,values=values,heap=actual_heap,allocator=allocator,budget=budget)
             completion={"kind":step["kind"],"value":result.copy()}; claims.append({"step":index,**completion}); break
     graph={"roots":[*copy.deepcopy(list(inputs.values())),completion["value"].copy()],"objects":[]}
     for identity,node in actual_heap.items():
-        graph["objects"].append({"id":identity,"kind":node["kind"],"properties":[{"key":k,"value":copy.deepcopy(v)} for k,v in node["properties"].items()]})
-    return {"completion":completion,"claims":claims,"graph":graph,"heap":actual_heap,"allocator":allocator,"work":work}
+        row={"id":identity,"kind":node["kind"],"properties":[{"key":k,"value":copy.deepcopy(v)} for k,v in _ordered_properties(node["properties"]).items()]}
+        if node.get("prototype",object()) is None: row["prototype"]=None
+        graph["objects"].append(row)
+    return {"completion":completion,"claims":claims,"graph":graph,"heap":actual_heap,"allocator":allocator,"work":32768-budget["remaining"]}
 
 
 def replay_algorithm_line(core, input_graph, line):
