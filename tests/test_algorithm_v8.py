@@ -113,6 +113,11 @@ class AlgorithmV8Tests(unittest.TestCase):
                 if mode=="map": self.assertEqual([allocated["v8:0"]["properties"][str(i)] for i in range(3)],[["num",4],["num",6],["num",8]])
                 if mode=="filter": self.assertEqual(allocated["v8:0"]["properties"]["1"],["num",4])
                 if mode=="scan": self.assertEqual([allocated["v8:0"]["properties"][str(i)] for i in range(3)],[["num",2],["num",5],["num",9]])
+        product=traversal("fold",operation("multiply",bound(0),bound(1)),lit(["num",1]),source)
+        self.assertEqual(evaluate_term(product,inputs={"xs":["ref","xs"]},heap=heap)[0],["num",24])
+        cancellation=traversal("fold",operation("add",bound(0),bound(1)),lit(["num",0]),source)
+        cancel_heap=array_heap([["num",1e16],["num",1],["num",-1e16]],"xs")
+        self.assertEqual(evaluate_term(cancellation,inputs={"xs":["ref","xs"]},heap=cancel_heap)[0],["num",0])
 
     def test_empty_traversals_and_short_circuit_modes(self):
         empty_heap=array_heap([],"xs"); source={"op":"input","id":"xs"}
@@ -152,6 +157,10 @@ class AlgorithmV8Tests(unittest.TestCase):
         self.assertEqual(evaluate_term(term)[0],["num",64])
         with self.assertRaises(AlgorithmV8Error):
             evaluate_term({"op":"let","bindings":[{"id":"x","value":bound(0)}],"body":bound(0)})
+        capture={"op":"let","bindings":[{"id":"captured","value":lit(["num",10])}],
+            "body":traversal("map",operation("add",bound(0),bound(0,1)),None,{"op":"input","id":"a0"})}
+        result,heap,_=evaluate_term(capture,inputs={"a0":["ref","xs"]},heap=array_heap([["num",1],["num",2]],"xs"))
+        self.assertEqual([heap[result[1]]["properties"][str(i)] for i in range(2)],[["num",11],["num",12]])
 
     def test_number_specials_rounding_and_multi_object_allocation_aliases(self):
         rounded=operation("add",lit(["num",1e16]),lit(["num",1]))
@@ -174,6 +183,25 @@ class AlgorithmV8Tests(unittest.TestCase):
             evaluate_term(operation("add",lit(["num",1]),lit(["num",2])),budget={"remaining":1})
         with self.assertRaises(AlgorithmV8Error):
             evaluate_term(traversal("every",bound(3)),inputs={"a0":["ref","o2"]},heap=self.heap)
+
+    def test_search_short_circuit_and_object_value_evaluation_order(self):
+        bad=operation("divide",lit(["bigint","1"]),lit(["bigint","0"]))
+        predicate=operation("select",operation("equal",bound(0),lit(["num",1])),lit(["bool",True]),bad)
+        array=array_heap([["num",1],["num",2]],"xs")
+        for mode in ("some","find"):
+            term=traversal(mode,predicate,None,{"op":"input","id":"xs"})
+            result,_,_=evaluate_term(term,inputs={"xs":["ref","xs"]},heap=array)
+            self.assertEqual(result,["bool",True] if mode=="some" else ["num",1])
+        with self.assertRaisesRegex(ArithmeticError,"BigInt division by zero"):
+            evaluate_term(traversal("map",predicate,None,{"op":"input","id":"xs"}),inputs={"xs":["ref","xs"]},heap=array)
+        term={"op":"object","properties":[
+            {"key":"2","value":{"op":"array","items":[lit(["num",2])]}},
+            {"key":"1","value":{"op":"array","items":[lit(["num",1])]}},
+            {"key":"last","value":lit(["num",3])}]}
+        result,heap,_=evaluate_term(term)
+        self.assertEqual(list(heap[result[1]]["properties"]),["1","2","last"])
+        self.assertEqual(heap[result[1]]["properties"]["1"],["ref","v8:1"])
+        self.assertEqual(heap[result[1]]["properties"]["2"],["ref","v8:0"])
 
 
 if __name__ == "__main__": unittest.main()
