@@ -136,7 +136,7 @@ def _node(machine,identity):
 
 def _alloc(machine,identity,node):
     if not isinstance(identity,str) or not identity or identity in machine["heap"] or any(row["id"]==identity for row in machine["protocol"]["symbols"]):_fail("binary-memory identity collision")
-    if identity in {row["id"] for row in machine["protocol"].get("construction",{}).get("privateNames",[])}:_fail("reserved private identity")
+    if identity in {row["id"] for row in (machine["protocol"].get("construction") or {}).get("privateNames",[])}:_fail("reserved private identity")
     node=copy.deepcopy(node);node["properties"]={};machine["heap"][identity]=node
 
 

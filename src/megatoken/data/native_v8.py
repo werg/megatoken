@@ -494,7 +494,8 @@ def _apply_detail(state,kind,fields,row,obligations=None,program=None,task_revis
                 use_right=(truth if op=="and" else not truth if op=="or" else left[0] in ("null","undefined") if op=="coalesce" else None)
                 if use_right is None or (path=="evaluate-right")!=use_right: _fail("Logical decision path is inconsistent")
     elif kind=="return":
-        value=fields["value"]; invocation=fields["invocation"]
+        value=fields["value"]
+        invocation=fields.get("invocation", row.get("invocationId", state["stack"][-1] if state["stack"] else None))
         if len(state["stack"])>1 and state["stack"][-1]==invocation:
             state["lastReturn"]={"kind":"return","value":value}; state["stack"].pop()
         else:

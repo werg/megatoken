@@ -1,0 +1,1165 @@
+{
+  "schema": "semantic-protocol-fixtures/1",
+  "profile": "builtin-iterator/1",
+  "cases": [
+    {
+      "id": "holes-live-length-and-exhaustion",
+      "qualification": "controller-contract-fixture",
+      "source": null,
+      "entry": "run",
+      "args": [],
+      "initialState": {
+        "heap": [],
+        "locals": [],
+        "captureAliases": [],
+        "receiver": [
+          "undefined"
+        ],
+        "stack": [
+          "invocation1"
+        ],
+        "frameFunctions": [
+          [
+            "invocation1",
+            "run"
+          ]
+        ],
+        "pending": null,
+        "lastReturn": null,
+        "completion": null,
+        "protocol": {
+          "schema": "semantic-protocol-state/1",
+          "symbols": [
+            {
+              "id": "well-known:iterator",
+              "kind": "well-known",
+              "name": "iterator"
+            },
+            {
+              "id": "well-known:asyncIterator",
+              "kind": "well-known",
+              "name": "asyncIterator"
+            },
+            {
+              "id": "well-known:toPrimitive",
+              "kind": "well-known",
+              "name": "toPrimitive"
+            },
+            {
+              "id": "well-known:hasInstance",
+              "kind": "well-known",
+              "name": "hasInstance"
+            },
+            {
+              "id": "well-known:species",
+              "kind": "well-known",
+              "name": "species"
+            },
+            {
+              "id": "well-known:isConcatSpreadable",
+              "kind": "well-known",
+              "name": "isConcatSpreadable"
+            },
+            {
+              "id": "well-known:match",
+              "kind": "well-known",
+              "name": "match"
+            },
+            {
+              "id": "well-known:matchAll",
+              "kind": "well-known",
+              "name": "matchAll"
+            },
+            {
+              "id": "well-known:replace",
+              "kind": "well-known",
+              "name": "replace"
+            },
+            {
+              "id": "well-known:search",
+              "kind": "well-known",
+              "name": "search"
+            },
+            {
+              "id": "well-known:split",
+              "kind": "well-known",
+              "name": "split"
+            },
+            {
+              "id": "well-known:toStringTag",
+              "kind": "well-known",
+              "name": "toStringTag"
+            },
+            {
+              "id": "well-known:unscopables",
+              "kind": "well-known",
+              "name": "unscopables"
+            }
+          ],
+          "pendingCalls": [],
+          "callFrames": [],
+          "sequence": 0,
+          "construction": null
+        }
+      },
+      "lines": [
+        "protocol {\"captures\":[],\"code\":null,\"functionKind\":null,\"kind\":\"allocate\",\"length\":2,\"lexicalReceiver\":null,\"name\":\"o1\",\"objectKind\":\"array\",\"properties\":[{\"key\":[\"str\",\"1\"],\"value\":[\"num\",2]}]}",
+        "protocol {\"key\":[\"str\",\"values\"],\"kind\":\"iterator.lookup\",\"method\":\"Array.prototype.values\",\"receiver\":[\"ref\",\"o1\"]}",
+        "protocol {\"iterated\":[\"ref\",\"o1\"],\"iterationKind\":\"values\",\"kind\":\"iterator.create\",\"name\":\"o2\"}",
+        "protocol {\"done\":false,\"entry\":null,\"kind\":\"iterator.next\",\"name\":\"o3\",\"object\":\"o2\",\"result\":[\"undefined\"]}",
+        "protocol {\"done\":false,\"entry\":null,\"kind\":\"iterator.next\",\"name\":\"o4\",\"object\":\"o2\",\"result\":[\"num\",2]}",
+        "protocol {\"key\":[\"str\",\"2\"],\"kind\":\"property.set\",\"object\":\"o1\",\"receiver\":[\"ref\",\"o1\"],\"success\":true,\"value\":[\"num\",3]}",
+        "protocol {\"done\":false,\"entry\":null,\"kind\":\"iterator.next\",\"name\":\"o5\",\"object\":\"o2\",\"result\":[\"num\",3]}",
+        "protocol {\"done\":true,\"entry\":null,\"kind\":\"iterator.next\",\"name\":\"o6\",\"object\":\"o2\",\"result\":[\"undefined\"]}",
+        "protocol {\"key\":[\"str\",\"3\"],\"kind\":\"property.set\",\"object\":\"o1\",\"receiver\":[\"ref\",\"o1\"],\"success\":true,\"value\":[\"num\",4]}",
+        "protocol {\"done\":true,\"entry\":null,\"kind\":\"iterator.next\",\"name\":\"o7\",\"object\":\"o2\",\"result\":[\"undefined\"]}",
+        "protocol {\"invocation\":\"invocation1\",\"kind\":\"return\",\"value\":[\"num\",3]}",
+        "protocol {\"completion\":\"return\",\"kind\":\"end\"}"
+      ],
+      "checkpoints": [
+        3
+      ],
+      "expected": {
+        "heap": [
+          [
+            "o1",
+            {
+              "kind": "array",
+              "code": null,
+              "captures": [],
+              "prototype": "ordinary",
+              "properties": [
+                [
+                  "length",
+                  [
+                    "num",
+                    4
+                  ]
+                ],
+                [
+                  "1",
+                  [
+                    "num",
+                    2
+                  ]
+                ],
+                [
+                  "2",
+                  [
+                    "num",
+                    3
+                  ]
+                ],
+                [
+                  "3",
+                  [
+                    "num",
+                    4
+                  ]
+                ]
+              ],
+              "keyOrder": [
+                "1",
+                "length",
+                "2",
+                "3"
+              ],
+              "descriptors": [
+                [
+                  "2",
+                  {
+                    "kind": "data",
+                    "writable": true,
+                    "enumerable": true,
+                    "configurable": true
+                  }
+                ],
+                [
+                  "3",
+                  {
+                    "kind": "data",
+                    "writable": true,
+                    "enumerable": true,
+                    "configurable": true
+                  }
+                ]
+              ],
+              "extensible": true
+            }
+          ],
+          [
+            "o2",
+            {
+              "kind": "iterator",
+              "iterated": [
+                "ref",
+                "o1"
+              ],
+              "iterationKind": "values",
+              "nextIndex": 3,
+              "done": true,
+              "properties": []
+            }
+          ],
+          [
+            "o3",
+            {
+              "kind": "object",
+              "code": null,
+              "captures": [],
+              "prototype": "ordinary",
+              "properties": [
+                [
+                  "value",
+                  [
+                    "undefined"
+                  ]
+                ],
+                [
+                  "done",
+                  [
+                    "bool",
+                    false
+                  ]
+                ]
+              ]
+            }
+          ],
+          [
+            "o4",
+            {
+              "kind": "object",
+              "code": null,
+              "captures": [],
+              "prototype": "ordinary",
+              "properties": [
+                [
+                  "value",
+                  [
+                    "num",
+                    2
+                  ]
+                ],
+                [
+                  "done",
+                  [
+                    "bool",
+                    false
+                  ]
+                ]
+              ]
+            }
+          ],
+          [
+            "o5",
+            {
+              "kind": "object",
+              "code": null,
+              "captures": [],
+              "prototype": "ordinary",
+              "properties": [
+                [
+                  "value",
+                  [
+                    "num",
+                    3
+                  ]
+                ],
+                [
+                  "done",
+                  [
+                    "bool",
+                    false
+                  ]
+                ]
+              ]
+            }
+          ],
+          [
+            "o6",
+            {
+              "kind": "object",
+              "code": null,
+              "captures": [],
+              "prototype": "ordinary",
+              "properties": [
+                [
+                  "value",
+                  [
+                    "undefined"
+                  ]
+                ],
+                [
+                  "done",
+                  [
+                    "bool",
+                    true
+                  ]
+                ]
+              ]
+            }
+          ],
+          [
+            "o7",
+            {
+              "kind": "object",
+              "code": null,
+              "captures": [],
+              "prototype": "ordinary",
+              "properties": [
+                [
+                  "value",
+                  [
+                    "undefined"
+                  ]
+                ],
+                [
+                  "done",
+                  [
+                    "bool",
+                    true
+                  ]
+                ]
+              ]
+            }
+          ]
+        ],
+        "locals": [],
+        "captureAliases": [],
+        "receiver": [
+          "undefined"
+        ],
+        "stack": [],
+        "frameFunctions": [
+          [
+            "invocation1",
+            "run"
+          ]
+        ],
+        "pending": {
+          "kind": "return",
+          "value": [
+            "num",
+            3
+          ]
+        },
+        "lastReturn": null,
+        "completion": {
+          "kind": "return",
+          "value": [
+            "num",
+            3
+          ]
+        },
+        "protocol": {
+          "schema": "semantic-protocol-state/1",
+          "symbols": [
+            {
+              "id": "well-known:iterator",
+              "kind": "well-known",
+              "name": "iterator"
+            },
+            {
+              "id": "well-known:asyncIterator",
+              "kind": "well-known",
+              "name": "asyncIterator"
+            },
+            {
+              "id": "well-known:toPrimitive",
+              "kind": "well-known",
+              "name": "toPrimitive"
+            },
+            {
+              "id": "well-known:hasInstance",
+              "kind": "well-known",
+              "name": "hasInstance"
+            },
+            {
+              "id": "well-known:species",
+              "kind": "well-known",
+              "name": "species"
+            },
+            {
+              "id": "well-known:isConcatSpreadable",
+              "kind": "well-known",
+              "name": "isConcatSpreadable"
+            },
+            {
+              "id": "well-known:match",
+              "kind": "well-known",
+              "name": "match"
+            },
+            {
+              "id": "well-known:matchAll",
+              "kind": "well-known",
+              "name": "matchAll"
+            },
+            {
+              "id": "well-known:replace",
+              "kind": "well-known",
+              "name": "replace"
+            },
+            {
+              "id": "well-known:search",
+              "kind": "well-known",
+              "name": "search"
+            },
+            {
+              "id": "well-known:split",
+              "kind": "well-known",
+              "name": "split"
+            },
+            {
+              "id": "well-known:toStringTag",
+              "kind": "well-known",
+              "name": "toStringTag"
+            },
+            {
+              "id": "well-known:unscopables",
+              "kind": "well-known",
+              "name": "unscopables"
+            }
+          ],
+          "pendingCalls": [],
+          "callFrames": [],
+          "sequence": 12,
+          "construction": null
+        }
+      }
+    },
+    {
+      "id": "entry-pair-allocation",
+      "qualification": "controller-contract-fixture",
+      "source": null,
+      "entry": "run",
+      "args": [],
+      "initialState": {
+        "heap": [],
+        "locals": [],
+        "captureAliases": [],
+        "receiver": [
+          "undefined"
+        ],
+        "stack": [
+          "invocation1"
+        ],
+        "frameFunctions": [
+          [
+            "invocation1",
+            "run"
+          ]
+        ],
+        "pending": null,
+        "lastReturn": null,
+        "completion": null,
+        "protocol": {
+          "schema": "semantic-protocol-state/1",
+          "symbols": [
+            {
+              "id": "well-known:iterator",
+              "kind": "well-known",
+              "name": "iterator"
+            },
+            {
+              "id": "well-known:asyncIterator",
+              "kind": "well-known",
+              "name": "asyncIterator"
+            },
+            {
+              "id": "well-known:toPrimitive",
+              "kind": "well-known",
+              "name": "toPrimitive"
+            },
+            {
+              "id": "well-known:hasInstance",
+              "kind": "well-known",
+              "name": "hasInstance"
+            },
+            {
+              "id": "well-known:species",
+              "kind": "well-known",
+              "name": "species"
+            },
+            {
+              "id": "well-known:isConcatSpreadable",
+              "kind": "well-known",
+              "name": "isConcatSpreadable"
+            },
+            {
+              "id": "well-known:match",
+              "kind": "well-known",
+              "name": "match"
+            },
+            {
+              "id": "well-known:matchAll",
+              "kind": "well-known",
+              "name": "matchAll"
+            },
+            {
+              "id": "well-known:replace",
+              "kind": "well-known",
+              "name": "replace"
+            },
+            {
+              "id": "well-known:search",
+              "kind": "well-known",
+              "name": "search"
+            },
+            {
+              "id": "well-known:split",
+              "kind": "well-known",
+              "name": "split"
+            },
+            {
+              "id": "well-known:toStringTag",
+              "kind": "well-known",
+              "name": "toStringTag"
+            },
+            {
+              "id": "well-known:unscopables",
+              "kind": "well-known",
+              "name": "unscopables"
+            }
+          ],
+          "pendingCalls": [],
+          "callFrames": [],
+          "sequence": 0,
+          "construction": null
+        }
+      },
+      "lines": [
+        "protocol {\"captures\":[],\"code\":null,\"functionKind\":null,\"kind\":\"allocate\",\"length\":2,\"lexicalReceiver\":null,\"name\":\"o1\",\"objectKind\":\"array\",\"properties\":[{\"key\":[\"str\",\"0\"],\"value\":[\"num\",\"-0\"]},{\"key\":[\"str\",\"1\"],\"value\":[\"num\",\"NaN\"]}]}",
+        "protocol {\"iterated\":[\"ref\",\"o1\"],\"iterationKind\":\"entries\",\"kind\":\"iterator.create\",\"name\":\"o2\"}",
+        "protocol {\"done\":false,\"entry\":\"o3\",\"kind\":\"iterator.next\",\"name\":\"o4\",\"object\":\"o2\",\"result\":[\"ref\",\"o3\"]}",
+        "protocol {\"done\":false,\"entry\":\"o5\",\"kind\":\"iterator.next\",\"name\":\"o6\",\"object\":\"o2\",\"result\":[\"ref\",\"o5\"]}",
+        "protocol {\"done\":true,\"entry\":null,\"kind\":\"iterator.next\",\"name\":\"o7\",\"object\":\"o2\",\"result\":[\"undefined\"]}",
+        "protocol {\"invocation\":\"invocation1\",\"kind\":\"return\",\"value\":[\"num\",3]}",
+        "protocol {\"completion\":\"return\",\"kind\":\"end\"}"
+      ],
+      "checkpoints": [
+        3
+      ],
+      "expected": {
+        "heap": [
+          [
+            "o1",
+            {
+              "kind": "array",
+              "code": null,
+              "captures": [],
+              "prototype": "ordinary",
+              "properties": [
+                [
+                  "length",
+                  [
+                    "num",
+                    2
+                  ]
+                ],
+                [
+                  "0",
+                  [
+                    "num",
+                    "-0"
+                  ]
+                ],
+                [
+                  "1",
+                  [
+                    "num",
+                    "NaN"
+                  ]
+                ]
+              ]
+            }
+          ],
+          [
+            "o2",
+            {
+              "kind": "iterator",
+              "iterated": [
+                "ref",
+                "o1"
+              ],
+              "iterationKind": "entries",
+              "nextIndex": 2,
+              "done": true,
+              "properties": []
+            }
+          ],
+          [
+            "o3",
+            {
+              "kind": "array",
+              "code": null,
+              "captures": [],
+              "prototype": "ordinary",
+              "properties": [
+                [
+                  "length",
+                  [
+                    "num",
+                    2
+                  ]
+                ],
+                [
+                  "0",
+                  [
+                    "num",
+                    0
+                  ]
+                ],
+                [
+                  "1",
+                  [
+                    "num",
+                    "-0"
+                  ]
+                ]
+              ]
+            }
+          ],
+          [
+            "o4",
+            {
+              "kind": "object",
+              "code": null,
+              "captures": [],
+              "prototype": "ordinary",
+              "properties": [
+                [
+                  "value",
+                  [
+                    "ref",
+                    "o3"
+                  ]
+                ],
+                [
+                  "done",
+                  [
+                    "bool",
+                    false
+                  ]
+                ]
+              ]
+            }
+          ],
+          [
+            "o5",
+            {
+              "kind": "array",
+              "code": null,
+              "captures": [],
+              "prototype": "ordinary",
+              "properties": [
+                [
+                  "length",
+                  [
+                    "num",
+                    2
+                  ]
+                ],
+                [
+                  "0",
+                  [
+                    "num",
+                    1
+                  ]
+                ],
+                [
+                  "1",
+                  [
+                    "num",
+                    "NaN"
+                  ]
+                ]
+              ]
+            }
+          ],
+          [
+            "o6",
+            {
+              "kind": "object",
+              "code": null,
+              "captures": [],
+              "prototype": "ordinary",
+              "properties": [
+                [
+                  "value",
+                  [
+                    "ref",
+                    "o5"
+                  ]
+                ],
+                [
+                  "done",
+                  [
+                    "bool",
+                    false
+                  ]
+                ]
+              ]
+            }
+          ],
+          [
+            "o7",
+            {
+              "kind": "object",
+              "code": null,
+              "captures": [],
+              "prototype": "ordinary",
+              "properties": [
+                [
+                  "value",
+                  [
+                    "undefined"
+                  ]
+                ],
+                [
+                  "done",
+                  [
+                    "bool",
+                    true
+                  ]
+                ]
+              ]
+            }
+          ]
+        ],
+        "locals": [],
+        "captureAliases": [],
+        "receiver": [
+          "undefined"
+        ],
+        "stack": [],
+        "frameFunctions": [
+          [
+            "invocation1",
+            "run"
+          ]
+        ],
+        "pending": {
+          "kind": "return",
+          "value": [
+            "num",
+            3
+          ]
+        },
+        "lastReturn": null,
+        "completion": {
+          "kind": "return",
+          "value": [
+            "num",
+            3
+          ]
+        },
+        "protocol": {
+          "schema": "semantic-protocol-state/1",
+          "symbols": [
+            {
+              "id": "well-known:iterator",
+              "kind": "well-known",
+              "name": "iterator"
+            },
+            {
+              "id": "well-known:asyncIterator",
+              "kind": "well-known",
+              "name": "asyncIterator"
+            },
+            {
+              "id": "well-known:toPrimitive",
+              "kind": "well-known",
+              "name": "toPrimitive"
+            },
+            {
+              "id": "well-known:hasInstance",
+              "kind": "well-known",
+              "name": "hasInstance"
+            },
+            {
+              "id": "well-known:species",
+              "kind": "well-known",
+              "name": "species"
+            },
+            {
+              "id": "well-known:isConcatSpreadable",
+              "kind": "well-known",
+              "name": "isConcatSpreadable"
+            },
+            {
+              "id": "well-known:match",
+              "kind": "well-known",
+              "name": "match"
+            },
+            {
+              "id": "well-known:matchAll",
+              "kind": "well-known",
+              "name": "matchAll"
+            },
+            {
+              "id": "well-known:replace",
+              "kind": "well-known",
+              "name": "replace"
+            },
+            {
+              "id": "well-known:search",
+              "kind": "well-known",
+              "name": "search"
+            },
+            {
+              "id": "well-known:split",
+              "kind": "well-known",
+              "name": "split"
+            },
+            {
+              "id": "well-known:toStringTag",
+              "kind": "well-known",
+              "name": "toStringTag"
+            },
+            {
+              "id": "well-known:unscopables",
+              "kind": "well-known",
+              "name": "unscopables"
+            }
+          ],
+          "pendingCalls": [],
+          "callFrames": [],
+          "sequence": 7,
+          "construction": null
+        }
+      }
+    },
+    {
+      "id": "unicode-string-cursor",
+      "qualification": "controller-contract-fixture",
+      "source": null,
+      "entry": "run",
+      "args": [],
+      "initialState": {
+        "heap": [],
+        "locals": [],
+        "captureAliases": [],
+        "receiver": [
+          "undefined"
+        ],
+        "stack": [
+          "invocation1"
+        ],
+        "frameFunctions": [
+          [
+            "invocation1",
+            "run"
+          ]
+        ],
+        "pending": null,
+        "lastReturn": null,
+        "completion": null,
+        "protocol": {
+          "schema": "semantic-protocol-state/1",
+          "symbols": [
+            {
+              "id": "well-known:iterator",
+              "kind": "well-known",
+              "name": "iterator"
+            },
+            {
+              "id": "well-known:asyncIterator",
+              "kind": "well-known",
+              "name": "asyncIterator"
+            },
+            {
+              "id": "well-known:toPrimitive",
+              "kind": "well-known",
+              "name": "toPrimitive"
+            },
+            {
+              "id": "well-known:hasInstance",
+              "kind": "well-known",
+              "name": "hasInstance"
+            },
+            {
+              "id": "well-known:species",
+              "kind": "well-known",
+              "name": "species"
+            },
+            {
+              "id": "well-known:isConcatSpreadable",
+              "kind": "well-known",
+              "name": "isConcatSpreadable"
+            },
+            {
+              "id": "well-known:match",
+              "kind": "well-known",
+              "name": "match"
+            },
+            {
+              "id": "well-known:matchAll",
+              "kind": "well-known",
+              "name": "matchAll"
+            },
+            {
+              "id": "well-known:replace",
+              "kind": "well-known",
+              "name": "replace"
+            },
+            {
+              "id": "well-known:search",
+              "kind": "well-known",
+              "name": "search"
+            },
+            {
+              "id": "well-known:split",
+              "kind": "well-known",
+              "name": "split"
+            },
+            {
+              "id": "well-known:toStringTag",
+              "kind": "well-known",
+              "name": "toStringTag"
+            },
+            {
+              "id": "well-known:unscopables",
+              "kind": "well-known",
+              "name": "unscopables"
+            }
+          ],
+          "pendingCalls": [],
+          "callFrames": [],
+          "sequence": 0,
+          "construction": null
+        }
+      },
+      "lines": [
+        "protocol {\"iterated\":[\"str\",\"a😀\\ud800\"],\"iterationKind\":\"string\",\"kind\":\"iterator.create\",\"name\":\"o1\"}",
+        "protocol {\"done\":false,\"entry\":null,\"kind\":\"iterator.next\",\"name\":\"o2\",\"object\":\"o1\",\"result\":[\"str\",\"a\"]}",
+        "protocol {\"done\":false,\"entry\":null,\"kind\":\"iterator.next\",\"name\":\"o3\",\"object\":\"o1\",\"result\":[\"str\",\"😀\"]}",
+        "protocol {\"done\":false,\"entry\":null,\"kind\":\"iterator.next\",\"name\":\"o4\",\"object\":\"o1\",\"result\":[\"str\",\"\\ud800\"]}",
+        "protocol {\"done\":true,\"entry\":null,\"kind\":\"iterator.next\",\"name\":\"o5\",\"object\":\"o1\",\"result\":[\"undefined\"]}",
+        "protocol {\"kind\":\"iterator.identity\",\"object\":\"o1\",\"result\":[\"ref\",\"o1\"]}",
+        "protocol {\"invocation\":\"invocation1\",\"kind\":\"return\",\"value\":[\"num\",3]}",
+        "protocol {\"completion\":\"return\",\"kind\":\"end\"}"
+      ],
+      "checkpoints": [
+        3
+      ],
+      "expected": {
+        "heap": [
+          [
+            "o1",
+            {
+              "kind": "iterator",
+              "iterated": [
+                "str",
+                "a😀\ud800"
+              ],
+              "iterationKind": "string",
+              "nextIndex": 4,
+              "done": true,
+              "properties": []
+            }
+          ],
+          [
+            "o2",
+            {
+              "kind": "object",
+              "code": null,
+              "captures": [],
+              "prototype": "ordinary",
+              "properties": [
+                [
+                  "value",
+                  [
+                    "str",
+                    "a"
+                  ]
+                ],
+                [
+                  "done",
+                  [
+                    "bool",
+                    false
+                  ]
+                ]
+              ]
+            }
+          ],
+          [
+            "o3",
+            {
+              "kind": "object",
+              "code": null,
+              "captures": [],
+              "prototype": "ordinary",
+              "properties": [
+                [
+                  "value",
+                  [
+                    "str",
+                    "😀"
+                  ]
+                ],
+                [
+                  "done",
+                  [
+                    "bool",
+                    false
+                  ]
+                ]
+              ]
+            }
+          ],
+          [
+            "o4",
+            {
+              "kind": "object",
+              "code": null,
+              "captures": [],
+              "prototype": "ordinary",
+              "properties": [
+                [
+                  "value",
+                  [
+                    "str",
+                    "\ud800"
+                  ]
+                ],
+                [
+                  "done",
+                  [
+                    "bool",
+                    false
+                  ]
+                ]
+              ]
+            }
+          ],
+          [
+            "o5",
+            {
+              "kind": "object",
+              "code": null,
+              "captures": [],
+              "prototype": "ordinary",
+              "properties": [
+                [
+                  "value",
+                  [
+                    "undefined"
+                  ]
+                ],
+                [
+                  "done",
+                  [
+                    "bool",
+                    true
+                  ]
+                ]
+              ]
+            }
+          ]
+        ],
+        "locals": [],
+        "captureAliases": [],
+        "receiver": [
+          "undefined"
+        ],
+        "stack": [],
+        "frameFunctions": [
+          [
+            "invocation1",
+            "run"
+          ]
+        ],
+        "pending": {
+          "kind": "return",
+          "value": [
+            "num",
+            3
+          ]
+        },
+        "lastReturn": null,
+        "completion": {
+          "kind": "return",
+          "value": [
+            "num",
+            3
+          ]
+        },
+        "protocol": {
+          "schema": "semantic-protocol-state/1",
+          "symbols": [
+            {
+              "id": "well-known:iterator",
+              "kind": "well-known",
+              "name": "iterator"
+            },
+            {
+              "id": "well-known:asyncIterator",
+              "kind": "well-known",
+              "name": "asyncIterator"
+            },
+            {
+              "id": "well-known:toPrimitive",
+              "kind": "well-known",
+              "name": "toPrimitive"
+            },
+            {
+              "id": "well-known:hasInstance",
+              "kind": "well-known",
+              "name": "hasInstance"
+            },
+            {
+              "id": "well-known:species",
+              "kind": "well-known",
+              "name": "species"
+            },
+            {
+              "id": "well-known:isConcatSpreadable",
+              "kind": "well-known",
+              "name": "isConcatSpreadable"
+            },
+            {
+              "id": "well-known:match",
+              "kind": "well-known",
+              "name": "match"
+            },
+            {
+              "id": "well-known:matchAll",
+              "kind": "well-known",
+              "name": "matchAll"
+            },
+            {
+              "id": "well-known:replace",
+              "kind": "well-known",
+              "name": "replace"
+            },
+            {
+              "id": "well-known:search",
+              "kind": "well-known",
+              "name": "search"
+            },
+            {
+              "id": "well-known:split",
+              "kind": "well-known",
+              "name": "split"
+            },
+            {
+              "id": "well-known:toStringTag",
+              "kind": "well-known",
+              "name": "toStringTag"
+            },
+            {
+              "id": "well-known:unscopables",
+              "kind": "well-known",
+              "name": "unscopables"
+            }
+          ],
+          "pendingCalls": [],
+          "callFrames": [],
+          "sequence": 8,
+          "construction": null
+        }
+      }
+    }
+  ]
+}

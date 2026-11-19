@@ -376,6 +376,170 @@
             "kind",
             "id",
             "completion"
+          ],
+          "memory.construct": [
+            "kind",
+            "constructor",
+            "name",
+            "backing",
+            "arguments"
+          ],
+          "memory.get": [
+            "kind",
+            "object",
+            "key",
+            "result"
+          ],
+          "memory.set": [
+            "kind",
+            "object",
+            "key",
+            "value"
+          ],
+          "memory.call": [
+            "kind",
+            "method",
+            "receiver",
+            "arguments",
+            "name",
+            "result"
+          ],
+          "callable.define": [
+            "kind",
+            "object",
+            "constructorKind",
+            "classConstructor"
+          ],
+          "callable.home": [
+            "kind",
+            "object",
+            "home"
+          ],
+          "class.link": [
+            "kind",
+            "object",
+            "prototype",
+            "heritage"
+          ],
+          "class.initializer": [
+            "kind",
+            "object",
+            "placement",
+            "initializer"
+          ],
+          "private.declare": [
+            "kind",
+            "id",
+            "owner",
+            "name"
+          ],
+          "private.define": [
+            "kind",
+            "object",
+            "privateId",
+            "elementKind",
+            "value"
+          ],
+          "private.get": [
+            "kind",
+            "object",
+            "privateId",
+            "result"
+          ],
+          "private.set": [
+            "kind",
+            "object",
+            "privateId",
+            "value"
+          ],
+          "private.has": [
+            "kind",
+            "object",
+            "privateId",
+            "result"
+          ],
+          "construct.enter": [
+            "kind",
+            "id",
+            "child",
+            "callee",
+            "newTarget",
+            "arguments",
+            "receiver",
+            "mode",
+            "owner"
+          ],
+          "construct.body": [
+            "kind",
+            "id",
+            "child"
+          ],
+          "construct.finish": [
+            "kind",
+            "id",
+            "completion"
+          ],
+          "construct.target": [
+            "kind",
+            "invocation",
+            "result"
+          ],
+          "construct.this": [
+            "kind",
+            "invocation",
+            "result"
+          ],
+          "super.select": [
+            "kind",
+            "owner",
+            "callee"
+          ],
+          "super.bind": [
+            "kind",
+            "owner",
+            "receiver",
+            "child"
+          ],
+          "super.finish": [
+            "kind",
+            "owner",
+            "result"
+          ],
+          "iterator.lookup": [
+            "kind",
+            "receiver",
+            "key",
+            "method"
+          ],
+          "iterator.create": [
+            "kind",
+            "name",
+            "iterated",
+            "iterationKind"
+          ],
+          "iterator.next": [
+            "kind",
+            "object",
+            "name",
+            "entry",
+            "result",
+            "done"
+          ],
+          "iterator.identity": [
+            "kind",
+            "object",
+            "result"
+          ],
+          "iterator.read": [
+            "kind",
+            "object",
+            "key",
+            "result"
+          ],
+          "iterator.arrayGuard": [
+            "kind",
+            "iterated",
+            "result"
           ]
         },
         "profile": "symbols-ordinary-properties/1",
@@ -1201,10 +1365,121 @@
         "symbols",
         "pendingCalls",
         "callFrames",
-        "sequence"
+        "sequence",
+        "construction"
       ],
       "initial": null,
-      "heap": "Existing heap nodes with property and descriptor Maps serialized as entry arrays; Symbol keys remain tagged pairs.",
+      "heap": "Existing heap nodes with property, descriptor and private-element Maps serialized as entry arrays; Symbol keys remain tagged pairs.",
+      "construction": {
+        "schema": "semantic-construction-state/1",
+        "fields": [
+          "schema",
+          "privateNames",
+          "frames",
+          "lastCompletion"
+        ],
+        "initial": null,
+        "callableFields": [
+          "constructorKind",
+          "classConstructor",
+          "homeObject",
+          "instanceInitializer",
+          "staticInitializer"
+        ],
+        "frameFields": [
+          "id",
+          "parent",
+          "bodyInvocation",
+          "activeChild",
+          "callee",
+          "newTarget",
+          "arguments",
+          "receiver",
+          "initialized",
+          "phase",
+          "superParent",
+          "selectedSuper"
+        ],
+        "privateElementFields": [
+          "kind",
+          "value",
+          "version"
+        ],
+        "sourceCallables": "Explicit function source offsets and source-inventoried class:<offset>:constructor|instance|static bodies.",
+        "continuations": "Owned base/derived constructor receivers, newTarget, field initializers and captured superclass selection; private fields and methods retain declaring-class identities."
+      },
+      "iterators": {
+        "profile": "builtin-iterator/1",
+        "heapFields": [
+          "kind",
+          "iterated",
+          "iterationKind",
+          "nextIndex",
+          "done",
+          "properties"
+        ],
+        "capabilities": "Builtin array keys/values/entries and Unicode string iteration, live array length, sticky exhaustion and explicit result/pair allocation identities."
+      },
+      "binaryMemory": {
+        "profile": "owned-binary-memory/1",
+        "heapFields": {
+          "array-buffer": [
+            "kind",
+            "byteLength",
+            "maxByteLength",
+            "resizable",
+            "detached",
+            "bytes",
+            "properties"
+          ],
+          "shared-int32-buffer": [
+            "kind",
+            "byteLength",
+            "maxByteLength",
+            "growable",
+            "bytes",
+            "properties"
+          ],
+          "typed-array": [
+            "kind",
+            "bufferId",
+            "elementType",
+            "byteOffset",
+            "length",
+            "lengthTracking",
+            "properties"
+          ],
+          "shared-int32-view": [
+            "kind",
+            "bufferId",
+            "elementType",
+            "byteOffset",
+            "length",
+            "lengthTracking",
+            "properties"
+          ],
+          "data-view": [
+            "kind",
+            "bufferId",
+            "byteOffset",
+            "byteLength",
+            "lengthTracking",
+            "properties"
+          ],
+          "shared-data-view": [
+            "kind",
+            "bufferId",
+            "byteOffset",
+            "byteLength",
+            "lengthTracking",
+            "properties"
+          ]
+        },
+        "maxBufferBytes": 1024,
+        "typedArrayByteOrder": "little-endian",
+        "dataViewByteOrder": "explicit per operation",
+        "capabilities": "Fixed ordinary buffers and fixed/growable shared buffers; scalar conversions; shared view identities; bounded single-agent atomic operations. No detach, transfer, host buffers or cross-agent scheduling."
+      },
       "lifecycle": "First protocol profile is one synchronous fresh invocation with no host work, jobs or asynchronous observations."
     },
     "checkpoint": {
@@ -1240,7 +1515,7 @@
       "default": "not promoted by engineering receipts alone"
     }
   },
-  "digest": "e34317197f4daa123e2fa02d84347801dbff5d93868670b76f5902917949cf80",
+  "digest": "3adb1eab2d8b0d51472014bbfa9b7146d217cd6de2fcc7a9c63a3d9af1ae53d9",
   "fixtureDigest": "56f7f36d3b25b3b11a208be3de337e637b9782e6759faea1e1ec107b0a90f0ce",
   "fixtures": [
     {
@@ -1265,7 +1540,7 @@
       "reason": "old artifacts require their original contract"
     }
   ],
-  "interoperabilityDigest": "35bbf42498dcc44d159f94548b4da29f22d3cb05dc2b5531b8630b7ca8a6419a",
+  "interoperabilityDigest": "89b6d2f48f189920cd2c9f349212edb2446ed1d7a37dd5582d0ca0e38ae9fb02",
   "interoperability": [
     {
       "id": "ordered-map",
@@ -1285,12 +1560,17 @@
     {
       "id": "protocol-machine",
       "schema": "semantic-protocol-fixtures/1",
-      "fixtureDigest": "e2f1db4a8605644cc9d8ab06642a182c19cc345460596c6a2e29b90ad30bd704"
+      "fixtureDigest": "d345ef84cb001f56f63363d2e0ba16cf6ad101c9739ffb089599c965e613acd4"
     },
     {
       "id": "protocol-region:source-symbol-getter-arithmetic",
-      "publicDigest": "7c8071a7861d80003a8ce020b5dca313e8af1935177a36eeab9b435473d43ddf",
-      "contextDigest": "40a30688f85533e69f2090a99ff89b5fc9e315111451ee517078203c5c3ddee9"
+      "publicDigest": "f0f48dc8fcdc5e97e03334dc19d7f076f02f9f9c39095603070af4a0b2fc6c30",
+      "contextDigest": "00a245053b8a2c70089a755792a5149637afa9dadd59c2480bb10c4f3255c55a"
+    },
+    {
+      "id": "protocol-region:typed-views-shared-backing",
+      "publicDigest": "bf88479ca947f7ae6250c493e458db1edac052b1ecd3ebdb8f8fe4f8b52e86d9",
+      "contextDigest": "519dce4e0d95f63c1070ec27c7d1c6f977110fb543f44b790b476006509def23"
     }
   ]
 }

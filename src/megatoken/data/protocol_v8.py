@@ -44,8 +44,10 @@ from .construction_v8 import (FIELDS as CONSTRUCTION_FIELDS, apply_record as app
     validate_record as validate_construction_record, validate_state as validate_construction_record_state,
     assert_next as assert_construction_next)
 from .memory_v8 import FIELDS as MEMORY_FIELDS, apply_record as apply_memory_record, validate_record as validate_memory_record, validate_state as validate_memory_state
+from .iterator_v8 import FIELDS as ITERATOR_FIELDS, apply_record as apply_iterator_record, validate_record as validate_iterator_record, validate_state as validate_iterator_state
 FIELDS.update(CONSTRUCTION_FIELDS)
 FIELDS.update(MEMORY_FIELDS)
+FIELDS.update(ITERATOR_FIELDS)
 
 
 def _fail(message):
@@ -117,6 +119,11 @@ def validate_protocol_record(record):
         try: validate_memory_record(record)
         except ProtocolV8Error: raise
         except (TypeError, KeyError, IndexError) as error: raise ProtocolV8Error("Invalid binary-memory record") from error
+        return True
+    if type(record) is dict and record.get("kind") in ITERATOR_FIELDS:
+        try: validate_iterator_record(record)
+        except ProtocolV8Error: raise
+        except (TypeError, KeyError, IndexError) as error: raise ProtocolV8Error("Invalid iterator record") from error
         return True
     if type(record) is not dict or record.get("kind") not in FIELDS: _fail("record kind")
     _exact(record, FIELDS[record["kind"]], "record")
@@ -191,7 +198,7 @@ def decode_protocol_record(line):
 
 def create_protocol_state():
     return {"schema":STATE_SCHEMA,"symbols":[{"id":"well-known:"+name,"kind":"well-known","name":name} for name in WELL_KNOWN],
-            "pendingCalls":[],"callFrames":[],"sequence":0}
+            "pendingCalls":[],"callFrames":[],"sequence":0,"construction":None}
 
 
 def _key(tag): return tag[1] if tag[0]=="str" else ("symbol",tag[1])
@@ -208,28 +215,33 @@ def _known(machine,value,self_id=None):
 def _node(machine,identity):
     node=machine["heap"].get(identity)
     if not isinstance(node,dict) or node.get("kind") not in ("object","array","closure"): _fail("ordinary object required")
-    node.setdefault("properties",{}); node.setdefault("descriptors",{}); node.setdefault("keyOrder",[]); node.setdefault("prototype","ordinary"); node.setdefault("extensible",True)
+    node.setdefault("properties",{}); node.setdefault("descriptors",{})
+    if "keyOrder" not in node: node["keyOrder"]=_ordered(node)
+    node.setdefault("prototype","ordinary"); node.setdefault("extensible",True)
     return node
 def _descriptor(node,key):
-    metadata=node["descriptors"].get(key)
+    metadata=node.get("descriptors",{}).get(key)
     if metadata and metadata.get("kind")=="accessor": return copy.deepcopy(metadata)
     if key not in node["properties"]: return None
     default={"kind":"data","writable":True,"enumerable":True,"configurable":True}
     if node["kind"]=="array" and key=="length": default={"kind":"data","writable":True,"enumerable":False,"configurable":False}
     return {**default,**copy.deepcopy(metadata or {}),"value":copy.deepcopy(node["properties"][key])}
 def _install(node,key,d):
-    if _descriptor(node,key) is None: node["keyOrder"].append(key)
+    if _descriptor(node,key) is None:
+        if "keyOrder" not in node: node["keyOrder"]=_ordered(node)
+        node["keyOrder"].append(key)
     if d["kind"]=="data":
         node["properties"][key]=copy.deepcopy(d["value"]); node["descriptors"][key]={k:copy.deepcopy(v) for k,v in d.items() if k!="value"}
     else:
         node["properties"].pop(key,None); node["descriptors"][key]=copy.deepcopy(d)
 def _remove(node,key):
     node["properties"].pop(key,None); node["descriptors"].pop(key,None)
-    node["keyOrder"]=[item for item in node["keyOrder"] if item!=key]
+    if "keyOrder" in node: node["keyOrder"]=[item for item in node["keyOrder"] if item!=key]
 def _ordered(node):
     keys=[]
-    for key in [*node["keyOrder"],*node["properties"],*node["descriptors"]]:
-        if key not in keys and (key in node["properties"] or key in node["descriptors"]): keys.append(key)
+    descriptors=node.get("descriptors",{})
+    for key in [*node.get("keyOrder",[]),*node["properties"],*descriptors]:
+        if key not in keys and (key in node["properties"] or key in descriptors): keys.append(key)
     index=lambda key:isinstance(key,str) and key.isascii() and key.isdecimal() and (key=="0" or not key.startswith("0")) and int(key)<4294967295
     return sorted((key for key in keys if index(key)),key=int)+[key for key in keys if isinstance(key,str) and not index(key)]+[key for key in keys if isinstance(key,tuple)]
 def _compatible(node,key,d):
@@ -278,9 +290,12 @@ def _apply(machine,record):
     if machine.get("completion") is not None: _fail("record after completion")
     if not machine["stack"] and record["kind"]!="end": _fail("active invocation required")
     kind=record["kind"]
-    if "construction" in p: assert_construction_next(machine,record)
+    if p.get("construction") is not None: assert_construction_next(machine,record)
     if kind in MEMORY_FIELDS:
         if not apply_memory_record(machine,record): _fail("unsupported binary-memory transition")
+        return
+    if kind in ITERATOR_FIELDS:
+        if not apply_iterator_record(machine,record): _fail("unsupported iterator transition")
         return
     if kind in CONSTRUCTION_FIELDS:
         if not apply_construction_record(machine,record): _fail("unsupported construction transition")
@@ -291,7 +306,7 @@ def _apply(machine,record):
             if existing:
                 if record["id"]!=existing["id"]: _fail("registry identity changed")
                 return
-        reserved={row["id"] for row in p.get("construction",{}).get("privateNames",[])}
+        reserved={row["id"] for row in (p.get("construction") or {}).get("privateNames",[])}
         if any(row["id"]==record["id"] for row in p["symbols"]) or record["id"] in machine["heap"] or record["id"] in reserved or not __import__("re").fullmatch(r"o[1-9][0-9]*",record["id"]): _fail("Symbol identity collision or format")
         p["symbols"].append({"id":record["id"],"kind":"unique","description":copy.deepcopy(record["description"])} if kind=="symbol.create" else
             {"id":record["id"],"kind":"registry","description":["str",record["key"]],"key":record["key"]})
@@ -301,10 +316,10 @@ def _apply(machine,record):
         if record["result"]!=expected: _fail("false Symbol conversion claim")
         if record["bind"] is not None: machine["locals"][machine.get("captureAliases",{}).get(record["bind"],record["bind"])]=record["result"]
     elif kind=="allocate":
-        reserved={row["id"] for row in p.get("construction",{}).get("privateNames",[])}
+        reserved={row["id"] for row in (p.get("construction") or {}).get("privateNames",[])}
         if record["name"] in machine["heap"] or any(x["id"]==record["name"] for x in p["symbols"]) or record["name"] in reserved: _fail("duplicate heap identity")
         captures=[{**copy.deepcopy(capture),"cell":machine.get("captureAliases",{}).get(capture["cell"],capture["cell"])} for capture in record["captures"]]
-        node={"kind":record["objectKind"],"code":record["code"],"captures":captures,"prototype":"ordinary","properties":{},"descriptors":{},"keyOrder":[],"extensible":True}
+        node={"kind":record["objectKind"],"code":record["code"],"captures":captures,"prototype":"ordinary","properties":{},"descriptors":{},"extensible":True}
         if record["objectKind"]=="array": node["properties"]["length"]=["num",record["length"]]
         for prop in record["properties"]:
             key=_key(prop["key"]); _known(machine,prop["value"],record["name"])
@@ -360,9 +375,15 @@ def _apply(machine,record):
         elif kind=="property.set":
             descriptor=_descriptor(node,key); old=descriptor
             success=(not descriptor or descriptor["kind"]=="data" and descriptor["writable"]) and (key in node["properties"] or node["extensible"])
+            if node["kind"]=="array" and isinstance(key,str) and key.isascii() and key.isdecimal() and (key=="0" or not key.startswith("0")) and int(key)<4294967295:
+                length_descriptor=_descriptor(node,"length");length=length_descriptor["value"][1]
+                if int(key)>=length and not length_descriptor["writable"]:success=False
             if success:
                 current=old or {"kind":"data","writable":True,"enumerable":True,"configurable":True}
                 _install(node,key,{**current,"value":copy.deepcopy(record["value"])})
+                if node["kind"]=="array" and isinstance(key,str) and key.isascii() and key.isdecimal() and (key=="0" or not key.startswith("0")) and int(key)<4294967295:
+                    length_descriptor=_descriptor(node,"length")
+                    if int(key)>=length_descriptor["value"][1]: node["properties"]["length"]=["num",int(key)+1]
             if success!=record["success"]: _fail("false property write")
         elif kind=="property.delete":
             descriptor=_descriptor(node,key); success=descriptor is None or descriptor["configurable"]
@@ -412,9 +433,9 @@ def _internal_machine(initial):
     for identity,node in initial["heap"]:
         n=copy.deepcopy(node)
         n["properties"]={_key(key) if isinstance(key,list) else key:value for key,value in n.get("properties",[])}
-        if n.get("kind") not in ("array-buffer","shared-int32-buffer","typed-array","shared-int32-view","data-view","shared-data-view"):
-            n["descriptors"]={_key(key) if isinstance(key,list) else key:value for key,value in n.get("descriptors",[])}
-            n["keyOrder"]=[_key(key) if isinstance(key,list) else key for key in n.get("keyOrder",[])]
+        if n.get("kind") not in ("array-buffer","shared-int32-buffer","typed-array","shared-int32-view","data-view","shared-data-view","iterator"):
+            if "descriptors" in n:n["descriptors"]={_key(key) if isinstance(key,list) else key:value for key,value in n.get("descriptors",[])}
+            if "keyOrder" in n:n["keyOrder"]=[_key(key) if isinstance(key,list) else key for key in n.get("keyOrder",[])]
         if isinstance(n.get("privateElements"),list): n["privateElements"]={key:copy.deepcopy(value) for key,value in n["privateElements"]}
         machine["heap"][identity]=n
     for field in ("locals","captureAliases","frameFunctions"):
@@ -512,13 +533,14 @@ def validate_protocol_state(snapshot, heap_ids=(), shared_state=None):
             if not isinstance(pair,list) or len(pair)!=2 or any(not isinstance(x,str) for x in pair) or pair[0] in seen: _fail("call frame aliases")
             seen.add(pair[0])
         for value in frame["arguments"]: validate_protocol_value(value)
-    if "construction" in snapshot:
+    if snapshot.get("construction") is not None:
         if heap_nodes is None: _fail("construction validation requires full shared heap")
         construction_machine=(_internal_machine(shared_state) if shared_state is not None else {"heap":heap_nodes,"protocol":snapshot})
         validate_construction_record_state(snapshot["construction"],construction_machine)
     if heap_nodes is not None:
         memory_machine=(_internal_machine(shared_state) if shared_state is not None else {"heap":heap_nodes})
         validate_memory_state(memory_machine)
+        validate_iterator_state(memory_machine)
     return True
 
 

@@ -11,6 +11,7 @@ from megatoken.data.protocol_v8 import (ProtocolV8Error, apply_protocol_record, 
 
 FIXTURE=Path(__file__).parent/"fixtures"/"semantic-protocol-v8.json"
 REGION_FIXTURE=Path(__file__).parent/"fixtures"/"semantic-protocol-region-v8.json.gz.b64"
+ITERATOR_FIXTURE=Path(__file__).parent/"fixtures"/"semantic-iterator-v8.json"
 
 
 class ProtocolV8CodecTests(unittest.TestCase):
@@ -63,6 +64,29 @@ class ProtocolV8CodecTests(unittest.TestCase):
         with self.assertRaises(ProtocolV8Error): validate_protocol_state(bad)
 
 
+class IteratorProtocolNativeTests(unittest.TestCase):
+    @classmethod
+    def setUpClass(cls):cls.document=json.loads(ITERATOR_FIXTURE.read_text())
+
+    def test_builtin_iterator_golden_cases_replay_exact_cursor_heap_and_results(self):
+        self.assertEqual(self.document["schema"],"semantic-protocol-fixtures/1")
+        self.assertEqual(self.document["profile"],"builtin-iterator/1")
+        self.assertEqual(len(self.document["cases"]),3)
+        for case in self.document["cases"]:
+            with self.subTest(case=case["id"]):
+                self.assertEqual(case["qualification"],"controller-contract-fixture")
+                self.assertEqual(replay_protocol_case(case),case["expected"])
+
+    def test_noncanonical_and_false_iterator_identity_are_rejected(self):
+        with self.assertRaises(ProtocolV8Error):
+            encode_protocol_record({"kind":"iterator.create","name":"it","iterated":["str","x"],"iterationKind":"function"})
+        bad=json.loads(json.dumps(next(case for case in self.document["cases"] if case["id"]=="unicode-string-cursor")))
+        position=next(i for i,line in enumerate(bad["lines"]) if '"kind":"iterator.identity"' in line)
+        record=decode_protocol_record(bad["lines"][position]);record["result"]=["str","different"]
+        bad["lines"][position]="protocol "+__import__("megatoken.data.algorithm_v7",fromlist=["stable_algorithm_json"]).stable_algorithm_json(record)
+        with self.assertRaises(ProtocolV8Error):replay_protocol_case(bad)
+
+
 class ProtocolV8NativeReplayTests(unittest.TestCase):
     @classmethod
     def setUpClass(cls):
@@ -70,23 +94,33 @@ class ProtocolV8NativeReplayTests(unittest.TestCase):
         cls.artifact=json.loads(raw)
 
     def test_source_qualified_protocol_region_public_golden_replays_and_continues(self):
-        self.assertEqual(self.artifact["schema"],"semantic-protocol-region-fixture/1")
-        self.assertEqual(stable_algorithm_hash(self.artifact["public"]),"7c8071a7861d80003a8ce020b5dca313e8af1935177a36eeab9b435473d43ddf")
-        self.assertEqual(stable_algorithm_hash(self.artifact["contexts"]),"40a30688f85533e69f2090a99ff89b5fc9e315111451ee517078203c5c3ddee9")
-        result=validate_v8_artifact(self.artifact)
-        self.assertTrue(all(result["checks"][name]=="passed" for name in ("replay","contexts","continuation")))
-        self.assertEqual(result["counts"]["protocolRecords"],11)
-        self.assertEqual(result["counts"]["regionRecords"],3)
-        self.assertEqual(result["counts"]["detailedRecords"],8)
+        self.assertEqual(self.artifact["schema"],"semantic-protocol-region-fixtures/1")
+        expected={
+            "source-symbol-getter-arithmetic":("f0f48dc8fcdc5e97e03334dc19d7f076f02f9f9c39095603070af4a0b2fc6c30","00a245053b8a2c70089a755792a5149637afa9dadd59c2480bb10c4f3255c55a",11,3,8),
+            "typed-views-shared-backing":("bf88479ca947f7ae6250c493e458db1edac052b1ecd3ebdb8f8fe4f8b52e86d9","519dce4e0d95f63c1070ec27c7d1c6f977110fb543f44b790b476006509def23",13,0,8),
+        }
+        self.assertEqual({case["id"] for case in self.artifact["cases"]},set(expected))
+        for golden in self.artifact["cases"]:
+            case=golden["artifact"]
+            with self.subTest(case=golden["id"]):
+                public_digest,context_digest,protocol_records,regions,details=expected[golden["id"]]
+                artifact={"public":case["public"],"contexts":case["contexts"]}
+                self.assertEqual(stable_algorithm_hash(case["public"]),public_digest)
+                self.assertEqual(stable_algorithm_hash(case["contexts"]),context_digest)
+                result=validate_v8_artifact(artifact)
+                self.assertTrue(all(result["checks"][name]=="passed" for name in ("replay","contexts","continuation")))
+                self.assertEqual(result["counts"]["protocolRecords"],protocol_records)
+                self.assertEqual(result["counts"]["regionRecords"],regions)
+                self.assertEqual(result["counts"]["detailedRecords"],details)
 
     def test_protocol_context_tampering_is_rejected(self):
-        bad=json.loads(json.dumps(self.artifact))
+        case=self.artifact["cases"][0]["artifact"];bad={"public":json.loads(json.dumps(case["public"])),"contexts":json.loads(json.dumps(case["contexts"]))}
         first=next(c for c in bad["contexts"] if c["state"]["protocol"] is not None)
         first["state"]["protocol"]["sequence"]+=1
         with self.assertRaises(NativeV8Error): validate_v8_artifact(bad)
 
     def test_protocol_value_cannot_be_relabelled_as_legacy_detail(self):
-        bad=json.loads(json.dumps(self.artifact))
+        case=self.artifact["cases"][0]["artifact"];bad={"public":json.loads(json.dumps(case["public"])),"contexts":json.loads(json.dumps(case["contexts"]))}
         generated=bad["public"]["timeline"]
         target=next(r for r in generated if r["kind"]=="protocol")
         target["kind"]="semantic"

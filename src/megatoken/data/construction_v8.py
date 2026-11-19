@@ -108,7 +108,7 @@ def create_state():
 
 def _construct_state(machine):
     protocol = machine["protocol"]
-    if "construction" not in protocol: protocol["construction"] = create_state()
+    if protocol.get("construction") is None: protocol["construction"] = create_state()
     return protocol["construction"]
 
 
