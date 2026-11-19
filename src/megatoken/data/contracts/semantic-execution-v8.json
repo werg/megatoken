@@ -1,0 +1,1099 @@
+{
+  "schema": "semantic-execution-contract/8",
+  "definition": {
+    "execution": "semantic-execution/8",
+    "trace": "semantic-trace/8",
+    "context": "semantic-context/8",
+    "continuation": "semantic-continuation/8",
+    "profile": "compositional-regions/1",
+    "representation": "mixed",
+    "publicFields": [
+      "schema",
+      "traceFormat",
+      "contextFormat",
+      "representation",
+      "profile",
+      "timeline"
+    ],
+    "envelopeFields": [
+      "sequence",
+      "mode",
+      "kind",
+      "fields"
+    ],
+    "program": {
+      "schema": "semantic-region-program/1",
+      "fields": [
+        "schema",
+        "traceFormat",
+        "profile",
+        "source",
+        "entry",
+        "sourceDigest",
+        "regions",
+        "algorithm",
+        "definitionDigest"
+      ],
+      "sourceCorrespondence": "Independently rechecked producer evidence; public hashes alone do not certify source truth."
+    },
+    "entry": {
+      "fields": [
+        "definition",
+        "region",
+        "regionDigest",
+        "visibleThrough",
+        "stateDigest"
+      ],
+      "authority": "trusted-host-envelope",
+      "supervised": false,
+      "state": "entire shared continuation"
+    },
+    "records": {
+      "region": {
+        "prefix": "region ",
+        "fields": [
+          "region",
+          "bindings",
+          "decisions",
+          "completion"
+        ],
+        "profile": "local-primitive-block/1",
+        "termKinds": [
+          "literal",
+          "local",
+          "unary",
+          "binary",
+          "logical",
+          "select"
+        ],
+        "completionKinds": [
+          "normal",
+          "return"
+        ],
+        "limits": {
+          "operations": 16,
+          "nodes": 128,
+          "depth": 16,
+          "regions": 256
+        }
+      },
+      "algorithm": {
+        "prefix": "algorithm ",
+        "fields": [
+          "claims",
+          "allocations",
+          "completion"
+        ],
+        "profile": "pure-algorithm-region/1",
+        "allocationMapping": "Retain all input identities. Map new core identities in allocation order to the first unused oN identity. Preserve aliases and ECMAScript own-key order."
+      },
+      "detail": {
+        "prefix": "detail ",
+        "fields": [
+          "kind",
+          "fields"
+        ],
+        "witnessSchema": {
+          "code": [
+            "entry",
+            "source",
+            "sites",
+            "randomSeed"
+          ],
+          "input": [
+            "graph",
+            "retained"
+          ],
+          "compute": [
+            "expr",
+            "result",
+            "bind",
+            "invocation",
+            "site"
+          ],
+          "choose": [
+            "expr",
+            "decision",
+            "path",
+            "invocation",
+            "site"
+          ],
+          "allocate": [
+            "name",
+            "kind",
+            "length",
+            "properties",
+            "code",
+            "captures",
+            "invocation"
+          ],
+          "read": [
+            "object",
+            "key",
+            "value",
+            "present",
+            "invocation"
+          ],
+          "write": [
+            "object",
+            "key",
+            "value",
+            "present",
+            "invocation"
+          ],
+          "bind": [
+            "name",
+            "value",
+            "from",
+            "invocation"
+          ],
+          "call": [
+            "child",
+            "callee",
+            "receiver",
+            "arguments",
+            "invocation"
+          ],
+          "transfer": [
+            "kind",
+            "value",
+            "handler",
+            "invocation"
+          ],
+          "return": [
+            "value",
+            "invocation"
+          ],
+          "throw": [
+            "value",
+            "invocation"
+          ],
+          "request": [
+            "effect",
+            "operation",
+            "arguments",
+            "invocation",
+            "site",
+            "payload",
+            "promise"
+          ],
+          "observe": [
+            "effect",
+            "result",
+            "status",
+            "graph"
+          ],
+          "job": [
+            "action",
+            "job",
+            "owner",
+            "result",
+            "closure"
+          ],
+          "promise": [
+            "action",
+            "promise",
+            "value",
+            "target",
+            "job",
+            "reaction",
+            "closure",
+            "rejectionClosure",
+            "invocation"
+          ],
+          "await": [
+            "promise",
+            "continuation",
+            "invocation",
+            "returnPromise"
+          ],
+          "resume": [
+            "continuation",
+            "invocation",
+            "result",
+            "status"
+          ],
+          "end": [
+            "kind"
+          ],
+          "summarize": [
+            "entry",
+            "arguments",
+            "result",
+            "profile",
+            "decisions",
+            "iterations",
+            "accumulator",
+            "invocation"
+          ],
+          "value-open": [
+            "id",
+            "type"
+          ],
+          "value-part": [
+            "id",
+            "data"
+          ],
+          "value-close": [
+            "id"
+          ]
+        },
+        "meaning": "Existing checked selected-detailed/1 transitions, committed into the same shared machine."
+      }
+    },
+    "algorithm": {
+      "schema": "semantic-algorithm/2",
+      "profile": "ecmascript-pure-regions/1",
+      "limits": {
+        "steps": 256,
+        "nodes": 2048,
+        "depth": 64,
+        "items": 128,
+        "work": 32768,
+        "allocations": 1024
+      },
+      "inputTypes": [
+        "value",
+        "scalar",
+        "number",
+        "dense-number-array",
+        "dense-primitive-array",
+        "data",
+        "nullable-data"
+      ],
+      "traversalModes": [
+        "fold",
+        "map",
+        "filter",
+        "find",
+        "find_index",
+        "some",
+        "every",
+        "scan"
+      ],
+      "operations": {
+        "add": {
+          "family": "primitive",
+          "domain": "ecmascript-primitive",
+          "order": "left-to-right",
+          "lazy": false,
+          "mayThrow": true,
+          "reads": [],
+          "writes": [],
+          "callsGuest": false,
+          "allocates": false,
+          "completion": [
+            "normal",
+            "throw"
+          ],
+          "consumer": {
+            "javascript": "implemented",
+            "native": "requires-exact-v8-admission"
+          },
+          "arity": 2,
+          "operator": "+"
+        },
+        "subtract": {
+          "family": "primitive",
+          "domain": "ecmascript-primitive",
+          "order": "left-to-right",
+          "lazy": false,
+          "mayThrow": true,
+          "reads": [],
+          "writes": [],
+          "callsGuest": false,
+          "allocates": false,
+          "completion": [
+            "normal",
+            "throw"
+          ],
+          "consumer": {
+            "javascript": "implemented",
+            "native": "requires-exact-v8-admission"
+          },
+          "arity": 2,
+          "operator": "-"
+        },
+        "multiply": {
+          "family": "primitive",
+          "domain": "ecmascript-primitive",
+          "order": "left-to-right",
+          "lazy": false,
+          "mayThrow": true,
+          "reads": [],
+          "writes": [],
+          "callsGuest": false,
+          "allocates": false,
+          "completion": [
+            "normal",
+            "throw"
+          ],
+          "consumer": {
+            "javascript": "implemented",
+            "native": "requires-exact-v8-admission"
+          },
+          "arity": 2,
+          "operator": "*"
+        },
+        "divide": {
+          "family": "primitive",
+          "domain": "ecmascript-primitive",
+          "order": "left-to-right",
+          "lazy": false,
+          "mayThrow": true,
+          "reads": [],
+          "writes": [],
+          "callsGuest": false,
+          "allocates": false,
+          "completion": [
+            "normal",
+            "throw"
+          ],
+          "consumer": {
+            "javascript": "implemented",
+            "native": "requires-exact-v8-admission"
+          },
+          "arity": 2,
+          "operator": "/"
+        },
+        "remainder": {
+          "family": "primitive",
+          "domain": "ecmascript-primitive",
+          "order": "left-to-right",
+          "lazy": false,
+          "mayThrow": true,
+          "reads": [],
+          "writes": [],
+          "callsGuest": false,
+          "allocates": false,
+          "completion": [
+            "normal",
+            "throw"
+          ],
+          "consumer": {
+            "javascript": "implemented",
+            "native": "requires-exact-v8-admission"
+          },
+          "arity": 2,
+          "operator": "%"
+        },
+        "power": {
+          "family": "primitive",
+          "domain": "ecmascript-primitive",
+          "order": "left-to-right",
+          "lazy": false,
+          "mayThrow": true,
+          "reads": [],
+          "writes": [],
+          "callsGuest": false,
+          "allocates": false,
+          "completion": [
+            "normal",
+            "throw"
+          ],
+          "consumer": {
+            "javascript": "implemented",
+            "native": "requires-exact-v8-admission"
+          },
+          "arity": 2,
+          "operator": "**"
+        },
+        "less": {
+          "family": "primitive",
+          "domain": "ecmascript-primitive",
+          "order": "left-to-right",
+          "lazy": false,
+          "mayThrow": true,
+          "reads": [],
+          "writes": [],
+          "callsGuest": false,
+          "allocates": false,
+          "completion": [
+            "normal",
+            "throw"
+          ],
+          "consumer": {
+            "javascript": "implemented",
+            "native": "requires-exact-v8-admission"
+          },
+          "arity": 2,
+          "operator": "<"
+        },
+        "less_equal": {
+          "family": "primitive",
+          "domain": "ecmascript-primitive",
+          "order": "left-to-right",
+          "lazy": false,
+          "mayThrow": true,
+          "reads": [],
+          "writes": [],
+          "callsGuest": false,
+          "allocates": false,
+          "completion": [
+            "normal",
+            "throw"
+          ],
+          "consumer": {
+            "javascript": "implemented",
+            "native": "requires-exact-v8-admission"
+          },
+          "arity": 2,
+          "operator": "<="
+        },
+        "greater": {
+          "family": "primitive",
+          "domain": "ecmascript-primitive",
+          "order": "left-to-right",
+          "lazy": false,
+          "mayThrow": true,
+          "reads": [],
+          "writes": [],
+          "callsGuest": false,
+          "allocates": false,
+          "completion": [
+            "normal",
+            "throw"
+          ],
+          "consumer": {
+            "javascript": "implemented",
+            "native": "requires-exact-v8-admission"
+          },
+          "arity": 2,
+          "operator": ">"
+        },
+        "greater_equal": {
+          "family": "primitive",
+          "domain": "ecmascript-primitive",
+          "order": "left-to-right",
+          "lazy": false,
+          "mayThrow": true,
+          "reads": [],
+          "writes": [],
+          "callsGuest": false,
+          "allocates": false,
+          "completion": [
+            "normal",
+            "throw"
+          ],
+          "consumer": {
+            "javascript": "implemented",
+            "native": "requires-exact-v8-admission"
+          },
+          "arity": 2,
+          "operator": ">="
+        },
+        "equal": {
+          "family": "primitive",
+          "domain": "ecmascript-primitive",
+          "order": "left-to-right",
+          "lazy": false,
+          "mayThrow": false,
+          "reads": [],
+          "writes": [],
+          "callsGuest": false,
+          "allocates": false,
+          "completion": [
+            "normal",
+            "throw"
+          ],
+          "consumer": {
+            "javascript": "implemented",
+            "native": "requires-exact-v8-admission"
+          },
+          "arity": 2,
+          "operator": "==="
+        },
+        "not_equal": {
+          "family": "primitive",
+          "domain": "ecmascript-primitive",
+          "order": "left-to-right",
+          "lazy": false,
+          "mayThrow": false,
+          "reads": [],
+          "writes": [],
+          "callsGuest": false,
+          "allocates": false,
+          "completion": [
+            "normal",
+            "throw"
+          ],
+          "consumer": {
+            "javascript": "implemented",
+            "native": "requires-exact-v8-admission"
+          },
+          "arity": 2,
+          "operator": "!=="
+        },
+        "loose_equal": {
+          "family": "primitive",
+          "domain": "ecmascript-primitive",
+          "order": "left-to-right",
+          "lazy": false,
+          "mayThrow": true,
+          "reads": [],
+          "writes": [],
+          "callsGuest": false,
+          "allocates": false,
+          "completion": [
+            "normal",
+            "throw"
+          ],
+          "consumer": {
+            "javascript": "implemented",
+            "native": "requires-exact-v8-admission"
+          },
+          "arity": 2,
+          "operator": "=="
+        },
+        "loose_not_equal": {
+          "family": "primitive",
+          "domain": "ecmascript-primitive",
+          "order": "left-to-right",
+          "lazy": false,
+          "mayThrow": true,
+          "reads": [],
+          "writes": [],
+          "callsGuest": false,
+          "allocates": false,
+          "completion": [
+            "normal",
+            "throw"
+          ],
+          "consumer": {
+            "javascript": "implemented",
+            "native": "requires-exact-v8-admission"
+          },
+          "arity": 2,
+          "operator": "!="
+        },
+        "bit_and": {
+          "family": "primitive",
+          "domain": "ecmascript-primitive",
+          "order": "left-to-right",
+          "lazy": false,
+          "mayThrow": true,
+          "reads": [],
+          "writes": [],
+          "callsGuest": false,
+          "allocates": false,
+          "completion": [
+            "normal",
+            "throw"
+          ],
+          "consumer": {
+            "javascript": "implemented",
+            "native": "requires-exact-v8-admission"
+          },
+          "arity": 2,
+          "operator": "&"
+        },
+        "bit_or": {
+          "family": "primitive",
+          "domain": "ecmascript-primitive",
+          "order": "left-to-right",
+          "lazy": false,
+          "mayThrow": true,
+          "reads": [],
+          "writes": [],
+          "callsGuest": false,
+          "allocates": false,
+          "completion": [
+            "normal",
+            "throw"
+          ],
+          "consumer": {
+            "javascript": "implemented",
+            "native": "requires-exact-v8-admission"
+          },
+          "arity": 2,
+          "operator": "|"
+        },
+        "bit_xor": {
+          "family": "primitive",
+          "domain": "ecmascript-primitive",
+          "order": "left-to-right",
+          "lazy": false,
+          "mayThrow": true,
+          "reads": [],
+          "writes": [],
+          "callsGuest": false,
+          "allocates": false,
+          "completion": [
+            "normal",
+            "throw"
+          ],
+          "consumer": {
+            "javascript": "implemented",
+            "native": "requires-exact-v8-admission"
+          },
+          "arity": 2,
+          "operator": "^"
+        },
+        "shift_left": {
+          "family": "primitive",
+          "domain": "ecmascript-primitive",
+          "order": "left-to-right",
+          "lazy": false,
+          "mayThrow": true,
+          "reads": [],
+          "writes": [],
+          "callsGuest": false,
+          "allocates": false,
+          "completion": [
+            "normal",
+            "throw"
+          ],
+          "consumer": {
+            "javascript": "implemented",
+            "native": "requires-exact-v8-admission"
+          },
+          "arity": 2,
+          "operator": "<<"
+        },
+        "shift_right": {
+          "family": "primitive",
+          "domain": "ecmascript-primitive",
+          "order": "left-to-right",
+          "lazy": false,
+          "mayThrow": true,
+          "reads": [],
+          "writes": [],
+          "callsGuest": false,
+          "allocates": false,
+          "completion": [
+            "normal",
+            "throw"
+          ],
+          "consumer": {
+            "javascript": "implemented",
+            "native": "requires-exact-v8-admission"
+          },
+          "arity": 2,
+          "operator": ">>"
+        },
+        "unsigned_shift_right": {
+          "family": "primitive",
+          "domain": "ecmascript-primitive",
+          "order": "left-to-right",
+          "lazy": false,
+          "mayThrow": true,
+          "reads": [],
+          "writes": [],
+          "callsGuest": false,
+          "allocates": false,
+          "completion": [
+            "normal",
+            "throw"
+          ],
+          "consumer": {
+            "javascript": "implemented",
+            "native": "requires-exact-v8-admission"
+          },
+          "arity": 2,
+          "operator": ">>>"
+        },
+        "not": {
+          "family": "primitive",
+          "domain": "ecmascript-primitive",
+          "order": "left-to-right",
+          "lazy": false,
+          "mayThrow": false,
+          "reads": [],
+          "writes": [],
+          "callsGuest": false,
+          "allocates": false,
+          "completion": [
+            "normal",
+            "throw"
+          ],
+          "consumer": {
+            "javascript": "implemented",
+            "native": "requires-exact-v8-admission"
+          },
+          "arity": 1,
+          "operator": "!"
+        },
+        "positive": {
+          "family": "primitive",
+          "domain": "ecmascript-primitive",
+          "order": "left-to-right",
+          "lazy": false,
+          "mayThrow": true,
+          "reads": [],
+          "writes": [],
+          "callsGuest": false,
+          "allocates": false,
+          "completion": [
+            "normal",
+            "throw"
+          ],
+          "consumer": {
+            "javascript": "implemented",
+            "native": "requires-exact-v8-admission"
+          },
+          "arity": 1,
+          "operator": "+"
+        },
+        "negate": {
+          "family": "primitive",
+          "domain": "ecmascript-primitive",
+          "order": "left-to-right",
+          "lazy": false,
+          "mayThrow": true,
+          "reads": [],
+          "writes": [],
+          "callsGuest": false,
+          "allocates": false,
+          "completion": [
+            "normal",
+            "throw"
+          ],
+          "consumer": {
+            "javascript": "implemented",
+            "native": "requires-exact-v8-admission"
+          },
+          "arity": 1,
+          "operator": "-"
+        },
+        "bit_not": {
+          "family": "primitive",
+          "domain": "ecmascript-primitive",
+          "order": "left-to-right",
+          "lazy": false,
+          "mayThrow": true,
+          "reads": [],
+          "writes": [],
+          "callsGuest": false,
+          "allocates": false,
+          "completion": [
+            "normal",
+            "throw"
+          ],
+          "consumer": {
+            "javascript": "implemented",
+            "native": "requires-exact-v8-admission"
+          },
+          "arity": 1,
+          "operator": "~"
+        },
+        "type_of": {
+          "family": "primitive",
+          "domain": "ecmascript-primitive",
+          "order": "left-to-right",
+          "lazy": false,
+          "mayThrow": false,
+          "reads": [],
+          "writes": [],
+          "callsGuest": false,
+          "allocates": false,
+          "completion": [
+            "normal",
+            "throw"
+          ],
+          "consumer": {
+            "javascript": "implemented",
+            "native": "requires-exact-v8-admission"
+          },
+          "arity": 1,
+          "operator": "typeof"
+        },
+        "void": {
+          "family": "primitive",
+          "domain": "ecmascript-primitive",
+          "order": "left-to-right",
+          "lazy": false,
+          "mayThrow": false,
+          "reads": [],
+          "writes": [],
+          "callsGuest": false,
+          "allocates": false,
+          "completion": [
+            "normal",
+            "throw"
+          ],
+          "consumer": {
+            "javascript": "implemented",
+            "native": "requires-exact-v8-admission"
+          },
+          "arity": 1,
+          "operator": "void"
+        },
+        "select": {
+          "family": "selection",
+          "domain": "ecmascript-primitive",
+          "order": "left-to-right",
+          "lazy": true,
+          "mayThrow": false,
+          "reads": [],
+          "writes": [],
+          "callsGuest": false,
+          "allocates": false,
+          "completion": [
+            "normal",
+            "throw"
+          ],
+          "consumer": {
+            "javascript": "implemented",
+            "native": "requires-exact-v8-admission"
+          },
+          "arity": 3,
+          "operator": "?:"
+        },
+        "and": {
+          "family": "selection",
+          "domain": "ecmascript-primitive",
+          "order": "left-to-right",
+          "lazy": true,
+          "mayThrow": false,
+          "reads": [],
+          "writes": [],
+          "callsGuest": false,
+          "allocates": false,
+          "completion": [
+            "normal",
+            "throw"
+          ],
+          "consumer": {
+            "javascript": "implemented",
+            "native": "requires-exact-v8-admission"
+          },
+          "arity": 2,
+          "operator": "&&"
+        },
+        "or": {
+          "family": "selection",
+          "domain": "ecmascript-primitive",
+          "order": "left-to-right",
+          "lazy": true,
+          "mayThrow": false,
+          "reads": [],
+          "writes": [],
+          "callsGuest": false,
+          "allocates": false,
+          "completion": [
+            "normal",
+            "throw"
+          ],
+          "consumer": {
+            "javascript": "implemented",
+            "native": "requires-exact-v8-admission"
+          },
+          "arity": 2,
+          "operator": "||"
+        },
+        "coalesce": {
+          "family": "selection",
+          "domain": "ecmascript-primitive",
+          "order": "left-to-right",
+          "lazy": true,
+          "mayThrow": false,
+          "reads": [],
+          "writes": [],
+          "callsGuest": false,
+          "allocates": false,
+          "completion": [
+            "normal",
+            "throw"
+          ],
+          "consumer": {
+            "javascript": "implemented",
+            "native": "requires-exact-v8-admission"
+          },
+          "arity": 2,
+          "operator": "??"
+        },
+        "default_undefined": {
+          "family": "selection",
+          "domain": "primitive-or-reference",
+          "order": "left-to-right",
+          "lazy": true,
+          "mayThrow": false,
+          "reads": [],
+          "writes": [],
+          "callsGuest": false,
+          "allocates": false,
+          "completion": [
+            "normal"
+          ],
+          "arity": 2
+        },
+        "traverse": {
+          "family": "traversal",
+          "domain": "dense-primitive-array/1",
+          "order": "ascending",
+          "lazy": true,
+          "mayThrow": true,
+          "reads": [
+            "input-elements"
+          ],
+          "writes": [],
+          "callsGuest": false,
+          "allocates": true,
+          "completion": [
+            "normal",
+            "throw"
+          ],
+          "modes": [
+            "fold",
+            "map",
+            "filter",
+            "find",
+            "find_index",
+            "some",
+            "every",
+            "scan"
+          ]
+        },
+        "get": {
+          "family": "projection",
+          "domain": "ordinary-own-data/1",
+          "order": "object-before-key",
+          "lazy": false,
+          "mayThrow": true,
+          "reads": [
+            "own-data"
+          ],
+          "writes": [],
+          "callsGuest": false,
+          "allocates": false,
+          "completion": [
+            "normal"
+          ]
+        },
+        "let": {
+          "family": "binding",
+          "domain": "checked-pure-terms",
+          "order": "left-to-right",
+          "lazy": false,
+          "mayThrow": true,
+          "reads": [
+            "bound-values"
+          ],
+          "writes": [],
+          "callsGuest": false,
+          "allocates": false,
+          "completion": [
+            "normal",
+            "throw"
+          ]
+        },
+        "array": {
+          "family": "allocation",
+          "domain": "dense-own-data/1",
+          "order": "left-to-right",
+          "lazy": false,
+          "mayThrow": false,
+          "reads": [],
+          "writes": [
+            "fresh-array"
+          ],
+          "callsGuest": false,
+          "allocates": true,
+          "completion": [
+            "normal"
+          ]
+        },
+        "object": {
+          "family": "allocation",
+          "domain": "ordinary-own-data/1",
+          "order": "left-to-right",
+          "lazy": false,
+          "mayThrow": false,
+          "reads": [],
+          "writes": [
+            "fresh-object"
+          ],
+          "callsGuest": false,
+          "allocates": true,
+          "completion": [
+            "normal"
+          ]
+        }
+      }
+    },
+    "contextFields": [
+      "schema",
+      "representation",
+      "profile",
+      "invocationId",
+      "programs",
+      "input",
+      "state",
+      "regionCursor",
+      "obligations",
+      "visibleThrough",
+      "prefixDigest"
+    ],
+    "sharedStateFields": [
+      "heap",
+      "locals",
+      "stack",
+      "effects",
+      "jobs",
+      "ready",
+      "randomState",
+      "pending",
+      "lastReturn",
+      "completion",
+      "receiver",
+      "captureAliases",
+      "continuations",
+      "reactionSequence",
+      "blockedSync",
+      "callReturn",
+      "activeJob",
+      "scheduler",
+      "frameFunctions",
+      "jobErrors"
+    ],
+    "checkpoint": {
+      "fields": [
+        "schema",
+        "profile",
+        "public",
+        "regionCursor",
+        "selected",
+        "integrity"
+      ],
+      "restore": "Validate public mixed replay and exact shared state. Restore existing intent/handler lifecycle without invoking adapters."
+    },
+    "supervision": {
+      "generated": "Only exact generated semantic line bytes and framing EOS.",
+      "observed": "Definitions, entry envelopes, inputs, dispatch receipts and external results have zero prediction loss.",
+      "private": "Source archives, correspondence maps, future observations, reference outcomes and receipt sidecars never enter prompts."
+    },
+    "promotion": {
+      "source": "required",
+      "intermediateClaims": "required",
+      "native": "exact pinned consumer required",
+      "tokenizer": "exact serialized input and whole-sequence encoding required",
+      "model": "external results or explicit untested disposition",
+      "default": "not promoted by engineering receipts alone"
+    }
+  },
+  "digest": "fe1eed56bafa5c0012354b29ebb3b40bbe33f085f063d6990fcb3f26cb261cc2",
+  "fixtureDigest": "56f7f36d3b25b3b11a208be3de337e637b9782e6759faea1e1ec107b0a90f0ce",
+  "fixtures": [
+    {
+      "valid": false,
+      "line": "region {\"future\":1}",
+      "reason": "unknown fields"
+    },
+    {
+      "valid": false,
+      "line": "algorithm {\"claims\":[],\"allocations\":[],\"completion\":{\"kind\":\"suspend\"}}",
+      "reason": "missing or invalid completion"
+    },
+    {
+      "valid": false,
+      "line": "detail {\"kind\":\"observe\",\"fields\":{\"effect\":\"e0\",\"status\":\"fulfilled\",\"result\":[\"num\",7]}}",
+      "role": "generated",
+      "reason": "observation cannot be generated"
+    },
+    {
+      "valid": false,
+      "execution": "semantic-execution/7",
+      "reason": "old artifacts require their original contract"
+    }
+  ]
+}
