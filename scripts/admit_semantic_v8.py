@@ -147,9 +147,9 @@ def main():
                     "class-private-source/1",
                     "synchronous-generator-source/1",
                     "promise-join/1",
+                    "promise-executor/1",
                     "number-conversion-source/1",
                     "ordinary-data-proxy-source/1",
-                    "promise-executor/1",
                 }
                 if (
                     not isinstance(extensions, list)

@@ -110,6 +110,7 @@ FIELDS.update(CONSTRUCTION_FIELDS)
 FIELDS.update(MEMORY_FIELDS)
 FIELDS.update(ITERATOR_FIELDS)
 FIELDS.update(PROMISE_JOIN_FIELDS)
+FIELDS.update(PROMISE_EXECUTOR_FIELDS)
 FIELDS.update(NUMBER_FIELDS)
 FIELDS.update(GENERATOR_FIELDS)
 FIELDS.update(PROXY_FIELDS)
@@ -1561,8 +1562,8 @@ def assert_detailed_record_compatible(shared_state, kind, fields):
         target = machine["heap"].get(identity)
         if target and target.get("generatorFunction") is True:
             _fail("Detailed call bypasses generator creation/resume protocol")
-        if kind == "call" and isinstance(callee, list) and callee[0] == "ref":
-            assert_promise_executor_callable(machine, callee)
+        if kind == "call" and target:
+            assert_promise_executor_callable(machine, ["ref", identity])
     if shared_state["protocol"]["pendingCalls"] and kind == "end":
         _fail("Unfinished accessor call")
     if kind in ("return", "throw") and machine["stack"]:

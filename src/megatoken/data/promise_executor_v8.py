@@ -126,8 +126,6 @@ def apply_record(machine, record):
             and any(row["promise"] == record["promise"] for row in data["capabilities"])
         ):
             _fail("executor requires a fresh pending Promise")
-        if machine.get("activeJob"):
-            _fail("executor inside an active reaction")
         if data and len(data["capabilities"]) >= BOUND:
             _fail("capability count bound")
         _fresh(machine, record["resolve"])
@@ -190,9 +188,11 @@ def apply_record(machine, record):
         )
         if capability is None:
             _fail("undeclared resolving function")
+        mode = "resolve" if capability["resolve"] == resolver[1] else "reject"
+        if p._node(machine, resolver[1]) != _resolver_node(capability["promise"], mode):
+            _fail("resolving function metadata changed")
         if capability["called"]:
             return True
-        mode = "resolve" if capability["resolve"] == resolver[1] else "reject"
         target = _promise(machine, capability["promise"])
         value = record["value"]
         if target["state"] == "pending" and mode == "resolve" and value[0] == "ref":
@@ -337,21 +337,19 @@ def validate_state(machine):
         ):
             _fail("resolving function first-call cell")
         resolution = capability["resolution"]
+        agrees = False
         if resolution is not None:
             p._exact(resolution, {"mode", "value"}, "resolver first call")
             if resolution["mode"] not in ("resolve", "reject"):
                 _fail("resolution mode")
             value = _known(machine, resolution["value"])
-            if resolution["mode"] == "resolve" and value[0] == "ref":
-                _fail("retained object resolution is outside the assimilation profile")
             agrees = (
-                target.get("adopted") is None
+                (resolution["mode"] == "reject" or value[0] != "ref")
+                and target.get("adopted") is None
                 and target["state"]
                 == ("fulfilled" if resolution["mode"] == "resolve" else "rejected")
                 and target.get("result") == value
             )
-            if not agrees:
-                _fail("first resolver call contradicts Promise settlement")
         entry = entries.get(capability["promise"])
         thrown = bool(
             entry
@@ -364,7 +362,7 @@ def validate_state(machine):
         )
         if capability["called"]:
             if not agrees and not thrown:
-                _fail("resolver first call and Promise settlement disagree")
+                _fail("resolver first call contradicts Promise settlement")
         elif not (target["state"] == "pending" and target.get("adopted") is None or thrown):
             _fail("executor throw and Promise settlement disagree")
     completed = set()
@@ -398,17 +396,19 @@ def validate_state(machine):
                 ),
                 None,
             )
+            cap = next(row for row in data["capabilities"] if row["promise"] == entry["promise"])
             if (
                 entry["completion"] is not None
                 or entry["parent"] not in machine["stack"]
                 or entry["child"] not in machine["stack"]
                 or not call
                 or call["parent"] != entry["parent"]
+                or call["arguments"] != [["ref", cap["resolve"]], ["ref", cap["reject"]]]
             ):
-                _fail("unfinished executor call frame")
+                _fail("unfinished executor call frame or resolving pair")
         else:
             p._exact(entry["completion"], {"kind", "value"}, "executor completion")
-            p.validate_protocol_value(entry["completion"]["value"])
+            _known(machine, entry["completion"]["value"])
             if (
                 entry["completion"]["kind"] not in ("return", "throw")
                 or entry["child"] in machine["stack"]

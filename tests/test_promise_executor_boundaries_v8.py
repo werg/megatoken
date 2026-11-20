@@ -1,0 +1,206 @@
+import copy
+import unittest
+
+from megatoken.data.promise_executor_v8 import validate_state
+from megatoken.data.promise_scheduler_v8 import create_promise
+from megatoken.data.protocol_v8 import (
+    ProtocolV8Error,
+    _external_machine,
+    _internal_machine,
+    apply_protocol_record,
+    assert_detailed_record_compatible,
+    decode_protocol_record,
+    encode_protocol_record,
+    validate_protocol_state,
+)
+from tests.test_number_v8 import allocate, machine
+
+
+def executor_machine(active_job=False):
+    state = machine()
+    state.update(jobs=[], continuations=[], ready=[], scheduler={"registration": 0, "ready": 0})
+    create_promise(state, "promise")
+    allocate(state, "executor", "closure")
+    if active_job:
+        state["activeJob"] = "reaction"
+        state["stack"] = ["job:reaction"]
+        state["frameFunctions"]["job:reaction"] = "callback"
+        state["jobs"] = [["reaction", {"status": "running"}]]
+    return state
+
+
+def enter(state):
+    apply_protocol_record(
+        state,
+        {
+            "kind": "promise.executor.enter",
+            "promise": "promise",
+            "executor": ["ref", "executor"],
+            "child": "executor-call",
+            "resolve": "resolve",
+            "reject": "reject",
+        },
+    )
+
+
+def resolve(state, value, resolver="resolve"):
+    record = {"kind": "promise.resolver.call", "resolver": ["ref", resolver], "value": value}
+    apply_protocol_record(state, decode_protocol_record(encode_protocol_record(record)))
+
+
+def finish(state, kind="return", value=None):
+    apply_protocol_record(
+        state,
+        {
+            "kind": "promise.executor.finish",
+            "promise": "promise",
+            "invocation": "executor-call",
+            "completion": {"kind": kind, "value": ["undefined"] if value is None else value},
+        },
+    )
+
+
+def restore(state):
+    shared = _external_machine(state)
+    validate_protocol_state(shared["protocol"], shared["heap"], shared)
+    return _internal_machine(shared)
+
+
+class PromiseExecutorTests(unittest.TestCase):
+    def test_first_resolving_call_wins_over_opposite_handle_and_executor_throw(self):
+        state = executor_machine()
+        enter(state)
+        state = restore(state)
+        resolve(state, ["num", 7])
+        state = restore(state)
+        resolve(state, ["str", "ignored"], "reject")
+        finish(state, "throw", ["str", "also ignored"])
+        state = restore(state)
+        self.assertEqual(state["heap"]["promise"]["state"], "fulfilled")
+        self.assertEqual(state["heap"]["promise"]["result"], ["num", 7])
+        self.assertEqual(state["lastReturn"], {"kind": "return", "value": ["ref", "promise"]})
+        self.assertEqual(state["stack"], ["root"])
+        self.assertEqual(state["protocol"]["callFrames"], [])
+
+    def test_resolving_functions_survive_executor_completion(self):
+        for thrown in (False, True):
+            with self.subTest(thrown=thrown):
+                state = executor_machine()
+                enter(state)
+                finish(state, "throw" if thrown else "return", ["str", "boom"])
+                state = restore(state)
+                resolve(state, ["num", 9])
+                resolve(state, ["ref", "executor"])
+                state = restore(state)
+                self.assertEqual(
+                    state["heap"]["promise"]["state"], "rejected" if thrown else "fulfilled"
+                )
+                self.assertEqual(
+                    state["heap"]["promise"]["result"], ["str", "boom"] if thrown else ["num", 9]
+                )
+
+    def test_reference_resolution_is_refused_before_first_call_but_rejection_is_owned(self):
+        for target in ("object", "other-promise"):
+            state = executor_machine()
+            allocate(state, "object")
+            create_promise(state, "other-promise")
+            enter(state)
+            before = copy.deepcopy(state)
+            with self.assertRaisesRegex(ProtocolV8Error, "assimilation"):
+                resolve(state, ["ref", target])
+            self.assertEqual(state, before)
+            resolve(state, ["ref", target], "reject")
+            finish(state)
+            self.assertTrue(validate_state(restore(state)))
+            self.assertEqual(state["heap"]["promise"]["result"], ["ref", target])
+
+    def test_executor_inside_reaction_preserves_job_and_nested_helper_scope(self):
+        state = executor_machine(active_job=True)
+        allocate(state, "helper", "closure")
+        enter(state)
+        apply_protocol_record(
+            state,
+            {
+                "kind": "call",
+                "callee": ["ref", "helper"],
+                "child": "helper-call",
+                "receiver": ["undefined"],
+                "arguments": [],
+            },
+        )
+        apply_protocol_record(
+            state, {"kind": "return", "invocation": "helper-call", "value": ["num", 4]}
+        )
+        resolve(state, ["num", 4])
+        finish(state)
+        state = restore(state)
+        self.assertEqual(state["activeJob"], "reaction")
+        self.assertEqual(state["stack"], ["job:reaction"])
+        self.assertEqual(state["heap"]["promise"]["result"], ["num", 4])
+
+    def test_unscoped_completion_settlement_and_resolver_calls_are_rejected(self):
+        state = executor_machine()
+        enter(state)
+        records = [
+            {"kind": "return", "invocation": "executor-call", "value": ["undefined"]},
+            {
+                "kind": "call",
+                "child": "illegal",
+                "callee": ["ref", "resolve"],
+                "receiver": ["undefined"],
+                "arguments": [["num", 1]],
+            },
+            {
+                "kind": "property.set",
+                "object": "resolve",
+                "receiver": ["ref", "resolve"],
+                "key": ["str", "x"],
+                "value": ["num", 1],
+                "success": True,
+            },
+        ]
+        before = copy.deepcopy(state)
+        for record in records:
+            with self.subTest(kind=record["kind"]), self.assertRaises(ProtocolV8Error):
+                apply_protocol_record(state, record)
+            self.assertEqual(state, before)
+        with self.assertRaisesRegex(ProtocolV8Error, "resolver record"):
+            assert_detailed_record_compatible(
+                _external_machine(state),
+                "promise",
+                {"action": "resolve", "promise": "promise", "value": ["num", 1]},
+            )
+
+    def test_restoration_checks_first_call_cell_and_original_resolving_pair(self):
+        state = executor_machine()
+        enter(state)
+        cases = []
+        changed = copy.deepcopy(state)
+        changed["protocol"]["callFrames"][0]["arguments"].reverse()
+        cases.append(changed)
+        changed = copy.deepcopy(state)
+        changed["heap"]["resolve"]["promiseResolver"]["mode"] = "reject"
+        cases.append(changed)
+        changed = copy.deepcopy(state)
+        changed["protocol"]["promiseExecutors"]["capabilities"][0]["called"] = True
+        cases.append(changed)
+        for changed in cases:
+            with self.assertRaises(ProtocolV8Error):
+                validate_state(changed)
+        resolve(state, ["num", 1])
+        finish(state)
+        changed = copy.deepcopy(state)
+        changed["heap"]["promise"]["result"] = ["num", 2]
+        with self.assertRaisesRegex(ProtocolV8Error, "contradicts"):
+            validate_state(changed)
+
+    def test_rejected_first_entry_and_unknown_resolver_leave_state_unchanged(self):
+        state = executor_machine()
+        allocate(state, "resolve")
+        before = copy.deepcopy(state)
+        with self.assertRaisesRegex(ProtocolV8Error, "identity"):
+            enter(state)
+        self.assertEqual(state, before)
+        with self.assertRaisesRegex(ProtocolV8Error, "undeclared"):
+            resolve(state, ["num", 1], "executor")
+        self.assertEqual(state, before)
