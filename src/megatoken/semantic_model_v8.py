@@ -296,8 +296,9 @@ class NativeSemanticInferenceV8:
                 attempt["contextTokens"] = measured["tokens"]
                 attempt["contextBytes"] = measured["bytes"]
                 attempt["contextPhysicalRecords"] = measured["physicalRecords"]
+                required_events = set(measured["events"])
                 visibility = self.runtime.context_status(branch, track=MAIN_TRACK)
-                if not set(measured["events"]) <= set(visibility["visible_events"]):
+                if not required_events <= set(visibility["visible_events"]):
                     raise NativeSelectionV8Error(
                         "The complete v8 current context does not fit native visible history"
                     )
@@ -305,6 +306,13 @@ class NativeSemanticInferenceV8:
                 attempt["preparationSeconds"] = time.perf_counter() - started
                 generation_started = time.perf_counter()
                 for index in range(self.max_fragments):
+                    if index:
+                        visibility = self.runtime.context_status(branch, track=MAIN_TRACK)
+                        if not required_events <= set(visibility["visible_events"]):
+                            raise NativeSelectionV8Error(
+                                "The complete v8 context and earlier record fragments "
+                                "are no longer visible"
+                            )
                     control = build_request_control(
                         instruction=semantic_selection_instruction_v8(continuation=index > 0)
                     )
@@ -354,6 +362,7 @@ class NativeSemanticInferenceV8:
                         raise NativeSelectionV8Error(
                             "Native model emitted an invalid v8 text fragment"
                         )
+                    required_events.update(tape.event_ids)
                     original = b"".join(
                         bytes.fromhex(part["payloadHex"]) for part in attempt["fragments"]
                     )
