@@ -23,6 +23,7 @@ from .detailed_v7 import parse_record
 from .detailed_v7 import value as validate_value
 from .protocol_v8 import (
     ProtocolV8Error,
+    _array_index,
     _assert_fresh_heap_identity,
     _external_machine,
     _internal_machine,
@@ -1182,7 +1183,7 @@ def _apply_detail(
             props = {
                 key: item
                 for key, item in props.items()
-                if not (key.isdigit() and str(int(key)) == key and int(key) >= value[1])
+                if not ((index := _array_index(key)) is not None and index >= value[1])
             }
         if fields["present"]:
             if (
@@ -1196,11 +1197,11 @@ def _apply_detail(
             props.pop(fields["key"], None)
         if (
             node["kind"] == "array"
-            and fields["key"].isdigit()
-            and str(int(fields["key"])) == fields["key"]
-            and int(fields["key"]) >= props["length"][1]
+            and fields["present"]
+            and (index := _array_index(fields["key"])) is not None
+            and index >= props["length"][1]
         ):
-            props["length"] = ["num", int(fields["key"]) + 1]
+            props["length"] = ["num", index + 1]
         node["properties"] = [[k, v] for k, v in props.items()]
     elif kind == "call":
         state["stack"].append(fields["child"])
