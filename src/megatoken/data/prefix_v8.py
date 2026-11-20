@@ -26,29 +26,13 @@ _OBSERVED = {
 }
 
 
-def validate_v8_prediction_prefix(public, contexts, context):
-    """Reconstruct the complete next context from already committed public rows.
-
-    No candidate, expected record, source oracle, or private admission evidence is
-    accepted. Prior generated rows have their own strictly earlier contexts.
-    The return value contains copied public inputs and reproducible identities.
-    """
-    if len(canonical_semantic_observation([public, contexts, context])) > MAX_PREFIX_BYTES:
+def validate_v8_committed_prefix(public, contexts):
+    """Check exact public observation shapes and replay every committed target."""
+    if len(canonical_semantic_observation([public, contexts])) > MAX_PREFIX_BYTES:
         raise NativeV8Error("V8 prediction prefix exceeds its byte budget")
     timeline = validate_public(public)
     if len(timeline) > MAX_PREFIX_RECORDS:
         raise NativeV8Error("V8 prediction prefix exceeds its record budget")
-    if type(context) is not dict or set(context) != set(DEFINITION["contextFields"]):
-        raise NativeV8Error("V8 prediction requires the exact public context fields")
-    if (
-        context["schema"] != DEFINITION["context"]
-        or context["representation"] != "mixed"
-        or context["profile"] != DEFINITION["profile"]
-        or type(context["visibleThrough"]) is not int
-        or context["visibleThrough"] != len(timeline)
-        or context["prefixDigest"] != stable_algorithm_hash(timeline)
-    ):
-        raise NativeV8Error("V8 prediction context differs from the exact committed cutoff")
     sessions = set()
     programs = {}
     invocations = set()
@@ -90,10 +74,42 @@ def validate_v8_prediction_prefix(public, contexts, context):
                 raise NativeV8Error("V8 source read differs from its published source")
         if fields.get("track") != "host":
             owner_sequence += 1
-    if len(sessions) != 1 or None in sessions or context["invocationId"] not in invocations:
+    if len(sessions) != 1 or None in sessions:
         raise NativeV8Error("V8 prediction crosses session or invocation authority")
     # This also checks every preceding context and restored continuation.
     validate_v8_artifact({"public": public, "contexts": contexts})
+    return {
+        "session": next(iter(sessions)),
+        "public": copy.deepcopy(public),
+        "contexts": copy.deepcopy(contexts),
+        "publicDigest": stable_algorithm_hash(public),
+    }
+
+
+def validate_v8_prediction_prefix(public, contexts, context):
+    """Reconstruct the complete next context from already committed public rows.
+
+    No candidate, expected record, source oracle, or private admission evidence is
+    accepted. Prior generated rows have their own strictly earlier contexts.
+    The return value contains copied public inputs and reproducible identities.
+    """
+    if len(canonical_semantic_observation([public, contexts, context])) > MAX_PREFIX_BYTES:
+        raise NativeV8Error("V8 prediction prefix exceeds its byte budget")
+    checked = validate_v8_committed_prefix(public, contexts)
+    timeline = public["timeline"]
+    if type(context) is not dict or set(context) != set(DEFINITION["contextFields"]):
+        raise NativeV8Error("V8 prediction requires the exact public context fields")
+    if (
+        context["schema"] != DEFINITION["context"]
+        or context["representation"] != "mixed"
+        or context["profile"] != DEFINITION["profile"]
+        or type(context["visibleThrough"]) is not int
+        or context["visibleThrough"] != len(timeline)
+        or context["prefixDigest"] != stable_algorithm_hash(timeline)
+        or context["invocationId"]
+        not in {row["fields"]["invocationId"] for row in timeline if row["kind"] == "invocation"}
+    ):
+        raise NativeV8Error("V8 prediction context differs from the exact committed cutoff")
     boundary = _replay_shared_state(
         timeline, contexts, {}, roundtrip=False, boundary_invocation=context["invocationId"]
     )
@@ -112,10 +128,7 @@ def validate_v8_prediction_prefix(public, contexts, context):
             "V8 prediction context differs from independent replay: " + repr(differences)
         )
     return {
-        "session": next(iter(sessions)),
-        "public": copy.deepcopy(public),
-        "contexts": copy.deepcopy(contexts),
+        **checked,
         "context": copy.deepcopy(context),
-        "publicDigest": stable_algorithm_hash(public),
         "contextDigest": stable_algorithm_hash(context),
     }
