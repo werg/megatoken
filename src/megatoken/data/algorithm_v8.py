@@ -462,6 +462,9 @@ def evaluate_term(
                 _fail("numeric fold initial value")
             result = v7._decode_scalar(initial)
             for item in items:
+                budget["remaining"] -= 1
+                if budget["remaining"] < 0:
+                    _fail("semantic work budget")
                 result += v7._decode_scalar(item)
             return v7._encode_scalar(result)
         return v7._operation(op, [visit(a, env_inputs, env_values, env_scopes) for a in t["args"]])

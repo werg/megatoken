@@ -371,6 +371,8 @@ class AlgorithmV8Tests(unittest.TestCase):
         self.assertEqual(heap["v8:0"]["properties"]["length"], ["num", 3])
         self.assertEqual(allocator["next"], 1)
         with self.assertRaisesRegex(AlgorithmV8Error, "semantic work budget"):
+            evaluate_term(term, budget={"remaining": 11})
+        with self.assertRaisesRegex(AlgorithmV8Error, "semantic work budget"):
             evaluate_term(term, budget={"remaining": 8})
         for field, invalid in (
             ("step", "multiply"),
