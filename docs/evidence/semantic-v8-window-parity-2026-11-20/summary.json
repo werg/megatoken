@@ -1,0 +1,108 @@
+{
+  "schema": "semantic-window-parity-evidence/8",
+  "scope": "Engineering controls with actual recurrent model state, explicitly controlled lexical decoding and explicit unit-fixture source/tokenizer audit boundaries",
+  "exactPairReleaseQualification": false,
+  "productionSourceBeforeSha256": "701f8dc5e90446c36dfe0a3d462bfb7b677d5e05e0758a9339ea3634dcd0e0c0",
+  "testedFiles": [
+    {
+      "path": "src/megatoken/training/meridians.py",
+      "sha256": "2ea6812d17d716fb13e0a2b0dbaf4bafeb1049eed281b5d2ae425b7aca5ecb89"
+    },
+    {
+      "path": "tests/test_semantic_v8_continuation_parity.py",
+      "sha256": "4f7602fca257fbeb23ca76624e5b1a2cbc41d4c3a117f2fa417ce97ffaa1ad81"
+    },
+    {
+      "path": "tests/test_semantic_v8_training_policy.py",
+      "sha256": "1cba9e89a9fb260c79630186f2e53e5ab83f370b91d4f884bdd20b88c64439a1"
+    }
+  ],
+  "originalFailure": {
+    "test": "retained-callbacks",
+    "physicalPrediction": 14,
+    "publicSequence": 29,
+    "trainingWindow": 2,
+    "firstDifferentStateField": "final",
+    "passedBeforeDivergence": 13,
+    "log": "before-pytest.log.gz.b64"
+  },
+  "fix": "Replay the original public request controls when reconstructing earlier generated records outside the current scored window; recorded native tapes preserve their own controls.",
+  "cases": [
+    {
+      "id": "split-record-rejection-restore",
+      "physicalTargets": 4,
+      "finalStatus": "passed",
+      "finalLog": "split-final-pytest.log",
+      "windowRecordLimit": 16,
+      "scoredWindows": 2
+    },
+    {
+      "id": "host-results-eviction",
+      "physicalTargets": 11,
+      "finalStatus": "passed",
+      "finalLog": "final-pytest.log.gz.b64"
+    },
+    {
+      "id": "retained-callbacks",
+      "physicalTargets": 20,
+      "finalStatus": "passed",
+      "finalLog": "final-pytest.log.gz.b64",
+      "scoredWindows": 2
+    }
+  ],
+  "finalRelevantDistinctControls": 6,
+  "runs": [
+    {
+      "log": "before-pytest.log.gz.b64",
+      "passed": 2,
+      "failed": 1,
+      "reason": "Reproduced real continuation divergence"
+    },
+    {
+      "log": "callback-after-pytest.log",
+      "passed": 1,
+      "failed": 0,
+      "deselected": 2
+    },
+    {
+      "log": "existing-controls-pytest.log",
+      "passed": 3,
+      "failed": 0
+    },
+    {
+      "log": "final-pytest.log.gz.b64",
+      "passed": 5,
+      "failed": 1,
+      "reason": "The new small-fixture crossing guard found one window at its initial64-record test limit"
+    },
+    {
+      "log": "split-final-pytest.log",
+      "passed": 1,
+      "failed": 0,
+      "deselected": 2,
+      "reason": "Corrected16-record test limit forces two scored windows"
+    }
+  ],
+  "learnedSuccess": null,
+  "remaining": [
+    "Final combined-pair requalification",
+    "Broader varied controls and histories",
+    "Unaided trained-model accepted-record recovery",
+    "Complete binary bundle publication",
+    "Held-out learned-usefulness studies"
+  ],
+  "encodedLogs": [
+    {
+      "path": "before-pytest.log.gz.b64",
+      "encoding": "base64+gzip",
+      "decodedSha256": "4bb7b4b695f2033beb2fbd0b4b3e667a9589b9cd99374077190ac44b9ad57cad",
+      "decodedBytes": 21799
+    },
+    {
+      "path": "final-pytest.log.gz.b64",
+      "encoding": "base64+gzip",
+      "decodedSha256": "56cc613c5e5f0d67293b795b644700addbec0441d164168abdbf28bf83897b78",
+      "decodedBytes": 4122
+    }
+  ]
+}

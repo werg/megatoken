@@ -94,10 +94,15 @@ def test_unverified_data_flag_cannot_admit_unqualified_v8_targets(tmp_path):
         )
 
 
-def prepared_v8_fixture(tmp_path, *, max_positions=128, max_history=8, direct_source=False):
+def prepared_v8_fixture(
+    tmp_path, *, max_positions=128, max_history=8, direct_source=False, document=None
+):
     """Real native rows with explicitly injected source/tokenizer audit boundaries."""
-    fixture = Path(__file__).parent / "fixtures" / "semantic-regions-v8.json.gz.b64"
-    document = json.loads(gzip.decompress(base64.b64decode(fixture.read_bytes())))["examples"][0]
+    if document is None:
+        fixture = Path(__file__).parent / "fixtures" / "semantic-regions-v8.json.gz.b64"
+        document = json.loads(gzip.decompress(base64.b64decode(fixture.read_bytes())))["examples"][
+            0
+        ]
     source = document["public"]["timeline"][0]["fields"]["source"]
     source_digest = hashlib.sha256(source.encode()).hexdigest()
     registry = {

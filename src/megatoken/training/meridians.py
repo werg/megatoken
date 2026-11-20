@@ -800,6 +800,24 @@ def forward_meridian_batch(
             state, replayed = _preceding_native(multi, state, batch.native_history, step)
             metrics["grouped_native_replays"] += replayed
             native_group = batch.native_history.group_for_records(step.offsets)
+            # Earlier generated records are unscored in this window, but their
+            # original request controls still conditioned the committed C pass.
+            # Rebuilding them as observations loses that continuation at the
+            # first target after a window boundary. Native tapes carry their
+            # own controls; ordinary teacher records resolve the same public
+            # event controls used by their scored/serving generation.
+            prefix_control = (
+                multi._controls(
+                    tuple(
+                        resolve_event_control(episode, event_by_record[entry.record.record_id])
+                        for entry in step.records
+                    ),
+                    state,
+                    step.tracks,
+                )
+                if native_group is None and all(entry.record.policy_mask for entry in step.records)
+                else None
+            )
             state = (
                 multi.commit_tape(state, native_group)
                 if native_group is not None
@@ -827,6 +845,7 @@ def forward_meridian_batch(
                         device=device,
                     ),
                     modalities=step.modalities if native_group is None else native_group.modalities,
+                    track_semantics=prefix_control,
                 )
             )
             state = announce(state, step)

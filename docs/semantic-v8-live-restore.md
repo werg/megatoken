@@ -119,3 +119,10 @@ process. Its generated record was rejected for exhausting the fragment budget;
 zero model records were acknowledged. The paired producer study retains that
 failure and its measured costs. Trained accepted-record recovery, real external
 host recovery and qualification of later combined revisions remain open.
+
+The [window-parity controls](evidence/semantic-v8-window-parity-2026-11-20/README.md)
+add acknowledged split-record reconstruction through the actual CPU model after
+a failed candidate. All model-state fields and the next prediction match the
+ordinary trainer, including across optimizer windows. Its decoder is explicitly
+supplied prepared bytes; that accepted-record control remains distinct from a
+trained model selecting a correct record unaided.

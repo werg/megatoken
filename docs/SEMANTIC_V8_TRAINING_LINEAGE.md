@@ -58,7 +58,15 @@ prepared-corpus test compares actual training and native serving raw/cache tenso
 history identities and request controls at the first prediction boundary, with
 128-position records and a 512-position model.
 
+A [later continuation comparison](evidence/semantic-v8-window-parity-2026-11-20/README.md)
+also found and fixed lost request controls when ordinary training rebuilt earlier
+generated records after an optimizer-window boundary. Actual model-state, mask,
+decoder and control comparisons cover split records, rejected candidates,
+acknowledged-state reconstruction, host results, retained callbacks, eviction and
+multiple training windows. The lexical decoder is explicitly controlled for
+these engineering checks, so they do not establish learned execution success.
+
 Remaining: final combined-pair qualification after contract changes; complete
-binary-bundle publication; varied multi-step continuation and callback histories;
+binary-bundle publication; broader varied control/history populations;
 accepted-record recovery with trained weights; learned-quality studies. No default
 cutover is made here.
