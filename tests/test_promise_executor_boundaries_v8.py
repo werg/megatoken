@@ -67,6 +67,58 @@ def restore(state):
 
 
 class PromiseExecutorTests(unittest.TestCase):
+    def test_generator_executor_is_refused_before_opening_an_ordinary_call(self):
+        state = executor_machine()
+        apply_protocol_record(
+            state,
+            {
+                "kind": "generator.function",
+                "object": "executor",
+                "prototype": "generator-prototype",
+                "name": "executor",
+                "length": 2,
+            },
+        )
+        before = copy.deepcopy(state)
+        with self.assertRaisesRegex(ProtocolV8Error, "owned source closure"):
+            enter(state)
+        self.assertEqual(state, before)
+
+    def test_join_cannot_reuse_executor_result_but_can_observe_it_as_input(self):
+        state = executor_machine()
+        enter(state)
+        finish(state)
+        record = {
+            "kind": "promise.join",
+            "mode": "all",
+            "result": "promise",
+            "inputs": [],
+            "jobs": [],
+            "output": "output",
+            "error": None,
+        }
+        before = copy.deepcopy(state)
+        with self.assertRaisesRegex(ProtocolV8Error, "join result"):
+            apply_protocol_record(state, record)
+        self.assertEqual(state, before)
+        create_promise(state, "join-result")
+        record.update(result="join-result", inputs=["promise"], jobs=["join-job"], output=None)
+        apply_protocol_record(state, record)
+        self.assertTrue(validate_state(restore(state)))
+        resolve(state, ["num", 7])
+        self.assertEqual(state["heap"]["promise"]["result"], ["num", 7])
+        self.assertEqual(state["ready"], ["join-job"])
+
+    def test_malformed_executor_identities_raise_protocol_errors_on_restore(self):
+        state = executor_machine()
+        enter(state)
+        for identity in ([], {}, None, True, 7):
+            with self.subTest(identity=identity):
+                malformed = copy.deepcopy(state)
+                malformed["protocol"]["promiseExecutors"]["executors"][0]["promise"] = identity
+                with self.assertRaisesRegex(ProtocolV8Error, "identity"):
+                    validate_state(malformed)
+
     def test_first_resolving_call_wins_over_opposite_handle_and_executor_throw(self):
         state = executor_machine()
         enter(state)

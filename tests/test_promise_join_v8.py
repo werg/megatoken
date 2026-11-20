@@ -53,6 +53,34 @@ def finish_row(output="output"):
 
 
 class PromiseJoinBoundaryTests(unittest.TestCase):
+    def test_empty_all_must_restore_fulfilled_while_empty_race_remains_pending(self):
+        state, row = joined_machine(empty=True)
+        apply_protocol_record(state, row)
+        self.assertTrue(validate_state(state))
+        target = state["heap"]["result"]
+        target.update(state="pending", result=None)
+        target["join"]["settled"] = False
+        with self.assertRaisesRegex(ProtocolV8Error, "restored join metadata"):
+            validate_state(state)
+        state, row = joined_machine(empty=True)
+        row.update(mode="race", output=None)
+        apply_protocol_record(state, row)
+        self.assertTrue(validate_state(state))
+        self.assertEqual(state["heap"]["result"]["state"], "pending")
+        state, row = joined_machine()
+        state["heap"]["input"].update(state="pending", result=None)
+        apply_protocol_record(state, row)
+        self.assertTrue(validate_state(state))
+
+    def test_join_result_cannot_already_be_adopted_or_external(self):
+        for field, value in (("adopted", "input"), ("external", "request")):
+            state, row = joined_machine(empty=True)
+            state["heap"]["result"][field] = value
+            before = copy.deepcopy(state)
+            with self.assertRaisesRegex(ProtocolV8Error, "fresh pending"):
+                apply_protocol_record(state, row)
+            self.assertEqual(state, before)
+
     def test_all_bound_reserves_array_length_without_reducing_race_bound(self):
         state, row = joined_machine()
         row["inputs"] = ["input"] * 4096

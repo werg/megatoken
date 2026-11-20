@@ -130,7 +130,12 @@ def apply_record(machine, record):
         _fresh(machine, record["reject"])
         _known(machine, record["executor"])
         executor = machine["heap"].get(record["executor"][1])
-        if not executor or executor.get("kind") != "closure" or executor.get("promiseResolver"):
+        if (
+            not executor
+            or executor.get("kind") != "closure"
+            or executor.get("promiseResolver")
+            or executor.get("generatorFunction")
+        ):
             _fail("executor must be an owned source closure")
         parent = machine["stack"][-1] if machine["stack"] else None
         if not parent:
@@ -289,6 +294,10 @@ def assert_next(machine, record):
         and any(row["promise"] == fields.get("promise") for row in data["capabilities"])
     ):
         _fail("managed Promise settlement requires its resolver record")
+    if record.get("kind") == "promise.join" and any(
+        row["promise"] == fields.get("result") for row in data["capabilities"]
+    ):
+        _fail("managed Promise cannot be reused as a join result")
     if isinstance(record.get("kind"), str) and record["kind"].startswith("property."):
         identities = [fields.get("object")]
         receiver = fields.get("receiver")
@@ -322,9 +331,16 @@ def validate_state(machine):
     ):
         _fail("executor state schema or count bound")
     promises, resolver_ids, children = set(), set(), set()
-    entries = {
-        entry.get("promise"): entry for entry in data["executors"] if isinstance(entry, dict)
-    }
+    entries = {}
+    for entry in data["executors"]:
+        p._exact(
+            entry, {"promise", "parent", "child", "phase", "completion"}, "executor continuation"
+        )
+        for key in ("promise", "parent", "child"):
+            _identity(entry[key])
+        if entry["promise"] in entries:
+            _fail("duplicate executor continuation")
+        entries[entry["promise"]] = entry
     for capability in data["capabilities"]:
         p._exact(
             capability,
@@ -378,11 +394,6 @@ def validate_state(machine):
             _fail("executor throw and Promise settlement disagree")
     completed = set()
     for entry in data["executors"]:
-        p._exact(
-            entry, {"promise", "parent", "child", "phase", "completion"}, "executor continuation"
-        )
-        for key in ("promise", "parent", "child"):
-            _identity(entry[key])
         if (
             entry["promise"] not in promises
             or entry["promise"] in completed

@@ -119,7 +119,12 @@ def apply_record(machine, record):
     scheduler = machine.setdefault("scheduler", {"registration": 0, "ready": 0})
     result = _promise(machine, record["result"])
     if record["kind"] == "promise.join":
-        if result["state"] != "pending" or result.get("join") is not None:
+        if (
+            result["state"] != "pending"
+            or result.get("join") is not None
+            or result.get("adopted") is not None
+            or result.get("external") is not None
+        ):
             _fail("result must be a fresh pending Promise")
         if record["result"] in record["inputs"]:
             _fail("result cannot be an input")
@@ -279,6 +284,12 @@ def validate_state(machine):
             or join["settled"] != (result["state"] != "pending")
             or join.get("mode") == "all"
             and len(join["inputs"]) >= BOUND
+            or join.get("mode") == "all"
+            and not join["inputs"]
+            and (
+                result["state"] != "fulfilled"
+                or result.get("result") != ["ref", join.get("output")]
+            )
             or join.get("mode") == "race"
             and any(join["observed"])
             and not join["settled"]
