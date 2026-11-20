@@ -47,13 +47,30 @@ def create_promise(machine, identity):
 
 def assert_plain_resolution(machine, value):
     """Prove that a reference cannot invoke a then getter or assimilation job."""
-    from .protocol_v8 import _lookup_descriptor
+    from .generator_v8 import INTRINSICS as GENERATOR_INTRINSICS
+    from .protocol_v8 import _descriptor, _lookup_descriptor, _node
 
     if value[0] != "ref":
         return
     target = machine["heap"].get(value[1])
     if target and target.get("kind") == "promise":
         _fail("Promise adoption requires explicit assimilation jobs")
+    current, seen = value[1], set()
+    while current is not None:
+        if current in seen:
+            _fail("cyclic then lookup")
+        seen.add(current)
+        node = _node(machine, current)
+        if _descriptor(node, "then") is not None:
+            break
+        prototype = node.get("prototype", "ordinary")
+        if prototype is None or prototype == "ordinary":
+            break
+        if isinstance(prototype, str) and prototype in GENERATOR_INTRINSICS:
+            break  # The shared property resolver checks this declared intrinsic.
+        if not (isinstance(prototype, list) and len(prototype) == 2 and prototype[0] == "ref"):
+            _fail("unmodeled prototype in then lookup")
+        current = prototype[1]
     _, descriptor = _lookup_descriptor(machine, value[1], "then")
     if descriptor is None:
         return

@@ -107,6 +107,16 @@ class PromiseSchedulerTests(unittest.TestCase):
         detail(state, "promise", action="resolve", promise="promise", value=["ref", "value"])
         self.assertEqual(dict(state["heap"])["promise"]["result"], ["ref", "value"])
 
+    def test_resolution_cannot_treat_unknown_intrinsic_prototypes_as_absent_then(self):
+        state = shared_state()
+        create(state, "promise")
+        detail(state, "allocate", name="value", kind="object", properties=[])
+        dict(state["heap"])["value"]["prototype"] = "unmodeled.prototype"
+        before = copy.deepcopy(state)
+        with self.assertRaisesRegex(NativeV8Error, "unmodeled prototype"):
+            detail(state, "promise", action="resolve", promise="promise", value=["ref", "value"])
+        self.assertEqual(state, before)
+
     def test_protocol_reaction_receiver_survives_await_and_restores_owner(self):
         state = shared_state()
         for identity in ("owner", "lexical"):
