@@ -503,7 +503,7 @@
           "super.finish": [
             "kind",
             "owner",
-            "result"
+            "completion"
           ],
           "iterator.lookup": [
             "kind",
@@ -763,13 +763,22 @@
           ]
         },
         "profile": "symbols-ordinary-properties/1",
+        "extensions": [
+          "owned-binary-memory/1",
+          "class-construction/1",
+          "builtin-iterator/1",
+          "promise-join/1",
+          "number-conversion/1",
+          "synchronous-generator/1",
+          "ordinary-data-proxy/1"
+        ],
         "limits": {
           "symbols": 4096,
           "properties": 4096,
           "calls": 64,
           "steps": 32768
         },
-        "meaning": "Checked Symbol identities, descriptors, receiver-aware access, scoped calls and completion in the same authoritative heap."
+        "meaning": "Checked Symbol identities, descriptors, receiver-aware access, scoped calls, construction, iterators, generators, Number conversion, Promise joins, Proxy traps and binary memory in the same authoritative heap."
       }
     },
     "algorithm": {
@@ -1675,6 +1684,115 @@
         ],
         "capabilities": "Ordered Promise dependencies, FIFO internal jobs, first settlement and explicit late no-op steps; fresh result arrays are named only when allocated."
       },
+      "numberConversions": {
+        "profile": "number-conversion/1",
+        "schema": "semantic-number-conversion-state/1",
+        "fields": [
+          "schema",
+          "operations"
+        ],
+        "initial": null,
+        "operationFields": [
+          "id",
+          "parent",
+          "input",
+          "index",
+          "method",
+          "builtin",
+          "child",
+          "phase",
+          "primitive",
+          "result"
+        ],
+        "phases": [
+          "select",
+          "call",
+          "builtin",
+          "waiting",
+          "convert",
+          "complete"
+        ],
+        "capabilities": "Live data-method selection, original receiver and number hint, shared callback scopes, ordered ordinary fallback and checked primitive conversion. Accessor selection and abrupt conversion need explicit profiles."
+      },
+      "generators": {
+        "profile": "synchronous-generator/1",
+        "heapFields": [
+          "kind",
+          "callee",
+          "invocation",
+          "receiver",
+          "arguments",
+          "phase",
+          "resume",
+          "pending",
+          "yielded",
+          "handlers",
+          "delegation",
+          "prototype",
+          "properties"
+        ],
+        "intrinsicPrototypes": [
+          "GeneratorFunction.prototype",
+          "Generator.prototype",
+          "Iterator.prototype"
+        ],
+        "phases": [
+          "initializing",
+          "suspendedStart",
+          "executing",
+          "suspendedYield",
+          "completed"
+        ],
+        "methods": [
+          "next",
+          "return",
+          "throw"
+        ],
+        "handlerFields": [
+          "name",
+          "catch",
+          "finally",
+          "phase",
+          "caught",
+          "pending"
+        ],
+        "delegationFields": [
+          "iterator",
+          "next",
+          "request",
+          "phase",
+          "result"
+        ],
+        "capabilities": "Retained invocations, receivers, arguments and captures; sent values, catch/finally cleanup, suspension and cached-next delegation through declared builtin iterators and synchronous generators."
+      },
+      "proxyCalls": {
+        "profile": "ordinary-data-proxy/1",
+        "schema": "semantic-proxy-call-state/1",
+        "fields": [
+          "schema",
+          "pending"
+        ],
+        "initial": null,
+        "heapFields": [
+          "kind",
+          "target",
+          "handler",
+          "properties"
+        ],
+        "callFields": [
+          "id",
+          "operation",
+          "parent",
+          "child",
+          "object",
+          "target",
+          "handler",
+          "key",
+          "value",
+          "callee"
+        ],
+        "capabilities": "Distinct Proxy, target and handler identities; ordinary data forwarding and synchronous owned get/set traps with live target invariants and exact pending callback completion. Callable or revoked proxies and other traps require explicit profiles."
+      },
       "binaryMemory": {
         "profile": "owned-binary-memory/1",
         "heapFields": {
@@ -1770,7 +1888,7 @@
       "default": "not promoted by engineering receipts alone"
     }
   },
-  "digest": "f91f67ae280bddc99b8dde278acc43b2754c40829e8ebccc0084c6a29f35bfe3",
+  "digest": "5cf992a16a3de77edb3c7b732673950b9afc037458f51b316d8b2801c43f29ae",
   "fixtureDigest": "56f7f36d3b25b3b11a208be3de337e637b9782e6759faea1e1ec107b0a90f0ce",
   "fixtures": [
     {
@@ -1795,7 +1913,7 @@
       "reason": "old artifacts require their original contract"
     }
   ],
-  "interoperabilityDigest": "bd623249b218c69a822ab0a683cf265418c7fcac38f4c672ef2b379951ab116c",
+  "interoperabilityDigest": "fd5cb7bda86cd703d4dacf48d0acf468f1fc23e210623de97aa84a9c736e6eb0",
   "interoperability": [
     {
       "id": "ordered-map",
@@ -1834,8 +1952,8 @@
     },
     {
       "id": "protocol-region:source-derived-private-arithmetic",
-      "publicDigest": "3bfe01e095d764ec1883a13260fc9ec4d61f4536161188bd9346de081dba92cb",
-      "contextDigest": "5616241138fb319d558defbace8d8e58900940b453972720a9e11bb641525abd"
+      "publicDigest": "49cbcd4007c3439d45bc8f9b3353b09d5ccca005c972d649eec2db95c0c9b463",
+      "contextDigest": "43baf9c535f89a441952fdd43c166f2f3cf7e4389869c344962159646ca11a8e"
     },
     {
       "id": "protocol-region:builtin-iterator-mixed-arithmetic",
@@ -1871,6 +1989,16 @@
       "id": "protocol-region:source-proxy-traps-arithmetic",
       "publicDigest": "8a7028de68baae6e315499727f843814ccfe340ec7ec13d78c2890be118a9952",
       "contextDigest": "2e586831fb90d84958046b8093b090604816f82aec8738fa1b0463f492611610"
+    },
+    {
+      "id": "protocol-region:source-base-initializer-throw",
+      "publicDigest": "80f87fe2375a8e30ebdffa5e10643d69098523b172780e7ebfedc6b68012e777",
+      "contextDigest": "810964987bc26ca93e645e864821274c840970c4583b3ad2845810c76b23acf2"
+    },
+    {
+      "id": "protocol-region:source-derived-initializer-throw",
+      "publicDigest": "308db677ef00a9bb681a3013e557b724db1c81d3995c279df5a33bdd09af52b6",
+      "contextDigest": "5a32cc6dfc66828359491becee84020c860973435b6c8743ffcaf26b74a36def"
     }
   ]
 }

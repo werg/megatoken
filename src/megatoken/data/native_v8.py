@@ -24,6 +24,8 @@ from .detailed_v7 import value as validate_value
 from .protocol_v8 import (
     ProtocolV8Error,
     _assert_fresh_heap_identity,
+    _external_machine,
+    _internal_machine,
     apply_protocol_to_shared_state,
     assert_detailed_record_compatible,
     decode_protocol_record,
@@ -625,6 +627,8 @@ def _replay_shared_state(timeline, contexts, programs_from_context, *, roundtrip
     suspended = {}
     common_state = None
     active_invocation = None
+    completion_policy = "call-return"
+    functions = []
     callback_invocations = set()
     for prior in timeline:
         if prior.get("fields", {}).get("track") != "host":
@@ -717,6 +721,7 @@ def _replay_shared_state(timeline, contexts, programs_from_context, *, roundtrip
             else:
                 _fail("Unsupported invocation activation in v8 shared replay")
             active_invocation = fields["invocationId"]
+            completion_policy = fields.get("completionPolicy", "call-return")
             if fields.get("activation") == "callback":
                 callback_invocations.add(active_invocation)
                 common_state = copy.deepcopy(state)
@@ -785,8 +790,14 @@ def _replay_shared_state(timeline, contexts, programs_from_context, *, roundtrip
                     {"invocationId": fields["invocationId"], "frame": frame, "region": "whole"}
                 )
             elif kind == "protocol":
+                protocol_record = decode_protocol_record(fields["line"])
                 if state.get("protocol") is None and (
-                    state["effects"] or state["jobs"] or state["ready"] or len(state["stack"]) != 1
+                    state["effects"]
+                    or len(state["stack"]) != 1
+                    or (
+                        (state["jobs"] or state["ready"])
+                        and protocol_record["kind"] != "promise.join"
+                    )
                 ):
                     _fail("The first protocol profile must begin as a fresh synchronous invocation")
                 try:
@@ -803,7 +814,18 @@ def _replay_shared_state(timeline, contexts, programs_from_context, *, roundtrip
                         assert_detailed_record_compatible(state, k, payload)
                     except ProtocolV8Error as e:
                         raise NativeV8Error(f"Detailed record bypasses protocol state: {e}") from e
-                _apply_detail(state, k, payload, row, obligations, program, task_revisions)
+                _apply_detail(
+                    state,
+                    k,
+                    payload,
+                    row,
+                    obligations,
+                    program,
+                    task_revisions,
+                    functions=functions,
+                    root=active_invocation,
+                    completion_policy=completion_policy,
+                )
         elif kind in ("dispatch", "result"):
             target = (
                 state
@@ -1007,7 +1029,32 @@ def _apply_algorithm(state, core, graph, line):
     state["stack"] = []
 
 
-def _apply_detail(state, kind, fields, row, obligations=None, program=None, task_revisions=None):
+def _apply_detail(
+    state,
+    kind,
+    fields,
+    row,
+    obligations=None,
+    program=None,
+    task_revisions=None,
+    *,
+    functions=(),
+    root=None,
+    completion_policy="call-return",
+):
+    if kind in ("promise", "job", "await", "resume"):
+        from .promise_scheduler_v8 import apply_detail
+
+        machine = _internal_machine(state)
+        if root is None:
+            root = next(iter(machine["frameFunctions"]), None)
+        try:
+            apply_detail(machine, kind, fields, root=root, functions=functions)
+        except ProtocolV8Error as error:
+            raise NativeV8Error(str(error)) from error
+        state.clear()
+        state.update(_external_machine(machine))
+        return
     if kind == "bind":
         alias = dict(state["captureAliases"]).get(fields["name"])
         _set_row(state["locals"], alias or fields["name"], fields["value"])
@@ -1032,12 +1079,35 @@ def _apply_detail(state, kind, fields, row, obligations=None, program=None, task
         if "length" in fields:
             node["properties"].append(["length", ["num", fields["length"]]])
         _set_row(state["heap"], fields["name"], node)
+    elif kind == "read":
+        node = _table(state, "heap").get(fields["object"])
+        if node is None:
+            _fail("Read from absent object")
+        props = dict(node["properties"])
+        if (fields["key"] in props) != fields["present"] or props.get(
+            fields["key"], ["undefined"]
+        ) != fields["value"]:
+            _fail("Read contradicts committed public heap")
     elif kind == "write":
         heap = _table(state, "heap")
         node = heap.get(fields["object"])
         if node is None:
             _fail("Write to absent object")
         props = dict(node["properties"])
+        if node["kind"] == "array" and fields["key"] == "length":
+            value = fields["value"]
+            if (
+                not fields["present"]
+                or value[0] != "num"
+                or type(value[1]) is not int
+                or not 0 <= value[1] <= 4096
+            ):
+                _fail("Invalid array length mutation")
+            props = {
+                key: item
+                for key, item in props.items()
+                if not (key.isdigit() and str(int(key)) == key and int(key) >= value[1])
+            }
         if fields["present"]:
             if (
                 state.get("protocol") is not None
@@ -1048,6 +1118,13 @@ def _apply_detail(state, kind, fields, row, obligations=None, program=None, task
             props[fields["key"]] = fields["value"]
         else:
             props.pop(fields["key"], None)
+        if (
+            node["kind"] == "array"
+            and fields["key"].isdigit()
+            and str(int(fields["key"])) == fields["key"]
+            and int(fields["key"]) >= props["length"][1]
+        ):
+            props["length"] = ["num", int(fields["key"]) + 1]
         node["properties"] = [[k, v] for k, v in props.items()]
     elif kind == "call":
         state["stack"].append(fields["child"])
@@ -1082,27 +1159,24 @@ def _apply_detail(state, kind, fields, row, obligations=None, program=None, task
                 )
                 if use_right is None or (path == "evaluate-right") != use_right:
                     _fail("Logical decision path is inconsistent")
-    elif kind == "return":
+    elif kind in ("return", "throw"):
         value = fields["value"]
         invocation = fields.get(
             "invocation", row.get("invocationId", state["stack"][-1] if state["stack"] else None)
         )
-        if len(state["stack"]) > 1 and state["stack"][-1] == invocation:
-            state["lastReturn"] = {"kind": "return", "value": value}
+        if not state["stack"] or state["stack"][-1] != invocation:
+            _fail("Completion invocation mismatch")
+        if len(state["stack"]) == 1 and state.get("activeJob"):
+            job = _table(state, "jobs").get(state["activeJob"])
+            if not job or job["status"] != "running":
+                _fail("Callback completion requires a running job")
+            job["returned"] = {"kind": kind, "value": copy.deepcopy(value)}
+            state["stack"].pop()
+        elif len(state["stack"]) > 1:
+            state["lastReturn"] = {"kind": kind, "value": copy.deepcopy(value)}
             state["stack"].pop()
         else:
-            state["pending"] = {"kind": "return", "value": value}
-            state["stack"] = []
-    elif kind == "throw":
-        value = fields["value"]
-        invocation = fields.get("invocation")
-        if invocation is not None and state["stack"] and state["stack"][-1] != invocation:
-            _fail("Throw invocation mismatch")
-        if len(state["stack"]) > 1:
-            state["lastReturn"] = {"kind": "throw", "value": value}
-            state["stack"].pop()
-        else:
-            state["pending"] = {"kind": "throw", "value": value}
+            state["pending"] = {"kind": kind, "value": copy.deepcopy(value)}
             state["stack"] = []
     elif kind == "transfer":
         completion_kind = fields["kind"]
@@ -1114,9 +1188,30 @@ def _apply_detail(state, kind, fields, row, obligations=None, program=None, task
             "handler": fields["handler"],
         }
     elif kind == "end":
-        if state["stack"]:
-            state["stack"].pop()
-        state["completion"] = state["pending"] or {"kind": fields["kind"]}
+        terminal = state["pending"]
+        if completion_policy == "owned-quiescence" and state.get("jobErrors"):
+            terminal = {"kind": "throw", "value": state["jobErrors"][0]["value"]}
+        if not terminal or terminal["kind"] != fields["kind"]:
+            _fail("End does not match selected completion")
+        if (
+            state["stack"]
+            or state["ready"]
+            or any(job["status"] != "completed" for _, job in state["jobs"])
+            or any(cont["state"] != "resumed" for _, cont in state["continuations"])
+            or any(effect["status"] == "requested" for _, effect in state["effects"])
+        ):
+            _fail("End has outstanding owned work")
+        completion = copy.deepcopy(terminal)
+        if completion_policy == "await-returned-promise" and terminal["value"][0] == "ref":
+            node = _table(state, "heap").get(terminal["value"][1])
+            if node and node.get("kind") == "promise":
+                if node["state"] == "pending":
+                    _fail("Returned Promise remains pending")
+                completion = {
+                    "kind": "return" if node["state"] == "fulfilled" else "throw",
+                    "value": copy.deepcopy(node["result"]),
+                }
+        state["completion"] = completion
         state["pending"] = None
     elif kind == "request":
         effect = fields["effect"]
@@ -1218,57 +1313,6 @@ def _apply_detail(state, kind, fields, row, obligations=None, program=None, task
                 "result": None,
             }
             obligations["intents"] = [[key, value] for key, value in intents.items()]
-    elif kind == "await":
-        seq = state["scheduler"]["registration"] + 1
-        state["scheduler"]["registration"] = seq
-        _set_row(
-            state["continuations"],
-            fields["continuation"],
-            {
-                "state": "waiting",
-                "promise": fields["promise"],
-                "invocation": fields["invocation"],
-                "sequence": seq,
-                "activeJob": None,
-                "captureAliases": copy.deepcopy(state["captureAliases"]),
-                "readySequence": None,
-            },
-        )
-        if fields.get("returnPromise"):
-            state["callReturn"] = {"kind": "return", "value": ["ref", fields["returnPromise"]]}
-        state["stack"] = []
-    elif kind == "resume":
-        continuation = _table(state, "continuations").get(fields["continuation"])
-        if continuation is None:
-            _fail("Resume without continuation")
-        continuation["state"] = "resumed"
-        state["ready"] = [v for v in state["ready"] if v != fields["continuation"]]
-        if fields["invocation"] not in state["stack"]:
-            state["stack"].append(fields["invocation"])
-    elif kind == "promise":
-        identity = fields["promise"]
-        heap = _table(state, "heap")
-        if fields["action"] == "create":
-            _assert_fresh_allocation(state, identity)
-            _set_row(
-                state["heap"],
-                identity,
-                {
-                    "kind": "promise",
-                    "properties": [],
-                    "state": "pending",
-                    "result": None,
-                    "adopted": None,
-                    "external": None,
-                    "reactions": [],
-                },
-            )
-        elif fields["action"] == "resolve":
-            node = heap.get(identity)
-            if node is None or node["state"] != "pending":
-                _fail("Resolve unknown or settled promise")
-            node["state"] = "fulfilled"
-            node["result"] = fields["value"]
     elif kind in ("observe",):
         _fail("Observed delivery cannot appear as generated detail")
     else:
@@ -1463,13 +1507,12 @@ def _apply_observation(state, row, dispatched, settled, obligations=None, track_
             obligations["intents"] = [[key, value] for key, value in intents.items()]
         promise = effect[1]["promise"]
         if promise:
-            node = _table(state, "heap").get(promise)
-            node["state"] = obs["status"]
-            node["result"] = obs["result"]
-        for cid, cont in state["continuations"]:
-            if cont["promise"] == promise and cont["state"] == "waiting":
-                seq = state["scheduler"]["ready"] + 1
-                state["scheduler"]["ready"] = seq
-                cont["state"] = "ready"
-                cont["readySequence"] = seq
-                state["ready"].append(cid)
+            from .promise_scheduler_v8 import settle_promise
+
+            machine = _internal_machine(state)
+            try:
+                settle_promise(machine, promise, obs["status"], obs["result"], external=True)
+            except ProtocolV8Error as error:
+                raise NativeV8Error(str(error)) from error
+            state.clear()
+            state.update(_external_machine(machine))

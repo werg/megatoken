@@ -946,13 +946,15 @@ def _apply(machine, record):
             if not p["callFrames"]:
                 _fail("completion requires a protocol call frame")
             frame = p["callFrames"].pop()
-            if frame["child"] != record["invocation"]:
+            if frame["child"] != record["invocation"] or frame["parent"] != machine["stack"][-2]:
                 _fail("call frame completion")
             machine["stack"].pop()
             machine["receiver"] = frame["priorReceiver"]
             machine["captureAliases"] = dict(frame["priorAliases"])
             machine["lastReturn"] = {"kind": kind, "value": copy.deepcopy(record["value"])}
         else:
+            if machine.get("activeJob"):
+                _fail("job completion requires its scheduler profile")
             machine["stack"].pop()
             machine["pending"] = {"kind": kind, "value": copy.deepcopy(record["value"])}
     elif kind == "end":

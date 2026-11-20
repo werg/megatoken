@@ -4,6 +4,9 @@ from __future__ import annotations
 
 import copy
 
+from .promise_scheduler_v8 import refresh_ready as _refresh
+from .promise_scheduler_v8 import settle_promise as _settle
+
 PROFILE = "promise-join/1"
 STATE_SCHEMA = "semantic-promise-join-state/1"
 FIELDS = {
@@ -104,36 +107,6 @@ def _fresh_output(machine, identity):
     _assert_fresh_heap_identity(machine, identity)
     if identity in _dict_rows(machine.get("jobs", [])):
         _fail("output identity collides with a job")
-
-
-def _settle(machine, identity, status, value):
-    node = _promise(machine, identity)
-    if node["state"] != "pending":
-        _fail("join result already settled")
-    _known(machine, value, identity)
-    if status == "fulfilled" and value[0] == "ref":
-        target = machine["heap"].get(value[1])
-        if target and target.get("kind") == "promise":
-            if target["state"] == "pending":
-                node["adopted"] = value[1]
-                return
-            status, value = target["state"], copy.deepcopy(target["result"])
-    node["state"], node["result"] = status, copy.deepcopy(value)
-
-
-def _refresh(machine):
-    jobs = _dict_rows(machine.get("jobs", []))
-    ready = machine.setdefault("ready", [])
-    scheduler = machine.setdefault("scheduler", {"registration": 0, "ready": 0})
-    for identity, job in sorted(jobs.items(), key=lambda pair: pair[1].get("sequence", 0)):
-        if job.get("status") == "waiting" and job.get("promise"):
-            input_promise = _promise(machine, job["promise"])
-            if input_promise["state"] != "pending":
-                job["status"] = "queued"
-                scheduler["ready"] += 1
-                job["readySequence"] = scheduler["ready"]
-                ready.append(identity)
-    machine["jobs"] = _list_rows(jobs)
 
 
 def apply_record(machine, record):

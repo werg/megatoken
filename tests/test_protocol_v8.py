@@ -312,80 +312,34 @@ class ProtocolV8NativeReplayTests(unittest.TestCase):
     def test_source_qualified_protocol_region_public_golden_replays_and_continues(self):
         self.assertEqual(self.artifact["schema"], "semantic-protocol-region-fixtures/1")
         expected = {
-            "source-symbol-getter-arithmetic": (
-                "25740fcc4c7a2dae1d185fd5e8250c2fb727e1db97a176d751bc74752d37d573",
-                "34e498ac227f3cd7bf927f8361281e6ce5d47ef7f91b05b5c1fcb905c8b35674",
-                11,
-                3,
-                8,
-            ),
-            "typed-views-shared-backing": (
-                "bf88479ca947f7ae6250c493e458db1edac052b1ecd3ebdb8f8fe4f8b52e86d9",
-                "f0880fab0287c82b4b7c0ee5a712875f2770ed3483daf9c2352976da9b4a604e",
-                13,
-                0,
-                8,
-            ),
-            "source-derived-private-arithmetic": (
-                "3bfe01e095d764ec1883a13260fc9ec4d61f4536161188bd9346de081dba92cb",
-                "5616241138fb319d558defbace8d8e58900940b453972720a9e11bb641525abd",
-                64,
-                2,
-                21,
-            ),
-            "builtin-iterator-mixed-arithmetic": (
-                "923ae7d50aad887a9fc354de1dd8e2c71c810df562423fa0e5d3d243678a4939",
-                "7aa559a57a0dbe36d07ae4aa1523f4c24f6b700dd32b1e96de8b2d990164bb30",
-                16,
-                2,
-                12,
-            ),
-            "source-number-private-arithmetic": (
-                "18e7a40509f398734e0e07410a0b90b556969ec99203fb37d3d51ddcf9b54116",
-                "c4f7839118881a8f4a043e58eff87637a702fad7b83dfee940b7edeebe9e5a12",
-                51,
-                2,
-                15,
-            ),
-            "source-generator-cleanup-suspension": (
-                "afd8010d455b42109bfd3bdc369a8011a6d2f463669125b19ba9cf0392cfd197",
-                "25fbee79668ac97d1130883c90b4c0392079771a3a5730c235189f86d82b5223",
-                30,
-                0,
-                6,
-            ),
-            "source-generator-delegated-cleanup": (
-                "acd9ac1cf59ce1ef29c627872deae5a70f04a119704adea9637d718c97fd9c9d",
-                "3a81ec76c01fbd27e79c0d479b42610056451f210e5402d38f26be0708b1b855",
-                49,
-                0,
-                30,
-            ),
-            "source-proxy-traps-arithmetic": (
-                "8a7028de68baae6e315499727f843814ccfe340ec7ec13d78c2890be118a9952",
-                "2e586831fb90d84958046b8093b090604816f82aec8738fa1b0463f492611610",
-                22,
-                3,
-                25,
-            ),
+            "source-symbol-getter-arithmetic": (11, 3, 8),
+            "typed-views-shared-backing": (13, 0, 8),
+            "source-derived-private-arithmetic": (64, 2, 21),
+            "builtin-iterator-mixed-arithmetic": (16, 2, 12),
+            "source-promise-all-reaction-arithmetic": (3, 2, 29),
+            "source-promise-join-rejection-finally": (3, 1, 24),
+            "source-number-private-arithmetic": (51, 2, 15),
+            "source-generator-cleanup-suspension": (30, 0, 6),
+            "source-generator-delegated-cleanup": (49, 0, 30),
+            "source-proxy-traps-arithmetic": (22, 3, 25),
+            "source-base-initializer-throw": (22, 0, 8),
+            "source-derived-initializer-throw": (38, 0, 15),
         }
-        deferred = {
-            "source-promise-all-reaction-arithmetic",
-            "source-promise-join-rejection-finally",
-        }
+        from megatoken.data.semantic_contract_v8 import CONTRACT
+
+        published = {row["id"]: row for row in CONTRACT["interoperability"]}
         case_ids = {case["id"] for case in self.artifact["cases"]}
-        self.assertEqual(case_ids, set(expected) | deferred)
+        self.assertEqual(case_ids, set(expected))
         for golden in self.artifact["cases"]:
-            if golden["id"] in deferred:
-                continue
             case = golden["artifact"]
             with self.subTest(case=golden["id"]):
-                public_digest, context_digest, protocol_records, regions, details = expected[
-                    golden["id"]
-                ]
+                protocol_records, regions, details = expected[golden["id"]]
+                declaration = published["protocol-region:" + golden["id"]]
                 artifact = {"public": case["public"], "contexts": case["contexts"]}
-                self.assertEqual(stable_algorithm_hash(case["public"]), public_digest)
-                self.assertEqual(stable_algorithm_hash(case["contexts"]), context_digest)
+                self.assertEqual(stable_algorithm_hash(case["public"]), declaration["publicDigest"])
+                self.assertEqual(
+                    stable_algorithm_hash(case["contexts"]), declaration["contextDigest"]
+                )
                 result = validate_v8_artifact(artifact)
                 self.assertTrue(
                     all(
