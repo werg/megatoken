@@ -16,6 +16,7 @@ from unittest.mock import patch
 from megatoken.data.algorithm_v7 import stable_algorithm_hash, stable_algorithm_json
 from megatoken.generation.codec import ByteCodec
 from scripts import admit_semantic_v8
+from tests.test_source_identity_v8 import direct_source_sidecar
 
 
 class NativeV8AdmissionTests(unittest.TestCase):
@@ -193,6 +194,27 @@ class NativeV8AdmissionTests(unittest.TestCase):
         receipt = self.run_cli(self.example)
         self.assertEqual(receipt["checks"]["sourceBinding"], "untested")
         self.assertFalse(receipt["admitted"])
+
+    def test_direct_host_identity_without_live_source_replay_is_not_admission(self):
+        document = self.source_document()
+        side = document["sidecar"]
+        del side["sourceArtifact"], side["sourceArtifactDigest"]
+        side.update(
+            direct_source_sidecar(), representation="mixed", protocolExtensions=["promise-join/1"]
+        )
+        receipt = self.run_cli(document)
+        self.assertIsNone(receipt["sourceArtifactDigest"])
+        self.assertEqual(receipt["sourceIdentityDigest"], side["identityDigest"])
+        self.assertEqual(receipt["checks"]["sourceBinding"], "untested")
+        self.assertFalse(receipt["admitted"])
+        for mutation in ("identity", "inventory"):
+            changed = copy.deepcopy(document)
+            if mutation == "identity":
+                changed["sidecar"]["identityDigest"] = "0" * 64
+            else:
+                changed["sidecar"]["protocolExtensions"] = ["invented"]
+            with self.subTest(mutation=mutation), self.assertRaisesRegex(ValueError, "direct"):
+                self.run_cli(changed)
 
     def test_false_evidence_digests_are_still_rejected(self):
         for field in ("sourceArtifactDigest", "publicDigest", "contextDigest"):

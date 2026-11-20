@@ -13,6 +13,10 @@ from pathlib import Path
 from megatoken.data.algorithm_v7 import stable_algorithm_hash
 from megatoken.data.native_v8 import prepare_native_v8_training, validate_v8_artifact
 from megatoken.data.semantic_contract_v8 import CONTRACT, CONTRACT_DIGEST, INTEROPERABILITY_DIGEST
+from megatoken.data.source_identity_v8 import (
+    DIRECT_SOURCE_SCHEMA,
+    direct_source_identity_v8,
+)
 
 _REPOSITORY_GIT_ENV = {
     "GIT_ALTERNATE_OBJECT_DIRECTORIES",
@@ -136,13 +140,19 @@ def recheck_source_binding(document, input_path, producer_root, producer_revisio
         "producerRevision": producer_revision,
         "producerTreeClean": True,
         "artifactSha256": hashlib.sha256(input_path.read_bytes()).hexdigest(),
-        "sourceArtifactDigest": stable_algorithm_hash(sidecar.get("sourceArtifact")),
+        "sourceArtifactDigest": stable_algorithm_hash(sidecar["sourceArtifact"])
+        if sidecar.get("sourceArtifact") is not None
+        else None,
         "publicDigest": stable_algorithm_hash(document.get("public")),
         "contextDigest": stable_algorithm_hash(document.get("contexts")),
         "sourceValidated": True,
         "projectionValidated": True,
         "replayValidated": True,
     }
+    if sidecar.get("schema") == DIRECT_SOURCE_SCHEMA:
+        expected.update(
+            sourceIdentityDigest=direct_source_identity_v8(sidecar), identityValidated=True
+        )
     if not isinstance(receipt, dict) or any(
         receipt.get(key) != value for key, value in expected.items()
     ):
@@ -173,21 +183,33 @@ def main():
     contexts = document["contexts"]
     source_binding = "untested"
     source_verification = None
+    source_identity = None
     if isinstance(sidecar, dict) and sidecar.get("schema") in (
         "semantic-region-evidence/1",
         "semantic-protocol-region-evidence/1",
+        DIRECT_SOURCE_SCHEMA,
     ):
+        direct = sidecar["schema"] == DIRECT_SOURCE_SCHEMA
+        if direct:
+            source_identity = direct_source_identity_v8(sidecar)
         if (
-            sidecar.get("representation") != "semantic-trace/8"
+            sidecar.get("representation") != ("mixed" if direct else "semantic-trace/8")
             or sidecar.get("referenceStatus") != "agreed"
             or sidecar.get("optimizerSteps") != 0
             or sidecar.get("learningClaim") is not None
-            or sidecar.get("sourceArtifactDigest")
+            or not direct
+            and sidecar.get("sourceArtifactDigest")
             != stable_algorithm_hash(sidecar.get("sourceArtifact"))
             or sidecar.get("publicDigest") != stable_algorithm_hash(public)
             or sidecar.get("contextDigest") != stable_algorithm_hash(contexts)
         ):
             raise ValueError("V8 source evidence no longer binds this public projection")
+        if direct and (
+            sidecar.get("admission") != "locally_verified"
+            or sidecar.get("profile") != "compositional-regions/1"
+            or sidecar.get("protocolExtensions") != ["promise-join/1"]
+        ):
+            raise ValueError("V8 direct host source evidence has an unsupported protocol inventory")
         if sidecar.get("schema") == "semantic-protocol-region-evidence/1":
             if (
                 sidecar.get("admission") != "locally_verified"
@@ -299,6 +321,7 @@ def main():
         "sourceArtifactDigest": stable_algorithm_hash(source_artifact)
         if source_artifact is not None
         else None,
+        **({"sourceIdentityDigest": source_identity} if source_identity is not None else {}),
         "sourceVerification": source_verification,
         "sourceProfile": sidecar.get("profile") if isinstance(sidecar, dict) else None,
         "protocolProfile": sidecar.get("protocolProfile") if isinstance(sidecar, dict) else None,

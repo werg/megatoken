@@ -15,6 +15,7 @@ from megatoken.data.semantic_contract_v8 import (
     INTEROPERABILITY_DIGEST,
 )
 from megatoken.data.semantic_json import stable_algorithm_hash
+from megatoken.data.source_identity_v8 import source_evidence_binding_v8
 from megatoken.generation.codec import LING_TOKENIZER_SHA256
 from megatoken.io import write_json
 
@@ -64,7 +65,7 @@ def _verify_binding(document, registry):
         "traceFormat": "semantic-trace/8",
         "episodeDigest": stable_algorithm_hash(document["public"]),
         "contextsDigest": stable_algorithm_hash(document["contexts"]),
-        "sourceArtifactDigest": stable_algorithm_hash(side["sourceArtifact"]),
+        **source_evidence_binding_v8(side),
         "registryDigest": digest,
         "componentId": component["id"],
         "split": component["split"],
@@ -122,6 +123,11 @@ def _native_admission(
         "publicDigest": stable_algorithm_hash(document["public"]),
         "contextsDigest": stable_algorithm_hash(document["contexts"]),
         "sourceArtifactDigest": binding["sourceArtifactDigest"],
+        **(
+            {"sourceIdentityDigest": binding["sourceIdentityDigest"]}
+            if "sourceIdentityDigest" in binding
+            else {}
+        ),
         "sourceVerification": source_receipt,
         "sourceProfile": document.get("sidecar", {}).get("profile"),
         "protocolProfile": document.get("sidecar", {}).get("protocolProfile"),
@@ -261,6 +267,10 @@ def prepare_semantic_corpus_v8(
                     "registryDigest": registry["digest"],
                     "datasetBindingDigest": stable_algorithm_hash(binding),
                 }
+                if "sourceIdentityDigest" in binding:
+                    expected_source.update(
+                        sourceIdentityDigest=binding["sourceIdentityDigest"], identityValidated=True
+                    )
                 if not isinstance(source, dict) or any(
                     source.get(key) != value for key, value in expected_source.items()
                 ):

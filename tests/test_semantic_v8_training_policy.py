@@ -18,6 +18,7 @@ from megatoken.training.semantic_v8 import (
     validate_semantic_episode_v8,
     validate_semantic_training_policy_v8,
 )
+from tests.test_source_identity_v8 import direct_source_sidecar
 
 POLICY = {
     "schema": "semantic-training-policy/8",
@@ -93,7 +94,7 @@ def test_unverified_data_flag_cannot_admit_unqualified_v8_targets(tmp_path):
         )
 
 
-def prepared_v8_fixture(tmp_path, *, max_positions=128, max_history=8):
+def prepared_v8_fixture(tmp_path, *, max_positions=128, max_history=8, direct_source=False):
     """Real native rows with explicitly injected source/tokenizer audit boundaries."""
     fixture = Path(__file__).parent / "fixtures" / "semantic-regions-v8.json.gz.b64"
     document = json.loads(gzip.decompress(base64.b64decode(fixture.read_bytes())))["examples"][0]
@@ -165,6 +166,12 @@ def prepared_v8_fixture(tmp_path, *, max_positions=128, max_history=8):
         "familyRegistryDigest": registry["digest"],
         "datasetBinding": binding,
     }
+    if direct_source:
+        document["sidecar"].pop("sourceArtifact")
+        document["sidecar"].update(direct_source_sidecar())
+        binding.update(
+            sourceArtifactDigest=None, sourceIdentityDigest=document["sidecar"]["identityDigest"]
+        )
     producer_receipt = {
         "schema": "semantic-native-source-recheck/1",
         "producerRevision": POLICY["producerRevision"],
@@ -180,6 +187,10 @@ def prepared_v8_fixture(tmp_path, *, max_positions=128, max_history=8):
         "registryDigest": registry["digest"],
         "datasetBindingDigest": stable_algorithm_hash(binding),
     }
+    if direct_source:
+        producer_receipt.update(
+            sourceIdentityDigest=binding["sourceIdentityDigest"], identityValidated=True
+        )
     codec = ByteCodec.byte_fallback()
     # Test an explicit injected tokenizer-verification boundary. Production
     # preparation obtains this evidence only after checking the pinned file.
@@ -215,8 +226,10 @@ def prepared_v8_fixture(tmp_path, *, max_positions=128, max_history=8):
     return document, codec, policy, output
 
 
-def test_freshly_prepared_v8_supply_passes_complete_native_batch_admission(tmp_path):
-    _, codec, policy, output = prepared_v8_fixture(tmp_path)
+@pytest.mark.parametrize("direct_source", [False, True])
+def test_freshly_prepared_v8_supply_passes_complete_native_batch_admission(tmp_path, direct_source):
+    document, codec, policy, output = prepared_v8_fixture(tmp_path, direct_source=direct_source)
+    registry = document["sidecar"]["splitIdentity"]["registry"]
     import torch
 
     from megatoken.data import PreparedCorpus, iter_windows
@@ -245,6 +258,27 @@ def test_freshly_prepared_v8_supply_passes_complete_native_batch_admission(tmp_p
         ]
         batches = prepare_batches(model, windows, config)
     assert batches
+    if direct_source:
+        from dataclasses import replace
+
+        original = json.loads(episode.supervision.annotations_json)
+        for location in ("sourceAdmission", "nativeAdmission", "datasetBinding"):
+            changed = json.loads(json.dumps(original))
+            changed["semantic_execution"][location]["sourceIdentityDigest"] = "0" * 64
+            forged = replace(
+                episode,
+                supervision=replace(episode.supervision, annotations_json=json.dumps(changed)),
+            )
+            with pytest.raises(ValueError, match="source/native"):
+                validate_semantic_episode_v8(forged, codec=codec, policy=policy, registry=registry)
+        changed = json.loads(json.dumps(original))
+        changed["semantic_execution"]["sourceAdmission"]["identityValidated"] = False
+        forged = replace(
+            episode,
+            supervision=replace(episode.supervision, annotations_json=json.dumps(changed)),
+        )
+        with pytest.raises(ValueError, match="source/native"):
+            validate_semantic_episode_v8(forged, codec=codec, policy=policy, registry=registry)
 
 
 def test_generic_unverified_flag_cannot_hide_or_relabel_a_semantic_schema():

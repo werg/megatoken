@@ -116,6 +116,7 @@ def validate_semantic_episode_v8(
     expected_split=None,
 ):
     from megatoken.data.native_v8 import prepare_native_v8_training
+    from megatoken.data.source_identity_v8 import validate_source_binding_v8
 
     policy = validate_semantic_training_policy_v8(policy)
     sources, components = _verify_registry(registry, policy["registryDigest"])
@@ -174,6 +175,7 @@ def validate_semantic_episode_v8(
     ):
         raise ValueError("V8 exact source or component is absent from its complete registry")
     source_receipt, native = semantic.get("sourceAdmission"), semantic.get("nativeAdmission")
+    direct_source = validate_source_binding_v8(binding)
     if (
         not isinstance(source_receipt, dict)
         or source_receipt.get("schema") != "semantic-native-source-recheck/1"
@@ -182,6 +184,11 @@ def validate_semantic_episode_v8(
         or source_receipt.get("projectionValidated") is not True
         or source_receipt.get("replayValidated") is not True
         or source_receipt.get("sourceArtifactDigest") != binding.get("sourceArtifactDigest")
+        or direct_source
+        and (
+            source_receipt.get("sourceIdentityDigest") != binding["sourceIdentityDigest"]
+            or source_receipt.get("identityValidated") is not True
+        )
         or source_receipt.get("publicDigest") != binding.get("episodeDigest")
         or source_receipt.get("contextDigest") != binding.get("contextsDigest")
         or source_receipt.get("familyBindingValidated") is not True
@@ -199,6 +206,9 @@ def validate_semantic_episode_v8(
         or native.get("interoperabilityDigest") != INTEROPERABILITY_DIGEST
         or native.get("publicDigest") != binding.get("episodeDigest")
         or native.get("contextsDigest") != binding.get("contextsDigest")
+        or native.get("sourceArtifactDigest") != binding.get("sourceArtifactDigest")
+        or direct_source
+        and native.get("sourceIdentityDigest") != binding["sourceIdentityDigest"]
         or native.get("datasetBindingDigest") != stable_algorithm_hash(binding)
         or native.get("tokenizer")
         != {"status": "passed", "identity": codec.fingerprint, "sha256": LING_TOKENIZER_SHA256}
