@@ -75,6 +75,30 @@ class OrdinaryArrayPropertyTests(unittest.TestCase):
         self.set("5", ["str", "five"])
         self.assertEqual(self.machine["heap"]["a"]["properties"]["length"], ["num", 6])
 
+    def test_explicit_length_writes_preserve_key_order_and_reinstall_checkpoint_storage(self):
+        # The producer installs an explicit length write as a descriptor. Its
+        # Map storage order changes, while the JavaScript key order does not.
+        for length in (1, 3):
+            with self.subTest(length=length):
+                self.setUp()
+                self.array(1)
+                self.set("0", ["str", "kept"])
+                self.set("length", ["num", length])
+                node = self.machine["heap"]["a"]
+                self.assertEqual(list(node["properties"]), ["0", "length"])
+                self.assertEqual(list(node["descriptors"]), ["0", "length"])
+                self.assertEqual(node["keyOrder"], ["length", "0"])
+
+        self.setUp()
+        self.array(3)
+        self.set("0", ["str", "kept"])
+        self.set("2", ["str", "removed"])
+        self.set("length", ["num", 2])
+        node = self.machine["heap"]["a"]
+        self.assertEqual(list(node["properties"]), ["0", "length"])
+        self.assertEqual(list(node["descriptors"]), ["0", "length"])
+        self.assertEqual(node["keyOrder"], ["length", "0"])
+
     def test_array_length_rejects_invalid_and_nonwritable_changes(self):
         self.array(2)
         with self.assertRaisesRegex(ProtocolV8Error, "invalid array length"):

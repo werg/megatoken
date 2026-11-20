@@ -573,9 +573,8 @@ def _set_array_length(node, new_length, writable=None):
     """Apply array length shrink/growth, including partial failure at a fixed index."""
     old = _descriptor(node, "length")
     current = old["value"][1]
-    if new_length > current:
-        node["properties"]["length"] = ["num", new_length]
-    elif new_length < current:
+    success = True
+    if new_length < current:
         blockers = sorted(
             (
                 i
@@ -590,25 +589,23 @@ def _set_array_length(node, new_length, writable=None):
             if descriptor is None:
                 continue
             if not descriptor["configurable"]:
-                node["properties"]["length"] = ["num", index + 1]
-                if writable is False:
-                    node.setdefault("descriptors", {})["length"] = {
-                        "kind": "data",
-                        "writable": False,
-                        "enumerable": False,
-                        "configurable": False,
-                    }
-                return False
+                new_length = index + 1
+                success = False
+                break
             _remove(node, key)
-        node["properties"]["length"] = ["num", new_length]
-    if writable is not None:
-        node.setdefault("descriptors", {})["length"] = {
-            "kind": "data",
-            "writable": writable,
-            "enumerable": False,
-            "configurable": False,
-        }
-    return True
+    # Explicit length writes use the same descriptor installer as the
+    # producer, including an unchanged value. Storage order is part of the
+    # serialized continuation; the installer preserves the separate keyOrder.
+    _install(
+        node,
+        "length",
+        {
+            **old,
+            "value": ["num", new_length],
+            "writable": old["writable"] if writable is None else writable,
+        },
+    )
+    return success
 
 
 def _ordered(node):
