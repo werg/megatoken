@@ -139,6 +139,60 @@ def test_effect_ids_are_owned_by_invocation_and_receipts_cannot_cross_owners():
     assert all(row[1]["status"] == "settled" for row in obligations["intents"])
 
 
+def test_reaction_request_keeps_source_frame_but_host_intent_belongs_to_controller():
+    state = _initial_state(
+        {}, {"invocationId": "callback", "entry": "run", "inputGraph": {"roots": [], "objects": []}}
+    )
+    state["stack"] = ["job:reaction"]
+    state["frameFunctions"].append(["job:reaction", "handler"])
+    obligations = {"intents": [], "handlers": [], "callbacks": [], "closureQueue": []}
+    request = {
+        "invocation": "job:reaction",
+        "effect": "e1",
+        "operation": "demo.store",
+        "site": {"start": 0, "end": 8},
+        "arguments": [["str", "key"], ["num", 7]],
+        "payload": '["key",7]',
+    }
+    before = copy.deepcopy((state, obligations))
+    with pytest.raises(NativeV8Error, match="another invocation frame"):
+        _apply_detail(
+            state,
+            "request",
+            {**request, "invocation": "callback"},
+            {},
+            obligations,
+            root="callback",
+        )
+    assert (state, obligations) == before
+    _apply_detail(state, "request", request, {}, obligations, root="callback")
+    assert state["effects"][0][1]["invocation"] == "job:reaction"
+    assert obligations["intents"][0][0] == "callback/e1"
+    assert obligations["intents"][0][1]["invocationId"] == "callback"
+    dispatched, settled = set(), set()
+    dispatch = {
+        "kind": "dispatch",
+        "sequence": 1,
+        "fields": {
+            "invocationId": "callback",
+            "effectId": "e1",
+            "key": "callback/e1",
+            "attempt": 1,
+        },
+    }
+    _apply_observation(state, dispatch, dispatched, settled, obligations)
+    receipt = result_row(["num", 7])
+    receipt["fields"]["invocationId"] = "job:reaction"
+    before = copy.deepcopy((state, dispatched, settled, obligations))
+    with pytest.raises(NativeV8Error, match="another invocation"):
+        _apply_observation(state, receipt, dispatched, settled, obligations)
+    assert (state, dispatched, settled, obligations) == before
+    receipt["fields"]["invocationId"] = "callback"
+    _apply_observation(state, receipt, dispatched, settled, obligations)
+    assert dispatched == settled == {"callback/e1"}
+    assert obligations["intents"][0][1]["status"] == "settled"
+
+
 @pytest.mark.parametrize(
     ("lifetime", "status", "expected"),
     [

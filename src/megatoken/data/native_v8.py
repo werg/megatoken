@@ -1039,6 +1039,18 @@ def _merge_callback_state(target, source):
             target[field] = copy.deepcopy(source[field])
 
 
+def _controller_owner(state):
+    """The first retained frame identity names this controller's invocation.
+
+    Request source frames can be nested helpers or reaction jobs. Their host
+    intents and observations still belong to the enclosing controller.
+    """
+    frames = state.get("frameFunctions", [])
+    if not frames:
+        _fail("Controller has no owning invocation")
+    return frames[0][0]
+
+
 def _refresh_realm_readiness(controllers, previous_ready):
     """Publish a transition's newly eligible waiters in realm registration order.
 
@@ -1515,8 +1527,11 @@ def _apply_detail(
         state["completion"] = completion
         state["pending"] = None
     elif kind == "request":
-        if root is not None and fields.get("invocation") != root:
-            _fail("Request belongs to another invocation")
+        owner = _controller_owner(state)
+        if root is not None and root != owner:
+            _fail("Request belongs to another invocation controller")
+        if not state["stack"] or fields.get("invocation") != state["stack"][-1]:
+            _fail("Request belongs to another invocation frame")
         effect = fields["effect"]
         promise = fields.get("promise")
         args = fields["arguments"]
@@ -1578,7 +1593,7 @@ def _apply_detail(
                 },
             )
         if obligations is not None:
-            identity = fields["invocation"] + "/" + effect
+            identity = owner + "/" + effect
             request_fields = {
                 "effect": effect,
                 "operation": fields["operation"],
@@ -1599,10 +1614,10 @@ def _apply_detail(
                 "status": "committed",
                 "operation": fields["operation"],
                 "payload": fields["payload"],
-                "invocationId": fields["invocation"],
+                "invocationId": owner,
                 "effectId": effect,
                 "attempts": 0,
-                "taskRevision": (task_revisions or {}).get(fields["invocation"]),
+                "taskRevision": (task_revisions or {}).get(owner),
                 "payloadDigest": hashlib.sha256(fields["payload"].encode("utf-8")).hexdigest(),
                 "witness": witness,
                 "result": None,
@@ -1628,7 +1643,7 @@ def _apply_detail(
                         else "call",
                         "sequence": 0,
                         "queued": [],
-                        "ownerInvocationId": fields["invocation"],
+                        "ownerInvocationId": owner,
                     }
                 obligations["callbacks"] = list(map(list, callbacks.items()))
     elif kind in ("observe",):
@@ -1792,7 +1807,7 @@ def _apply_observation_staged(state, row, dispatched, settled, obligations, trac
         effect = next((e for e in state["effects"] if e[0] == fields["effectId"]), None)
         if effect is None:
             _fail("Dispatch of unknown effect")
-        if effect[1]["invocation"] != fields["invocationId"]:
+        if _controller_owner(state) != fields["invocationId"]:
             _fail("Dispatch belongs to another invocation")
         identity = fields["key"]
         if identity in dispatched or identity in settled:
@@ -1819,7 +1834,7 @@ def _apply_observation_staged(state, row, dispatched, settled, obligations, trac
         effect = next((e for e in state["effects"] if e[0] == obs["effect"]), None)
         if effect is None:
             _fail("Result of unknown effect")
-        if effect[1]["invocation"] != fields["invocationId"]:
+        if _controller_owner(state) != fields["invocationId"]:
             _fail("Result belongs to another invocation")
         identity = fields["invocationId"] + "/" + obs["effect"]
         if identity not in dispatched or identity in settled:
@@ -1848,7 +1863,7 @@ def _apply_observation_staged(state, row, dispatched, settled, obligations, trac
         effect[1]["status"] = obs["status"]
         effect[1]["result"] = obs["result"]
         if obligations is not None:
-            identity = effect[1]["invocation"] + "/" + obs["effect"]
+            identity = fields["invocationId"] + "/" + obs["effect"]
             intents = {key: value for key, value in obligations["intents"]}
             intent = intents.get(identity)
             if intent is None or intent["status"] != "dispatched":
