@@ -47,9 +47,19 @@ Hosted checks on the measured consumer commit also passed:
 
 These hosted runs cover the general repository and existing v6/native bridge
 pipelines; the v8 source, native, and token qualification is recorded separately
-above. Later documentation commits do not change the measured implementation
-revisions. Model-execution qualification, end-to-end serving costs, and default
-promotion remain separate gates.
+above. These pins describe the recorded runs and do not qualify later
+implementation changes. Model-execution qualification, end-to-end serving costs,
+and default promotion remain separate gates.
+
+The [consumer v8 workflow](.github/workflows/semantic-v8.yml) checks each pull
+request's exact consumer commit against a pinned clean producer. It runs the
+native tests with the live source checker installed, rejects skipped checks,
+and recollects the complete interoperability and gallery populations. Each case
+must pass source and native admission, exact production-tokenizer measurement,
+and native physical packing. The run retains both revision identities, its
+native policy, test logs, source artifacts, admission receipts and cost reports.
+The test policy changes only the consumer revision under test; all contract,
+fixture, interoperability and tokenizer requirements remain pinned.
 
 This increment adds bounded `for...in` replay for ordinary objects and arrays,
 including inherited enumerable keys and nonenumerable shadowing, together with
@@ -59,6 +69,13 @@ settlement authority; scheduler paths requiring unrepresented Promise
 assimilation or cleanup jobs are refused before committing state. Observed
 results, fresh data graphs, effect status, and receipts commit together, so a
 refused delivery leaves the previous state intact.
+
+An executor throw before any resolving call now consumes the shared resolving
+pair as an implicit rejection. Later calls through either retained resolver
+leave the promise and its original rejection evidence unchanged. Checkpoint
+restoration rejects missing or contradictory first-call state. The public
+golden tests also require every protocol case declared by the shared contract,
+so a newly added case cannot be omitted from the consumer fixture silently.
 
 The native host-request profile still rejects calls requiring the
 `owned-graph/1` argument format. Tests of fresh result graphs cover the result

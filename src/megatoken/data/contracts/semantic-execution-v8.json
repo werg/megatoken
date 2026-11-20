@@ -2031,7 +2031,7 @@
       "reason": "old artifacts require their original contract"
     }
   ],
-  "interoperabilityDigest": "720c330eb30cc8350fcc07c0db363537514af5c7f79d7b73b8951be42537e634",
+  "interoperabilityDigest": "001711716452ffb26ac595e8b128be678a8ff52d5eb916f3b0d169e96c55bc6b",
   "interoperability": [
     {
       "id": "ordered-map",
@@ -2131,7 +2131,7 @@
     {
       "id": "protocol-region:source-promise-executor-abrupt",
       "publicDigest": "2494dc360b6b178634186cdf30f8d227df99ddeeac8ca0a0f1bcff3bec2bbd39",
-      "contextDigest": "d8336c25ac54d6b2ebb1c07e2b23da53f959cf131306a183fa2904d7f6135936"
+      "contextDigest": "4165879acf7aa237c10b80a9a38ac604ad097fb13af15320e59cfddb032ff70b"
     },
     {
       "id": "protocol-region:source-ordinary-constructor-prototype",

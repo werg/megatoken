@@ -337,12 +337,17 @@ class ProtocolV8NativeReplayTests(unittest.TestCase):
             "source-enumeration-map-callback": (18, 0, 6),
             "generator-own-symbol-alias": (27, 0, 12),
             "source-logical-left-operands": (29, 1, 19),
+            "source-for-in-own-keys": (21, 0, 19),
         }
         from megatoken.data.semantic_contract_v8 import CONTRACT
 
         published = {row["id"]: row for row in CONTRACT["interoperability"]}
         case_ids = {case["id"] for case in self.artifact["cases"]}
         self.assertEqual(case_ids, set(expected))
+        self.assertEqual(
+            {"protocol-region:" + identity for identity in case_ids},
+            {identity for identity in published if identity.startswith("protocol-region:")},
+        )
         for golden in self.artifact["cases"]:
             case = golden["artifact"]
             with self.subTest(case=golden["id"]):
