@@ -69,6 +69,8 @@ OBSERVATIONS = {
         set(),
     ),
     "handler-close": ({"subscriptionId", "discarded"}, set()),
+    "cancel": ({"invocationId", "reason", "uncertain"}, set()),
+    "realm-close": ({"realmId", "reason"}, set()),
     "event": (
         {"subscriptionId", "eventId", "invocationId", "triggerId", "programId", "realmId"},
         set(),
@@ -168,6 +170,20 @@ def validate_observation_v8(row):
     elif kind == "handler":
         if fields["lifetime"] not in {"subscription", "call"}:
             raise ValueError("Handler requires an explicit callback lifetime")
+    elif kind in {"cancel", "realm-close"}:
+        if type(fields["reason"]) is not str:
+            raise ValueError("Lifecycle closure requires an explicit reason")
+        if kind == "realm-close" and fields["track"] != "host":
+            raise ValueError("Realm closure requires host observation authority")
+        if kind == "cancel" and (
+            type(fields["uncertain"]) is not list
+            or any(
+                type(identity) is not str or not ROUTING.fullmatch(identity)
+                for identity in fields["uncertain"]
+            )
+            or len(set(fields["uncertain"])) != len(fields["uncertain"])
+        ):
+            raise ValueError("Cancellation requires distinct uncertain effect identities")
     elif kind == "dispatch" and fields.get("nativeAction") is not None:
         native = fields["nativeAction"]
         if (

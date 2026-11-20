@@ -711,6 +711,8 @@ def _replay_shared_state(
     invocation_inputs = {}
     invocation_metadata = {}
     callback_allocator = [0]
+    cancelled_invocations = set()
+    closed_realms = set()
 
     def share_realm(owner, source):
         realm = invocation_metadata[owner]["realmId"]
@@ -752,6 +754,8 @@ def _replay_shared_state(
             published[fields["programId"]] = (program, fields.get("functions", []), random_seed)
             continue
         if kind == "invocation":
+            if fields["realmId"] in closed_realms:
+                _fail("Closed realm cannot be resurrected")
             if fields["invocationId"] in controllers:
                 _fail("Duplicate invocation controller")
             published_row = published.get(fields["programId"])
@@ -765,12 +769,19 @@ def _replay_shared_state(
                 base = controllers.get(owner)
                 if base is None:
                     _fail("Callback has no independently replayed owner")
+                if owner in cancelled_invocations:
+                    _fail("Callback belongs to a cancelled invocation")
                 if any(
                     fields[key] != invocation_metadata[owner][key]
                     for key in ("realmId", "programId", "track")
                 ):
                     _fail("Callback differs from its retained owner's realm or program")
-                if same_realm(owner, active_invocation) and state is not None and state["stack"]:
+                if (
+                    same_realm(owner, active_invocation)
+                    and active_invocation not in cancelled_invocations
+                    and state is not None
+                    and state["stack"]
+                ):
                     _fail("Callback cannot interrupt a running JavaScript stack")
                 invocation_inputs[fields["invocationId"]] = {
                     "graph": copy.deepcopy(fields["inputGraph"]),
@@ -862,9 +873,12 @@ def _replay_shared_state(
             invocation = fields.get("invocationId")
             if invocation not in controllers:
                 _fail("Generated record has no independently replayed invocation")
+            if invocation in cancelled_invocations:
+                _fail("Generated record follows invocation cancellation")
             if (
                 invocation != active_invocation
                 and same_realm(invocation, active_invocation)
+                and active_invocation not in cancelled_invocations
                 and state is not None
                 and state["stack"]
             ):
@@ -874,6 +888,56 @@ def _replay_shared_state(
             if state["completion"] is not None:
                 _fail("Generated record follows invocation completion")
             completion_policy = completion_policies[invocation]
+        if kind in {"cancel", "realm-close"}:
+            from .observations_v8 import validate_observation_v8
+
+            try:
+                validate_observation_v8(row)
+            except ValueError as error:
+                raise NativeV8Error(str(error)) from error
+            if kind == "cancel":
+                owner = fields["invocationId"]
+                if owner not in controllers or owner in cancelled_invocations:
+                    _fail("Cancellation requires one live invocation")
+                if fields["track"] != invocation_metadata[owner]["track"]:
+                    _fail("Cancellation belongs to another invocation track")
+                intents = [
+                    intent
+                    for _, intent in obligations["intents"]
+                    if intent["invocationId"] == owner
+                ]
+                uncertain = [
+                    intent["effectId"]
+                    for intent in intents
+                    if intent["status"] in {"dispatched", "uncertain"}
+                ]
+                if fields["uncertain"] != uncertain:
+                    _fail("Cancellation uncertain effects differ from committed dispatches")
+                for intent in intents:
+                    if intent["status"] in {"dispatched", "uncertain"}:
+                        intent["status"] = "uncertain"
+                    elif intent["status"] == "committed":
+                        intent["status"] = "cancelled"
+                cancelled_invocations.add(owner)
+            else:
+                realm = fields["realmId"]
+                members = {
+                    owner
+                    for owner, metadata in invocation_metadata.items()
+                    if metadata["realmId"] == realm
+                }
+                if not members or realm in closed_realms:
+                    _fail("Realm closure requires one known open realm")
+                if not members <= cancelled_invocations:
+                    _fail("Realm closure precedes invocation cancellation")
+                if any(
+                    handler["state"] != "closed"
+                    for _, handler in obligations["handlers"]
+                    if handler["realmId"] == realm
+                ):
+                    _fail("Realm closure precedes handler closure")
+                closed_realms.add(realm)
+            continue
         if state is None:
             continue
         if row["mode"] == "generated":
@@ -933,6 +997,7 @@ def _replay_shared_state(
                             identity: saved
                             for identity, saved in controllers.items()
                             if same_realm(identity, active_invocation)
+                            and identity not in cancelled_invocations
                         },
                         active_invocation,
                         protocol_record["job"],
@@ -964,6 +1029,7 @@ def _replay_shared_state(
                             identity: saved
                             for identity, saved in controllers.items()
                             if same_realm(identity, active_invocation)
+                            and identity not in cancelled_invocations
                         },
                         active_invocation,
                         payload["continuation"] if k == "resume" else payload["job"],
@@ -994,6 +1060,8 @@ def _replay_shared_state(
             _apply_observation(target, row, dispatched, settled, obligations, owner_sequences)
             share_realm(fields["invocationId"], target)
         elif kind in ("handler", "handler-close", "event"):
+            if fields.get("realmId") in closed_realms:
+                _fail("Callback observation targets a closed realm")
             target = controllers.get(fields.get("ownerInvocationId"), state)
             _apply_observation(target, row, dispatched, settled, obligations, owner_sequences)
         if active_invocation is not None:
@@ -1010,11 +1078,14 @@ def _replay_shared_state(
             )
     if boundary_invocation is None:
         return state
+    if boundary_invocation in cancelled_invocations:
+        _fail("Prediction boundary belongs to a cancelled invocation")
     boundary_state = controllers.get(boundary_invocation)
     if (
         boundary_state is not None
         and boundary_invocation != active_invocation
         and same_realm(boundary_invocation, active_invocation)
+        and active_invocation not in cancelled_invocations
         and state is not None
         and state["stack"]
     ):
@@ -1699,6 +1770,18 @@ def _apply_observation_staged(state, row, dispatched, settled, obligations, trac
             if fields.get("eventId") in handler["seen"]:
                 _fail("Duplicate source event identity")
             handler["seen"].append(fields["eventId"])
+            suffix = fields["eventId"].removeprefix("callbackevent")
+            if (
+                fields["eventId"].startswith("callbackevent")
+                and 0 < len(suffix) <= 16
+                and suffix.isascii()
+                and suffix.isdecimal()
+                and suffix[0] != "0"
+                and int(suffix) <= 9007199254740991
+            ):
+                for _, registration in obligations["callbacks"]:
+                    if registration.get("subscriptionId") == fields["subscriptionId"]:
+                        registration["sequence"] = max(registration.get("sequence", 0), int(suffix))
             obligations["handlers"] = [[key, value] for key, value in handlers.items()]
         return
     if row["kind"] == "handler":
