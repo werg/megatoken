@@ -45,6 +45,29 @@ def create_promise(machine, identity):
     }
 
 
+def assert_plain_resolution(machine, value):
+    """Prove that a reference cannot invoke a then getter or assimilation job."""
+    from .protocol_v8 import _lookup_descriptor
+
+    if value[0] != "ref":
+        return
+    target = machine["heap"].get(value[1])
+    if target and target.get("kind") == "promise":
+        _fail("Promise adoption requires explicit assimilation jobs")
+    _, descriptor = _lookup_descriptor(machine, value[1], "then")
+    if descriptor is None:
+        return
+    if descriptor["kind"] != "data":
+        _fail("then getter requires an explicit resolution protocol")
+    method = descriptor["value"]
+    if method[0] == "ref":
+        selected = machine["heap"].get(method[1])
+        if not selected or selected.get("kind") in ("closure", "proxy"):
+            _fail("callable then requires explicit assimilation jobs")
+    elif method[0] not in ("undefined", "null", "bool", "num", "str", "bigint", "symbol"):
+        _fail("unmodeled then value requires an explicit resolution protocol")
+
+
 def settle_promise(machine, identity, status, value, *, external=False, refresh=True):
     from .protocol_v8 import _known
 
@@ -54,13 +77,8 @@ def settle_promise(machine, identity, status, value, *, external=False, refresh=
     if node.get("external") and not external:
         _fail("external Promise requires an observed settlement")
     _known(machine, value)
-    if status == "fulfilled" and value[0] == "ref":
-        target = machine["heap"].get(value[1])
-        if target and target.get("kind") == "promise":
-            # Resolving to a Promise schedules assimilation work before its
-            # reactions become runnable. Eagerly propagating a settlement and
-            # sorting by registration order cannot represent that FIFO queue.
-            _fail("Promise adoption requires explicit assimilation jobs")
+    if status == "fulfilled":
+        assert_plain_resolution(machine, value)
     node["state"], node["result"] = status, copy.deepcopy(value)
     if refresh:
         refresh_ready(machine)

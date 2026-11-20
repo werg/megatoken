@@ -2,6 +2,7 @@ import copy
 import unittest
 
 from megatoken.data.native_v8 import NativeV8Error, _apply_detail, _initial_state
+from megatoken.data.promise_scheduler_v8 import settle_promise
 from megatoken.data.protocol_v8 import (
     ProtocolV8Error,
     _external_machine,
@@ -48,6 +49,64 @@ def callback(state):
 
 
 class PromiseSchedulerTests(unittest.TestCase):
+    def test_thenable_resolution_checks_descriptors_without_invoking_them(self):
+        for inherited in (False, True):
+            for accessor in (False, True):
+                state = shared_state()
+                create(state, "promise")
+                callback(state)
+                detail(state, "allocate", name="parent", kind="object", properties=[])
+                detail(state, "allocate", name="value", kind="object", properties=[])
+                nodes = dict(state["heap"])
+                owner = nodes["parent"] if inherited else nodes["value"]
+                if inherited:
+                    nodes["value"]["prototype"] = ["ref", "parent"]
+                if accessor:
+                    owner["descriptors"] = [
+                        [
+                            "then",
+                            {
+                                "kind": "accessor",
+                                "get": ["ref", "callback"],
+                                "set": ["undefined"],
+                                "enumerable": True,
+                                "configurable": True,
+                            },
+                        ]
+                    ]
+                else:
+                    owner["properties"].append(["then", ["ref", "callback"]])
+                before = copy.deepcopy(state)
+                with self.assertRaisesRegex(
+                    NativeV8Error, "then.*(?:resolution protocol|assimilation jobs)"
+                ):
+                    detail(
+                        state,
+                        "promise",
+                        action="resolve",
+                        promise="promise",
+                        value=["ref", "value"],
+                    )
+                self.assertEqual(state, before)
+                machine = _internal_machine(state)
+                machine["heap"]["promise"]["external"] = "request"
+                before = copy.deepcopy(machine)
+                with self.assertRaises(ProtocolV8Error):
+                    settle_promise(machine, "promise", "fulfilled", ["ref", "value"], external=True)
+                self.assertEqual(machine, before)
+        # A data property with a noncallable then remains an ordinary value.
+        state = shared_state()
+        create(state, "promise")
+        detail(
+            state,
+            "allocate",
+            name="value",
+            kind="object",
+            properties=[{"key": "then", "value": ["num", 3]}],
+        )
+        detail(state, "promise", action="resolve", promise="promise", value=["ref", "value"])
+        self.assertEqual(dict(state["heap"])["promise"]["result"], ["ref", "value"])
+
     def test_protocol_reaction_receiver_survives_await_and_restores_owner(self):
         state = shared_state()
         for identity in ("owner", "lexical"):
