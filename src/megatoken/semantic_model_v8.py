@@ -140,6 +140,7 @@ class NativeSemanticInferenceV8:
             torch.manual_seed(seed)
             if torch.cuda.is_available():
                 torch.cuda.manual_seed_all(seed)
+            model = self.runtime.generator.generator
             self.initialization = {
                 "schema": "semantic-inference-identity/8",
                 "adapter": ADAPTER,
@@ -147,6 +148,14 @@ class NativeSemanticInferenceV8:
                 "checkpointIdentity": self.model_identity,
                 "tokenizerIdentity": self.codec.fingerprint,
                 "nativeAdmissionClaim": False,
+                "generationSettings": {
+                    "device": str(next(model.parameters()).device)
+                    if hasattr(model, "parameters")
+                    else "test-runtime",
+                    "maxTokens": self.max_tokens,
+                    "maxFragments": self.max_fragments,
+                    "effort": self.effort,
+                },
             }
             return dict(self.initialization)
 

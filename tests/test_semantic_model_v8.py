@@ -340,6 +340,10 @@ class NativeServingV8Tests(unittest.TestCase):
         )
         public, contexts, context = prefix(self.example, 0)
         identity = public["timeline"][0]["fields"]["session"]
+        self.assertEqual(
+            adapter.initialization["generationSettings"],
+            {"device": "cpu", "maxTokens": 4, "maxFragments": 1, "effort": 1},
+        )
         try:
             with torch.inference_mode():
                 original = adapter._opened(identity).runtime
