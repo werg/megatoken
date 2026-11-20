@@ -1,0 +1,68 @@
+{
+  "gate": "ruff-format",
+  "command": [
+    "/workspace/scratch/d11743e0247b/native-venv/bin/python",
+    "-m",
+    "ruff",
+    "format",
+    "--check",
+    "src",
+    "tests",
+    "scripts"
+  ],
+  "cwd": "/workspace/scratch/d11743e0247b/v8-final-native",
+  "environment": {
+    "OMP_NUM_THREADS": "1",
+    "MKL_NUM_THREADS": "1",
+    "PYTHONPATH": "/workspace/scratch/d11743e0247b/v8-final-native/src",
+    "TRACING_JS_SELF_ROOT": "/workspace/scratch/d11743e0247b/v8-final-producer",
+    "MEGATOKEN_NATIVE_SOURCE_PRODUCER": "/workspace/scratch/d11743e0247b/v8-final-producer",
+    "MEGATOKEN_TOKENIZER_JSON": "/workspace/scratch/d11743e0247b/tokenizer.json",
+    "MEGATOKEN_ROOT": "/workspace/scratch/d11743e0247b/v8-final-native",
+    "MEGATOKEN_PYTHON": "/workspace/scratch/d11743e0247b/native-venv/bin/python",
+    "SEMANTIC_V8_NATIVE_POLICY": "/workspace/scratch/d11743e0247b/v8-final-producer/contracts/semantic-native-policy-v8.json"
+  },
+  "startedUtc": "2026-11-20T17:24:03.586350+00:00",
+  "before": {
+    "producer": {
+      "revision": "012c9fe49a082319bf98ac0c571596da925741a4",
+      "tree": "26454c685a6136ab6d6d18636e6073216ee9d195",
+      "status": ""
+    },
+    "consumer": {
+      "revision": "39c4036564428e44cc89caf261f517d856482695",
+      "tree": "ca55473db0ed3343ad930833a4ee09ad48bf7caf",
+      "status": ""
+    }
+  },
+  "policy": {
+    "schema": "semantic-native-policy/8",
+    "consumerRepository": "werg/megatoken",
+    "consumerRevision": "39c4036564428e44cc89caf261f517d856482695",
+    "contractDigest": "344f7e99aeed605a1965c70f0e0d8829707d6891437ba43dd743fa304cd777dc",
+    "fixtureDigest": "56f7f36d3b25b3b11a208be3de337e637b9782e6759faea1e1ec107b0a90f0ce",
+    "tokenizerIdentity": "7f52faca2fe82273a889023defd2f1a6fd6080a21096ec77e97f4798a0a370b2",
+    "tokenizerSha256": "40fb9d7d7795b8bd305aeff39ce9963f3f450915b9553f2938e009be9a1fed60",
+    "interoperabilityDigest": "ef962002482fbf7adb6698fc435535dfa202b12848907a29ee0e5fbb5683a7c7"
+  },
+  "tokenizerSha256": "40fb9d7d7795b8bd305aeff39ce9963f3f450915b9553f2938e009be9a1fed60",
+  "producerContractSha256": "4e8242c443fff11011e71539bbe5279aa81c62e53db3c0d88335ac9e2032d273",
+  "consumerContractSha256": "4e8242c443fff11011e71539bbe5279aa81c62e53db3c0d88335ac9e2032d273",
+  "exitCode": 0,
+  "elapsedSeconds": 0.530325753003126,
+  "finishedUtc": "2026-11-20T17:24:04.168660+00:00",
+  "after": {
+    "producer": {
+      "revision": "012c9fe49a082319bf98ac0c571596da925741a4",
+      "tree": "26454c685a6136ab6d6d18636e6073216ee9d195",
+      "status": ""
+    },
+    "consumer": {
+      "revision": "39c4036564428e44cc89caf261f517d856482695",
+      "tree": "ca55473db0ed3343ad930833a4ee09ad48bf7caf",
+      "status": ""
+    }
+  },
+  "logSha256": "9f340d78f35fe3c2c7a79b5697ba83485b7665002db15ff7ddf9b045cc8fb207",
+  "passed": true
+}
