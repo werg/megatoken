@@ -13,6 +13,7 @@ from megatoken.data.native_v8 import (
     _replay_shared_state,
     validate_v8_artifact,
 )
+from tests.test_native_observation_boundaries_v8 import pending_delivery, result_row
 from tests.test_prediction_prefix_v8 import examples
 
 
@@ -136,3 +137,48 @@ def test_effect_ids_are_owned_by_invocation_and_receipts_cannot_cross_owners():
         _apply_observation(state, receipt, dispatched, settled, obligations)
     assert dispatched == settled == {"root/e1", "callback/e1"}
     assert all(row[1]["status"] == "settled" for row in obligations["intents"])
+
+
+@pytest.mark.parametrize(
+    ("lifetime", "status", "expected"),
+    [
+        ("call", "fulfilled", "revoked"),
+        ("call", "rejected", "revoked"),
+        ("subscription", "fulfilled", "active"),
+        ("subscription", "rejected", "revoked"),
+    ],
+)
+def test_observed_result_retires_call_callbacks_and_failed_subscriptions(
+    lifetime, status, expected
+):
+    state, dispatched, settled, obligations = pending_delivery()
+    obligations["callbacks"] = [
+        [
+            "root/e1/1",
+            {
+                "state": "active",
+                "lifetime": lifetime,
+                "subscriptionId": "callback1",
+                "closureId": "closure",
+            },
+        ]
+    ]
+    obligations["handlers"] = [["callback1", {"state": "active", "seen": [], "queue": []}]]
+    _apply_observation(
+        state, result_row(["num", 7], status=status), dispatched, settled, obligations
+    )
+    assert obligations["callbacks"][0][1]["state"] == expected
+    assert obligations["handlers"][0][1]["state"] == (
+        "closing" if expected == "revoked" else "active"
+    )
+    # Previously queued native arrivals remain explicitly observed while a
+    # handler drains. The close receipt prevents any subsequent delivery.
+    event = {"kind": "event", "fields": {"subscriptionId": "callback1", "eventId": "event1"}}
+    _apply_observation(state, event, dispatched, settled, obligations)
+    assert obligations["handlers"][0][1]["seen"] == ["event1"]
+    close = {"kind": "handler-close", "fields": {"subscriptionId": "callback1", "discarded": []}}
+    _apply_observation(state, close, dispatched, settled, obligations)
+    before = copy.deepcopy((state, dispatched, settled, obligations))
+    with pytest.raises(NativeV8Error, match="callback registration"):
+        _apply_observation(state, event, dispatched, settled, obligations)
+    assert (state, dispatched, settled, obligations) == before

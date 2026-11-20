@@ -702,7 +702,7 @@ def _replay_shared_state(
     obligations = {"intents": [], "handlers": [], "callbacks": [], "closureQueue": []}
     task_revisions = {}
     owner_sequences = {}
-    owner_sequence = 0
+    track_sequences = {}
     controllers = {}
     active_invocation = None
     completion_policy = "call-return"
@@ -726,12 +726,16 @@ def _replay_shared_state(
         )
 
     for prior in timeline:
-        if prior.get("fields", {}).get("track") != "host":
-            owner_sequence += 1
-        owner_sequences[prior["sequence"]] = owner_sequence
+        track = prior.get("fields", {}).get("track")
+        track_sequences[track] = track_sequences.get(track, 0) + 1
+        owner_sequences[prior["sequence"]] = track_sequences[track]
     for row in timeline:
         kind = row["kind"]
         fields = row["fields"]
+        previous_readiness = {
+            invocation_metadata[identity]["realmId"]: saved["scheduler"]["ready"]
+            for identity, saved in controllers.items()
+        }
         if kind == "program":
             program = fields.get("regionProgram")
             if not isinstance(program, dict):
@@ -923,6 +927,16 @@ def _replay_shared_state(
                 )
             elif kind == "protocol":
                 protocol_record = decode_protocol_record(fields["line"])
+                if protocol_record["kind"] == "promise.join.step":
+                    _assert_realm_scheduler_turn(
+                        {
+                            identity: saved
+                            for identity, saved in controllers.items()
+                            if same_realm(identity, active_invocation)
+                        },
+                        active_invocation,
+                        protocol_record["job"],
+                    )
                 if state.get("protocol") is None and (
                     len(state["stack"]) != 1
                     or (
@@ -944,6 +958,16 @@ def _replay_shared_state(
                     ) from e
             elif kind == "semantic":
                 k, payload = parse_record(fields["line"])
+                if k == "resume" or k == "job" and payload["action"] == "dispatch":
+                    _assert_realm_scheduler_turn(
+                        {
+                            identity: saved
+                            for identity, saved in controllers.items()
+                            if same_realm(identity, active_invocation)
+                        },
+                        active_invocation,
+                        payload["continuation"] if k == "resume" else payload["job"],
+                    )
                 if state.get("protocol") is not None:
                     try:
                         assert_detailed_record_compatible(state, k, payload)
@@ -975,6 +999,15 @@ def _replay_shared_state(
         if active_invocation is not None:
             controllers[active_invocation] = state
             share_realm(active_invocation, state)
+        for realm, previous_ready in previous_readiness.items():
+            _refresh_realm_readiness(
+                {
+                    identity: saved
+                    for identity, saved in controllers.items()
+                    if invocation_metadata[identity]["realmId"] == realm
+                },
+                previous_ready,
+            )
     if boundary_invocation is None:
         return state
     boundary_state = controllers.get(boundary_invocation)
@@ -1004,6 +1037,89 @@ def _merge_callback_state(target, source):
     for field in ("heap", "locals", "scheduler", "reactionSequence", "randomState"):
         if field in source:
             target[field] = copy.deepcopy(source[field])
+
+
+def _refresh_realm_readiness(controllers, previous_ready):
+    """Publish a transition's newly eligible waiters in realm registration order.
+
+    The local transition helpers may already have published their own waiters.
+    Stage that publication again alongside every retained controller. Previously
+    queued work and explicit microtask enqueues keep their original order.
+    """
+    if not controllers:
+        return
+    schedulers = [state["scheduler"] for state in controllers.values()]
+    if any(scheduler != schedulers[0] for scheduler in schedulers):
+        _fail("Realm scheduler counters differ across invocation controllers")
+    registration = schedulers[0]["registration"]
+    counter = previous_ready
+    candidates, reset, sequences = [], [], set()
+    for owner, state in controllers.items():
+        heap = dict(state["heap"])
+        for table, waiting, ready, field in (
+            (state["jobs"], "waiting", "queued", "status"),
+            (state["continuations"], "waiting", "ready", "state"),
+        ):
+            for identity, item in table:
+                sequence = item.get("sequence")
+                if sequence is not None:
+                    if (
+                        type(sequence) is not int
+                        or not 0 < sequence <= registration
+                        or sequence in sequences
+                    ):
+                        _fail("Realm waiter registration is not unique")
+                    sequences.add(sequence)
+                if field == "status" and item.get("owner") != owner:
+                    _fail("Realm job belongs to another invocation")
+                newly_published = (
+                    item[field] == ready
+                    and sequence is not None
+                    and item.get("readySequence", 0) > previous_ready
+                )
+                if newly_published:
+                    reset.append((state, identity, item, field, waiting))
+                elif item[field] == ready:
+                    counter = max(counter, item.get("readySequence", 0))
+                if item[field] == waiting or newly_published:
+                    promise_id = item.get("promise")
+                    if promise_id is None:
+                        continue
+                    promise = heap.get(promise_id)
+                    if promise is None or promise.get("kind") != "promise":
+                        _fail("Realm waiter references an unknown Promise")
+                    if promise["state"] != "pending":
+                        if sequence is None:
+                            _fail("Realm Promise waiter lacks its registration order")
+                        candidates.append((sequence, state, identity, item, field, ready))
+    # Resolve all validation above before changing any queue or publication.
+    for state, identity, item, field, waiting in reset:
+        state["ready"][:] = [queued for queued in state["ready"] if queued != identity]
+        item[field] = waiting
+        item.pop("readySequence", None)
+    for _, state, identity, item, field, ready in sorted(candidates, key=lambda row: row[0]):
+        counter += 1
+        item[field] = ready
+        item["readySequence"] = counter
+        state["ready"].append(identity)
+    for state in controllers.values():
+        state["scheduler"] = {"registration": registration, "ready": counter}
+
+
+def _assert_realm_scheduler_turn(controllers, owner, identity):
+    heads = []
+    for current, state in controllers.items():
+        if current != owner and state.get("activeJob") is not None:
+            _fail("Scheduler turn interrupts an unfinished callback job")
+        if not state["ready"]:
+            continue
+        head = state["ready"][0]
+        item = dict(state["continuations"]).get(head) or dict(state["jobs"]).get(head)
+        if item is None or type(item.get("readySequence")) is not int:
+            _fail("Realm ready queue has no published readiness")
+        heads.append((item["readySequence"], current, head))
+    if not heads or min(heads)[1:] != (owner, identity):
+        _fail("Scheduler turn violates realm-wide FIFO readiness")
 
 
 def _native_checkpoint(prefix, context):
@@ -1545,6 +1661,8 @@ def _apply_observation_staged(state, row, dispatched, settled, obligations, trac
     fields = row["fields"]
     if row["kind"] == "event":
         if obligations is not None:
+            handlers = {key: value for key, value in obligations["handlers"]}
+            handler = handlers.get(fields["subscriptionId"])
             callback = next(
                 (
                     v
@@ -1555,13 +1673,13 @@ def _apply_observation_staged(state, row, dispatched, settled, obligations, trac
             )
             if (
                 callback is None
-                or callback.get("state") != "active"
+                or callback.get("state") not in ("active", "revoked")
                 or callback.get("closureId") != fields.get("closureId", callback.get("closureId"))
+                or callback.get("state") == "revoked"
+                and (handler is None or handler.get("state") != "closing")
             ):
                 _fail("Observed event has no active guest callback registration")
-            handlers = {key: value for key, value in obligations["handlers"]}
-            handler = handlers.get(fields["subscriptionId"])
-            if handler is None or handler["state"] != "active":
+            if handler is None or handler["state"] not in ("active", "closing"):
                 _fail("Event has no active source handler")
             if fields.get("eventId") in handler["seen"]:
                 _fail("Duplicate source event identity")
@@ -1650,7 +1768,7 @@ def _apply_observation_staged(state, row, dispatched, settled, obligations, trac
                 for value in callbacks.values()
                 if value.get("subscriptionId") == fields.get("subscriptionId")
             ]
-            if len(matches) != 1 or matches[0].get("state") != "active":
+            if len(matches) != 1 or matches[0].get("state") not in ("active", "revoked"):
                 _fail("Handler close must revoke one active callback")
             matches[0]["state"] = "revoked"
             obligations["callbacks"] = [[key, value] for key, value in callbacks.items()]
@@ -1658,7 +1776,7 @@ def _apply_observation_staged(state, row, dispatched, settled, obligations, trac
             handler = handlers.get(fields["subscriptionId"])
             if (
                 handler is None
-                or handler.get("state") != "active"
+                or handler.get("state") not in ("active", "closing")
                 or fields.get("discarded") != handler.get("queue")
             ):
                 _fail("Handler close does not match its queued events")
@@ -1756,6 +1874,17 @@ def _apply_observation_staged(state, row, dispatched, settled, obligations, trac
                 "errorOrigin": fields.get("errorOrigin"),
             }
             obligations["intents"] = [[key, value] for key, value in intents.items()]
+            handlers = dict(obligations["handlers"])
+            for key, callback in obligations["callbacks"]:
+                if not key.startswith(identity + "/"):
+                    continue
+                if obs["status"] == "fulfilled" and callback["lifetime"] == "subscription":
+                    callback["state"] = "active"
+                else:
+                    callback["state"] = "revoked"
+                    handler = handlers.get(callback["subscriptionId"])
+                    if handler is not None:
+                        handler["state"] = "closing"
         promise = effect[1]["promise"]
         if promise:
             from .promise_scheduler_v8 import settle_promise
