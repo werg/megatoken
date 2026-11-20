@@ -49,24 +49,18 @@ def settle_promise(machine, identity, status, value, *, external=False, refresh=
     from .protocol_v8 import _known
 
     node = promise(machine, identity)
-    if node["state"] != "pending" or status not in ("fulfilled", "rejected"):
-        _fail("settlement requires a pending Promise")
+    if node["state"] != "pending" or node.get("adopted") or status not in ("fulfilled", "rejected"):
+        _fail("settlement requires a pending Promise without an adoption lock")
     if node.get("external") and not external:
         _fail("external Promise requires an observed settlement")
     _known(machine, value)
     if status == "fulfilled" and value[0] == "ref":
         target = machine["heap"].get(value[1])
         if target and target.get("kind") == "promise":
-            cursor, seen = value[1], {identity}
-            while cursor:
-                if cursor in seen:
-                    _fail("Promise adoption cycle")
-                seen.add(cursor)
-                cursor = promise(machine, cursor).get("adopted")
-            node["adopted"] = value[1]
-            if target["state"] == "pending":
-                return
-            status, value = target["state"], target["result"]
+            # Resolving to a Promise schedules assimilation work before its
+            # reactions become runnable. Eagerly propagating a settlement and
+            # sorting by registration order cannot represent that FIFO queue.
+            _fail("Promise adoption requires explicit assimilation jobs")
     node["state"], node["result"] = status, copy.deepcopy(value)
     if refresh:
         refresh_ready(machine)
@@ -78,20 +72,11 @@ def refresh_ready(machine):
     ready = machine.setdefault("ready", [])
     scheduler = machine.setdefault("scheduler", {"registration": 0, "ready": 0})
     while True:
-        changed = True
-        while changed:
-            changed = False
-            for node in machine["heap"].values():
-                if (
-                    node.get("kind") == "promise"
-                    and node["state"] == "pending"
-                    and node.get("adopted")
-                ):
-                    target = promise(machine, node["adopted"])
-                    if target["state"] != "pending":
-                        node["state"] = target["state"]
-                        node["result"] = copy.deepcopy(target["result"])
-                        changed = True
+        if any(
+            node.get("kind") == "promise" and node.get("adopted")
+            for node in machine["heap"].values()
+        ):
+            _fail("Promise adoption requires explicit assimilation jobs")
         eligible = []
         for identity, continuation in continuations.items():
             if (
@@ -153,6 +138,8 @@ def apply_detail(machine, kind, fields, *, root, functions=()):
         node = machine["heap"].get(identity)
         if not node or node.get("kind") != "closure":
             _fail("callback requires an owned closure")
+        if node.get("generatorFunction") or node.get("promiseResolver"):
+            _fail("generator and resolving callbacks require their explicit call protocol")
         if any(capture["cell"] not in machine["locals"] for capture in node.get("captures", [])):
             _fail("callback capture is not initialized")
         return node
@@ -162,6 +149,8 @@ def apply_detail(machine, kind, fields, *, root, functions=()):
         if action == "create":
             create_promise(machine, identity)
         elif action in ("resolve", "reject", "adopt"):
+            if action == "adopt":
+                promise(machine, fields["target"])
             settle_promise(
                 machine,
                 identity,
@@ -330,6 +319,14 @@ def apply_detail(machine, kind, fields, *, root, functions=()):
                     for continuation in continuations.values()
                 ):
                     _fail("callback has an unresumed continuation")
+                returned = job.get("returned")
+                if (
+                    job.get("target")
+                    and job.get("reaction") == "finally"
+                    and returned
+                    and returned["kind"] == "return"
+                ):
+                    _fail("normal finally completion requires explicit cleanup jobs")
                 job["status"] = "completed"
                 if machine.get("activeJob") == identity:
                     machine["captureAliases"] = dict(job["priorAliases"])

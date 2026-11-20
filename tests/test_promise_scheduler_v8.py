@@ -124,69 +124,148 @@ class PromiseSchedulerTests(unittest.TestCase):
             )
         self.assertEqual(state, before)
 
-    def test_adoption_and_continuations_share_registration_order(self):
-        state = shared_state()
-        for identity in ("source", "adopter"):
-            create(state, identity)
-        detail(state, "promise", action="adopt", promise="adopter", target="source")
-        detail(state, "promise", action="react", promise="adopter", job="reaction", reaction="then")
-        detail(state, "await", promise="source", continuation="resume", invocation="root")
-        detail(state, "promise", action="resolve", promise="source", value=["num", 7])
-        self.assertEqual(state["ready"], ["reaction", "resume"])
-        self.assertEqual(dict(state["heap"])["adopter"]["result"], ["num", 7])
-        before = copy.deepcopy(state)
-        with self.assertRaisesRegex(NativeV8Error, "FIFO"):
-            detail(
-                state,
-                "resume",
-                continuation="resume",
-                invocation="root",
-                status="fulfilled",
-                result=["num", 7],
-            )
-        self.assertEqual(state, before)
-        detail(state, "job", action="dispatch", job="reaction", owner="root")
-        detail(state, "job", action="complete", job="reaction", owner="root")
-        before = copy.deepcopy(state)
-        with self.assertRaisesRegex(NativeV8Error, "settlement"):
-            detail(
-                state,
-                "resume",
-                continuation="resume",
-                invocation="root",
-                status="fulfilled",
-                result=["num", 99],
-            )
-        self.assertEqual(state, before)
-        detail(
-            state,
-            "resume",
-            continuation="resume",
-            invocation="root",
-            status="fulfilled",
-            result=["num", 7],
-        )
-        self.assertEqual(state["stack"], ["root"])
+    def test_bare_adoption_requires_assimilation_jobs_without_mutating_readiness(self):
+        for settled in (False, True):
+            for action in ("adopt", "resolve"):
+                with self.subTest(settled=settled, action=action):
+                    state = shared_state()
+                    for identity in ("source", "adopter"):
+                        create(state, identity)
+                    detail(
+                        state,
+                        "promise",
+                        action="react",
+                        promise="adopter",
+                        job="early",
+                        reaction="then",
+                    )
+                    detail(
+                        state,
+                        "promise",
+                        action="react",
+                        promise="source",
+                        job="direct",
+                        reaction="then",
+                    )
+                    if settled:
+                        detail(
+                            state, "promise", action="resolve", promise="source", value=["num", 7]
+                        )
+                    before = copy.deepcopy(state)
+                    fields = (
+                        {"target": "source"} if action == "adopt" else {"value": ["ref", "source"]}
+                    )
+                    with self.assertRaisesRegex(NativeV8Error, "assimilation jobs"):
+                        detail(state, "promise", action=action, promise="adopter", **fields)
+                    self.assertEqual(state, before)
 
-    def test_adoption_cycle_and_external_settlement_are_rejected_atomically(self):
+    def test_adoption_lock_targets_and_external_settlements_fail_closed(self):
         state = shared_state()
         create(state, "left")
         create(state, "right")
-        detail(state, "promise", action="adopt", promise="left", target="right")
+        dict(state["heap"])["left"]["adopted"] = "right"
+        for action in ("resolve", "reject", "adopt"):
+            before = copy.deepcopy(state)
+            fields = {"target": "right"} if action == "adopt" else {"value": ["num", 1]}
+            with self.assertRaisesRegex(NativeV8Error, "adoption lock"):
+                detail(state, "promise", action=action, promise="left", **fields)
+            self.assertEqual(state, before)
+        state = shared_state()
+        create(state, "left")
+        detail(state, "allocate", name="ordinary", kind="object", properties=[])
         before = copy.deepcopy(state)
-        with self.assertRaisesRegex(NativeV8Error, "cycle"):
-            detail(state, "promise", action="adopt", promise="right", target="left")
+        with self.assertRaisesRegex(NativeV8Error, "Promise identity"):
+            detail(state, "promise", action="adopt", promise="left", target="ordinary")
         self.assertEqual(state, before)
-        dict(state["heap"])["right"]["external"] = "request"
+        # Ordinary reference fulfillment and opaque Promise rejection reasons
+        # retain their meanings; neither is an adoption record.
+        detail(state, "promise", action="resolve", promise="left", value=["ref", "ordinary"])
+        create(state, "right")
+        detail(state, "promise", action="reject", promise="right", value=["ref", "left"])
+        self.assertEqual(dict(state["heap"])["right"]["result"], ["ref", "left"])
+        create(state, "external")
+        dict(state["heap"])["external"]["external"] = "request"
         before = copy.deepcopy(state)
         with self.assertRaisesRegex(NativeV8Error, "observed"):
-            detail(state, "promise", action="reject", promise="right", value=["num", 1])
+            detail(state, "promise", action="reject", promise="external", value=["num", 1])
         self.assertEqual(state, before)
 
-    def test_finally_waits_for_cleanup_and_preserves_rejection(self):
+    def test_generator_and_resolver_callbacks_cannot_use_ordinary_jobs(self):
+        for metadata in (
+            {"generatorFunction": True},
+            {"promiseResolver": {"promise": "source", "mode": "resolve"}},
+        ):
+            for field in ("closure", "rejectionClosure", "enqueue", "dispatch"):
+                with self.subTest(metadata=metadata, field=field):
+                    state = shared_state()
+                    callback(state)
+                    create(state, "source")
+                    if field == "dispatch":
+                        detail(
+                            state,
+                            "promise",
+                            action="react",
+                            promise="source",
+                            job="reaction",
+                            reaction="then",
+                            closure="callback",
+                        )
+                        detail(
+                            state, "promise", action="resolve", promise="source", value=["num", 1]
+                        )
+                        detail(state, "return", invocation="root", value=["num", 0])
+                    dict(state["heap"])["callback"].update(metadata)
+                    before = copy.deepcopy(state)
+                    with self.assertRaisesRegex(NativeV8Error, "explicit call protocol"):
+                        if field == "enqueue":
+                            detail(
+                                state,
+                                "job",
+                                action="enqueue",
+                                job="reaction",
+                                owner="root",
+                                closure="callback",
+                            )
+                        elif field == "dispatch":
+                            detail(state, "job", action="dispatch", job="reaction", owner="root")
+                        else:
+                            detail(
+                                state,
+                                "promise",
+                                action="react",
+                                promise="source",
+                                job="reaction",
+                                reaction="then",
+                                **{field: "callback"},
+                            )
+                    self.assertEqual(state, before)
+
+    def test_normal_finally_completion_requires_cleanup_jobs_but_throw_is_direct(self):
+        for value in (["num", 7], ["undefined"], ["ref", "cleanup"]):
+            state = shared_state()
+            for identity in ("source", "cleanup"):
+                create(state, identity)
+            callback(state)
+            detail(state, "promise", action="resolve", promise="source", value=["num", 1])
+            detail(
+                state,
+                "promise",
+                action="react",
+                promise="source",
+                job="cleanup-job",
+                reaction="finally",
+                closure="callback",
+                target="result",
+            )
+            detail(state, "await", promise="result", continuation="resume", invocation="root")
+            detail(state, "job", action="dispatch", job="cleanup-job", owner="root")
+            detail(state, "return", invocation="job:cleanup-job", value=value)
+            before = copy.deepcopy(state)
+            with self.assertRaisesRegex(NativeV8Error, "cleanup jobs"):
+                detail(state, "job", action="complete", job="cleanup-job", owner="root")
+            self.assertEqual(state, before)
         state = shared_state()
-        for identity in ("source", "cleanup"):
-            create(state, identity)
+        create(state, "source")
         callback(state)
         detail(state, "promise", action="resolve", promise="source", value=["num", 1])
         detail(
@@ -201,16 +280,8 @@ class PromiseSchedulerTests(unittest.TestCase):
         )
         detail(state, "await", promise="result", continuation="resume", invocation="root")
         detail(state, "job", action="dispatch", job="cleanup-job", owner="root")
-        self.assertEqual(dict(state["locals"])["jcleanup-jobp0"], ["undefined"])
-        detail(state, "return", invocation="job:cleanup-job", value=["ref", "cleanup"])
+        detail(state, "throw", invocation="job:cleanup-job", value=["str", "cleanup failed"])
         detail(state, "job", action="complete", job="cleanup-job", owner="root")
-        self.assertEqual(dict(state["jobs"])["cleanup-job"]["status"], "waiting-cleanup")
-        self.assertEqual(state["captureAliases"], [])
-        self.assertEqual(state["ready"], [])
-        detail(
-            state, "promise", action="reject", promise="cleanup", value=["str", "cleanup failed"]
-        )
-        self.assertEqual(dict(state["jobs"])["cleanup-job"]["status"], "completed")
         self.assertEqual(dict(state["heap"])["result"]["state"], "rejected")
         self.assertEqual(dict(state["heap"])["result"]["result"], ["str", "cleanup failed"])
         self.assertEqual(state["ready"], ["resume"])
