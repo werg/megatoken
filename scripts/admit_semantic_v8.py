@@ -149,6 +149,7 @@ def main():
                     "promise-join/1",
                     "number-conversion-source/1",
                     "ordinary-data-proxy-source/1",
+                    "promise-executor/1",
                 }
                 if (
                     not isinstance(extensions, list)

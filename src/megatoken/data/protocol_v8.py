@@ -35,6 +35,11 @@ from .number_v8 import apply_record as apply_number_record
 from .number_v8 import assert_next as assert_number_next
 from .number_v8 import validate_record as validate_number_record
 from .number_v8 import validate_state as validate_number_state
+from .promise_executor_v8 import FIELDS as PROMISE_EXECUTOR_FIELDS
+from .promise_executor_v8 import apply_record as apply_promise_executor_record
+from .promise_executor_v8 import assert_callable as assert_promise_executor_callable
+from .promise_executor_v8 import assert_next as assert_promise_executor_next
+from .promise_executor_v8 import validate_record as validate_promise_executor_record
 from .promise_join_v8 import FIELDS as PROMISE_JOIN_FIELDS
 from .promise_join_v8 import apply_record as apply_promise_join_record
 from .promise_join_v8 import validate_record as validate_promise_join_record
@@ -221,6 +226,8 @@ def _expression(term, depth=0, budget=None):
 def validate_protocol_record(record):
     if type(record) is not dict or not isinstance(record.get("kind"), str):
         _fail("record kind must be a string")
+    if record["kind"] in PROMISE_EXECUTOR_FIELDS:
+        return validate_promise_executor_record(record)
     if type(record) is dict and record.get("kind") in PROXY_FIELDS:
         return validate_proxy_record(record)
     if type(record) is dict and record.get("kind") in NUMBER_FIELDS:
@@ -403,6 +410,7 @@ def create_protocol_state():
         "construction": None,
         "numberConversions": None,
         "proxyCalls": None,
+        "promiseExecutors": None,
     }
 
 
@@ -738,6 +746,7 @@ def _apply(machine, record):
         assert_number_next(machine, record)
         assert_generator_next(machine, record)
         assert_proxy_next(machine, record)
+        assert_promise_executor_next(machine, record)
     if p.get("construction") is not None:
         assert_construction_next(machine, record)
     if kind in MEMORY_FIELDS:
@@ -751,6 +760,10 @@ def _apply(machine, record):
     if kind in PROMISE_JOIN_FIELDS:
         if not apply_promise_join_record(machine, record):
             _fail("unsupported Promise join transition")
+        return
+    if kind in PROMISE_EXECUTOR_FIELDS:
+        if not apply_promise_executor_record(machine, record):
+            _fail("unsupported Promise executor transition")
         return
     if kind in NUMBER_FIELDS:
         if not apply_number_record(machine, record):
@@ -902,6 +915,8 @@ def _apply(machine, record):
             ] = copy.deepcopy(result)
     elif kind == "call":
         callee = _known(machine, record["callee"])
+        if callee[0] == "ref":
+            assert_promise_executor_callable(machine, callee)
         node = _node(machine, callee[1]) if callee[0] == "ref" else None
         if (
             node is None
@@ -1272,6 +1287,7 @@ def validate_protocol_state(snapshot, heap_ids=(), shared_state=None):
         "sequence",
         "numberConversions",
         "proxyCalls",
+        "promiseExecutors",
     }
     if type(snapshot) is dict and "construction" in snapshot:
         _exact(snapshot, base_fields | {"construction"}, "shared protocol state")
@@ -1470,6 +1486,9 @@ def validate_protocol_state(snapshot, heap_ids=(), shared_state=None):
         from .promise_join_v8 import validate_state as validate_promise_join_state
 
         validate_promise_join_state(memory_machine)
+        from .promise_executor_v8 import validate_state as validate_promise_executor_state
+
+        validate_promise_executor_state(memory_machine)
         validate_number_state(memory_machine)
         validate_generator_state(memory_machine)
         validate_proxy_state(memory_machine)
@@ -1498,6 +1517,7 @@ def assert_detailed_record_compatible(shared_state, kind, fields):
     assert_number_next(machine, {"kind": kind, **fields})
     assert_generator_next(machine, {"kind": kind, **fields})
     assert_proxy_next(machine, {"kind": kind, **fields})
+    assert_promise_executor_next(machine, {"kind": kind, **fields})
 
     def rich(node):
         return bool(
@@ -1541,6 +1561,8 @@ def assert_detailed_record_compatible(shared_state, kind, fields):
         target = machine["heap"].get(identity)
         if target and target.get("generatorFunction") is True:
             _fail("Detailed call bypasses generator creation/resume protocol")
+        if kind == "call" and isinstance(callee, list) and callee[0] == "ref":
+            assert_promise_executor_callable(machine, callee)
     if shared_state["protocol"]["pendingCalls"] and kind == "end":
         _fail("Unfinished accessor call")
     if kind in ("return", "throw") and machine["stack"]:

@@ -10,6 +10,7 @@ from megatoken.data.protocol_v8 import (
     ProtocolV8Error,
     _external_machine,
     apply_protocol_record,
+    assert_detailed_record_compatible,
     create_protocol_state,
     decode_protocol_record,
     encode_protocol_record,
@@ -374,6 +375,20 @@ class ProtocolV8NativeReplayTests(unittest.TestCase):
         target["fields"]["line"] = "detail end {}"
         with self.assertRaises(NativeV8Error):
             validate_v8_artifact(bad)
+
+    def test_active_protocol_state_rejects_symbol_values_in_legacy_detail(self):
+        shared = {
+            "protocol": create_protocol_state(),
+            "heap": [],
+            "locals": [],
+            "stack": ["root"],
+            "frameFunctions": [["root", "root-code"]],
+            "captureAliases": [],
+        }
+        with self.assertRaisesRegex(ProtocolV8Error, "Symbol data must use protocol records"):
+            assert_detailed_record_compatible(
+                shared, "bind", {"name": "value", "value": ["symbol", "well-known:iterator"]}
+            )
 
 
 class ConstructionProtocolNativeTests(unittest.TestCase):
