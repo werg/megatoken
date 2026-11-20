@@ -11,12 +11,59 @@ candidate integration; serving-cost and comprehension qualification remain open.
 
 The v8 candidate adds independent replay and physical-record packing for mixed
 algorithm, region, detailed, and protocol records. The
-[producer training and dataset runbook](https://github.com/werg/tracing-js-self/blob/f674f89ae05e874b548e167f8af50f40cf36f703/docs/SEMANTIC_V8_TRAINING.md)
+[producer training and dataset runbook](https://github.com/werg/tracing-js-self/blob/baeaa136bf701da5def14e3946bae1baa877331d/docs/SEMANTIC_V8_TRAINING.md)
 describes source collection, frozen family splits, and native-admitted exports.
-[Retained qualification](https://github.com/werg/tracing-js-self/tree/d7dd41250e2af07d65bc3de5910b8029ab995498/coverage/language-expansion/native-v8-8d1f7b5)
-covers 22 interoperability and 11 gallery cases at consumer `be3a8d7` and
-producer `8d1f7b5`. These are engineering results; model-execution qualification,
-serving costs, and default promotion remain separate gates.
+
+The qualified implementation is pinned to consumer
+`6adf99f1301557ee5b95269581a3acd4162496b4` and producer
+`b66c19be960f114b69787746b2487e6f23a73577`. Its final focused consumer suite
+passed **214 tests with no failures or skips**, including live source-authority
+checks, replay and checkpoint restoration, protocol boundaries, and property
+semantics. Ruff checks and formatting passed for all 524 checked files.
+
+At these same revisions, **23 of 23 interoperability cases** and **11 of 11 gallery
+cases** passed source, independent native, and tokenizer qualification. The
+[prepared dataset report](https://github.com/werg/tracing-js-self/blob/baeaa136bf701da5def14e3946bae1baa877331d/coverage/language-expansion/dataset-v8-b66c19b/README.md)
+retains those qualification reports and the independently verified export:
+**34 episodes, 898 complete examples, and 29,374 generated tokens**, including
+898 end-of-sequence tokens. Every exported episode received fresh native
+admission after its split was frozen. The export performed **zero optimizer
+steps**.
+
+| Split | Episodes | Complete examples |
+| --- | ---: | ---: |
+| Train | 23 | 523 |
+| Validation | 7 | 239 |
+| Test | 4 | 136 |
+| Total | 34 | 898 |
+
+The [producer regression report](https://github.com/werg/tracing-js-self/blob/baeaa136bf701da5def14e3946bae1baa877331d/coverage/language-expansion/producer-regression-b66c19b/README.md)
+retains full producer tests, contract checks, and reference-fixture results.
+Hosted checks on the measured consumer commit also passed:
+
+- [CI](https://github.com/werg/megatoken/actions/runs/44740013999).
+- [Source-certified semantic corpus and production native gates](https://github.com/werg/megatoken/actions/runs/44740013895).
+- [Pinned selected semantic harness bridge](https://github.com/werg/megatoken/actions/runs/44740013827).
+
+These hosted runs cover the general repository and existing v6/native bridge
+pipelines; the v8 source, native, and token qualification is recorded separately
+above. Later documentation commits do not change the measured implementation
+revisions. Model-execution qualification, end-to-end serving costs, and default
+promotion remain separate gates.
+
+This increment adds bounded `for...in` replay for ordinary objects and arrays,
+including inherited enumerable keys and nonenumerable shadowing, together with
+`Object.hasOwn`. It checks stable key, descriptor, and prototype snapshots before
+advancing enumeration. Promise executor and join capabilities keep their own
+settlement authority; scheduler paths requiring unrepresented Promise
+assimilation or cleanup jobs are refused before committing state. Observed
+results, fresh data graphs, effect status, and receipts commit together, so a
+refused delivery leaves the previous state intact.
+
+The native host-request profile still rejects calls requiring the
+`owned-graph/1` argument format. Tests of fresh result graphs cover the result
+transition itself; end-to-end admission of those graph-based host requests
+remains unsupported.
 
 Run admission from the exact clean consumer checkout selected by the producer's
 `contracts/semantic-native-policy-v8.json`. Supply the matching clean producer
