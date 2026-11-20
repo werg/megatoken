@@ -264,13 +264,43 @@ class NativeServingV8Tests(unittest.TestCase):
         self.assertEqual(target_instruction, semantic_selection_instruction_v8())
 
     def test_wrong_initialization_and_unacknowledged_teacher_history_are_refused(self):
-        adapter, _ = self.setup_adapter([(self.target(), True)])
+        adapter, runtime = self.setup_adapter([(self.target(), True)])
         with self.assertRaisesRegex(ValueError, "acknowledged native history"):
             self.request(adapter, 1)
-        with self.assertRaisesRegex(ValueError, "active v8 sessions"):
+        self.assertEqual(adapter.sessions, {})
+        self.assertEqual(runtime.memory.sessions, {})
+        self.assertEqual(adapter.metrics()["sessionOpenings"], [])
+        self.assertFalse(hasattr(runtime, "metadata"))
+        self.assertEqual(runtime.observations, [])
+        self.assertEqual(runtime.controls, [])
+        with self.assertRaisesRegex(ValueError, "identity differs"):
             adapter.initialize(seed=17, checkpointIdentity="a" * 64, tokenizerIdentity="b" * 64)
         with self.assertRaisesRegex(ValueError, "Initialize"):
             self.request(adapter)
+
+    def test_acknowledgement_requires_the_complete_original_selection_evidence(self):
+        adapter, _ = self.setup_adapter([(self.target(), True)])
+        result = self.request(adapter)
+        identity = result["selection"]["session"]
+        alterations = [
+            ("origin", "controlled"),
+            ("modelSelected", 1),
+            ("fragments", []),
+            ("session", "another-session"),
+            ("generatedTokens", 0),
+            ("extra", "rewritten"),
+        ]
+        for key, value in alterations:
+            with self.subTest(field=key):
+                changed = copy.deepcopy(result)
+                changed["selection"][key] = value
+                with self.assertRaisesRegex(ValueError, "original native selection"):
+                    self.acknowledge(adapter, changed)
+                self.assertIsNotNone(adapter.sessions[identity].pending)
+                self.assertEqual(adapter.sessions[identity].runtime.state, 0)
+                with self.assertRaisesRegex(ValueError, "requires commit or rejection"):
+                    self.request(adapter)
+        self.assertTrue(self.acknowledge(adapter, result)["committed"])
 
     def test_completion_requires_terminal_acknowledgement_and_explicit_session_close(self):
         adapter, _ = self.setup_adapter([(self.target(0), True), (self.target(1), True)])

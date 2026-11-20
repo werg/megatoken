@@ -237,22 +237,24 @@ class NativeSemanticInferenceV8:
                 raise NativeSelectionV8Error("V8 selection session differs from public authority")
             if len(self.attempts) >= self.max_attempts:
                 raise NativeSelectionV8Error("V8 attempt accounting capacity exhausted")
-            work = self._opened(session)
-            if context["invocationId"] in work.completed:
+            work = self.sessions.get(session)
+            if work is not None and context["invocationId"] in work.completed:
                 raise NativeSelectionV8Error("Completed v8 invocation cannot select another record")
-            if work.pending is not None:
+            if work is not None and work.pending is not None:
                 raise NativeSelectionV8Error(
                     "A v8 candidate requires commit or rejection before another selection"
                 )
-            old = work.public["timeline"] if work.public is not None else []
+            old = work.public["timeline"] if work is not None and work.public is not None else []
             rows = public["timeline"]
-            if rows[: len(old)] != old or contexts != work.contexts:
+            if rows[: len(old)] != old or contexts != (work.contexts if work is not None else []):
                 raise NativeSelectionV8Error("V8 selection rewrites acknowledged native history")
             incoming = rows[len(old) :]
             if any(row["mode"] != "observed" for row in incoming):
                 raise NativeSelectionV8Error(
                     "V8 model history cannot import unacknowledged generated records"
                 )
+            if work is None:
+                work = self._opened(session)
             branch = _fork_session(work.runtime)
             attempt = {
                 "adapter": ADAPTER,
@@ -419,19 +421,9 @@ class NativeSemanticInferenceV8:
             attempt, checked = pending["attempt"], pending["checked"]
             if (
                 not isinstance(selection, dict)
-                or selection.get("selectionId") != attempt["selectionId"]
+                or stable_algorithm_hash(selection) != stable_algorithm_hash(attempt)
                 or record != pending["record"]
                 or invocationId != attempt["invocationId"]
-                or any(
-                    selection.get(key) != attempt[key]
-                    for key in (
-                        "checkpointIdentity",
-                        "tokenizerIdentity",
-                        "prefixDigest",
-                        "contextDigest",
-                        "payloadHex",
-                    )
-                )
             ):
                 raise NativeSelectionV8Error(
                     "V8 acknowledgement differs from the original native selection"
