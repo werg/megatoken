@@ -349,6 +349,10 @@ def _call(machine, child, callee, receiver, arguments, *, construction=False):
     info = node.get("callable")
     if node["kind"] != "closure":
         _fail("owned callable required")
+    if node.get("generatorFunction"):
+        _fail("generator callback requires its creation and resume protocol")
+    if node.get("promiseResolver"):
+        _fail("resolving functions require their explicit settlement record")
     if info and info["classConstructor"] and not construction:
         _fail("class constructor cannot be called without construction")
     if child in machine["frameFunctions"]:

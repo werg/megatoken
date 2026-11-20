@@ -33,6 +33,33 @@ def recheck_source_binding(document, input_path, producer_root, producer_revisio
     root = Path(producer_root).resolve()
     if not root.is_dir():
         return None  # Authority is not installed; this cannot admit the artifact.
+
+    def check_producer_checkout():
+        try:
+            actual = subprocess.check_output(
+                ["git", "rev-parse", "HEAD"], cwd=root, text=True, timeout=10
+            ).strip()
+            top = subprocess.check_output(
+                ["git", "rev-parse", "--show-toplevel"], cwd=root, text=True, timeout=10
+            ).strip()
+            dirty = subprocess.check_output(
+                ["git", "status", "--porcelain", "--untracked-files=all"],
+                cwd=root,
+                text=True,
+                timeout=10,
+            ).strip()
+            subprocess.check_output(
+                ["git", "ls-files", "--error-unmatch", "tools/recheck-semantic-native-source.mjs"],
+                cwd=root,
+                text=True,
+                timeout=10,
+            )
+        except (OSError, subprocess.SubprocessError) as error:
+            raise ValueError("V8 source authority is not a pinned producer checkout") from error
+        if actual != producer_revision or Path(top).resolve() != root or dirty:
+            raise ValueError("V8 source authority requires the exact clean producer revision")
+
+    check_producer_checkout()
     command = [
         "node",
         str(root / "tools" / "recheck-semantic-native-source.mjs"),
@@ -54,6 +81,7 @@ def recheck_source_binding(document, input_path, producer_root, producer_revisio
         )
     except (FileNotFoundError, subprocess.TimeoutExpired):
         return None
+    check_producer_checkout()
     if completed.returncode != 0:
         raise ValueError("Pinned producer rejected semantic source correspondence")
     if len(completed.stdout.encode("utf-8")) > 65536 or completed.stderr:

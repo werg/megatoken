@@ -1506,6 +1506,8 @@ def assert_detailed_record_compatible(shared_state, kind, fields):
     if protocol is None:
         return True
     machine = _internal_machine(shared_state)
+    if protocol["pendingCalls"] and protocol["pendingCalls"][-1]["child"] not in machine["stack"]:
+        _fail("pending property completion requires protocol finish")
     assert_construction_next(machine, {"kind": kind, **fields})
     assert_number_next(machine, {"kind": kind, **fields})
     assert_generator_next(machine, {"kind": kind, **fields})
@@ -1574,6 +1576,8 @@ def assert_detailed_record_compatible(shared_state, kind, fields):
         _fail("Unfinished accessor call")
     if kind in ("return", "throw") and machine["stack"]:
         child = fields.get("invocation", machine["stack"][-1])
+        if protocol["callFrames"] and child != machine["stack"][-1]:
+            _fail("Detailed completion must name the active invocation")
         if any(frame["child"] == child for frame in protocol["callFrames"]):
             _fail("Protocol-owned invocation requires protocol completion")
     return True

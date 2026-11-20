@@ -47,6 +47,8 @@ def validate_record(record):
                 _identity(identity)
         if len(record["inputs"]) != len(record["jobs"]):
             _fail("input/job count")
+        if record["mode"] == "all" and len(record["inputs"]) >= BOUND:
+            _fail("all result must leave one property for array length")
         if len(set(record["jobs"])) != len(record["jobs"]):
             _fail("duplicate join job")
         _identity(record["output"], nullable=True)
@@ -275,6 +277,11 @@ def validate_state(machine):
             or len({len(join[key]) for key in ("inputs", "jobs", "observed", "values")}) != 1
             or type(join.get("settled")) is not bool
             or join["settled"] != (result["state"] != "pending")
+            or join.get("mode") == "all"
+            and len(join["inputs"]) >= BOUND
+            or join.get("mode") == "race"
+            and any(join["observed"])
+            and not join["settled"]
         ):
             _fail("restored join metadata")
         for index, (input_id, job_id) in enumerate(zip(join["inputs"], join["jobs"], strict=True)):

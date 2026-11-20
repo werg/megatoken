@@ -7,6 +7,7 @@ import gzip
 import io
 import json
 import os
+import subprocess
 import tempfile
 import unittest
 from pathlib import Path
@@ -18,6 +19,54 @@ from scripts import admit_semantic_v8
 
 
 class NativeV8AdmissionTests(unittest.TestCase):
+    def test_producer_checkout_is_verified_before_its_tool_can_claim_cleanliness(self):
+        with tempfile.TemporaryDirectory() as folder:
+            base = Path(folder)
+            root = base / "producer"
+            (root / "tools").mkdir(parents=True)
+            marker = base / "executed"
+            script = root / "tools/recheck-semantic-native-source.mjs"
+            script.write_text(
+                "import fs from 'node:fs';fs.writeFileSync("
+                + json.dumps(str(marker))
+                + ", 'ran');console.log('{}');"
+            )
+            subprocess.run(["git", "init", "--quiet"], cwd=root, check=True)
+            subprocess.run(["git", "add", "."], cwd=root, check=True)
+            subprocess.run(
+                [
+                    "git",
+                    "-c",
+                    "user.name=Test",
+                    "-c",
+                    "user.email=test@example.invalid",
+                    "commit",
+                    "--quiet",
+                    "-m",
+                    "test producer authority",
+                ],
+                cwd=root,
+                check=True,
+            )
+            revision = subprocess.check_output(
+                ["git", "rev-parse", "HEAD"], cwd=root, text=True
+            ).strip()
+            artifact = base / "artifact.json"
+            artifact.write_text("{}")
+            with self.assertRaisesRegex(ValueError, "exact clean producer"):
+                admit_semantic_v8.recheck_source_binding({}, artifact, root, "0" * 40)
+            self.assertFalse(marker.exists())
+            original = script.read_text()
+            script.write_text(original + "\n// modified tool may make false claims\n")
+            with self.assertRaisesRegex(ValueError, "exact clean producer"):
+                admit_semantic_v8.recheck_source_binding({}, artifact, root, revision)
+            self.assertFalse(marker.exists())
+            script.write_text(original)
+            (root / "untracked-tool.mjs").write_text("console.log('untracked');")
+            with self.assertRaisesRegex(ValueError, "exact clean producer"):
+                admit_semantic_v8.recheck_source_binding({}, artifact, root, revision)
+            self.assertFalse(marker.exists())
+
     @classmethod
     def setUpClass(cls):
         fixture = Path(__file__).parent / "fixtures" / "semantic-regions-v8.json.gz.b64"

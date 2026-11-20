@@ -165,6 +165,10 @@ class ProtocolBoundaryTests(unittest.TestCase):
                 assert_detailed_record_compatible(
                     _external_machine(state), kind, {"invocation": "child", "value": ["num", 7]}
                 )
+            with self.assertRaisesRegex(ProtocolV8Error, "name the active"):
+                assert_detailed_record_compatible(
+                    _external_machine(state), kind, {"invocation": "root", "value": ["num", 7]}
+                )
         state["stack"].append("detail-child")
         state["frameFunctions"]["detail-child"] = "detail"
         self.assertTrue(
@@ -270,6 +274,7 @@ class ProtocolBoundaryTests(unittest.TestCase):
         self.assertTrue(assert_detailed_record_compatible(shared, "read", fields))
         with self.assertRaisesRegex(ProtocolV8Error, "bypasses rich"):
             assert_detailed_record_compatible(shared, "write", fields)
+
         apply_protocol_record(
             state,
             {"kind": "property.delete", "object": "object", "key": ["str", "x"], "success": True},
@@ -282,6 +287,34 @@ class ProtocolBoundaryTests(unittest.TestCase):
         self.assertEqual(_external_machine(_internal_machine(shared)), shared)
         with self.assertRaisesRegex(ProtocolV8Error, "bypasses rich"):
             assert_detailed_record_compatible(shared, "write", fields)
+
+    def test_existing_property_update_preserves_enumeration_order(self):
+        state = machine()
+        allocate(state, "object")
+        state["heap"]["object"]["properties"] = {"a": ["num", 1], "b": ["num", 2]}
+        apply_protocol_record(
+            state,
+            {
+                "kind": "property.set",
+                "object": "object",
+                "receiver": ["ref", "object"],
+                "key": ["str", "a"],
+                "value": ["num", 3],
+                "success": True,
+            },
+        )
+        self.assertEqual(list(state["heap"]["object"]["properties"]), ["b", "a"])
+        self.assertEqual(state["heap"]["object"]["keyOrder"], ["a", "b"])
+        apply_protocol_record(
+            state,
+            {
+                "kind": "property.keys",
+                "object": "object",
+                "mode": "own",
+                "name": "keys",
+                "keys": [["str", "a"], ["str", "b"]],
+            },
+        )
 
     def test_detail_array_allocation_counts_implicit_length(self):
         shared = _external_machine(machine())

@@ -53,6 +53,33 @@ def finish_row(output="output"):
 
 
 class PromiseJoinBoundaryTests(unittest.TestCase):
+    def test_all_bound_reserves_array_length_without_reducing_race_bound(self):
+        state, row = joined_machine()
+        row["inputs"] = ["input"] * 4096
+        row["jobs"] = ["job" + str(index) for index in range(4096)]
+        before = copy.deepcopy(state)
+        with self.assertRaisesRegex(ProtocolV8Error, "array length"):
+            apply_protocol_record(state, row)
+        self.assertEqual(state, before)
+        row["mode"] = "race"
+        apply_protocol_record(state, row)
+        self.assertEqual(len(state["jobs"]), 4096)
+
+    def test_observed_race_cannot_be_restored_to_pending(self):
+        state, row = joined_machine()
+        row["mode"] = "race"
+        apply_protocol_record(state, row)
+        self.assertTrue(validate_state(state))
+        state["stack"] = []
+        step = finish_row(None)
+        step["value"] = ["num", 7]
+        apply_protocol_record(state, step)
+        self.assertTrue(validate_state(state))
+        result = state["heap"]["result"]
+        result["state"], result["result"], result["join"]["settled"] = "pending", None, False
+        with self.assertRaisesRegex(ProtocolV8Error, "restored join metadata"):
+            validate_state(state)
+
     def test_empty_and_final_output_reject_reserved_identities_atomically(self):
         for empty in (True, False):
             for reservation in ("symbol", "private", "job"):

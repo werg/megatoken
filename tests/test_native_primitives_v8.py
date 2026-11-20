@@ -1,5 +1,6 @@
 """The shared detailed and compact paths use the same primitive semantics."""
 
+import copy
 import json
 import unittest
 
@@ -98,6 +99,51 @@ class NativeV8PrimitiveTests(unittest.TestCase):
         self.assertEqual(state["locals"], [["cell", ["num", 7]]])
         self.assertEqual(_eval_detail_expression({"op": "local", "name": "x"}, state), ["num", 7])
         self.replay_region({"op": "local", "name": "x"}, ["num", 7], state=state)
+
+    def test_compact_return_completes_only_its_call_or_reaction(self):
+        from tests.test_promise_scheduler_v8 import shared_state
+
+        target = {"bindings": [], "completion": {"kind": "return", "value": ["num", 7]}}
+        state = shared_state()
+        state["stack"].append("child")
+        _apply_region(state, target)
+        self.assertEqual(state["stack"], ["root"])
+        self.assertEqual(state["lastReturn"], {"kind": "return", "value": ["num", 7]})
+        self.assertIsNone(state["pending"])
+        state["stack"] = ["job:reaction"]
+        state["activeJob"] = "reaction"
+        state["jobs"] = [["reaction", {"status": "running"}]]
+        _apply_region(state, target)
+        self.assertEqual(dict(state["jobs"])["reaction"]["returned"], target["completion"])
+        self.assertIsNone(state["pending"])
+
+    def test_compact_return_cannot_skip_a_protocol_owned_completion(self):
+        from megatoken.data.protocol_v8 import _external_machine, apply_protocol_record
+        from tests.test_number_v8 import allocate, machine
+
+        state = machine()
+        allocate(state, "helper", "closure")
+        apply_protocol_record(
+            state,
+            {
+                "kind": "call",
+                "callee": ["ref", "helper"],
+                "receiver": ["undefined"],
+                "arguments": [],
+                "child": "child",
+            },
+        )
+        shared = _external_machine(state)
+        before = copy.deepcopy(shared)
+        with self.assertRaisesRegex(NativeV8Error, "protocol completion"):
+            _apply_region(
+                shared,
+                {
+                    "bindings": [["x", ["num", 1]]],
+                    "completion": {"kind": "return", "value": ["num", 7]},
+                },
+            )
+        self.assertEqual(shared, before)
 
     def test_compact_select_and_logical_paths_treat_owned_symbols_as_truthy(self):
         state = {"locals": [["s", ["symbol", "s1"]]], "captureAliases": []}

@@ -992,12 +992,31 @@ def _eval_detail_expression(expr, state):
 
 
 def _apply_region(state, target):
+    completion = target["completion"]
+    if completion["kind"] == "return" and not state.get("stack"):
+        _fail("Compact return requires an active invocation")
+    if state.get("protocol") is not None:
+        try:
+            for name, value in target["bindings"]:
+                assert_detailed_record_compatible(state, "bind", {"name": name, "value": value})
+            if completion["kind"] == "return":
+                assert_detailed_record_compatible(
+                    state,
+                    "return",
+                    {"invocation": state["stack"][-1], "value": completion["value"]},
+                )
+        except ProtocolV8Error as error:
+            raise NativeV8Error(str(error)) from error
     aliases = dict(state["captureAliases"])
     for name, value in target["bindings"]:
         _set_row(state["locals"], aliases.get(name, name), value)
-    if target["completion"]["kind"] == "return":
-        state["pending"] = {"kind": "return", "value": target["completion"]["value"]}
-        state["stack"] = []
+    if completion["kind"] == "return":
+        _apply_detail(
+            state,
+            "return",
+            {"invocation": state["stack"][-1], "value": completion["value"]},
+            {},
+        )
 
 
 def _assert_fresh_allocation(state, identity):

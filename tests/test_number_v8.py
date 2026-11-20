@@ -68,6 +68,37 @@ def define(state, identity, key, value):
 
 
 class NumberProtocolTests(unittest.TestCase):
+    def test_generator_conversion_callback_is_refused_before_entering_its_body(self):
+        state = machine()
+        allocate(state, "object")
+        allocate(state, "method", "closure")
+        apply_protocol_record(
+            state,
+            {
+                "kind": "generator.function",
+                "object": "method",
+                "name": "method",
+                "length": 0,
+                "prototype": "generator-prototype",
+            },
+        )
+        define(state, "object", ["symbol", "well-known:toPrimitive"], ["ref", "method"])
+        apply(state, {"kind": "number.begin", "id": "n", "value": ["ref", "object"]})
+        apply(
+            state,
+            {
+                "kind": "number.select",
+                "id": "n",
+                "key": ["symbol", "well-known:toPrimitive"],
+                "method": ["ref", "method"],
+                "builtin": None,
+            },
+        )
+        before = copy.deepcopy(state)
+        with self.assertRaisesRegex(ProtocolV8Error, "generator callback"):
+            apply(state, {"kind": "number.call", "id": "n", "child": "callback"})
+        self.assertEqual(state, before)
+
     @unittest.skipUnless(shutil.which("node"), "Node is the independent Number oracle")
     def test_scalar_conversion_matches_actual_javascript_including_unicode_and_rounding(self):
         values = [

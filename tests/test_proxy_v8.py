@@ -103,6 +103,32 @@ def base_state(traps=()):
 
 
 class ProxyV8Tests(unittest.TestCase):
+    def test_generator_trap_cannot_be_entered_as_an_ordinary_callback(self):
+        state = base_state((("getTrap", REF("getTrap")),))
+        step(
+            state,
+            {
+                "kind": "generator.function",
+                "object": "getTrap",
+                "name": "getTrap",
+                "length": 0,
+                "prototype": "generator-prototype",
+            },
+        )
+        before = copy.deepcopy(state)
+        with self.assertRaisesRegex(ProtocolV8Error, "generator callback"):
+            step(
+                state,
+                {
+                    "kind": "proxy.get.call",
+                    "id": "read",
+                    "object": "proxy",
+                    "key": KEY,
+                    "child": "reader",
+                },
+            )
+        self.assertEqual(state, before)
+
     def test_transparent_operations_keep_target_alias_and_proxy_identity(self):
         state = base_state()
         step(state, {"kind": "proxy.get", "object": "proxy", "key": KEY, "result": ["num", 2]})
