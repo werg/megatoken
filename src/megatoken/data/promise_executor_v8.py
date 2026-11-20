@@ -353,6 +353,8 @@ def validate_state(machine):
             _fail("duplicate Promise capability")
         promises.add(capability["promise"])
         target = _promise(machine, capability["promise"])
+        if target.get("join") is not None:
+            _fail("executor capability cannot own a join result")
         for mode in ("resolve", "reject"):
             identity = capability[mode]
             node = p._node(machine, identity) if identity in machine["heap"] else None

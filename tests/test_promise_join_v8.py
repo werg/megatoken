@@ -2,7 +2,12 @@ import copy
 import unittest
 
 from megatoken.data.promise_join_v8 import validate_state
-from megatoken.data.protocol_v8 import ProtocolV8Error, apply_protocol_record
+from megatoken.data.protocol_v8 import (
+    ProtocolV8Error,
+    _external_machine,
+    apply_protocol_record,
+    assert_detailed_record_compatible,
+)
 from tests.test_number_v8 import machine
 
 
@@ -53,6 +58,17 @@ def finish_row(output="output"):
 
 
 class PromiseJoinBoundaryTests(unittest.TestCase):
+    def test_legacy_settlement_cannot_bypass_join_result_ownership(self):
+        state, row = joined_machine()
+        apply_protocol_record(state, row)
+        before = copy.deepcopy(state)
+        for action in ("resolve", "reject", "adopt"):
+            fields = {"action": action, "promise": "result"}
+            fields.update(target="input") if action == "adopt" else fields.update(value=["num", 9])
+            with self.subTest(action=action), self.assertRaisesRegex(ProtocolV8Error, "join step"):
+                assert_detailed_record_compatible(_external_machine(state), "promise", fields)
+            self.assertEqual(state, before)
+
     def test_empty_all_must_restore_fulfilled_while_empty_race_remains_pending(self):
         state, row = joined_machine(empty=True)
         apply_protocol_record(state, row)

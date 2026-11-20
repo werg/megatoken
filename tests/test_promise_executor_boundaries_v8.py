@@ -109,6 +109,24 @@ class PromiseExecutorTests(unittest.TestCase):
         self.assertEqual(state["heap"]["promise"]["result"], ["num", 7])
         self.assertEqual(state["ready"], ["join-job"])
 
+    def test_restored_executor_capability_cannot_share_a_join_result(self):
+        state = executor_machine()
+        enter(state)
+        finish(state)
+        state["heap"]["promise"]["join"] = {
+            "schema": "semantic-promise-join-state/1",
+            "mode": "race",
+            "inputs": [],
+            "jobs": [],
+            "observed": [],
+            "values": [],
+            "output": None,
+            "error": None,
+            "settled": False,
+        }
+        with self.assertRaisesRegex(ProtocolV8Error, "cannot own a join"):
+            validate_state(state)
+
     def test_malformed_executor_identities_raise_protocol_errors_on_restore(self):
         state = executor_machine()
         enter(state)

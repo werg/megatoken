@@ -111,6 +111,17 @@ def _fresh_output(machine, identity):
         _fail("output identity collides with a job")
 
 
+def assert_next(machine, record):
+    fields = record.get("fields", record)
+    if (
+        record.get("kind") == "promise"
+        and fields.get("action") in ("resolve", "reject", "adopt")
+        and machine["heap"].get(fields.get("promise"), {}).get("join") is not None
+    ):
+        _fail("join result settlement requires its explicit join step")
+    return True
+
+
 def apply_record(machine, record):
     if not validate_record(record):
         return False

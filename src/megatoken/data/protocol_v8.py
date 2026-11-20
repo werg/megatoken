@@ -46,6 +46,7 @@ from .promise_executor_v8 import assert_next as assert_promise_executor_next
 from .promise_executor_v8 import validate_record as validate_promise_executor_record
 from .promise_join_v8 import FIELDS as PROMISE_JOIN_FIELDS
 from .promise_join_v8 import apply_record as apply_promise_join_record
+from .promise_join_v8 import assert_next as assert_promise_join_next
 from .promise_join_v8 import validate_record as validate_promise_join_record
 from .proxy_v8 import FIELDS as PROXY_FIELDS
 from .proxy_v8 import apply_record as apply_proxy_record
@@ -784,6 +785,7 @@ def _apply(machine, record):
         assert_generator_next(machine, record)
         assert_proxy_next(machine, record)
         assert_promise_executor_next(machine, record)
+        assert_promise_join_next(machine, record)
     if p.get("construction") is not None:
         assert_construction_next(machine, record)
     if kind in MEMORY_FIELDS:
@@ -1556,6 +1558,7 @@ def assert_detailed_record_compatible(shared_state, kind, fields):
     assert_generator_next(machine, {"kind": kind, **fields})
     assert_proxy_next(machine, {"kind": kind, **fields})
     assert_promise_executor_next(machine, {"kind": kind, **fields})
+    assert_promise_join_next(machine, {"kind": kind, **fields})
 
     def rich(node):
         descriptors = node.get("descriptors", {})
