@@ -74,14 +74,24 @@ class NumberProtocolTests(unittest.TestCase):
         allocate(state, "method", "closure")
         define(state, "object", ["symbol", "well-known:toPrimitive"], ["ref", "method"])
         apply(state, {"kind": "number.begin", "id": "n", "value": ["ref", "object"]})
-        apply(state, {"kind": "number.select", "id": "n", "key": ["symbol", "well-known:toPrimitive"],
-                      "method": ["ref", "method"], "builtin": None})
+        apply(
+            state,
+            {
+                "kind": "number.select",
+                "id": "n",
+                "key": ["symbol", "well-known:toPrimitive"],
+                "method": ["ref", "method"],
+                "builtin": None,
+            },
+        )
         apply(state, {"kind": "number.call", "id": "n", "child": "callback"})
         before = copy.deepcopy(state)
         with self.assertRaisesRegex(ProtocolV8Error, "outside caller"):
             apply(state, {"kind": "number.throw", "id": "n", "value": ["num", 7]})
         self.assertEqual(state, before)
-        apply_protocol_record(state, {"kind": "throw", "invocation": "callback", "value": ["num", 7]})
+        apply_protocol_record(
+            state, {"kind": "throw", "invocation": "callback", "value": ["num", 7]}
+        )
         before = copy.deepcopy(state)
         with self.assertRaisesRegex(ProtocolV8Error, "number.throw"):
             apply(state, {"kind": "number.return", "id": "n", "value": ["num", 7]})
@@ -96,8 +106,16 @@ class NumberProtocolTests(unittest.TestCase):
         with self.assertRaisesRegex(ProtocolV8Error, "primitive conversion phase"):
             apply(state, {"kind": "number.finish", "id": "n", "result": ["num", 7]})
         with self.assertRaisesRegex(ProtocolV8Error, "method order"):
-            apply(state, {"kind": "number.select", "id": "n", "key": ["str", "toString"],
-                          "method": ["undefined"], "builtin": "Object.toString"})
+            apply(
+                state,
+                {
+                    "kind": "number.select",
+                    "id": "n",
+                    "key": ["str", "toString"],
+                    "method": ["undefined"],
+                    "builtin": "Object.toString",
+                },
+            )
         self.assertEqual(state, before)
         for field, bad in (("primitive", ["num", 7]), ("child", None), ("result", None)):
             malformed = copy.deepcopy(state)

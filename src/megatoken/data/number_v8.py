@@ -85,7 +85,9 @@ def validate_record(record):
         _require(record["builtin"] in BUILTINS, "builtin identity")
     else:
         p.validate_protocol_value(
-            record["value"] if kind in ("number.begin", "number.return", "number.throw") else record["result"]
+            record["value"]
+            if kind in ("number.begin", "number.return", "number.throw")
+            else record["result"]
         )
     return True
 
@@ -137,7 +139,10 @@ def _accept(row, value):
 
 def assert_next(machine, record):
     operations = (machine.get("protocol", {}).get("numberConversions") or {}).get("operations", [])
-    row = next((entry for entry in reversed(operations) if entry["phase"] not in ("complete", "abrupt")), None)
+    row = next(
+        (entry for entry in reversed(operations) if entry["phase"] not in ("complete", "abrupt")),
+        None,
+    )
     if row is None:
         return True
     if row["phase"] == "waiting" and row["child"] in machine["stack"]:
@@ -147,7 +152,9 @@ def assert_next(machine, record):
         "select": "number.select",
         "call": "number.call",
         "builtin": "number.builtin",
-        "waiting": "number.throw" if (machine.get("lastReturn") or {}).get("kind") == "throw" else "number.return",
+        "waiting": "number.throw"
+        if (machine.get("lastReturn") or {}).get("kind") == "throw"
+        else "number.return",
         "convert": "number.finish",
     }[row["phase"]]
     _require(
