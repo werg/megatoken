@@ -1,0 +1,216 @@
+{
+  "schema": "semantic-native-serving-metrics/8",
+  "adapter": "native-semantic-v8/1",
+  "initialization": {
+    "schema": "semantic-inference-identity/8",
+    "adapter": "native-semantic-v8/1",
+    "seed": 17,
+    "checkpointIdentity": "fe4e067bf584aae28c13b3d49caaa1f16208ad5c410e7850d6133f813819236c",
+    "tokenizerIdentity": "7f52faca2fe82273a889023defd2f1a6fd6080a21096ec77e97f4798a0a370b2",
+    "trainingIdentity": "a965617084f480b6abed78651d439d497394bd8929b8847902f50c6bd1cc163c",
+    "nativeAdmissionClaim": false,
+    "generationSettings": {
+      "device": "cpu",
+      "maxTokens": 4,
+      "maxFragments": 1,
+      "effort": 1
+    }
+  },
+  "attempts": [
+    {
+      "adapter": "native-semantic-v8/1",
+      "selectionId": "v8:0",
+      "session": "teacher1",
+      "invocationId": "invocation1",
+      "checkpointIdentity": "fe4e067bf584aae28c13b3d49caaa1f16208ad5c410e7850d6133f813819236c",
+      "tokenizerIdentity": "7f52faca2fe82273a889023defd2f1a6fd6080a21096ec77e97f4798a0a370b2",
+      "trainingIdentity": "a965617084f480b6abed78651d439d497394bd8929b8847902f50c6bd1cc163c",
+      "codecFingerprint": "7f52faca2fe82273a889023defd2f1a6fd6080a21096ec77e97f4798a0a370b2",
+      "prefixDigest": "12483b745cb0c618e79abb13d3ddc4f5a60c04748c892d7e3402d6c4dc7dcd2e",
+      "contextDigest": "14efed71e86d95354a98c17dd61c31af4de7c3a0e054e9404bbca6818aaf72ca",
+      "publicDigest": "8a1a5d00f23f902e208bccada2c297410e6ab296af8ee0902299f1d28fa55bcb",
+      "origin": "actual-model-selected",
+      "modelSelected": true,
+      "status": "rejected",
+      "fragments": [
+        {
+          "selectedEventId": "v8:0:fragment:0",
+          "meridian": 23,
+          "modelTrack": "assistant",
+          "payloadHex": "e8aebf",
+          "emittedTokenIds": [
+            5857
+          ],
+          "tokenIds": [
+            5857
+          ],
+          "terminal": false
+        }
+      ],
+      "payloadHex": "e8aebf",
+      "generatedTokens": 1,
+      "observedTokens": 1011,
+      "contextTokens": 771,
+      "observedBytes": 2681,
+      "contextBytes": 2070,
+      "observedPhysicalRecords": 9,
+      "contextPhysicalRecords": 7,
+      "instructionTokens": 75,
+      "instructionBytes": 374,
+      "generationSeconds": 0.3219220319952001,
+      "preparationSeconds": 1.821937362998142,
+      "contextBefore": {
+        "policy": {
+          "cross_events": 16,
+          "local_events": 256,
+          "max_pins": 8,
+          "pins": [],
+          "version": 1,
+          "windows": []
+        },
+        "resident_events": 23,
+        "cache_bytes": 11776,
+        "cache_storage_bytes_including_snapshots": 11776,
+        "event_budget": 128,
+        "archived_events": 16,
+        "host_payload_bytes": 4751,
+        "last_cache_evictions": [],
+        "visible_events": [
+          "e5561e64f847fc6a3021a69d64a93026519c0b11b4d911b23380dd2172419a48",
+          "4684eb5935022796e37d9b7623cabde2c2069da6cd4d02a7df3a19045cfbe53f",
+          "fbe8bce7bffc715f99cbdb486dacf92d7f44a2c7ce7917de693e618d974b82d8",
+          "26b0280b42b27e054f968a5a8fa896446f60c94e338f887f53c6e460c289c0a0",
+          "e3641fbc53a16cc674409b38e4b622b46701f6dcb00f024f87bdad7cf4c0d894",
+          "99049a696892336700eb86ac20a22083414c0af004602e0b0f32dfb4d1920ad6",
+          "73100d9fbe726a7c6f497a7f14b72f1e437b24151006cf6edcd286ea4f4122b9",
+          "__transducer_query__",
+          "__transducer_knowledge__",
+          "d31205abc6de713c0500ce8207c71d062e61f5febb05e7a5c7c54d0573c9fb33",
+          "b0e5f5b6f456f48e66edde02a44e2e1b4c0dbe88c978bbd118f95a16f6160261",
+          "__transducer_query__",
+          "__transducer_knowledge__",
+          "c6cbe6ae194f5dfc2d3563e6521f5f73eac0351d0d4a975d0d0cbb7849e5ed4e",
+          "8d3ac8a1d5a2c2382c0e93f260a375a0f11d06795531c616c15b2710c631ff30",
+          "2d1d59f7ea977a9364db86cdbb3a9c84ee7912cf15268a4d79d33e033140a9a1",
+          "7cd22cae03302ef6b277ba87cd4ce53e112982f2f01501d548b4500c1cc5838a",
+          "89ead8c088daed941833b39303cdb823293e11431d4af6baee8764f7ca9d1b48",
+          "a302cc3b1c1fb82b84b574c7db6e0b9abdf8d18487ae589fe41708363703dc28",
+          "045bcc38c2fdd1615db513b96211c19de4f3ee52bcf53a4f3d63110f862603e1"
+        ]
+      },
+      "failure": "Native v8 record exhausted its fragment budget without termination",
+      "totalSeconds": 2.1438621699999203
+    },
+    {
+      "adapter": "native-semantic-v8/1",
+      "selectionId": "v8:1",
+      "session": "teacher1",
+      "invocationId": "invocation1",
+      "checkpointIdentity": "fe4e067bf584aae28c13b3d49caaa1f16208ad5c410e7850d6133f813819236c",
+      "tokenizerIdentity": "7f52faca2fe82273a889023defd2f1a6fd6080a21096ec77e97f4798a0a370b2",
+      "trainingIdentity": "a965617084f480b6abed78651d439d497394bd8929b8847902f50c6bd1cc163c",
+      "codecFingerprint": "7f52faca2fe82273a889023defd2f1a6fd6080a21096ec77e97f4798a0a370b2",
+      "prefixDigest": "12483b745cb0c618e79abb13d3ddc4f5a60c04748c892d7e3402d6c4dc7dcd2e",
+      "contextDigest": "14efed71e86d95354a98c17dd61c31af4de7c3a0e054e9404bbca6818aaf72ca",
+      "publicDigest": "8a1a5d00f23f902e208bccada2c297410e6ab296af8ee0902299f1d28fa55bcb",
+      "origin": "actual-model-selected",
+      "modelSelected": true,
+      "status": "rejected",
+      "fragments": [
+        {
+          "selectedEventId": "v8:1:fragment:0",
+          "meridian": 23,
+          "modelTrack": "assistant",
+          "payloadHex": "e8aebf",
+          "emittedTokenIds": [
+            5857
+          ],
+          "tokenIds": [
+            5857
+          ],
+          "terminal": false
+        }
+      ],
+      "payloadHex": "e8aebf",
+      "generatedTokens": 1,
+      "observedTokens": 1011,
+      "contextTokens": 771,
+      "observedBytes": 2681,
+      "contextBytes": 2070,
+      "observedPhysicalRecords": 9,
+      "contextPhysicalRecords": 7,
+      "instructionTokens": 75,
+      "instructionBytes": 374,
+      "generationSeconds": 0.5193297299992992,
+      "preparationSeconds": 1.5547524499997962,
+      "contextBefore": {
+        "policy": {
+          "cross_events": 16,
+          "local_events": 256,
+          "max_pins": 8,
+          "pins": [],
+          "version": 1,
+          "windows": []
+        },
+        "resident_events": 23,
+        "cache_bytes": 11776,
+        "cache_storage_bytes_including_snapshots": 11776,
+        "event_budget": 128,
+        "archived_events": 16,
+        "host_payload_bytes": 4751,
+        "last_cache_evictions": [],
+        "visible_events": [
+          "e5561e64f847fc6a3021a69d64a93026519c0b11b4d911b23380dd2172419a48",
+          "4684eb5935022796e37d9b7623cabde2c2069da6cd4d02a7df3a19045cfbe53f",
+          "fbe8bce7bffc715f99cbdb486dacf92d7f44a2c7ce7917de693e618d974b82d8",
+          "26b0280b42b27e054f968a5a8fa896446f60c94e338f887f53c6e460c289c0a0",
+          "e3641fbc53a16cc674409b38e4b622b46701f6dcb00f024f87bdad7cf4c0d894",
+          "99049a696892336700eb86ac20a22083414c0af004602e0b0f32dfb4d1920ad6",
+          "73100d9fbe726a7c6f497a7f14b72f1e437b24151006cf6edcd286ea4f4122b9",
+          "__transducer_query__",
+          "__transducer_knowledge__",
+          "d31205abc6de713c0500ce8207c71d062e61f5febb05e7a5c7c54d0573c9fb33",
+          "b0e5f5b6f456f48e66edde02a44e2e1b4c0dbe88c978bbd118f95a16f6160261",
+          "__transducer_query__",
+          "__transducer_knowledge__",
+          "c6cbe6ae194f5dfc2d3563e6521f5f73eac0351d0d4a975d0d0cbb7849e5ed4e",
+          "8d3ac8a1d5a2c2382c0e93f260a375a0f11d06795531c616c15b2710c631ff30",
+          "2d1d59f7ea977a9364db86cdbb3a9c84ee7912cf15268a4d79d33e033140a9a1",
+          "7cd22cae03302ef6b277ba87cd4ce53e112982f2f01501d548b4500c1cc5838a",
+          "89ead8c088daed941833b39303cdb823293e11431d4af6baee8764f7ca9d1b48",
+          "a302cc3b1c1fb82b84b574c7db6e0b9abdf8d18487ae589fe41708363703dc28",
+          "045bcc38c2fdd1615db513b96211c19de4f3ee52bcf53a4f3d63110f862603e1"
+        ]
+      },
+      "failure": "Native v8 record exhausted its fragment budget without termination",
+      "totalSeconds": 2.0740852749950136
+    }
+  ],
+  "predictionAttempts": 2,
+  "committed": 0,
+  "failedAttempts": 2,
+  "generatedTokens": 2,
+  "observedTokens": 2022,
+  "contextTokens": 1542,
+  "instructionTokens": 150,
+  "observedBytes": 5362,
+  "contextBytes": 4140,
+  "instructionBytes": 748,
+  "sessionOpenings": [
+    {
+      "session": "teacher1",
+      "metadataTokens": 42,
+      "metadataBytes": 133,
+      "openSeconds": 0.2146078489968204
+    }
+  ],
+  "metadataTokens": 42,
+  "metadataBytes": 133,
+  "generatedPhysicalRecords": 2,
+  "activeSessions": 0,
+  "optimizerSteps": 0,
+  "learnedSuccess": null,
+  "scope": "Actual native runtime input framing, original emitted tokens, wall times and cache snapshots; semantic acceptance requires explicit acknowledgement",
+  "coldLoadSeconds": 3.8584554699991713,
+  "runtimeClosed": true
+}

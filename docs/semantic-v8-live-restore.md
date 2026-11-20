@@ -109,5 +109,13 @@ One test uses the actual tiny CPU model and verifies that a fresh process restor
 its committed initial cache and random stream and emits the same next tokens as
 an uninterrupted process. Those random outputs are not labeled successful
 semantic execution. Accepted-record and retained-callback recovery controls use
-an explicitly supplied decoder. Qualification with a trained model, production
-tokenizer/source assets and real external host recovery is still required.
+an explicitly supplied decoder.
+
+The [ordinary pinned-asset lifecycle run](evidence/semantic-v8-ordinary-a4d0a56-7da2150/README.md)
+also uses a real source-qualified prepared family, the actual pinned tokenizer,
+two ordinary optimizer updates and a normally exported serving bundle. It verifies
+expected-lineage refusal controls and exact next-token recovery in a fresh native
+process. Its generated record was rejected for exhausting the fragment budget;
+zero model records were acknowledged. The paired producer study retains that
+failure and its measured costs. Trained accepted-record recovery, real external
+host recovery and qualification of later combined revisions remain open.

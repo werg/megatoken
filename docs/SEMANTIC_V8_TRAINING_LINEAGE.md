@@ -23,8 +23,11 @@ generic byte fallback cannot substitute for a V8 checkpoint's tokenizer.
 
 These checks bind an artifact to the evidence it retains. The application still
 needs an independently expected bundle/lineage identity to reject a completely
-replaced bundle. Exposing this identity in native selected-serving initialization
-and recovery is the next paired increment; it is not implemented by this change.
+replaced bundle. Native selected-serving initialization and recovery now require
+that expected identity. The producer freezes it before inference and checks the
+service receipt, original selected records and restored state. A normal V8 bundle
+cannot silently downgrade to the explicit null used by diagnostic bundles that
+have no ordinary training lineage.
 
 ## Evidence and remaining work
 
@@ -38,7 +41,24 @@ local executor disconnected. Fresh hosted CI must still validate the published
 revision. CI now prints the required formatting diff without weakening lint,
 formatting or shell-validation gates.
 
-Remaining: native initialization binding; actual pinned-asset preparation and
-normal optimizer/export/reload qualification; training/serving continuation parity;
-mixed callback native admission; learned-quality studies. No default cutover is
-made here.
+The later [ordinary V8 qualification](evidence/semantic-v8-ordinary-a4d0a56-7da2150/README.md)
+uses the actual pinned tokenizer and unchanged source/native admission. On the
+recorded producer/consumer pair, one source family passed preparation; a normal
+trainer took one optimizer step, a fresh process resumed to step two, and ordinary
+export/reload preserved the complete lineage. All 315 saved optimizer moment
+owners advanced and 303 master-weight tensors changed. The real native service
+refused missing/substituted lineage and restored the exact next generated tokens
+in a fresh process. The paired frozen producer study also exercised the actual
+service and retained its failed output. This is a bounded lifecycle qualification,
+not a learned-quality result or proof for a later code pair.
+
+Serving also retains the prepared physical chunk budget instead of silently
+regrouping observations at the model's larger position capacity. A strict
+prepared-corpus test compares actual training and native serving raw/cache tensors,
+history identities and request controls at the first prediction boundary, with
+128-position records and a 512-position model.
+
+Remaining: final combined-pair qualification after contract changes; complete
+binary-bundle publication; varied multi-step continuation and callback histories;
+accepted-record recovery with trained weights; learned-quality studies. No default
+cutover is made here.
