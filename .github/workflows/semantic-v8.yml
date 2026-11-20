@@ -44,7 +44,7 @@ jobs:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           repository: werg/tracing-js-self
-          ref: 012c9fe49a082319bf98ac0c571596da925741a4
+          ref: ff7d1337d203544c102c053f4f270aa0ae58bd1b
           path: tracing-js-self
           persist-credentials: false
       - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
