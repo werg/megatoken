@@ -93,7 +93,7 @@ def test_request_dispatch_and_result_replay_with_witness_v6_unavailable():
                 "errorOrigin": None,
             },
         }
-        _apply_observation(state, receipt, {"e1"}, set(), obligations, {3: 2})
+        _apply_observation(state, receipt, {"root/e1"}, set(), obligations, {3: 2})
 
     intent = dict(obligations["intents"])["root/e1"]
     assert intent["witness"] == request_line

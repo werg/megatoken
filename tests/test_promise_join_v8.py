@@ -87,8 +87,9 @@ class PromiseJoinBoundaryTests(unittest.TestCase):
             else:
                 changed["frameFunctions"] = {"callback": "handler"}
                 changed["stack"] = ["callback"]
-            with self.subTest(mutation=mutation), self.assertRaisesRegex(
-                ProtocolV8Error, "another invocation|scheduler linkage"
+            with (
+                self.subTest(mutation=mutation),
+                self.assertRaisesRegex(ProtocolV8Error, "another invocation|scheduler linkage"),
             ):
                 validate_state(changed)
 

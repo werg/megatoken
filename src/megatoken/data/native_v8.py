@@ -703,14 +703,28 @@ def _replay_shared_state(
     task_revisions = {}
     owner_sequences = {}
     owner_sequence = 0
-    suspended = {}
-    common_state = None
+    controllers = {}
     active_invocation = None
     completion_policy = "call-return"
     completion_policies = {}
     functions = []
-    callback_invocations = set()
     invocation_inputs = {}
+    invocation_metadata = {}
+    callback_allocator = [0]
+
+    def share_realm(owner, source):
+        realm = invocation_metadata[owner]["realmId"]
+        for identity, saved in controllers.items():
+            if invocation_metadata[identity]["realmId"] == realm:
+                _merge_callback_state(saved, source)
+
+    def same_realm(first, second):
+        return (
+            first is not None
+            and second is not None
+            and invocation_metadata[first]["realmId"] == invocation_metadata[second]["realmId"]
+        )
+
     for prior in timeline:
         if prior.get("fields", {}).get("track") != "host":
             owner_sequence += 1
@@ -718,7 +732,6 @@ def _replay_shared_state(
     for row in timeline:
         kind = row["kind"]
         fields = row["fields"]
-        detail_kind = None
         if kind == "program":
             program = fields.get("regionProgram")
             if not isinstance(program, dict):
@@ -735,19 +748,26 @@ def _replay_shared_state(
             published[fields["programId"]] = (program, fields.get("functions", []), random_seed)
             continue
         if kind == "invocation":
+            if fields["invocationId"] in controllers:
+                _fail("Duplicate invocation controller")
             published_row = published.get(fields["programId"])
             if published_row is None:
                 _fail("Invocation has no preceding program")
             program, functions, random_seed = published_row
             if fields.get("sourceDigest") != program.get("sourceDigest"):
                 _fail("Invocation source/definition binding")
-            if fields.get("activation") == "callback" and (
-                state is not None or common_state is not None
-            ):
+            if fields.get("activation") == "callback":
                 owner = fields.get("parentInvocationId")
-                if owner and owner not in suspended:
-                    suspended[owner] = copy.deepcopy(state)
-                base = state if state is not None else common_state
+                base = controllers.get(owner)
+                if base is None:
+                    _fail("Callback has no independently replayed owner")
+                if any(
+                    fields[key] != invocation_metadata[owner][key]
+                    for key in ("realmId", "programId", "track")
+                ):
+                    _fail("Callback differs from its retained owner's realm or program")
+                if same_realm(owner, active_invocation) and state is not None and state["stack"]:
+                    _fail("Callback cannot interrupt a running JavaScript stack")
                 invocation_inputs[fields["invocationId"]] = {
                     "graph": copy.deepcopy(fields["inputGraph"]),
                     "retained": [identity for identity, _ in base["heap"]],
@@ -768,7 +788,10 @@ def _replay_shared_state(
                 # Retained callback cells are allocated below, once, against
                 # the original observed arguments and the retained cell set.
                 callback_state = _initial_state(program, callback_invocation, (), random_seed)
-                callback_state["heap"] = copy.deepcopy(base["heap"])
+                for identity, _ in callback_state["heap"]:
+                    if identity in dict(base["heap"]):
+                        _fail("Callback graph overwrites a retained heap identity")
+                callback_state["heap"] = copy.deepcopy(base["heap"]) + callback_state["heap"]
                 callback_state["locals"] = copy.deepcopy(base["locals"])
                 callback_state["scheduler"] = copy.deepcopy(base["scheduler"])
                 callback_state["reactionSequence"] = base["reactionSequence"]
@@ -819,25 +842,34 @@ def _replay_shared_state(
             else:
                 _fail("Unsupported invocation activation in v8 shared replay")
             active_invocation = fields["invocationId"]
+            invocation_metadata[active_invocation] = copy.deepcopy(fields)
+            if active_invocation.startswith("callbackinvoke"):
+                ordinal = active_invocation.removeprefix("callbackinvoke")
+                if not ordinal.isdecimal() or int(ordinal) <= callback_allocator[0]:
+                    _fail("Invalid callback invocation allocation")
+                callback_allocator[0] = int(ordinal)
+            controllers[active_invocation] = state
             completion_policy = fields.get("completionPolicy", "call-return")
             completion_policies[active_invocation] = completion_policy
-            if fields.get("activation") == "callback":
-                callback_invocations.add(active_invocation)
-                common_state = copy.deepcopy(state)
+            share_realm(active_invocation, state)
             task_revisions[fields["invocationId"]] = fields.get("taskRevision")
             continue
-        if state is None and row["mode"] == "generated" and kind == "semantic":
-            parsed_kind, parsed_fields = parse_record(fields["line"])
-            if parsed_kind == "resume" and parsed_fields["invocation"] in suspended:
-                state = copy.deepcopy(suspended[parsed_fields["invocation"]])
-                active_invocation = parsed_fields["invocation"]
-                completion_policy = completion_policies[active_invocation]
-                if common_state is not None:
-                    _merge_callback_state(state, common_state)
-        if state is None and kind in ("handler", "handler-close", "event"):
-            # Host handler rows affect obligations, not execution locals.
-            _apply_observation({}, row, dispatched, settled, obligations, owner_sequences)
-            continue
+        if row["mode"] == "generated":
+            invocation = fields.get("invocationId")
+            if invocation not in controllers:
+                _fail("Generated record has no independently replayed invocation")
+            if (
+                invocation != active_invocation
+                and same_realm(invocation, active_invocation)
+                and state is not None
+                and state["stack"]
+            ):
+                _fail("Generated record interrupts another invocation's JavaScript stack")
+            active_invocation = invocation
+            state = controllers[invocation]
+            if state["completion"] is not None:
+                _fail("Generated record follows invocation completion")
+            completion_policy = completion_policies[invocation]
         if state is None:
             continue
         if row["mode"] == "generated":
@@ -869,7 +901,7 @@ def _replay_shared_state(
                     expected_cursor=expected_cursor,
                     expected_obligations=obligations,
                 )
-            program = context["programs"][-1]["program"]
+            program, functions, _ = published[invocation_metadata[active_invocation]["programId"]]
             if kind == "region":
                 frame = state["stack"][-1] if state["stack"] else fields["invocationId"]
                 target = _replay_region(program, context, fields["line"], fields["entry"])
@@ -892,8 +924,7 @@ def _replay_shared_state(
             elif kind == "protocol":
                 protocol_record = decode_protocol_record(fields["line"])
                 if state.get("protocol") is None and (
-                    state["effects"]
-                    or len(state["stack"]) != 1
+                    len(state["stack"]) != 1
                     or (
                         (state["jobs"] or state["ready"])
                         and protocol_record["kind"]
@@ -904,7 +935,7 @@ def _replay_shared_state(
                         )
                     )
                 ):
-                    _fail("The first protocol profile must begin as a fresh synchronous invocation")
+                    _fail("The first protocol profile requires a checked invocation turn")
                 try:
                     state = apply_protocol_to_shared_state(state, fields["line"])
                 except ProtocolV8Error as e:
@@ -913,7 +944,6 @@ def _replay_shared_state(
                     ) from e
             elif kind == "semantic":
                 k, payload = parse_record(fields["line"])
-                detail_kind = k
                 if state.get("protocol") is not None:
                     try:
                         assert_detailed_record_compatible(state, k, payload)
@@ -930,45 +960,32 @@ def _replay_shared_state(
                     functions=functions,
                     root=active_invocation,
                     completion_policy=completion_policy,
+                    invocation_metadata=invocation_metadata[active_invocation],
+                    callback_allocator=callback_allocator,
                 )
         elif kind in ("dispatch", "result"):
-            target = (
-                state
-                if fields.get("invocationId") == active_invocation
-                else suspended.get(fields.get("invocationId"))
-            )
+            target = controllers.get(fields.get("invocationId"))
             if target is None:
                 _fail("Observation has no independently replayed invocation state")
             _apply_observation(target, row, dispatched, settled, obligations, owner_sequences)
-            if target is not state:
-                _merge_callback_state(state, target)
-            for saved in suspended.values():
-                _merge_callback_state(saved, target)
+            share_realm(fields["invocationId"], target)
         elif kind in ("handler", "handler-close", "event"):
-            _apply_observation(state, row, dispatched, settled, obligations, owner_sequences)
+            target = controllers.get(fields.get("ownerInvocationId"), state)
+            _apply_observation(target, row, dispatched, settled, obligations, owner_sequences)
         if active_invocation is not None:
-            for saved in suspended.values():
-                _merge_callback_state(saved, state)
-            common_state = (
-                copy.deepcopy(state) if active_invocation not in suspended else common_state
-            )
-        if (
-            detail_kind == "end"
-            and active_invocation == fields.get("invocationId")
-            and active_invocation in callback_invocations
-        ):
-            state = None
-            active_invocation = None
+            controllers[active_invocation] = state
+            share_realm(active_invocation, state)
     if boundary_invocation is None:
         return state
-    if boundary_invocation == active_invocation:
-        boundary_state = state
-    elif state is None and boundary_invocation in suspended:
-        boundary_state = copy.deepcopy(suspended[boundary_invocation])
-        if common_state is not None:
-            _merge_callback_state(boundary_state, common_state)
-    else:
-        _fail("V8 prediction boundary does not name the active invocation")
+    boundary_state = controllers.get(boundary_invocation)
+    if (
+        boundary_state is not None
+        and boundary_invocation != active_invocation
+        and same_realm(boundary_invocation, active_invocation)
+        and state is not None
+        and state["stack"]
+    ):
+        _fail("V8 prediction boundary interrupts another invocation's JavaScript stack")
     if boundary_state is None or boundary_invocation not in invocation_inputs:
         _fail("V8 prediction boundary has no independently replayed invocation")
     return {
@@ -1190,6 +1207,8 @@ def _apply_detail(
     functions=(),
     root=None,
     completion_policy="call-return",
+    invocation_metadata=None,
+    callback_allocator=None,
 ):
     if kind in ("promise", "job", "await", "resume"):
         from .promise_scheduler_v8 import apply_detail
@@ -1380,6 +1399,8 @@ def _apply_detail(
         state["completion"] = completion
         state["pending"] = None
     elif kind == "request":
+        if root is not None and fields.get("invocation") != root:
+            _fail("Request belongs to another invocation")
         effect = fields["effect"]
         promise = fields.get("promise")
         args = fields["arguments"]
@@ -1459,7 +1480,7 @@ def _apply_detail(
             if identity in intents:
                 _fail("Duplicate effect intent")
             intents[identity] = {
-                "status": "requested",
+                "status": "committed",
                 "operation": fields["operation"],
                 "payload": fields["payload"],
                 "invocationId": fields["invocation"],
@@ -1471,6 +1492,29 @@ def _apply_detail(
                 "result": None,
             }
             obligations["intents"] = [[key, value] for key, value in intents.items()]
+            if invocation_metadata is not None:
+                callbacks = dict(obligations["callbacks"])
+                for slot in callback_slots.get(fields["operation"], ()):
+                    callback_allocator[0] += 1
+                    closure_id = args[slot][1]
+                    closure = _table(state, "heap")[closure_id]
+                    callbacks[identity + "/" + str(slot)] = {
+                        "state": "pending",
+                        "slot": slot,
+                        "closureId": closure_id,
+                        "entry": closure["code"],
+                        "realmId": invocation_metadata["realmId"],
+                        "programId": invocation_metadata["programId"],
+                        "trackId": invocation_metadata["track"],
+                        "subscriptionId": "callback" + str(callback_allocator[0]),
+                        "lifetime": "subscription"
+                        if fields["operation"] == "demo.listen"
+                        else "call",
+                        "sequence": 0,
+                        "queued": [],
+                        "ownerInvocationId": fields["invocation"],
+                    }
+                obligations["callbacks"] = list(map(list, callbacks.items()))
     elif kind in ("observe",):
         _fail("Observed delivery cannot appear as generated detail")
     else:
@@ -1551,13 +1595,10 @@ def _apply_observation_staged(state, row, dispatched, settled, obligations, trac
             if len(matches) != 1:
                 _fail("Handler does not identify exactly one dispatched callback capability")
             identity, slot, closure_id, intent = matches[0]
-            if fields.get("subscriptionId") in {
-                value.get("subscriptionId") for _, value in obligations["callbacks"]
-            }:
-                _fail("Duplicate callback registration")
             callbacks = {key: value for key, value in obligations["callbacks"]}
             closure = _table(state, "heap").get(closure_id)
-            callbacks[identity + "/" + str(slot)] = {
+            callback_key = identity + "/" + str(slot)
+            callback = {
                 "state": "active",
                 "slot": slot,
                 "closureId": closure_id,
@@ -1571,6 +1612,16 @@ def _apply_observation_staged(state, row, dispatched, settled, obligations, trac
                 "queued": [],
                 "ownerInvocationId": fields["ownerInvocationId"],
             }
+            pending = callbacks.get(callback_key)
+            if pending is not None and pending != {**callback, "state": "pending"}:
+                _fail("Handler differs from its pending callback capability")
+            if fields.get("subscriptionId") in {
+                value.get("subscriptionId")
+                for key, value in callbacks.items()
+                if key != callback_key
+            }:
+                _fail("Duplicate callback registration")
+            callbacks[callback_key] = callback
             obligations["callbacks"] = [[key, value] for key, value in callbacks.items()]
             handlers = {key: value for key, value in obligations["handlers"]}
             if fields["subscriptionId"] in handlers:
@@ -1623,13 +1674,16 @@ def _apply_observation_staged(state, row, dispatched, settled, obligations, trac
         effect = next((e for e in state["effects"] if e[0] == fields["effectId"]), None)
         if effect is None:
             _fail("Dispatch of unknown effect")
-        if fields["effectId"] in dispatched or fields["effectId"] in settled:
+        if effect[1]["invocation"] != fields["invocationId"]:
+            _fail("Dispatch belongs to another invocation")
+        identity = fields["key"]
+        if identity in dispatched or identity in settled:
             _fail("Duplicate effect dispatch")
-        dispatched.add(fields["effectId"])
+        dispatched.add(identity)
         if obligations is not None:
             intents = {key: value for key, value in obligations["intents"]}
             intent = intents.get(fields["key"])
-            if intent is None or intent["status"] != "requested" or intent["attempts"] != 0:
+            if intent is None or intent["status"] != "committed" or intent["attempts"] != 0:
                 _fail("Dispatch without one requested intent")
             intent["status"] = "dispatched"
             intent["attempts"] = fields["attempt"]
@@ -1647,7 +1701,10 @@ def _apply_observation_staged(state, row, dispatched, settled, obligations, trac
         effect = next((e for e in state["effects"] if e[0] == obs["effect"]), None)
         if effect is None:
             _fail("Result of unknown effect")
-        if obs["effect"] not in dispatched or obs["effect"] in settled:
+        if effect[1]["invocation"] != fields["invocationId"]:
+            _fail("Result belongs to another invocation")
+        identity = fields["invocationId"] + "/" + obs["effect"]
+        if identity not in dispatched or identity in settled:
             _fail("Result without one outstanding dispatch")
         if "graph" in obs or obs["result"][0] == "ref":
             from .host_operations import HOST_OPERATIONS
@@ -1669,7 +1726,7 @@ def _apply_observation_staged(state, row, dispatched, settled, obligations, trac
             )
         if obs["result"][0] == "ref" and obs["result"][1] not in _table(state, "heap"):
             _fail("Observed result references an unknown identity")
-        settled.add(obs["effect"])
+        settled.add(identity)
         effect[1]["status"] = obs["status"]
         effect[1]["result"] = obs["result"]
         if obligations is not None:
