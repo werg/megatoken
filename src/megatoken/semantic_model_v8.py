@@ -20,12 +20,18 @@ from megatoken.controls import (
     semantic_execution_metadata_v8,
     semantic_selection_instruction_v8,
 )
-from megatoken.data.algorithm_v7 import stable_algorithm_hash
 from megatoken.data.prefix_v8 import (
     validate_v8_committed_prefix,
     validate_v8_prediction_prefix,
 )
 from megatoken.data.schema import make_records
+from megatoken.data.semantic_json import stable_algorithm_hash
+from megatoken.semantic_checkpoint_v8 import (
+    capture_random_state,
+    continuation_fingerprint,
+    restore_random_state,
+    runtime_identity,
+)
 
 ADAPTER = "native-semantic-v8/1"
 
@@ -80,6 +86,8 @@ class _Session:
     contexts: list = field(default_factory=list)
     pending: dict | None = None
     completed: set = field(default_factory=set)
+    opening_random: dict | None = None
+    replay: list = field(default_factory=list)
 
 
 class NativeSemanticInferenceV8:
@@ -170,6 +178,7 @@ class NativeSemanticInferenceV8:
         if len(self.sessions) >= self.max_sessions:
             raise NativeSelectionV8Error("V8 session capacity exhausted")
         started = time.perf_counter()
+        opening_random = capture_random_state()
         metadata = semantic_execution_metadata_v8()
         current = _Session(
             self.runtime.open(
@@ -177,7 +186,8 @@ class NativeSemanticInferenceV8:
                 effort=self.effort,
                 memory_writes=False,
                 collections=[],
-            )
+            ),
+            opening_random=opening_random,
         )
         self.sessions[identity] = current
         payload = metadata_payload(metadata)
@@ -257,6 +267,7 @@ class NativeSemanticInferenceV8:
                 )
             if work is None:
                 work = self._opened(session)
+            random_before = capture_random_state()
             branch = _fork_session(work.runtime)
             attempt = {
                 "adapter": ADAPTER,
@@ -400,6 +411,7 @@ class NativeSemanticInferenceV8:
                     "checked": checked,
                     "attempt": attempt,
                     "record": record,
+                    "randomBefore": random_before,
                 }
                 return {
                     "schema": "semantic-model-output/8",
@@ -454,6 +466,14 @@ class NativeSemanticInferenceV8:
             work.public = copy.deepcopy(public)
             work.ingested_through = len(previous) + 1
             work.contexts = copy.deepcopy(contexts)
+            work.replay.append(
+                {
+                    "attempt": int(attempt["selectionId"].removeprefix("v8:")),
+                    "contextIndex": len(contexts) - 1,
+                    "acknowledgedThrough": len(rows),
+                    "randomBefore": pending["randomBefore"],
+                }
+            )
             work.pending = None
             attempt["status"] = "committed"
             return {
@@ -528,6 +548,322 @@ class NativeSemanticInferenceV8:
                 "publicDigest": stable_algorithm_hash(public),
             }
 
+    def _checkpoint_settings(self):
+        return {
+            "effort": self.effort,
+            "maxTokens": self.max_tokens,
+            "maxFragments": self.max_fragments,
+            "maxSessions": self.max_sessions,
+            "maxAttempts": self.max_attempts,
+            "runtimeIdentity": runtime_identity(self.runtime),
+        }
+
+    def checkpoint(self):
+        """Save the whole adapter at its acknowledged boundaries.
+
+        RNG and attempt limits belong to the adapter, so saving only one of its
+        sessions could reset another session's random stream or consumed budget.
+        Pending candidates stay in attempt evidence; their branches are omitted.
+        Host effects are represented by checked public observations only.
+        """
+        from megatoken.data.semantic_contract_v8 import CONTRACT_DIGEST
+
+        with self.lock:
+            if self.initialization is None:
+                raise NativeSelectionV8Error("Initialize the V8 adapter before checkpoint")
+            sessions = {}
+            for identity, work in self.sessions.items():
+                if work.public is not None:
+                    checked = validate_v8_committed_prefix(work.public, work.contexts)
+                    if checked["session"] != identity:
+                        raise NativeSelectionV8Error("Checkpoint public session differs")
+                sessions[identity] = {
+                    "public": copy.deepcopy(work.public),
+                    "contexts": copy.deepcopy(work.contexts),
+                    "ingestedThrough": work.ingested_through,
+                    "completed": sorted(work.completed),
+                    "openingRandom": copy.deepcopy(work.opening_random),
+                    "replay": copy.deepcopy(work.replay),
+                    "continuationDigest": continuation_fingerprint(work.runtime),
+                    "unacknowledgedSelection": work.pending["attempt"]["selectionId"]
+                    if work.pending is not None
+                    else None,
+                }
+            packet = {
+                "schema": "semantic-model-checkpoint/8",
+                "equivalence": "verified-model-reexecution",
+                "contractDigest": CONTRACT_DIGEST,
+                "initialization": copy.deepcopy(self.initialization),
+                "settings": self._checkpoint_settings(),
+                "randomState": capture_random_state(),
+                "attempts": copy.deepcopy(self.attempts),
+                "openings": copy.deepcopy(self.openings),
+                "sessions": sessions,
+            }
+            packet["digest"] = stable_algorithm_hash(packet)
+            return packet
+
+    def restore(self, *, checkpoint):
+        """Reconstruct accepted model continuations without issuing host work.
+
+        Every committed candidate is generated again under its original RNG
+        state, compared byte/token-for-token, and independently acknowledged.
+        The full resulting cache/retrieval/track continuation must match. No
+        saved executable objects or tensor caches are loaded from input.
+        """
+        from megatoken.data.semantic_contract_v8 import CONTRACT_DIGEST
+
+        with self.lock:
+            if self.sessions or self.attempts or self.runtime.memory.sessions:
+                raise NativeSelectionV8Error("Restore requires a fresh empty V8 runtime")
+            packet = copy.deepcopy(checkpoint)
+            expected_keys = {
+                "schema",
+                "equivalence",
+                "contractDigest",
+                "initialization",
+                "settings",
+                "randomState",
+                "attempts",
+                "openings",
+                "sessions",
+                "digest",
+            }
+            if type(packet) is not dict or set(packet) != expected_keys:
+                raise NativeSelectionV8Error("Invalid V8 model checkpoint fields")
+            digest = packet.pop("digest")
+            if (
+                packet["schema"] != "semantic-model-checkpoint/8"
+                or packet["equivalence"] != "verified-model-reexecution"
+                or packet["contractDigest"] != CONTRACT_DIGEST
+                or digest != stable_algorithm_hash(packet)
+                or packet["settings"] != self._checkpoint_settings()
+                or type(packet["attempts"]) is not list
+                or len(packet["attempts"]) > self.max_attempts
+                or type(packet["sessions"]) is not dict
+                or len(packet["sessions"]) > self.max_sessions
+            ):
+                raise NativeSelectionV8Error(
+                    "V8 model checkpoint identity, settings or budget differs"
+                )
+            attempts = packet["attempts"]
+            for index, attempt in enumerate(attempts):
+                if (
+                    type(attempt) is not dict
+                    or attempt.get("selectionId") != f"v8:{index}"
+                    or attempt.get("checkpointIdentity") != self.model_identity
+                    or attempt.get("tokenizerIdentity") != self.codec.fingerprint
+                    or attempt.get("status")
+                    not in {
+                        "committed",
+                        "rejected",
+                        "semantic-rejected",
+                        "cancelled",
+                        "awaiting-commit",
+                        "abandoned-on-restore",
+                    }
+                ):
+                    raise NativeSelectionV8Error("V8 checkpoint attempt accounting differs")
+            before_random = capture_random_state()
+            staged = NativeSemanticInferenceV8(
+                self.runtime,
+                model_identity=self.model_identity,
+                effort=self.effort,
+                max_tokens=self.max_tokens,
+                max_fragments=self.max_fragments,
+                max_sessions=self.max_sessions,
+                max_attempts=self.max_attempts,
+            )
+            restored = False
+            replay_count = 0
+            try:
+                identity = packet["initialization"]
+                if type(identity) is not dict:
+                    raise NativeSelectionV8Error("V8 checkpoint initialization is missing")
+                loaded = staged.initialize(
+                    seed=identity["seed"],
+                    checkpointIdentity=identity["checkpointIdentity"],
+                    tokenizerIdentity=identity["tokenizerIdentity"],
+                )
+                if loaded != identity:
+                    raise NativeSelectionV8Error(
+                        "Restored model device or generation settings differ"
+                    )
+                replay = []
+                for session, saved in packet["sessions"].items():
+                    if (
+                        type(session) is not str
+                        or not session
+                        or type(saved) is not dict
+                        or set(saved)
+                        != {
+                            "public",
+                            "contexts",
+                            "ingestedThrough",
+                            "completed",
+                            "openingRandom",
+                            "replay",
+                            "continuationDigest",
+                            "unacknowledgedSelection",
+                        }
+                        or type(saved["contexts"]) is not list
+                        or type(saved["replay"]) is not list
+                        or type(saved["completed"]) is not list
+                        or len(set(saved["completed"])) != len(saved["completed"])
+                        or type(saved["ingestedThrough"]) is not int
+                        or len(saved["replay"]) != len(saved["contexts"])
+                    ):
+                        raise NativeSelectionV8Error("V8 checkpoint session structure differs")
+                    if saved["public"] is not None:
+                        checked = validate_v8_committed_prefix(saved["public"], saved["contexts"])
+                        if checked["session"] != session:
+                            raise NativeSelectionV8Error("Restored public session differs")
+                    elif saved["contexts"] or saved["completed"] or saved["ingestedThrough"]:
+                        raise NativeSelectionV8Error("Empty V8 session contains accepted work")
+                    restore_random_state(saved["openingRandom"])
+                    staged._opened(session)
+                    expected = [
+                        index
+                        for index, attempt in enumerate(attempts)
+                        if attempt["session"] == session and attempt["status"] == "committed"
+                    ]
+                    actual = []
+                    for context_index, entry in enumerate(saved["replay"]):
+                        if (
+                            type(entry) is not dict
+                            or set(entry)
+                            != {"attempt", "contextIndex", "acknowledgedThrough", "randomBefore"}
+                            or type(entry["attempt"]) is not int
+                            or not 0 <= entry["attempt"] < len(attempts)
+                            or entry["contextIndex"] != context_index
+                            or type(entry["acknowledgedThrough"]) is not int
+                        ):
+                            raise NativeSelectionV8Error(
+                                "Invalid V8 checkpoint reconstruction entry"
+                            )
+                        actual.append(entry["attempt"])
+                        replay.append((entry["attempt"], session, entry))
+                    if actual != expected:
+                        raise NativeSelectionV8Error(
+                            "Checkpoint omits or imports acknowledged selections"
+                        )
+                    pending = [
+                        attempt["selectionId"]
+                        for attempt in attempts
+                        if attempt["session"] == session and attempt["status"] == "awaiting-commit"
+                    ]
+                    if pending != (
+                        []
+                        if saved["unacknowledgedSelection"] is None
+                        else [saved["unacknowledgedSelection"]]
+                    ):
+                        raise NativeSelectionV8Error(
+                            "Checkpoint pending selection accounting differs"
+                        )
+                for index, session, entry in sorted(replay):
+                    saved = packet["sessions"][session]
+                    context_index = entry["contextIndex"]
+                    context = saved["contexts"][context_index]
+                    rows = saved["public"]["timeline"]
+                    through = context["visibleThrough"]
+                    acknowledged_through = entry["acknowledgedThrough"]
+                    if not through < acknowledged_through <= len(rows):
+                        raise NativeSelectionV8Error("Invalid V8 acknowledged-history cursor")
+                    public = {**saved["public"], "timeline": rows[:through]}
+                    contexts = saved["contexts"][:context_index]
+                    staged.attempts = copy.deepcopy(attempts[:index])
+                    restore_random_state(entry["randomBefore"])
+                    generated = staged.select(
+                        session=session, public=public, contexts=contexts, context=context
+                    )
+                    original, actual = attempts[index], generated["selection"]
+                    for field_name in (
+                        "selectionId",
+                        "session",
+                        "invocationId",
+                        "prefixDigest",
+                        "contextDigest",
+                        "publicDigest",
+                        "checkpointIdentity",
+                        "tokenizerIdentity",
+                        "payloadHex",
+                        "fragments",
+                    ):
+                        if actual[field_name] != original[field_name]:
+                            raise NativeSelectionV8Error(
+                                "Restored native model selection differs: " + field_name
+                            )
+                    staged.commit(
+                        session=session,
+                        public={**saved["public"], "timeline": rows[:acknowledged_through]},
+                        contexts=saved["contexts"][: context_index + 1],
+                        invocationId=context["invocationId"],
+                        record=generated["record"],
+                        selection=actual,
+                    )
+                    replay_count += 1
+                for session, saved in packet["sessions"].items():
+                    work = staged.sessions[session]
+                    for invocation in saved["completed"]:
+                        staged.complete(
+                            session=session,
+                            public=saved["public"],
+                            contexts=saved["contexts"],
+                            invocationId=invocation,
+                        )
+                    if (
+                        work.ingested_through != saved["ingestedThrough"]
+                        or work.contexts != saved["contexts"]
+                        or continuation_fingerprint(work.runtime) != saved["continuationDigest"]
+                    ):
+                        raise NativeSelectionV8Error(
+                            "Restored V8 cache, continuation or observation cursor differs"
+                        )
+                    if work.public != saved["public"]:
+                        raise NativeSelectionV8Error(
+                            "Restored V8 acknowledged public history differs"
+                        )
+                    work.opening_random = copy.deepcopy(saved["openingRandom"])
+                    work.replay = copy.deepcopy(saved["replay"])
+                restore_random_state(packet["randomState"])
+                restored_attempts = copy.deepcopy(attempts)
+                for attempt in restored_attempts:
+                    if attempt["status"] == "awaiting-commit":
+                        attempt.update(
+                            status="abandoned-on-restore",
+                            failure="Unacknowledged candidate excluded from restored history",
+                        )
+                self.sessions = staged.sessions
+                self.attempts = restored_attempts
+                self.openings = copy.deepcopy(packet["openings"])
+                self.initialization = copy.deepcopy(staged.initialization)
+                restored = True
+                return {
+                    "schema": "semantic-model-restore/8",
+                    "checkpointDigest": digest,
+                    "restoredSessions": len(self.sessions),
+                    "reexecutedSelections": replay_count,
+                    "consumedAttempts": len(self.attempts),
+                    "hostDispatches": 0,
+                    "equivalence": "verified-model-reexecution",
+                    "restored": True,
+                }
+            except Exception as error:
+                raise NativeSelectionV8Error(
+                    "V8 model restoration failed: " + str(error)
+                ) from error
+            finally:
+                if not restored:
+                    for session in list(staged.sessions):
+                        staged.cancel(session=session, reason="failed checkpoint reconstruction")
+                    # Opening a runtime may allocate its memory session before
+                    # a later initialization step fails. The runtime was empty
+                    # on entry, so every remaining allocation belongs to this
+                    # failed reconstruction and must also be released.
+                    for memory in list(self.runtime.memory.sessions.values()):
+                        self.runtime.memory.close_session(memory)
+                    restore_random_state(before_random)
+
     def cancel(self, *, session, reason, **unused):
         with self.lock:
             work = self.sessions.pop(session, None)
@@ -553,7 +889,8 @@ class NativeSemanticInferenceV8:
                 "predictionAttempts": len(attempts),
                 "committed": sum(row["status"] == "committed" for row in attempts),
                 "failedAttempts": sum(
-                    row["status"] in {"rejected", "semantic-rejected", "cancelled"}
+                    row["status"]
+                    in {"rejected", "semantic-rejected", "cancelled", "abandoned-on-restore"}
                     for row in attempts
                 ),
                 "generatedTokens": sum(row["generatedTokens"] for row in attempts),

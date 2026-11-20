@@ -70,7 +70,8 @@ the added import-absence test.
 - [ ] Bind data/policy/codec identities on load, resume, stage transition and export.
 - [x] Exercise a bounded normal-loader optimizer update and fresh-process checkpoint resume.
 - [ ] Qualify optimizer/resume/export/reload through normal commands with actual pinned assets.
-- [ ] Implement live selected-session restoration with acknowledged history and no redispatch.
+- [x] Implement direct V8 native model-session checkpoint/reconstruction and producer transport operations.
+- [ ] Qualify full producer/host live-session recovery with durable external obligations and no redispatch.
 - [ ] Regenerate/requalify paired artifacts on exact final heads and pass installed absence tests.
 - [ ] Complete final default routing, legacy removal, deployment and whole-release rollback gates.
 - [ ] Run the separately declared held-out model, comprehension and efficiency studies.
@@ -78,3 +79,23 @@ the added import-absence test.
 Technical cutover, edition completeness and learned adoption are all **incomplete**.
 Existing production routes remain available until their V8 replacements are
 qualified. No old receipt is relabeled as proof for a new implementation.
+
+## Live native model-session checkpoint/reconstruction
+
+The V8 service now saves acknowledged histories, random state, consumed attempts
+and a complete model-continuation fingerprint. A fresh runtime regenerates and
+compares every accepted original model fragment, independently validates its
+public commit, and requires identical model/cache/retrieval/track continuation.
+Unacknowledged candidates remain failed attempt evidence and never become
+restored history. Failed reconstruction releases allocated resources and restores
+the prior RNG state. The producer transport preserves its own cost/attempt
+accounting and verifies the exact restore receipt.
+
+Evidence: 18 serving/recovery tests passed in an isolated checkout before the
+partial-allocation cleanup control was added. All six final recovery controls
+now pass, including that cleanup case. The one deselected existing test
+was the separately tracked synthetic training-admission migration. The actual
+tiny CPU model continues with identical next tokens after fresh-process recovery;
+accepted-record/callback controls use an explicitly supplied decoder. This is
+not a trained-model quality claim. Full host-resource recovery and production
+asset qualification remain open. See [live recovery](semantic-v8-live-restore.md).

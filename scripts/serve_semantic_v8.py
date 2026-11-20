@@ -30,7 +30,16 @@ def dispatch(adapter, request):
         return adapter.metrics()
     methods = {
         name: getattr(adapter, name)
-        for name in ("initialize", "select", "commit", "reject", "complete", "cancel")
+        for name in (
+            "initialize",
+            "select",
+            "commit",
+            "reject",
+            "complete",
+            "cancel",
+            "checkpoint",
+            "restore",
+        )
     }
     if operation not in methods:
         raise ValueError("Unknown native v8 RPC operation")
