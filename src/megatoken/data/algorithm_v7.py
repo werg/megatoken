@@ -1275,7 +1275,7 @@ def _operation(name: str, values: list[list]) -> list:
             left[0] in ("null", "undefined")
             or (right is not None and right[0] in ("null", "undefined"))
         )
-        if name not in allowed or (not both_refs and not null_loose):
+        if name not in allowed or (name.startswith("loose_") and not both_refs and not null_loose):
             raise TypeError("Opaque reference coercion is outside the algorithm profile")
         equal = both_refs and left[1] == right[1]
         return ["bool", equal if name in ("equal", "loose_equal") else not equal]
@@ -1537,12 +1537,7 @@ def _dense_items(value: list, heap: dict[str, dict]) -> list[list]:
     items = []
     for index in range(count):
         item = props.get(str(index))
-        if (
-            item is None
-            or item[0] != "num"
-            or type(item[1]) not in (int, float)
-            or not math.isfinite(_as_js_number(item[1]))
-        ):
+        if item is None or item[0] != "num" or not math.isfinite(_decode_scalar(item)):
             raise AlgorithmV7Error("Ordered fold requires dense finite binary64 elements")
         items.append(item)
     return items

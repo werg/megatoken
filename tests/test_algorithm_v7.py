@@ -344,6 +344,42 @@ class AlgorithmV7CoreTests(unittest.TestCase):
         self.assertEqual(run(op("coalesce", lit(["num", 0]), error_term)), ["num", 0])
         self.assertEqual(run(op("coalesce", lit(["undefined"]), lit(["num", 9]))), ["num", 9])
 
+    def test_reference_comparisons_do_not_invent_primitive_conversion(self):
+        heap = {"box": {"kind": "object", "properties": {}}}
+        reference = ["ref", "box"]
+        for primitive in (
+            ["null"],
+            ["undefined"],
+            ["bool", False],
+            ["num", 0],
+            ["num", "NaN"],
+            ["str", "box"],
+            ["bigint", "0"],
+        ):
+            for left, right in ((reference, primitive), (primitive, reference)):
+                with self.subTest(left=left, right=right):
+                    for name, expected in (("equal", False), ("not_equal", True)):
+                        self.assertEqual(
+                            evaluate_term(op(name, lit(left), lit(right)), {"heap": heap}),
+                            ["bool", expected],
+                        )
+                    for name, expected in (("loose_equal", False), ("loose_not_equal", True)):
+                        if primitive[0] in ("null", "undefined"):
+                            self.assertEqual(
+                                evaluate_term(op(name, lit(left), lit(right)), {"heap": heap}),
+                                ["bool", expected],
+                            )
+                        else:
+                            with self.assertRaisesRegex(TypeError, "Opaque reference coercion"):
+                                evaluate_term(op(name, lit(left), lit(right)), {"heap": heap})
+        for name, expected in (("equal", True), ("not_equal", False)):
+            self.assertEqual(
+                evaluate_term(op(name, lit(reference), lit(reference)), {"heap": heap}),
+                ["bool", expected],
+            )
+        with self.assertRaisesRegex(TypeError, "Opaque reference coercion"):
+            evaluate_term(op("add", lit(reference), lit(["num", 0])), {"heap": heap})
+
     def test_ordered_fold_preserves_binary64_rounding_and_requires_dense_finite_arrays(self):
         fold = {
             "op": "fold_left",
@@ -364,6 +400,19 @@ class AlgorithmV7CoreTests(unittest.TestCase):
                 "objects": [{"id": "a0", "kind": "array", "properties": properties}],
                 "roots": [["ref", "a0"]],
             }
+
+        fold["initial"] = lit(["num", "-0"])
+        self.assertEqual(
+            evaluate_algorithm(program, [["ref", "a0"]], heap=array([["num", "-0"]]))["completion"],
+            {"kind": "return", "value": ["num", "-0"]},
+        )
+        for special in ("NaN", "+Infinity", "-Infinity"):
+            with (
+                self.subTest(special=special),
+                self.assertRaisesRegex(AlgorithmV7Error, "dense finite binary64"),
+            ):
+                evaluate_algorithm(program, [["ref", "a0"]], heap=array([["num", special]]))
+        fold["initial"] = lit(["num", 0])
 
         self.assertEqual(
             evaluate_algorithm(
