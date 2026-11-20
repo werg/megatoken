@@ -92,7 +92,7 @@ jobs:
             tests/test_semantic_training_state.py tests/test_training_stream.py \
             tests/test_checkpoint_async.py tests/test_checkpoint_replace.py \
             tests/test_track_context.py tests/test_context_preparation.py
-          python -m pytest -q tests/test_meridian_training.py -k semantic_execution_continues_from_teacher_recorded_semantics
+          python -m pytest -q tests/test_semantic_model_v8.py -k real_training_and_serving_prediction_state_and_controls_match_exactly
       - name: Exercise actual shared-process coordinator and child inference
         run: |
           MEGATOKEN_PYTHON="$(command -v python)" MEGATOKEN_REPOSITORY="$GITHUB_WORKSPACE" \
