@@ -401,7 +401,47 @@ def test_transducer_query_track_is_reserved_outside_user_capacity():
     assert extra[0, 0].item() == cap
 
 
-def test_encoded_text_continuation_matches_two_teacher_forced_native_boundaries(tmp_path):
+@pytest.mark.parametrize("events", (1, 2))
+def test_commit_is_exact_for_equal_facets_with_different_storage_layouts(events):
+    """Sampler and encoder layouts must commit the same values and gradients."""
+    core, multi = _tiny()
+    core.eval()
+    tracks = tuple(f"worker-{index}" for index in range(events))
+    with torch.no_grad():
+        state = multi.advance_group(
+            multi.initial_state(1),
+            _selected(core, ("prefix",)),
+            tracks=("prefix",),
+            role_ids=_roles(("prefix",)),
+        )
+    contiguous = _selected(core, tracks).requires_grad_()
+    strided = contiguous.detach().transpose(-1, -2).contiguous().transpose(-1, -2).requires_grad_()
+    assert contiguous.is_contiguous() and not strided.is_contiguous()
+    torch.testing.assert_close(contiguous, strided, atol=0, rtol=0)
+
+    outputs, gradients = [], []
+    for raw in (contiguous, strided):
+        result = multi.advance_group(state, raw, tracks=tracks, role_ids=_roles(tracks))
+        prediction = multi.predict_group(result, tracks=tracks, effort=1)
+        outputs.append(
+            (result.raw, result.final, result.history.keys, result.history.values, prediction)
+        )
+        objective = result.final.square().sum() + result.history.values.square().sum()
+        gradients.append(torch.autograd.grad(objective, raw)[0])
+    for left, right in zip(outputs[0], outputs[1], strict=True):
+        torch.testing.assert_close(left, right, atol=0, rtol=0)
+    torch.testing.assert_close(gradients[0], gradients[1], atol=0, rtol=0)
+
+
+@pytest.mark.parametrize("gradient_enabled", (False, True))
+def test_encoded_text_continuation_matches_two_teacher_forced_native_boundaries(
+    tmp_path, gradient_enabled
+):
+    with torch.set_grad_enabled(gradient_enabled):
+        _check_encoded_text_continuation(tmp_path, exact=not gradient_enabled)
+
+
+def _check_encoded_text_continuation(tmp_path, *, exact):
     """Serving and semantic teacher continuation both commit E of exact bytes."""
     from megatoken.generation.policy import FacetedGenerator
 
@@ -425,6 +465,9 @@ def test_encoded_text_continuation_matches_two_teacher_forced_native_boundaries(
     serving_state = serving.tracks.initial_state(1)
     track, control = "semantic-worker", b"semantic-selection-contract-v6"
     spec = ActionSpec(text_kind="ascii", min_tokens=1, max_tokens=8, require_terminal=True)
+    # The read-only native comparison uses no-grad on both paths. Preserve the
+    # existing bound when comparing gradient-enabled training with serving.
+    atol, rtol = (0, 0) if exact else (1e-6, 1e-5)
 
     def teacher_step(state, event_id, payload):
         plan = train_model.prepare_target(
@@ -445,11 +488,11 @@ def test_encoded_text_continuation_matches_two_teacher_forced_native_boundaries(
     def compare_state(left, right):
         for name in ("raw", "final"):
             torch.testing.assert_close(
-                getattr(left, name), getattr(right, name), atol=1e-6, rtol=1e-5
+                getattr(left, name), getattr(right, name), atol=atol, rtol=rtol
             )
         for name in ("keys", "values"):
             torch.testing.assert_close(
-                getattr(left.history, name), getattr(right.history, name), atol=1e-6, rtol=1e-5
+                getattr(left.history, name), getattr(right.history, name), atol=atol, rtol=rtol
             )
         assert left.history_event_ids == right.history_event_ids
         assert left.history_event_tracks == right.history_event_tracks
@@ -488,7 +531,7 @@ def test_encoded_text_continuation_matches_two_teacher_forced_native_boundaries(
     train_prior = prior_signature(train, train_state, "semantic-event-2")
     serve_prior = prior_signature(serving, serving_state, "semantic-event-2")
     for trained, served in zip(train_prior, serve_prior, strict=True):
-        torch.testing.assert_close(trained, served, atol=1e-6, rtol=1e-5)
+        torch.testing.assert_close(trained, served, atol=atol, rtol=rtol)
 
     selected2 = serving.generate_group(
         serving_state,

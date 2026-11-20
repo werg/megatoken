@@ -428,6 +428,10 @@ class MultiTrackCore:
             raise ValueError("Raw group has the wrong device or dtype")
         if is_host(raw) and not bool(torch.isfinite(raw).all()):
             raise ValueError("Raw selected facets must be finite")
+        # Sampler output can retain transposed storage even after its values
+        # are replaced by encoded text. Match the encoder's layout before C's
+        # reductions so identical committed values have identical arithmetic.
+        raw = raw.contiguous()
         # Visibility applies before C; physical reclamation follows the read.
         track_ids, registry = self._track_indices(state, names)
         modality_ids = torch.tensor(
