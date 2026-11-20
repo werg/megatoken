@@ -20,24 +20,36 @@ from megatoken.semantic_lineage_v8 import (
 
 
 def seal(record):
-    record["digest"] = stable_algorithm_hash({key: value for key, value in record.items() if key != "digest"})
+    record["digest"] = stable_algorithm_hash(
+        {key: value for key, value in record.items() if key != "digest"}
+    )
     return record
 
 
 def fixture(codec=None, chunking=None):
     codec = codec or ByteCodec.byte_fallback()
     chunking = chunking or ChunkingConfig().with_hard_limit(8).identity(codec)
-    policy = {"schema": "semantic-training-policy/8", "producerRevision": "a" * 40,
-              "consumerRevision": "b" * 40, "registryDigest": "c" * 64}
+    policy = {
+        "schema": "semantic-training-policy/8",
+        "producerRevision": "a" * 40,
+        "consumerRevision": "b" * 40,
+        "registryDigest": "c" * 64,
+    }
     manifests = ["1" * 64, "2" * 64]
     lineage = build_training_lineage_v8(
-        policy=policy, tokenizer_identity=codec.fingerprint,
-        prepared_manifests=manifests, corpus_identity=content_hash(manifests),
-        stream_identity="3" * 64, chunking=chunking,
+        policy=policy,
+        tokenizer_identity=codec.fingerprint,
+        prepared_manifests=manifests,
+        corpus_identity=content_hash(manifests),
+        stream_identity="3" * 64,
+        chunking=chunking,
     )
-    payload = {"train_config": {"semantic_v8_policy": policy},
-               "codec_fingerprint": codec.fingerprint, "chunking": chunking,
-               "semantic_training_v8": lineage}
+    payload = {
+        "train_config": {"semantic_v8_policy": policy},
+        "codec_fingerprint": codec.fingerprint,
+        "chunking": chunking,
+        "semantic_training_v8": lineage,
+    }
     metadata = {"dataset_fingerprint": "3" * 64, "semantic_v8_lineage_digest": lineage["digest"]}
     return lineage, payload, metadata
 
@@ -72,14 +84,25 @@ def test_checkpoint_lineage_binds_policy_prepared_corpus_stream_codec_and_chunki
 
 def test_served_lineage_binds_all_model_resources_and_the_training_checkpoint():
     lineage, payload, _ = fixture()
-    manifest = {"codec_fingerprint": payload["codec_fingerprint"],
-                "chunking": payload["chunking"], "checkpoint_sha256": "4" * 64,
-                "model_sha256": "5" * 64, "config_sha256": "6" * 64,
-                "transducer_sha256": "7" * 64, "model_version": 3}
+    manifest = {
+        "codec_fingerprint": payload["codec_fingerprint"],
+        "chunking": payload["chunking"],
+        "checkpoint_sha256": "4" * 64,
+        "model_sha256": "5" * 64,
+        "config_sha256": "6" * 64,
+        "transducer_sha256": "7" * 64,
+        "model_version": 3,
+    }
     record = build_served_lineage_v8(lineage, manifest)
     manifest["semantic_v8_lineage_digest"] = record["digest"]
     assert validate_served_lineage_v8(record, manifest) == record
-    for key in ("trainingCheckpointSha256", "modelIdentity", "configSha256", "transducerSha256", "modelVersion"):
+    for key in (
+        "trainingCheckpointSha256",
+        "modelIdentity",
+        "configSha256",
+        "transducerSha256",
+        "modelVersion",
+    ):
         changed = copy.deepcopy(record)
         changed[key] = 4 if key == "modelVersion" else "9" * 64
         seal(changed)
@@ -88,11 +111,17 @@ def test_served_lineage_binds_all_model_resources_and_the_training_checkpoint():
             validate_served_lineage_v8(changed, changed_manifest)
 
 
-def test_ordinary_v8_export_and_reload_retain_lineage_and_reject_missing_proof(tmp_path, monkeypatch):
-    from megatoken.served import ServedBundle, export_served
-    from megatoken.training.checkpoint import load_checkpoint, save_checkpoint, transducer_attachment
-    from tests.test_served import checkpoint_model
+def test_ordinary_v8_export_and_reload_retain_lineage_and_reject_missing_proof(
+    tmp_path, monkeypatch
+):
     import megatoken.training.semantic_v8 as semantic_v8
+    from megatoken.served import ServedBundle, export_served
+    from megatoken.training.checkpoint import (
+        load_checkpoint,
+        save_checkpoint,
+        transducer_attachment,
+    )
+    from tests.test_served import checkpoint_model
 
     model, original = checkpoint_model(tmp_path / "original")
     payload, _ = load_checkpoint(original)
@@ -104,7 +133,10 @@ def test_ordinary_v8_export_and_reload_retain_lineage_and_reject_missing_proof(t
     # load/export still requires the pinned raw tokenizer and full preparation.
     monkeypatch.setattr(semantic_v8, "load_semantic_v8_codec", lambda path, *, vocab_size: codec)
     checkpoint = save_checkpoint(
-        tmp_path / "checkpoint", "lineage", payload, {**metadata, "global_step": 7},
+        tmp_path / "checkpoint",
+        "lineage",
+        payload,
+        {**metadata, "global_step": 7},
         attachments=transducer_attachment(lambda: {"bank": model.transducer.bank.state_snapshot()}),
     )
     directory = tmp_path / "served"
@@ -127,7 +159,10 @@ def test_ordinary_v8_export_and_reload_retain_lineage_and_reject_missing_proof(t
     proof["modelIdentity"] = "9" * 64
     seal(proof)
     proof_path.write_text(json.dumps(proof))
-    saved.update(semantic_v8_lineage_sha256=sha256_file(proof_path), semantic_v8_lineage_digest=proof["digest"])
+    saved.update(
+        semantic_v8_lineage_sha256=sha256_file(proof_path),
+        semantic_v8_lineage_digest=proof["digest"],
+    )
     (directory / "manifest.json").write_text(json.dumps(saved))
     with pytest.raises(ValueError, match="different weights"):
         ServedBundle(directory, device="cpu")
@@ -135,7 +170,11 @@ def test_ordinary_v8_export_and_reload_retain_lineage_and_reject_missing_proof(t
 
 def test_v8_checkpoint_cannot_export_through_generic_byte_codec_relocation(tmp_path):
     from megatoken.loading import load_trained
-    from megatoken.training.checkpoint import load_checkpoint, save_checkpoint, transducer_attachment
+    from megatoken.training.checkpoint import (
+        load_checkpoint,
+        save_checkpoint,
+        transducer_attachment,
+    )
     from tests.test_served import checkpoint_model
 
     model, original = checkpoint_model(tmp_path / "original")
@@ -144,7 +183,10 @@ def test_v8_checkpoint_cannot_export_through_generic_byte_codec_relocation(tmp_p
     payload["train_config"]["semantic_v8_policy"] = binding["train_config"]["semantic_v8_policy"]
     payload["semantic_training_v8"] = lineage
     checkpoint = save_checkpoint(
-        tmp_path / "checkpoint", "lineage", payload, {**metadata, "global_step": 7},
+        tmp_path / "checkpoint",
+        "lineage",
+        payload,
+        {**metadata, "global_step": 7},
         attachments=transducer_attachment(lambda: {"bank": model.transducer.bank.state_snapshot()}),
     )
     with pytest.raises((ValueError, FileNotFoundError)):

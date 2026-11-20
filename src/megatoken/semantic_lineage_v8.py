@@ -54,9 +54,18 @@ def validate_training_lineage_v8(
     record, *, policy=None, tokenizer_identity=None, stream_identity=None, chunking_fingerprint=None
 ):
     fields = {
-        "schema", "policy", "contractDigest", "fixtureDigest", "interoperabilityDigest",
-        "tokenizerIdentity", "tokenizerSha256", "preparedManifestFingerprints",
-        "preparedCorpusDigest", "streamDigest", "chunkingFingerprint", "digest",
+        "schema",
+        "policy",
+        "contractDigest",
+        "fixtureDigest",
+        "interoperabilityDigest",
+        "tokenizerIdentity",
+        "tokenizerSha256",
+        "preparedManifestFingerprints",
+        "preparedCorpusDigest",
+        "streamDigest",
+        "chunkingFingerprint",
+        "digest",
     }
     if not isinstance(record, dict) or set(record) != fields:
         raise ValueError("Incomplete V8 training lineage")
@@ -73,12 +82,12 @@ def validate_training_lineage_v8(
         or not all(_hash(value) for value in manifests)
         or manifests != sorted(manifests)
         or record["preparedCorpusDigest"] != content_hash(manifests)
-        or not all(_hash(record[key]) for key in (
-            "tokenizerIdentity", "streamDigest", "chunkingFingerprint", "digest"
-        ))
-        or record["digest"] != stable_algorithm_hash(
-            {key: value for key, value in record.items() if key != "digest"}
+        or not all(
+            _hash(record[key])
+            for key in ("tokenizerIdentity", "streamDigest", "chunkingFingerprint", "digest")
         )
+        or record["digest"]
+        != stable_algorithm_hash({key: value for key, value in record.items() if key != "digest"})
     ):
         raise ValueError("V8 training lineage identities or integrity differ")
     for expected, actual in (
@@ -130,31 +139,48 @@ def build_served_lineage_v8(training, manifest):
 
 
 def validate_served_lineage_v8(record, manifest):
-    fields = {"schema", "training", "trainingCheckpointSha256", "modelIdentity",
-              "configSha256", "transducerSha256", "modelVersion", "digest"}
+    fields = {
+        "schema",
+        "training",
+        "trainingCheckpointSha256",
+        "modelIdentity",
+        "configSha256",
+        "transducerSha256",
+        "modelVersion",
+        "digest",
+    }
     if not isinstance(record, dict) or set(record) != fields:
         raise ValueError("Incomplete served V8 training lineage")
     validate_training_lineage_v8(
-        record["training"], tokenizer_identity=manifest["codec_fingerprint"],
+        record["training"],
+        tokenizer_identity=manifest["codec_fingerprint"],
         chunking_fingerprint=manifest["chunking"]["fingerprint"],
     )
     if (
         record["schema"] != "semantic-served-lineage/8"
         or not _hash(record["digest"])
-        or record["digest"] != stable_algorithm_hash(
-            {key: value for key, value in record.items() if key != "digest"}
-        )
+        or record["digest"]
+        != stable_algorithm_hash({key: value for key, value in record.items() if key != "digest"})
         or record["digest"] != manifest.get("semantic_v8_lineage_digest")
-        or any(record[key] != manifest[target] for key, target in (
-            ("trainingCheckpointSha256", "checkpoint_sha256"),
-            ("modelIdentity", "model_sha256"),
-            ("configSha256", "config_sha256"),
-            ("transducerSha256", "transducer_sha256"),
-            ("modelVersion", "model_version"),
-        ))
-        or any(not _hash(record[key]) for key in (
-            "trainingCheckpointSha256", "modelIdentity", "configSha256", "transducerSha256"
-        ))
+        or any(
+            record[key] != manifest[target]
+            for key, target in (
+                ("trainingCheckpointSha256", "checkpoint_sha256"),
+                ("modelIdentity", "model_sha256"),
+                ("configSha256", "config_sha256"),
+                ("transducerSha256", "transducer_sha256"),
+                ("modelVersion", "model_version"),
+            )
+        )
+        or any(
+            not _hash(record[key])
+            for key in (
+                "trainingCheckpointSha256",
+                "modelIdentity",
+                "configSha256",
+                "transducerSha256",
+            )
+        )
         or type(record["modelVersion"]) is not int
         or record["modelVersion"] < 0
     ):

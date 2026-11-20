@@ -944,8 +944,11 @@ def train(
                             "global_step": global_step,
                             "phase_consumed": consumed,
                             "counters": asdict(counters),
-                            **({"semantic_training_v8": semantic_training_v8}
-                               if semantic_training_v8 is not None else {}),
+                            **(
+                                {"semantic_training_v8": semantic_training_v8}
+                                if semantic_training_v8 is not None
+                                else {}
+                            ),
                             **semantic_training_state(exposure, cohort_digest=cohort_digest),
                         }
                     )
@@ -959,8 +962,11 @@ def train(
                         "chunking_fingerprint": chunking_identity["fingerprint"],
                         "routing_version": model_config.routing_version,
                         "config_fingerprint": content_hash(asdict(config)),
-                        **({"semantic_v8_lineage_digest": semantic_training_v8["digest"]}
-                           if semantic_training_v8 is not None else {}),
+                        **(
+                            {"semantic_v8_lineage_digest": semantic_training_v8["digest"]}
+                            if semantic_training_v8 is not None
+                            else {}
+                        ),
                     }
                     from .stream import source_sampling_report
 

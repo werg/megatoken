@@ -130,7 +130,9 @@ def load_trained(
         from megatoken.training.semantic_v8 import load_semantic_v8_codec
 
         codec_loader = load_semantic_v8_codec
-    codec = codec_loader(codec_path or train_config.get("codec", "byte"), vocab_size=config.vocab_size)
+    codec = codec_loader(
+        codec_path or train_config.get("codec", "byte"), vocab_size=config.vocab_size
+    )
     if codec.fingerprint != payload["codec_fingerprint"]:
         raise ValueError("Codec does not match the trained checkpoint")
     packs = packs or train_config["packs"]

@@ -109,7 +109,9 @@ def export_served(
         if training_lineage is not None:
             lineage = build_served_lineage_v8(training_lineage, manifest)
             write_json(temporary / "semantic-v8-lineage.json", lineage)
-            manifest["semantic_v8_lineage_sha256"] = sha256_file(temporary / "semantic-v8-lineage.json")
+            manifest["semantic_v8_lineage_sha256"] = sha256_file(
+                temporary / "semantic-v8-lineage.json"
+            )
             manifest["semantic_v8_lineage_digest"] = lineage["digest"]
         if payload["train_config"].get("semantic_experiment") is not None:
             from megatoken.training.semantic_budget import (
@@ -231,7 +233,10 @@ class ServedBundle:
             from megatoken.io import strict_json_loads
             from megatoken.semantic_lineage_v8 import validate_served_lineage_v8
 
-            if sha256_file(directory / "semantic-v8-lineage.json") != manifest["semantic_v8_lineage_sha256"]:
+            if (
+                sha256_file(directory / "semantic-v8-lineage.json")
+                != manifest["semantic_v8_lineage_sha256"]
+            ):
                 raise ValueError("Served V8 training lineage checksum mismatch")
             self.semantic_v8_lineage = validate_served_lineage_v8(
                 strict_json_loads((directory / "semantic-v8-lineage.json").read_text()), manifest
