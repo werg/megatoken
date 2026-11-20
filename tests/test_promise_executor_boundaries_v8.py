@@ -169,6 +169,40 @@ class PromiseExecutorTests(unittest.TestCase):
                     state["heap"]["promise"]["result"], ["str", "boom"] if thrown else ["num", 9]
                 )
 
+    def test_executor_throw_consumes_the_resolving_pair_before_later_calls(self):
+        state = executor_machine()
+        enter(state)
+        finish(state, "throw", ["str", "boom"])
+        capability = state["protocol"]["promiseExecutors"]["capabilities"][0]
+        self.assertTrue(capability["called"])
+        self.assertEqual(capability["resolution"], {"mode": "reject", "value": ["str", "boom"]})
+        state = restore(state)
+        before = copy.deepcopy(state)
+        for resolver, value in (("resolve", ["ref", "executor"]), ("reject", ["str", "late"])):
+            resolve(state, value, resolver)
+            before["protocol"]["sequence"] += 1
+            self.assertEqual(state, before)
+            state = restore(state)
+
+    def test_throw_completion_cannot_restore_an_unconsumed_or_false_first_call(self):
+        state = executor_machine()
+        enter(state)
+        finish(state, "throw", ["str", "boom"])
+        for mutation in ("uncalled", "false-value", "pending"):
+            with self.subTest(mutation=mutation):
+                changed = copy.deepcopy(state)
+                capability = changed["protocol"]["promiseExecutors"]["capabilities"][0]
+                if mutation == "false-value":
+                    capability.update(
+                        called=True, resolution={"mode": "resolve", "value": ["num", 9]}
+                    )
+                else:
+                    capability.update(called=False, resolution=None)
+                    if mutation == "pending":
+                        changed["heap"]["promise"].update(state="pending", result=None)
+                with self.assertRaises(ProtocolV8Error):
+                    restore(changed)
+
     def test_reference_resolution_is_refused_before_first_call_but_rejection_is_owned(self):
         for target in ("object", "other-promise"):
             state = executor_machine()

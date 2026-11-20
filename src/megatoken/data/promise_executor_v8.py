@@ -251,6 +251,8 @@ def apply_record(machine, record):
         machine.pop("_internalProtocolTransition", None)
     target = _promise(machine, record["promise"])
     if completion["kind"] == "throw" and not capability["called"] and target["state"] == "pending":
+        capability["called"] = True
+        capability["resolution"] = {"mode": "reject", "value": copy.deepcopy(completion["value"])}
         _settle(machine, record["promise"], "rejected", completion["value"])
     entry["phase"] = "complete"
     entry["completion"] = copy.deepcopy(completion)
@@ -380,19 +382,16 @@ def validate_state(machine):
                 and target.get("result") == value
             )
         entry = entries.get(capability["promise"])
-        thrown = bool(
+        completed_throw = bool(
             entry
             and entry.get("phase") == "complete"
             and isinstance(entry.get("completion"), dict)
             and entry["completion"].get("kind") == "throw"
-            and target["state"] == "rejected"
-            and target.get("adopted") is None
-            and target.get("result") == entry["completion"].get("value")
         )
         if capability["called"]:
-            if not agrees and not thrown:
+            if not agrees:
                 _fail("resolver first call contradicts Promise settlement")
-        elif not (target["state"] == "pending" and target.get("adopted") is None or thrown):
+        elif completed_throw or target["state"] != "pending" or target.get("adopted") is not None:
             _fail("executor throw and Promise settlement disagree")
     completed = set()
     for entry in data["executors"]:
