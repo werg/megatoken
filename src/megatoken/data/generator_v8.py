@@ -650,7 +650,7 @@ def apply_record(machine, record):
         fn = machine["heap"].get(callee[1]) if callee[0] == "ref" else None
         if not fn or fn.get("kind") != "closure" or fn.get("generatorFunction") is not True:
             _fail("declared generator function required")
-        _id(record["name"])
+        p._assert_fresh_heap_identity(machine, record["name"])
         machine["_internalProtocolTransition"] = True
         try:
             _api_call(
@@ -885,6 +885,8 @@ def assert_next(machine, record):
         return True
     identity, current = node
     kind = record.get("kind")
+    if kind in ("return", "throw"):
+        _fail("generator completion requires its retained continuation protocol")
     resume = current.get("resume") or {}
     if resume and current.get("delegation") is not None:
         if kind != "generator.delegate.receive" or record.get("object") != identity:
@@ -978,7 +980,18 @@ def validate_state(machine):
             ):
                 _fail("cached delegate method")
             if delegation["result"] is not None:
-                _delegated_result(machine, delegation["result"])
+                if delegation["phase"] == "yielded":
+                    # The result is already published to the caller. Its consumed
+                    # done flag must not be re-read after an ordinary mutation.
+                    result = _value(machine, delegation["result"])
+                    if result[0] != "ref" or machine["heap"][result[1]]["kind"] != "object":
+                        _fail("retained delegate result object")
+                else:
+                    _, done = _delegated_result(machine, delegation["result"])
+                    if delegation["phase"] in ("result", "complete") and done != (
+                        delegation["phase"] == "complete"
+                    ):
+                        _fail("saved delegate completion")
         active = node["invocation"] in machine.get("stack", [])
         if active != (node["phase"] in ("initializing", "executing")):
             _fail("generator stack/phase mismatch")
