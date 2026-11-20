@@ -612,7 +612,11 @@ class ConstructionProtocolNativeTests(unittest.TestCase):
         external = _external_machine(self.machine)
         validate_protocol_state(external["protocol"], external["heap"], external)
         self.send("return", value=["undefined"], invocation="derived-init-body")
-        self.send("super.finish", owner="derived-construction", result=["ref", "base-instance"])
+        self.send(
+            "super.finish",
+            owner="derived-construction",
+            completion={"kind": "normal", "value": ["ref", "base-instance"]},
+        )
         self.send("construct.this", invocation="derived-body", result=["ref", "base-instance"])
         self.send("return", value=["undefined"], invocation="derived-body")
         self.send(

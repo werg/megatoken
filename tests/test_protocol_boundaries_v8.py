@@ -12,6 +12,7 @@ from megatoken.data.protocol_v8 import (
     apply_protocol_record,
     assert_detailed_record_compatible,
     validate_protocol_record,
+    validate_protocol_state,
 )
 from tests.test_number_v8 import allocate, machine
 
@@ -113,6 +114,32 @@ class ProtocolBoundaryTests(unittest.TestCase):
             state, {"kind": "return", "invocation": "child63", "value": ["num", 7]}
         )
         self.assertEqual(len(state["protocol"]["callFrames"]), 63)
+
+    def test_allocation_and_restore_apply_the_same_property_capacity(self):
+        state = machine()
+        row = {
+            "kind": "allocate",
+            "name": "array",
+            "objectKind": "array",
+            "length": 4096,
+            "properties": [{"key": ["str", str(i)], "value": ["num", i]} for i in range(4096)],
+            "code": None,
+            "captures": [],
+            "functionKind": None,
+            "lexicalReceiver": None,
+        }
+        before = copy.deepcopy(state)
+        with self.assertRaisesRegex(ProtocolV8Error, "allocation properties"):
+            apply_protocol_record(state, row)
+        self.assertEqual(state, before)
+        row["properties"].pop()
+        apply_protocol_record(state, row)
+        shared = _external_machine(state)
+        self.assertTrue(validate_protocol_state(shared["protocol"], shared["heap"], shared))
+        state["heap"]["array"]["properties"]["extra"] = ["num", 9]
+        shared = _external_machine(state)
+        with self.assertRaisesRegex(ProtocolV8Error, "property bound"):
+            validate_protocol_state(shared["protocol"], shared["heap"], shared)
 
     def test_active_symbol_and_protocol_completion_guards_are_exercised_directly(self):
         state = machine()

@@ -44,7 +44,7 @@ FIELDS = {
     "construct.this": {"kind", "invocation", "result"},
     "super.select": {"kind", "owner", "callee"},
     "super.bind": {"kind", "owner", "receiver", "child"},
-    "super.finish": {"kind", "owner", "result"},
+    "super.finish": {"kind", "owner", "completion"},
 }
 FRAME_FIELDS = {
     "id",
@@ -150,7 +150,7 @@ def validate_record(record):
             _fail("constructor argument bound")
         for value in record["arguments"]:
             validate_protocol_value(value)
-    elif kind == "construct.finish":
+    elif kind in ("construct.finish", "super.finish"):
         completion = record["completion"]
         _exact(completion, {"kind", "value"}, "constructor completion")
         if completion["kind"] not in ("normal", "throw"):
@@ -160,7 +160,7 @@ def validate_record(record):
         validate_protocol_value(record["callee"])
     elif kind == "super.bind":
         _ref(record["receiver"])
-    elif kind in ("private.get", "construct.target", "construct.this", "super.finish"):
+    elif kind in ("private.get", "construct.target", "construct.this"):
         validate_protocol_value(record["result"])
     elif kind == "private.set":
         validate_protocol_value(record["value"])
@@ -320,8 +320,13 @@ def _construction_next(machine, record):
         None,
     )
     if pending:
-        expected = {"initialize-base": "construct.body", "initialize-derived": "super.finish"}.get(
-            pending["phase"], "construct.finish"
+        expected = (
+            "construct.body"
+            if pending["phase"] == "initialize-base"
+            and (machine.get("lastReturn") or {}).get("kind") != "throw"
+            else "super.finish"
+            if pending["phase"] == "initialize-derived"
+            else "construct.finish"
         )
         if record["kind"] != expected or record.get("id", record.get("owner")) != pending["id"]:
             _fail("pending constructor continuation requires " + expected)
@@ -411,10 +416,9 @@ def _apply_continuation(machine, record):
             if record["receiver"][0] != "ref":
                 _fail("base constructor requires fresh receiver")
             rid = record["receiver"][1]
-            if rid in machine["heap"] or any(
-                row["id"] == rid for row in machine["protocol"]["symbols"]
-            ):
-                _fail("receiver identity collision")
+            from .protocol_v8 import _assert_fresh_heap_identity
+
+            _assert_fresh_heap_identity(machine, rid)
             prototype = _desc(_node(machine, record["newTarget"][1]), "prototype")
             if prototype and prototype["kind"] != "data":
                 _fail("newTarget prototype accessor unsupported")
@@ -487,8 +491,16 @@ def _apply_continuation(machine, record):
     if kind == "construct.finish":
         entry = _frame(machine, record["id"])
         returned = machine.get("lastReturn")
-        if entry["phase"] != "body" or machine["stack"][-1] != entry["parent"] or returned is None:
-            _fail("constructor body is not complete")
+        if (
+            machine["stack"][-1] != entry["parent"]
+            or returned is None
+            or not (
+                entry["phase"] == "body"
+                or entry["phase"] == "initialize-base"
+                and returned["kind"] == "throw"
+            )
+        ):
+            _fail("constructor body or abrupt base initializer is not complete")
         _known(machine, record["completion"]["value"])
         if returned["kind"] == "throw":
             expected = {"kind": "throw", "value": returned["value"]}
@@ -584,14 +596,21 @@ def _apply_continuation(machine, record):
         return
     if kind == "super.finish":
         owner = _frame(machine, record["owner"])
+        returned = machine.get("lastReturn") or {}
         if (
             owner["phase"] != "initialize-derived"
             or machine["stack"][-1] != owner["bodyInvocation"]
-            or machine.get("lastReturn", {}).get("kind") != "return"
+            or owner["activeChild"] in machine["stack"]
+            or returned.get("kind") not in ("return", "throw")
         ):
-            _fail("derived initializer has not completed normally")
-        if record["result"] != owner["receiver"] or machine.get("receiver") != owner["receiver"]:
-            _fail("derived initializer lost receiver")
+            _fail("derived initializer has not completed")
+        expected = {
+            "kind": "throw" if returned["kind"] == "throw" else "normal",
+            "value": returned["value"] if returned["kind"] == "throw" else owner["receiver"],
+        }
+        _known(machine, record["completion"]["value"])
+        if record["completion"] != expected or machine.get("receiver") != owner["receiver"]:
+            _fail("false derived initializer completion or receiver")
         owner["phase"] = "body"
         owner["activeChild"] = owner["bodyInvocation"]
 

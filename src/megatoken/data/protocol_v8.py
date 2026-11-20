@@ -299,7 +299,10 @@ def validate_protocol_record(record):
                 _fail("array length")
         elif record["length"] is not None:
             _fail("non-array length")
-        if not isinstance(record["properties"], list) or len(record["properties"]) > 4096:
+        if (
+            not isinstance(record["properties"], list)
+            or len(record["properties"]) + (record["objectKind"] == "array") > 4096
+        ):
             _fail("allocation properties")
         for item in record["properties"]:
             _exact(item, {"key", "value"}, "property")
@@ -1425,6 +1428,8 @@ def validate_protocol_state(snapshot, heap_ids=(), shared_state=None):
         for identity, node in heap_nodes.items():
             if not isinstance(node, dict):
                 continue
+            if len(set(node.get("properties", {})) | set(node.get("descriptors", {}))) > 4096:
+                _fail("own property bound")
             for key, value in node.get("properties", {}).items():
                 if isinstance(key, tuple):
                     _symbol(known_machine, key[1])
