@@ -253,3 +253,15 @@ class GeneratorBoundaryTests(unittest.TestCase):
                 shared = _external_machine(broken)
                 with self.assertRaises(ProtocolV8Error):
                     validate_protocol_state(shared["protocol"], shared["heap"], shared)
+
+    def test_generator_prototype_may_become_nonwritable_and_bad_resume_kind_is_protocol_error(self):
+        state, _ = self.prefix("normal-sent-value-and-completion", 5)
+        state["heap"]["fn"]["descriptors"]["prototype"]["writable"] = False
+        shared = _external_machine(state)
+        self.assertTrue(validate_protocol_state(shared["protocol"], shared["heap"], shared))
+
+        broken = copy.deepcopy(state)
+        broken["heap"]["it"]["resume"]["kind"] = []
+        shared = _external_machine(broken)
+        with self.assertRaises(ProtocolV8Error):
+            validate_protocol_state(shared["protocol"], shared["heap"], shared)

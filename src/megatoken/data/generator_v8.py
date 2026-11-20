@@ -947,7 +947,6 @@ def validate_state(machine):
             if (
                 not descriptor
                 or descriptor["kind"] != "data"
-                or not descriptor["writable"]
                 or descriptor["enumerable"]
                 or descriptor["configurable"]
             ):
@@ -1047,6 +1046,7 @@ def validate_state(machine):
             p._exact(resume, {"kind", "from", "value"}, "generator resume")
             if (
                 node["phase"] != "executing"
+                or not isinstance(resume["kind"], str)
                 or resume["kind"] not in METHODS
                 or resume["from"] not in ("suspendedStart", "suspendedYield")
             ):
