@@ -121,3 +121,73 @@ class GeneratorBoundaryTests(unittest.TestCase):
                 shared = _external_machine(state)
                 with self.assertRaisesRegex(ProtocolV8Error, "saved delegate completion"):
                     validate_protocol_state(shared["protocol"], shared["heap"], shared)
+
+    def test_restore_rejects_fabricated_frame_resume_and_handler_state(self):
+        state, _ = self.prefix("normal-sent-value-and-completion", 7)
+        mutations = {
+            "unknown field": lambda node: node.update(pc=42),
+            "unknown invocation": lambda node: node.update(invocation="invented"),
+            "unknown saved argument": lambda node: node.update(arguments=[["ref", "missing"]]),
+            "unknown receiver": lambda node: node.update(receiver=["ref", "missing"]),
+            "resume outside active frame": lambda node: node.update(
+                resume={"kind": "next", "from": "suspendedYield", "value": ["num", 3]}
+            ),
+            "pending completion while suspended": lambda node: node.update(
+                pending={"kind": "return", "value": ["num", 3]}
+            ),
+            "fake handler capability": lambda node: node.update(
+                handlers=[
+                    {
+                        "name": "h",
+                        "catch": 1,
+                        "finally": False,
+                        "phase": "try",
+                        "caught": None,
+                        "pending": None,
+                    }
+                ]
+            ),
+            "primitive prototype": lambda node: node.update(prototype=["num", 3]),
+        }
+        for label, mutate in mutations.items():
+            with self.subTest(label=label):
+                broken = copy.deepcopy(state)
+                mutate(broken["heap"]["it"])
+                shared = _external_machine(broken)
+                with self.assertRaises(ProtocolV8Error):
+                    validate_protocol_state(shared["protocol"], shared["heap"], shared)
+
+    def test_restore_rejects_changed_initial_next_input_and_cleanup_obligations(self):
+        state, _ = self.prefix("normal-sent-value-and-completion", 5)
+        state["heap"]["it"]["resume"]["value"] = ["num", 99]
+        shared = _external_machine(state)
+        with self.assertRaisesRegex(ProtocolV8Error, "initial next input"):
+            validate_protocol_state(shared["protocol"], shared["heap"], shared)
+        state, _ = self.prefix("cleanup-retains-return-across-yield", 11)
+        mutations = (
+            lambda handler: handler.update(pending={"kind": "normal", "value": ["num", 3]}),
+            lambda handler: handler.update(caught=["num", 7]),
+            lambda handler: handler.update(phase="try"),
+        )
+        for mutate in mutations:
+            broken = copy.deepcopy(state)
+            mutate(broken["heap"]["it"]["handlers"][0])
+            shared = _external_machine(broken)
+            with self.assertRaises(ProtocolV8Error):
+                validate_protocol_state(shared["protocol"], shared["heap"], shared)
+
+    def test_restore_requires_exact_delegate_phase_and_known_request(self):
+        state, _ = self.prefix("delegate-array-preserves-result-identity", 12)
+        for change in (
+            {"iterator": ["ref", "it"]},
+            {"request": {"kind": "next", "value": ["ref", "missing"]}},
+            {"request": {"kind": "next", "value": ["num", 3], "extra": True}},
+            {"phase": "ready"},
+            {"result": None},
+        ):
+            with self.subTest(change=change):
+                broken = copy.deepcopy(state)
+                broken["heap"]["it"]["delegation"].update(change)
+                shared = _external_machine(broken)
+                with self.assertRaises(ProtocolV8Error):
+                    validate_protocol_state(shared["protocol"], shared["heap"], shared)

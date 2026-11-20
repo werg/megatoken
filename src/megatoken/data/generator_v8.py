@@ -922,19 +922,65 @@ def assert_next(machine, record):
 
 
 def validate_state(machine):
+    p = _protocol()
+
+    def completion(value, *, normal=False):
+        p._exact(value, {"kind", "value"}, "generator saved completion")
+        if value["kind"] not in (("normal", "return", "throw") if normal else ("return", "throw")):
+            _fail("saved completion kind")
+        _value(machine, value["value"])
+        if value["kind"] == "normal" and value["value"] != ["undefined"]:
+            _fail("normal saved completion value")
+
     count = 0
     invocations = set()
-    for _identity, node in machine.get("heap", {}).items():
-        if node.get("generatorFunction") is True:
+    for identity, node in machine.get("heap", {}).items():
+        if "generatorFunction" in node:
             if (
                 node.get("kind") != "closure"
+                or node["generatorFunction"] is not True
                 or node.get("functionKind") != "ordinary"
-                or node.get("prototype") != "GeneratorFunction.prototype"
+                or node.get("callable") is not None
             ):
                 _fail("generator function capability")
+            descriptor = _descriptor(node, ["str", "prototype"])
+            if (
+                not descriptor
+                or descriptor["kind"] != "data"
+                or not descriptor["writable"]
+                or descriptor["enumerable"]
+                or descriptor["configurable"]
+            ):
+                _fail("generator function prototype descriptor")
         if node.get("kind") != "generator":
             continue
         count += 1
+        p._exact(
+            node,
+            {
+                "kind",
+                "callee",
+                "invocation",
+                "receiver",
+                "arguments",
+                "phase",
+                "resume",
+                "pending",
+                "yielded",
+                "handlers",
+                "delegation",
+                "prototype",
+                "properties",
+            }
+            | (set(node) & {"descriptors", "keyOrder", "extensible"}),
+            "generator heap node",
+        )
+        _id(node["invocation"])
+        _value(machine, node["receiver"])
+        if type(node["arguments"]) is not list or len(node["arguments"]) > BOUND:
+            _fail("saved arguments")
+        for value in node["arguments"]:
+            _value(machine, value)
         if (
             node.get("phase")
             not in ("initializing", "suspendedStart", "executing", "suspendedYield", "completed")
@@ -942,6 +988,7 @@ def validate_state(machine):
             or not 0 <= node["yielded"] <= BOUND
             or type(node.get("handlers")) is not list
             or len(node["handlers"]) > 64
+            or type(node["properties"]) is not dict
         ):
             _fail("generator restored state")
         if node.get("invocation") in invocations:
@@ -952,9 +999,24 @@ def validate_state(machine):
             or machine["heap"].get(node["callee"][1], {}).get("generatorFunction") is not True
         ):
             _fail("generator retained callable")
+        if (
+            machine.get("frameFunctions", {}).get(node["invocation"])
+            != machine["heap"][node["callee"][1]]["code"]
+        ):
+            _fail("generator retained invocation")
+        handler_names = set()
         for handler in node["handlers"]:
+            p._exact(
+                handler,
+                {"name", "catch", "finally", "phase", "caught", "pending"},
+                "generator handler",
+            )
+            _id(handler["name"])
             if (
-                set(handler) != {"name", "catch", "finally", "phase", "caught", "pending"}
+                handler["name"] in handler_names
+                or type(handler["catch"]) is not bool
+                or type(handler["finally"]) is not bool
+                or not (handler["catch"] or handler["finally"])
                 or handler["phase"] not in ("try", "catch", "finally")
                 or handler["phase"] == "catch"
                 and not handler["catch"]
@@ -962,11 +1024,53 @@ def validate_state(machine):
                 and (not handler["finally"] or handler["pending"] is None)
             ):
                 _fail("generator handler state")
+            handler_names.add(handler["name"])
+            if handler["caught"] is not None:
+                _value(machine, handler["caught"])
+                if handler["phase"] != "catch":
+                    _fail("caught value outside catch")
+            if handler["pending"] is not None:
+                completion(handler["pending"], normal=True)
+                if handler["phase"] != "finally":
+                    _fail("pending completion outside cleanup")
+        if node["pending"] is not None:
+            completion(node["pending"])
+            if (
+                node["phase"] != "executing"
+                or node["handlers"]
+                or node["resume"] is not None
+                or node["delegation"] is not None
+            ):
+                _fail("terminal completion state")
+        if node["resume"] is not None:
+            resume = node["resume"]
+            p._exact(resume, {"kind", "from", "value"}, "generator resume")
+            if (
+                node["phase"] != "executing"
+                or resume["kind"] not in METHODS
+                or resume["from"] not in ("suspendedStart", "suspendedYield")
+            ):
+                _fail("generator resume state")
+            _value(machine, resume["value"])
+            if (
+                resume["kind"] == "next"
+                and resume["from"] == "suspendedStart"
+                and resume["value"] != ["undefined"]
+            ):
+                _fail("initial next input was not ignored")
         delegation = node.get("delegation")
         if delegation is not None:
+            p._exact(
+                delegation,
+                {"iterator", "next", "request", "phase", "result"},
+                "generator delegation",
+            )
+            _value(machine, delegation["iterator"])
+            p._exact(delegation["request"], {"kind", "value"}, "generator delegate request")
+            _value(machine, delegation["request"]["value"])
             if (
-                set(delegation) != {"iterator", "next", "request", "phase", "result"}
-                or delegation["iterator"][0] != "ref"
+                delegation["iterator"][0] != "ref"
+                or delegation["iterator"][1] == identity
                 or delegation["next"] not in ("Iterator.next", "Generator.next")
                 or delegation["phase"] not in ("ready", "calling", "result", "complete", "yielded")
                 or delegation["request"].get("kind") not in METHODS
@@ -979,6 +1083,27 @@ def validate_state(machine):
                 "Iterator.next" if target["kind"] == "iterator" else "Generator.next"
             ):
                 _fail("cached delegate method")
+            phase = delegation["phase"]
+            if phase == "ready" and (
+                delegation["result"] is not None or node["resume"] is not None
+            ):
+                _fail("delegate request state")
+            if (
+                phase == "calling"
+                and target["kind"] == "generator"
+                and delegation["result"] is not None
+            ):
+                _fail("delegate cannot predeclare its call result")
+            if phase == "yielded":
+                if not (
+                    node["phase"] == "suspendedYield"
+                    and node["resume"] is None
+                    or node["phase"] == "executing"
+                    and (node["resume"] or {}).get("from") == "suspendedYield"
+                ):
+                    _fail("suspended delegate state")
+            elif node["phase"] != "executing" or node["resume"] is not None:
+                _fail("active delegate state")
             if delegation["result"] is not None:
                 if delegation["phase"] == "yielded":
                     # The result is already published to the caller. Its consumed
@@ -992,9 +1117,22 @@ def validate_state(machine):
                         delegation["phase"] == "complete"
                     ):
                         _fail("saved delegate completion")
+            elif phase not in ("ready", "calling"):
+                _fail("delegate lacks its result identity")
+        if node["phase"] in ("suspendedStart", "completed") and node["handlers"]:
+            _fail("inactive generator has entered handler obligations")
         active = node["invocation"] in machine.get("stack", [])
         if active != (node["phase"] in ("initializing", "executing")):
             _fail("generator stack/phase mismatch")
+        prototype = node["prototype"]
+        if (
+            prototype is not None
+            and prototype != "ordinary"
+            and not (isinstance(prototype, str) and prototype in INTRINSICS)
+        ):
+            _value(machine, prototype)
+            if prototype[0] != "ref":
+                _fail("generator prototype identity")
     if count > BOUND:
         _fail("generator allocation bound")
     return True
