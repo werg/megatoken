@@ -302,6 +302,84 @@ class NativeServingV8Tests(unittest.TestCase):
                     self.request(adapter)
         self.assertTrue(self.acknowledge(adapter, result)["committed"])
 
+    def test_acknowledged_host_suffix_cannot_be_dropped_and_is_ingested_once(self):
+        from megatoken.controls import canonical_semantic_observation
+        from megatoken.data.algorithm_v7 import stable_algorithm_hash
+        from megatoken.data.native_v8 import _replay_shared_state
+        from megatoken.data.schema import make_records
+
+        adapter, runtime = self.setup_adapter([(self.target(0), True), (self.target(1), True)])
+        selected = self.request(adapter)
+        public, contexts, context = prefix(self.example, 0)
+        public["timeline"].append(
+            copy.deepcopy(self.example["public"]["timeline"][context["visibleThrough"]])
+        )
+        publication = copy.deepcopy(public["timeline"][0])
+        publication["sequence"] = len(public["timeline"]) + 1
+        publication["fields"]["programId"] = "other-program"
+        public["timeline"].append(publication)
+        identity = selected["selection"]["session"]
+        contexts.append(context)
+        acknowledgement = adapter.commit(
+            session=identity,
+            public=public,
+            contexts=contexts,
+            invocationId=context["invocationId"],
+            record=selected["record"],
+            selection=selected["selection"],
+        )
+        self.assertEqual(acknowledgement["publicDigest"], stable_algorithm_hash(public))
+        observed = len(runtime.observations)
+        with self.assertRaisesRegex(ValueError, "rewrites acknowledged native history"):
+            self.request(adapter, 1)
+        self.assertEqual(len(runtime.observations), observed)
+        self.assertEqual(len(runtime.controls), 1)
+
+        # The acknowledged observation is valid, but is not neural input until
+        # the next independently reconstructed public prediction boundary.
+        following = copy.deepcopy(self.example["contexts"][1])
+        following.update(
+            _replay_shared_state(
+                public["timeline"],
+                contexts,
+                {},
+                roundtrip=False,
+                boundary_invocation=context["invocationId"],
+            ),
+            visibleThrough=len(public["timeline"]),
+            prefixDigest=stable_algorithm_hash(public["timeline"]),
+        )
+        final = adapter.select(
+            session=identity, public=public, contexts=contexts, context=following
+        )
+        terminal = copy.deepcopy(self.example["public"]["timeline"][-1])
+        terminal["sequence"] = len(public["timeline"]) + 1
+        public["timeline"].append(terminal)
+        contexts.append(following)
+        adapter.commit(
+            session=identity,
+            public=public,
+            contexts=contexts,
+            invocationId=context["invocationId"],
+            record=final["record"],
+            selection=final["selection"],
+        )
+        adapter.complete(
+            session=identity, public=public, contexts=contexts, invocationId=context["invocationId"]
+        )
+        chunks = make_records(
+            canonical_semantic_observation(publication),
+            logical_id=f"semantic:v8:observation:{publication['sequence']}",
+            role="user",
+            codec=runtime.codec,
+            max_tokens=256,
+            content_kind="text",
+        )
+        for chunk in chunks:
+            self.assertEqual(
+                sum(row.event_id == chunk.record_id for row in runtime.observations), 1
+            )
+
     def test_completion_requires_terminal_acknowledgement_and_explicit_session_close(self):
         adapter, _ = self.setup_adapter([(self.target(0), True), (self.target(1), True)])
         first = self.request(adapter)
@@ -317,15 +395,27 @@ class NativeServingV8Tests(unittest.TestCase):
             )
         final = self.request(adapter, 1)
         self.acknowledge(adapter, final, 1)
+        completed_public = copy.deepcopy(self.example["public"])
+        publication = copy.deepcopy(completed_public["timeline"][0])
+        publication["sequence"] = len(completed_public["timeline"]) + 1
+        publication["fields"]["programId"] = "completion-program"
+        completed_public["timeline"].append(publication)
         completed = adapter.complete(
             session=identity,
-            public=self.example["public"],
+            public=completed_public,
             contexts=self.example["contexts"],
             invocationId=final["selection"]["invocationId"],
             completion={"kind": "return"},
         )
         self.assertTrue(completed["completed"])
         self.assertTrue(completed["sessionRetained"])
+        with self.assertRaisesRegex(ValueError, "completion rewrites acknowledged"):
+            adapter.complete(
+                session=identity,
+                public=self.example["public"],
+                contexts=self.example["contexts"],
+                invocationId=final["selection"]["invocationId"],
+            )
         self.assertEqual(adapter.metrics()["activeSessions"], 1)
         adapter.cancel(session=identity, reason="completed")
         self.assertEqual(adapter.metrics()["activeSessions"], 0)
