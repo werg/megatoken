@@ -193,6 +193,45 @@ class NativeServingV8Tests(unittest.TestCase):
         self.acknowledge(adapter, self.request(adapter))
         self.assertEqual(adapter.metrics()["committed"], 1)
 
+    def test_continuation_requires_visible_context_and_every_earlier_fragment(self):
+        target = self.target()
+        for missing in ("context", "fragment"):
+            with self.subTest(missing=missing):
+                adapter, runtime = self.setup_adapter([(target[:20], False), (target[20:], True)])
+                original_status = runtime.context_status
+
+                def context_status(
+                    session,
+                    *,
+                    runtime=runtime,
+                    original_status=original_status,
+                    missing=missing,
+                    **kwargs,
+                ):
+                    status = original_status(session, **kwargs)
+                    if runtime.controls:
+                        event = (
+                            next(
+                                row.event_id
+                                for row in runtime.observations
+                                if row.role_id == ROLE_TO_ID["system"]
+                            )
+                            if missing == "context"
+                            else "v8:0:fragment:0"
+                        )
+                        status["visible_events"].remove(event)
+                    return status
+
+                runtime.context_status = context_status
+                with self.assertRaisesRegex(NativeSelectionV8Error, "no longer visible") as error:
+                    self.request(adapter)
+                self.assertEqual(len(runtime.controls), 1)
+                self.assertEqual(len(error.exception.evidence["fragments"]), 1)
+                self.assertEqual(error.exception.evidence["payloadHex"], target[:20].hex())
+                identity = error.exception.evidence["session"]
+                self.assertEqual(adapter.sessions[identity].runtime.state, 0)
+                self.assertIsNone(adapter.sessions[identity].pending)
+
     def test_observed_native_inputs_match_training_preparation(self):
         adapter, runtime = self.setup_adapter([(self.target(), True)])
         self.request(adapter)
