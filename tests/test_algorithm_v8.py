@@ -266,24 +266,29 @@ class AlgorithmV8Tests(unittest.TestCase):
         term = {
             "op": "let",
             "bindings": [
-                {"id": "outer", "value": lit(["num", 7])},
-                {"id": "inner", "value": operation("add", bound(0), lit(["num", 1]))},
+                lit(["num", 7]),
+                operation("add", bound(0), lit(["num", 1])),
             ],
             "body": {
                 "op": "let",
-                "bindings": [{"id": "nested", "value": operation("multiply", bound(0), bound(1))}],
+                "bindings": [operation("multiply", bound(0, 1), bound(1, 1))],
                 "body": operation("add", bound(0), bound(1, 1)),
             },
         }
-        term["body"]["bindings"][0]["value"] = operation("multiply", bound(0, 1), bound(1, 1))
         self.assertEqual(evaluate_term(term)[0], ["num", 64])
+        for bindings in ([bound(0)], [bound(1), lit(["num", 1])]):
+            with (
+                self.subTest(bindings=bindings),
+                self.assertRaisesRegex(AlgorithmV8Error, "bound reference"),
+            ):
+                evaluate_term({"op": "let", "bindings": bindings, "body": bound(0)})
         with self.assertRaises(AlgorithmV8Error):
             evaluate_term(
-                {"op": "let", "bindings": [{"id": "x", "value": bound(0)}], "body": bound(0)}
+                {"op": "let", "bindings": [{"id": "x", "value": lit(["num", 1])}], "body": bound(0)}
             )
         capture = {
             "op": "let",
-            "bindings": [{"id": "captured", "value": lit(["num", 10])}],
+            "bindings": [lit(["num", 10])],
             "body": traversal(
                 "map", operation("add", bound(0), bound(0, 1)), None, {"op": "input", "id": "a0"}
             ),
@@ -294,6 +299,20 @@ class AlgorithmV8Tests(unittest.TestCase):
         self.assertEqual(
             [heap[result[1]]["properties"][str(i)] for i in range(2)], [["num", 11], ["num", 12]]
         )
+
+    def test_supplied_lexical_scopes_are_nearest_first_and_keep_committed_references(self):
+        scopes = [[["num", 2]], [["num", 9], ["ref", "xs"]]]
+        heap = array_heap([["num", 4]], "xs")
+        self.assertEqual(
+            evaluate_term(operation("subtract", bound(0, 1), bound(0)), scopes=scopes, heap=heap)[
+                0
+            ],
+            ["num", 7],
+        )
+        term = {"op": "let", "bindings": [bound(1, 2)], "body": bound(0)}
+        self.assertEqual(evaluate_term(term, scopes=scopes, heap=heap)[0], ["ref", "xs"])
+        with self.assertRaises(ValueError):
+            evaluate_term(bound(1, 1), scopes=scopes)
 
     def test_number_specials_rounding_and_multi_object_allocation_aliases(self):
         rounded = operation("add", lit(["num", 1e16]), lit(["num", 1]))
@@ -317,7 +336,7 @@ class AlgorithmV8Tests(unittest.TestCase):
         }
         term = {
             "op": "let",
-            "bindings": [{"id": "shared", "value": {"op": "array", "items": [lit(["num", 5])]}}],
+            "bindings": [{"op": "array", "items": [lit(["num", 5])]}],
             "body": obj,
         }
         value, heap, _ = evaluate_term(term)

@@ -107,14 +107,8 @@ def validate_term(term: Any, *, scopes=(), inputs=None, values=None, budget=None
             binds = t["bindings"]
             if type(binds) is not list or not binds or len(binds) > 128:
                 _fail("let bindings")
-            prior = 0
-            for i, b in enumerate(binds):
-                _exact(b, ("id", "value"))
-                v7._identity(b["id"])
-                if sum(1 for x in binds[:i] if x["id"] == b["id"]):
-                    _fail("duplicate binding")
-                visit(b["value"], depth + 1, (prior, *lexical))
-                prior += 1
+            for index, binding in enumerate(binds):
+                visit(binding, depth + 1, (index, *lexical))
             visit(t["body"], depth + 1, (len(binds), *lexical))
         elif op == "traverse":
             _exact(t, ("op", "mode", "input", "initial", "callback", "profile", "order"))
@@ -266,7 +260,14 @@ def evaluate_term(
         or not 0 <= budget["remaining"] <= 32768
     ):
         _fail("semantic work budget")
-    validate_term(term, scopes=scopes)
+    if type(scopes) not in (list, tuple):
+        _fail("lexical scopes")
+    for scope in scopes:
+        if type(scope) not in (list, tuple):
+            _fail("lexical values")
+        for value in scope:
+            v7._validate_value(value)
+    validate_term(term, scopes=tuple(len(scope) for scope in scopes))
 
     def committed(value):
         v7._validate_value(value)
@@ -299,7 +300,7 @@ def evaluate_term(
                 _fail("uncommitted dependency")
             return committed(v)
         if op == "bound":
-            return env_scopes[-1 - t["depth"]][t["index"]].copy()
+            return committed(env_scopes[t["depth"]][t["index"]])
         if op in ("project", "get"):
             obj = visit(t["object"], env_inputs, env_values, env_scopes)
             key = (
@@ -355,9 +356,10 @@ def evaluate_term(
             )
         if op == "let":
             scope = []
-            for b in t["bindings"]:
-                scope.append(visit(b["value"], env_inputs, env_values, (*env_scopes, scope)))
-            return visit(t["body"], env_inputs, env_values, (*env_scopes, scope))
+            nested = (scope, *env_scopes)
+            for binding in t["bindings"]:
+                scope.append(visit(binding, env_inputs, env_values, nested))
+            return visit(t["body"], env_inputs, env_values, nested)
         if op == "array":
             return alloc(
                 "array",
@@ -399,7 +401,7 @@ def evaluate_term(
                 budget["remaining"] -= 1
                 if budget["remaining"] < 0:
                     _fail("semantic work budget")
-                result = visit(cb["body"], env_inputs, env_values, (*env_scopes, argv))
+                result = visit(cb["body"], env_inputs, env_values, (argv, *env_scopes))
                 if mode == "fold":
                     acc = result
                 elif mode == "scan":
