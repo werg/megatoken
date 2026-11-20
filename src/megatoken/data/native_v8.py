@@ -658,6 +658,7 @@ def _replay_shared_state(timeline, contexts, programs_from_context, *, roundtrip
     common_state = None
     active_invocation = None
     completion_policy = "call-return"
+    completion_policies = {}
     functions = []
     callback_invocations = set()
     for prior in timeline:
@@ -697,11 +698,22 @@ def _replay_shared_state(timeline, contexts, programs_from_context, *, roundtrip
                 if owner and owner not in suspended:
                     suspended[owner] = copy.deepcopy(state)
                 base = state if state is not None else common_state
+                function = next(
+                    (
+                        fn
+                        for fn in functions
+                        if fn.get("name") == fields.get("entry")
+                        or "function:" + str(fn.get("start")) == fields.get("entry")
+                    ),
+                    None,
+                )
+                callback_bindings = _invocation_bindings(function or {}, fields)
                 callback_invocation = copy.deepcopy(fields)
                 callback_invocation["inputGraph"]["roots"] = []
-                callback_state = _initial_state(
-                    program, callback_invocation, functions, random_seed
-                )
+                callback_invocation["bindings"] = {}
+                # Retained callback cells are allocated below, once, against
+                # the original observed arguments and the retained cell set.
+                callback_state = _initial_state(program, callback_invocation, (), random_seed)
                 callback_state["heap"] = copy.deepcopy(base["heap"])
                 callback_state["locals"] = copy.deepcopy(base["locals"])
                 callback_state["scheduler"] = copy.deepcopy(base["scheduler"])
@@ -733,19 +745,10 @@ def _replay_shared_state(timeline, contexts, programs_from_context, *, roundtrip
                 callback_state["captureAliases"] = [
                     [capture["binding"], capture["cell"]] for capture in closure.get("captures", [])
                 ]
-                function = next(
-                    (
-                        fn
-                        for fn in functions
-                        if fn.get("name") == fields.get("entry")
-                        or "function:" + str(fn.get("start")) == fields.get("entry")
-                    ),
-                    None,
-                )
                 # Callback invocation identifiers end in their deterministic event ordinal.
                 suffix = "".join(c for c in fields["invocationId"] if c.isdigit()) or "0"
                 ordinal = 0
-                for name, value in _invocation_bindings(function or {}, fields).items():
+                for name, value in callback_bindings.items():
                     cell = f"a{suffix}b{ordinal}"
                     while cell in dict(callback_state["locals"]):
                         ordinal += 1
@@ -760,6 +763,7 @@ def _replay_shared_state(timeline, contexts, programs_from_context, *, roundtrip
                 _fail("Unsupported invocation activation in v8 shared replay")
             active_invocation = fields["invocationId"]
             completion_policy = fields.get("completionPolicy", "call-return")
+            completion_policies[active_invocation] = completion_policy
             if fields.get("activation") == "callback":
                 callback_invocations.add(active_invocation)
                 common_state = copy.deepcopy(state)
@@ -770,6 +774,7 @@ def _replay_shared_state(timeline, contexts, programs_from_context, *, roundtrip
             if parsed_kind == "resume" and parsed_fields["invocation"] in suspended:
                 state = copy.deepcopy(suspended[parsed_fields["invocation"]])
                 active_invocation = parsed_fields["invocation"]
+                completion_policy = completion_policies[active_invocation]
                 if common_state is not None:
                     _merge_callback_state(state, common_state)
         if state is None and kind in ("handler", "handler-close", "event"):
