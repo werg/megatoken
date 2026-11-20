@@ -229,7 +229,7 @@ def apply_record(machine, record):
         if returned["kind"] == "return":
             if row["operation"] == "set":
                 _require(
-                    scalar._truthy(returned["value"]),
+                    returned["value"][0] == "symbol" or scalar._truthy(returned["value"]),
                     "false Proxy set trap needs abrupt completion",
                 )
             target = p._node(machine, node["target"][1])
@@ -341,6 +341,7 @@ def validate_state(machine):
         "state schema or bound",
     )
     seen = set()
+    prior_depth = -1
     for row in state["pending"]:
         _protocol()._exact(row, CALL_FIELDS, "Proxy pending call")
         for name in ("id", "parent", "child", "object"):
@@ -378,10 +379,12 @@ def validate_state(machine):
         )
         _require(machine["locals"].get(row["child"] + ":this") == receiver, "callback receiver")
         if row["child"] in machine["stack"]:
+            depth = machine["stack"].index(row["child"])
             _require(
-                machine["stack"].index(row["child"]) == machine["stack"].index(row["parent"]) + 1,
-                "callback stack",
+                depth == machine["stack"].index(row["parent"]) + 1 and depth > prior_depth,
+                "callback stack order",
             )
+            prior_depth = depth
             frame = next(
                 (
                     frame

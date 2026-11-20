@@ -199,8 +199,12 @@ class ProxyV8Tests(unittest.TestCase):
             with self.assertRaises(ProtocolV8Error):
                 validate_protocol_state(forged["protocol"], forged["heap"], forged)
 
-    def test_set_trap_false_bigint_is_rejected_and_true_bigint_is_accepted(self):
-        for returned, accepted in ((["bigint", "0"], False), (["bigint", "2"], True)):
+    def test_set_trap_uses_bigint_and_symbol_truthiness(self):
+        for returned, accepted in (
+            (["bigint", "0"], False),
+            (["bigint", "2"], True),
+            (["symbol", "well-known:iterator"], True),
+        ):
             state = base_state((("setTrap", REF("setTrap")),))
             step(
                 state,
@@ -226,6 +230,35 @@ class ProxyV8Tests(unittest.TestCase):
                 with self.assertRaisesRegex(ProtocolV8Error, "abrupt completion"):
                     step(state, finish)
                 self.assertEqual(state, before)
+
+    def test_restore_rejects_reversed_nested_callback_order(self):
+        state = base_state((("getTrap", REF("getTrap")),))
+        for identity in ("outer", "inner"):
+            step(
+                state,
+                {
+                    "kind": "proxy.get.call",
+                    "id": identity,
+                    "object": "proxy",
+                    "key": KEY,
+                    "child": identity + "Trap",
+                },
+            )
+        self.assertTrue(validate_protocol_state(state["protocol"], state["heap"], state))
+        forged = copy.deepcopy(state)
+        forged["protocol"]["proxyCalls"]["pending"].reverse()
+        with self.assertRaisesRegex(ProtocolV8Error, "stack order"):
+            validate_protocol_state(forged["protocol"], forged["heap"], forged)
+        step(state, {"kind": "return", "invocation": "innerTrap", "value": ["num", 3]})
+        step(
+            state,
+            {
+                "kind": "proxy.finish",
+                "id": "inner",
+                "completion": {"kind": "normal", "value": ["num", 3]},
+            },
+        )
+        self.assertTrue(validate_protocol_state(state["protocol"], state["heap"], state))
 
     def test_restore_checks_symbol_keys_and_creation_reserves_symbol_identity(self):
         state = base_state()
