@@ -168,7 +168,11 @@ def main():
             if profile == "symbols-ordinary-properties/1":
                 if extensions not in (None, []) or source_extensions not in (None, []):
                     raise ValueError("Base protocol source evidence cannot claim extensions")
-            elif profile == "protocol-source-extensions/1":
+            elif profile in (
+                "protocol-source-extensions/1",
+                "promise-joins-source/1",
+                "promise-executors-source/1",
+            ):
                 supported = {
                     "owned-binary-memory/1",
                     "builtin-iterator/1",
@@ -191,6 +195,13 @@ def main():
                     raise ValueError(
                         "V8 protocol source evidence has unsupported or mismatched extensions"
                     )
+                if profile == "promise-joins-source/1" and extensions != ["promise-join/1"]:
+                    raise ValueError("V8 Promise join source evidence has an invalid inventory")
+                if profile == "promise-executors-source/1" and extensions not in (
+                    ["promise-executor/1"],
+                    ["promise-executor/1", "promise-join/1"],
+                ):
+                    raise ValueError("V8 Promise executor source evidence has an invalid inventory")
             else:
                 raise ValueError("V8 protocol source evidence has an unsupported protocol profile")
         source_verification = recheck_source_binding(

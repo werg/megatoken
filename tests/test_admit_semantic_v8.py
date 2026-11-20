@@ -193,6 +193,45 @@ class NativeV8AdmissionTests(unittest.TestCase):
         self.assertEqual(receipt["checks"]["sourceBinding"], "untested")
         self.assertFalse(receipt["admitted"])
 
+    def test_specialized_promise_profiles_require_their_exact_inventory_and_live_source(self):
+        for profile, extensions in (
+            ("promise-joins-source/1", ["promise-join/1"]),
+            ("promise-executors-source/1", ["promise-executor/1"]),
+            ("promise-executors-source/1", ["promise-executor/1", "promise-join/1"]),
+        ):
+            with self.subTest(profile=profile, extensions=extensions):
+                document = self.source_document(protocol=True)
+                sidecar = document["sidecar"]
+                sidecar.update(protocolProfile=profile, protocolExtensions=extensions)
+                source = sidecar["sourceArtifact"]
+                source["sidecar"]["compiler"]["extensions"] = extensions
+                sidecar["sourceArtifactDigest"] = stable_algorithm_hash(source)
+                receipt = self.run_cli(document)
+                self.assertEqual(receipt["protocolExtensions"], extensions)
+                self.assertEqual(receipt["checks"]["sourceBinding"], "untested")
+                self.assertFalse(receipt["admitted"])
+
+                source["sidecar"]["compiler"]["extensions"] = []
+                sidecar["sourceArtifactDigest"] = stable_algorithm_hash(source)
+                with self.assertRaisesRegex(ValueError, "mismatched extensions"):
+                    self.run_cli(document)
+
+        for profile, extensions in (
+            ("promise-joins-source/1", ["promise-executor/1"]),
+            ("promise-joins-source/1", ["promise-join/1", "owned-binary-memory/1"]),
+            ("promise-executors-source/1", ["promise-join/1"]),
+            ("promise-executors-source/1", ["promise-join/1", "promise-executor/1"]),
+        ):
+            with self.subTest(profile=profile, invalid_extensions=extensions):
+                document = self.source_document(protocol=True)
+                sidecar = document["sidecar"]
+                sidecar.update(protocolProfile=profile, protocolExtensions=extensions)
+                source = sidecar["sourceArtifact"]
+                source["sidecar"]["compiler"]["extensions"] = extensions
+                sidecar["sourceArtifactDigest"] = stable_algorithm_hash(source)
+                with self.assertRaisesRegex(ValueError, "invalid inventory"):
+                    self.run_cli(document)
+
     def test_live_producer_rejects_internally_consistent_but_false_source_evidence(self):
         producer_root = os.environ.get("MEGATOKEN_NATIVE_SOURCE_PRODUCER")
         if not producer_root:
