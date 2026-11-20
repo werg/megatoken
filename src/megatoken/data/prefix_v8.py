@@ -6,24 +6,13 @@ import copy
 
 from megatoken.controls import canonical_semantic_observation
 
-from .algorithm_v7 import stable_algorithm_hash
 from .native_v8 import NativeV8Error, _replay_shared_state, validate_v8_artifact
-from .semantic_contract import validate_envelope_record
+from .observations_v8 import OBSERVATIONS, validate_observation_v8
 from .semantic_contract_v8 import DEFINITION, validate_public
+from .semantic_json import stable_algorithm_hash
 
 MAX_PREFIX_BYTES = 32 << 20
 MAX_PREFIX_RECORDS = 16384
-_OBSERVED = {
-    "program",
-    "invocation",
-    "dispatch",
-    "result",
-    "handler",
-    "handler-close",
-    "event",
-    "source-read",
-    "source-evict",
-}
 
 
 def validate_v8_committed_prefix(public, contexts):
@@ -36,22 +25,13 @@ def validate_v8_committed_prefix(public, contexts):
     sessions = set()
     programs = {}
     invocations = set()
-    owner_sequence = 1
     for row in timeline:
         fields = row["fields"]
         sessions.add(fields.get("session"))
         if row["mode"] == "observed":
-            if row["kind"] not in _OBSERVED:
+            if row["kind"] not in OBSERVATIONS:
                 raise NativeV8Error("V8 prediction contains an unsupported observation")
-            legacy = {key: value for key, value in fields.items() if key != "regionProgram"}
-            legacy.update(
-                schema="semantic-execution/6",
-                sequence=row["sequence"],
-                ownerSequence=owner_sequence,
-                kind=row["kind"],
-                mode="observed",
-            )
-            validate_envelope_record(legacy)
+            validate_observation_v8(row)
         elif set(fields) != {"session", "track", "invocationId", "line"} | (
             {"entry"} if row["kind"] in {"region", "algorithm"} else set()
         ):
@@ -72,8 +52,6 @@ def validate_v8_committed_prefix(public, contexts):
                 previous[key] != fields[key] for key in ("source", "digest")
             ):
                 raise NativeV8Error("V8 source read differs from its published source")
-        if fields.get("track") != "host":
-            owner_sequence += 1
     if len(sessions) != 1 or None in sessions:
         raise NativeV8Error("V8 prediction crosses session or invocation authority")
     # This also checks every preceding context and restored continuation.

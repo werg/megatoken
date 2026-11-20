@@ -504,7 +504,7 @@ class NativeSemanticInferenceV8:
                 raise NativeSelectionV8Error("V8 completion has no generated terminal record")
             terminal = generated[-1]
             if terminal["kind"] == "semantic":
-                from megatoken.data.detailed_v7 import parse_record
+                from megatoken.data.detailed_v8 import parse_record
 
                 ended = parse_record(terminal["fields"]["line"])[0] == "end"
             elif terminal["kind"] == "protocol":

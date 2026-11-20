@@ -21,10 +21,9 @@ from megatoken.controls import (
 
 from . import algorithm_v7 as v7
 from .algorithm_v7 import _truthy as _detail_truthy
-from .algorithm_v7 import stable_algorithm_hash
 from .algorithm_v8 import replay_algorithm_line
-from .detailed_v7 import parse_record
-from .detailed_v7 import value as validate_value
+from .detailed_v8 import parse_record
+from .detailed_v8 import value as validate_value
 from .protocol_v8 import (
     ProtocolV8Error,
     _array_index,
@@ -53,6 +52,7 @@ from .semantic_contract_v8 import (
     SemanticContractV8Error,
     validate_public,
 )
+from .semantic_json import stable_algorithm_hash
 from .semantic_physical import physical_semantic_episode
 
 _UNARY_OPERATORS = {
