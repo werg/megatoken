@@ -12,6 +12,7 @@ from pathlib import Path
 
 import torch
 
+from megatoken.io import strict_json_loads
 from megatoken.model.multitrack import MultiTrackGenerator
 from megatoken.multitrack_runtime import MultiTrackRuntime
 from megatoken.semantic_model_v8 import NativeSemanticInferenceV8
@@ -83,7 +84,7 @@ def main():
             synchronize()
             request_started = time.perf_counter()
             try:
-                request = json.loads(raw)
+                request = strict_json_loads(raw.decode("utf-8", errors="strict"))
                 result = dispatch(adapter, request)
                 reply = {"id": request["id"], "ok": True, "result": result}
             except Exception as error:
