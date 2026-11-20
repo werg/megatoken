@@ -1720,6 +1720,14 @@
           ],
           "optional": []
         },
+        "realm-close": {
+          "mode": "observed",
+          "required": [
+            "realmId",
+            "reason"
+          ],
+          "optional": []
+        },
         "dispatch": {
           "mode": "observed",
           "required": [
@@ -1816,6 +1824,7 @@
         "randomState"
       ],
       "intentRecord": "Original canonical V8 detail bytes",
+      "mixedReceipts": "Intent result sequence and owner sequence refer to the mixed public timeline and its owner track. Unjournaled native arrivals are absent from causal contexts.",
       "recovery": "Replay acknowledged lifecycle records; restored dispatched work is uncertain and is never redispatched without explicit reconciliation."
     },
     "contextFields": [
@@ -1998,6 +2007,7 @@
         ],
         "fields": [
           "schema",
+          "owner",
           "mode",
           "inputs",
           "jobs",
@@ -2020,7 +2030,7 @@
           "joinIndex",
           "readySequence"
         ],
-        "capabilities": "Ordered Promise dependencies, FIFO internal jobs, first settlement and explicit late no-op steps; fresh result arrays are named only when allocated."
+        "capabilities": "Invocation-owned Promise joins share the realm heap. A settlement publishes eligible dependencies across all retained invocations in registration order; an explicit queueMicrotask preserves enqueue order. Steps require the realm FIFO head and no competing active turn. First settlement and explicit late no-op steps preserve result identity."
       },
       "numberConversions": {
         "profile": "number-conversion/1",
@@ -2220,7 +2230,7 @@
         "dataViewByteOrder": "explicit per operation",
         "capabilities": "Fixed ordinary buffers and fixed/growable shared buffers; scalar conversions; shared view identities; bounded single-agent atomic operations. No detach, transfer, host buffers or cross-agent scheduling."
       },
-      "lifecycle": "One fresh invocation without external host work. Declared ordinary catch/finally and loop cleanup use checked transfer detail. Declared Promise joins and executors may use internal Promise, await, resume, job and transfer detail; join steps require an empty stack and the FIFO ready head. External observations remain outside protocol profiles."
+      "lifecycle": "Protocol and ordinary detail share retained invocations, heap, locals and realm scheduler. Host requests, callbacks and observed results use the same checked lifecycle. Declared catch/finally, loop cleanup and Promise scheduler detail retain their independent profile boundaries. Join steps require an empty stack, the globally next ready owner and the owning invocation."
     },
     "checkpoint": {
       "fields": [
@@ -2235,9 +2245,15 @@
         "schema": "semantic-protocol-continuation/1",
         "fields": [
           "schema",
-          "invocations"
+          "invocations",
+          "policy"
         ],
-        "meaning": "Exact shared states and activation statuses independently reconstructed from the complete public v8 history."
+        "policyFields": [
+          "maxGenerated",
+          "maxOutstanding",
+          "automaticDelivery"
+        ],
+        "meaning": "Exact shared states, activation statuses and host policy are independently reconstructed from the complete public V8 history. Pending unjournaled native ingress refuses checkpoint creation. Restore marks acknowledged outstanding work uncertain and existing subscriptions lost; only explicitly supplied services and reattachment may recover them."
       },
       "restore": "Validate public mixed replay and exact shared state. Restore existing intent/handler lifecycle without invoking adapters."
     },
@@ -2255,7 +2271,7 @@
       "default": "not promoted by engineering receipts alone"
     }
   },
-  "digest": "54d9769c22452263005bc9e6a5818ec5a1642325f91ef8d5661a45d71b56d298",
+  "digest": "15f330f8bc5038d9bccd65f6b9594e9a97b1e621a4920c042b0db403b3d244b0",
   "fixtureDigest": "56f7f36d3b25b3b11a208be3de337e637b9782e6759faea1e1ec107b0a90f0ce",
   "fixtures": [
     {
@@ -2280,7 +2296,7 @@
       "reason": "old artifacts require their original contract"
     }
   ],
-  "interoperabilityDigest": "0ec1798afb729c3c877c7f2f08311730e9f0dae9bd303b500e90198633567b76",
+  "interoperabilityDigest": "d74f0ad0e25093303d8b06e2a274d338fc026cc0134678c11282159a29472e30",
   "interoperability": [
     {
       "id": "ordered-map",
@@ -2304,13 +2320,13 @@
     },
     {
       "id": "custom-iterator-close",
-      "publicDigest": "b7f126ce1de9b0596f74502afd5f7a81883f30a73a885b97f97d14c3a02c5bca",
-      "contextDigest": "01a5ecb69f45c8500d54940d3aa413d5241669f54de98cda34fc4ba110674634"
+      "publicDigest": "076abdbae2d743436e5012c6aa63f5e2094935de58208b28c399b034497dcc67",
+      "contextDigest": "33c2dba95751985cb58e67dc17e841ae348a35ff7e075fb0a3d12907c9893f7f"
     },
     {
       "id": "iterable-binding-close",
-      "publicDigest": "379ce9087733a01ed47718cee54723bdf3804af5b77d52d10fc7cc0d8b4b78b2",
-      "contextDigest": "f47756b3e317b5fe201543a5e8faf21d5d78e255382eba4dce4a9cb675069eb3"
+      "publicDigest": "97bc56f1979c7389fa4f52cb035369d1b6ca97c4e503976581eb4324cb4d1be5",
+      "contextDigest": "9a3c3c3c75f8d647a0ef76af3f1c0f73af3d8da53706fd2584bd0e75bebb69f7"
     },
     {
       "id": "protocol-machine",
@@ -2344,13 +2360,13 @@
     },
     {
       "id": "protocol-region:source-promise-all-reaction-arithmetic",
-      "publicDigest": "d8c09083779e5151b2b0428979b29047af92b370f496a7bba46e4bada20453cd",
-      "contextDigest": "b2b197a8ff29a98d5fa66136b5709cd751fbc2db681193ee058f211a19aa569c"
+      "publicDigest": "48a0930bc7751af5c201387f1e3de46b81391e1c082168ba8a8cb8c09e1e135b",
+      "contextDigest": "9936c359dfb273daed5d734a2c1b14f028537d7fa9ff8cfccea2ab05d994d6c9"
     },
     {
       "id": "protocol-region:source-promise-join-rejection-finally",
       "publicDigest": "7d7365fa0f71e2301434f05bc1da3766e09f85588b76d12f94fc4380d5687001",
-      "contextDigest": "3fa9c55786017f220dca5a75dd6b7a53fdd28f8a592ed5ce34ffba051476cc62"
+      "contextDigest": "6ea6cf167eb2e4627338944148ee5b4c4ac27062d00cfd6887e19b19b9498816"
     },
     {
       "id": "protocol-region:source-number-private-arithmetic",
@@ -2421,6 +2437,26 @@
       "id": "protocol-region:source-for-in-own-keys",
       "publicDigest": "5a5961de79bb1d7f3ad2565dba08869aa815f6f1410fce0579cc07afa98f03b3",
       "contextDigest": "e7b05ac9f3c806862ac5894b7169290f2071b07f283ef4b61ff2d9ed8a601950"
+    },
+    {
+      "id": "protocol-host:join-host-join",
+      "publicDigest": "59abb5d8e0b7b0e7ed6af87d4369f90c5d95b61f5daa6c1c18a999dfb7b228e1",
+      "contextDigest": "01fb25de9ff998732754967cbd6a5ab06b89851d83a92e91a106506621cfd2f2"
+    },
+    {
+      "id": "protocol-host:join-retained-callback",
+      "publicDigest": "b60b3a888793d220ae03535fc8e6286ceb8c79d4112752ded36a28c2ed363401",
+      "contextDigest": "86936c8c1309273d461a256e5c3c3ad2fb5a2dcfa8cb31e1ff94e657151b539d"
+    },
+    {
+      "id": "protocol-host:callback-owned-join",
+      "publicDigest": "160e87a503e36397e15bc95cd2cda3ac87f961181df673d1734311ccb6ab0d9d",
+      "contextDigest": "a379d86ce7b0a0cc1e35980f8f40dd85da10d2a972980373b324bd6ef8db905f"
+    },
+    {
+      "id": "protocol-host:callback-owned-join-awaited",
+      "publicDigest": "7a390eba215b3bf8e0922c0e5cd54fc56403b84e142612884e6f160f4910d950",
+      "contextDigest": "e9c3836aaf1e008f19075017384614a99e9bc7b14ccb41445db9937bc8d9b640"
     }
   ]
 }

@@ -156,7 +156,7 @@ class PromiseJoinNativeTests(unittest.TestCase):
             "scheduler": {"registration": 0, "ready": 0},
             "continuations": [],
             "captureAliases": {},
-            "frameFunctions": {},
+            "frameFunctions": {"invocation": "run"},
             "completion": None,
             "activeJob": None,
         }

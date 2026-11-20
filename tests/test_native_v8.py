@@ -169,6 +169,7 @@ class NativeV8Tests(unittest.TestCase):
             "captureAliases": [],
             "effects": [],
             "stack": ["invocation1"],
+            "frameFunctions": [["invocation1", "run"]],
             "scheduler": {"ready": 0},
         }
         obligations = {"intents": [], "handlers": [], "callbacks": [], "closureQueue": []}

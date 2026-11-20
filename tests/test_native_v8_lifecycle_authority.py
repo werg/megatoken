@@ -14,6 +14,7 @@ def test_request_dispatch_and_result_replay_with_witness_v6_unavailable():
         "captureAliases": [],
         "effects": [],
         "stack": ["root"],
+        "frameFunctions": [["root", "run"]],
         "scheduler": {"ready": 0},
     }
     obligations = {"intents": [], "handlers": [], "callbacks": [], "closureQueue": []}
