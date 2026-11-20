@@ -605,6 +605,11 @@
             "id",
             "value"
           ],
+          "number.throw": [
+            "kind",
+            "id",
+            "value"
+          ],
           "number.finish": [
             "kind",
             "id",
@@ -2006,7 +2011,7 @@
       "default": "not promoted by engineering receipts alone"
     }
   },
-  "digest": "2d926a0ca0fe722452e3a37960375fed2840b9ce1b4218bf28af7e72905a01e0",
+  "digest": "ed3eb82c994823e2adf49c3bfdb463f22d7c8ed0a5184af1564015c345f0b7ab",
   "fixtureDigest": "56f7f36d3b25b3b11a208be3de337e637b9782e6759faea1e1ec107b0a90f0ce",
   "fixtures": [
     {

@@ -13,6 +13,7 @@ FIELDS = {
     "number.call": {"kind", "id", "child"},
     "number.builtin": {"kind", "id", "result"},
     "number.return": {"kind", "id", "value"},
+    "number.throw": {"kind", "id", "value"},
     "number.finish": {"kind", "id", "result"},
 }
 OPERATION_FIELDS = {
@@ -30,7 +31,7 @@ OPERATION_FIELDS = {
 PRIMITIVES = {"undefined", "null", "bool", "str", "num", "bigint", "symbol"}
 NUMERIC = PRIMITIVES - {"symbol"}
 BUILTINS = {None, "Object.valueOf", "Object.toString"}
-PHASES = {"select", "call", "builtin", "waiting", "convert", "complete"}
+PHASES = {"select", "call", "builtin", "waiting", "convert", "complete", "abrupt"}
 
 
 def _protocol():
@@ -84,7 +85,7 @@ def validate_record(record):
         _require(record["builtin"] in BUILTINS, "builtin identity")
     else:
         p.validate_protocol_value(
-            record["value"] if kind in ("number.begin", "number.return") else record["result"]
+            record["value"] if kind in ("number.begin", "number.return", "number.throw") else record["result"]
         )
     return True
 
@@ -136,7 +137,7 @@ def _accept(row, value):
 
 def assert_next(machine, record):
     operations = (machine.get("protocol", {}).get("numberConversions") or {}).get("operations", [])
-    row = next((entry for entry in reversed(operations) if entry["phase"] != "complete"), None)
+    row = next((entry for entry in reversed(operations) if entry["phase"] not in ("complete", "abrupt")), None)
     if row is None:
         return True
     if row["phase"] == "waiting" and row["child"] in machine["stack"]:
@@ -146,7 +147,7 @@ def assert_next(machine, record):
         "select": "number.select",
         "call": "number.call",
         "builtin": "number.builtin",
-        "waiting": "number.return",
+        "waiting": "number.throw" if (machine.get("lastReturn") or {}).get("kind") == "throw" else "number.return",
         "convert": "number.finish",
     }[row["phase"]]
     _require(
@@ -262,6 +263,18 @@ def apply_record(machine, record):
         )
         p._known(machine, record["value"])
         _accept(row, record["value"])
+    elif kind == "number.throw":
+        returned = machine.get("lastReturn")
+        _require(
+            row["phase"] == "waiting"
+            and row["child"] not in machine["stack"]
+            and returned is not None
+            and returned["kind"] == "throw"
+            and returned["value"] == record["value"],
+            "callback abrupt completion differs",
+        )
+        p._known(machine, record["value"])
+        row.update(primitive=None, result=copy.deepcopy(record["value"]), phase="abrupt")
     else:
         _require(row["phase"] == "convert", "primitive conversion phase required")
         expected = scalar_number(row["primitive"])
@@ -299,7 +312,7 @@ def validate_state(machine):
             "phase or owner",
         )
         _require(
-            row["phase"] == "complete" or row["parent"] in machine["stack"],
+            row["phase"] in ("complete", "abrupt") or row["parent"] in machine["stack"],
             "unfinished conversion requires live parent",
         )
         p._known(machine, row["input"])
@@ -334,7 +347,7 @@ def validate_state(machine):
                 row["input"][0] == "ref" and row["primitive"] is None and row["result"] is None,
                 "object phase values",
             )
-        if row["phase"] in ("call", "waiting"):
+        if row["phase"] in ("call", "waiting", "abrupt"):
             _require(
                 row["method"] is not None
                 and row["method"][0] == "ref"
@@ -342,13 +355,21 @@ def validate_state(machine):
                 and row["builtin"] is None,
                 "captured callable",
             )
-        if row["phase"] == "waiting":
+        if row["phase"] in ("waiting", "abrupt"):
             _require(
                 row["child"] is not None
                 and machine["frameFunctions"][row["child"]]
                 == p._node(machine, row["method"][1])["code"],
                 "callback source identity",
             )
+            if row["phase"] == "abrupt":
+                _require(
+                    row["child"] not in machine["stack"]
+                    and row["input"][0] == "ref"
+                    and row["primitive"] is None
+                    and row["result"] is not None,
+                    "abrupt callback state",
+                )
             if row["child"] in machine["stack"]:
                 _require(
                     row["parent"] in machine["stack"]
@@ -367,6 +388,6 @@ def validate_state(machine):
                 _numeric(row["primitive"]) and row["result"] == scalar_number(row["primitive"]),
                 "false completed result",
             )
-        else:
+        elif row["phase"] != "abrupt":
             _require(row["result"] is None, "unfinished result")
     return True
