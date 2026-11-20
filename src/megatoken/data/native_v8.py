@@ -556,7 +556,36 @@ def _replay_region(program, context, line, entry):
     return target
 
 
-def _initial_state(program, invocation, functions=()):
+def _invocation_bindings(function, invocation):
+    roots = invocation.get("inputGraph", {}).get("roots", [])
+    params = function.get("params", [])
+    if not isinstance(params, list) or any(
+        name is not None and (not isinstance(name, str) or not name) for name in params
+    ):
+        _fail("Malformed published parameter bindings")
+    # Default/rest/pattern parameters are published as null. Their cells are
+    # initialized by later checked records, not by the positional input graph.
+    bindings = {
+        name: copy.deepcopy(roots[index] if index < len(roots) else ["undefined"])
+        for index, name in enumerate(params)
+        if name is not None
+    }
+    declared = invocation.get("bindings", {})
+    if not isinstance(declared, dict):
+        _fail("Malformed invocation bindings")
+    for name, index in declared.items():
+        if (
+            not isinstance(name, str)
+            or not name
+            or type(index) is not int
+            or not 0 <= index < len(roots)
+        ):
+            _fail("Invocation binding has no observed argument")
+        bindings[name] = copy.deepcopy(roots[index])
+    return bindings
+
+
+def _initial_state(program, invocation, functions=(), random_seed=None):
     graph = invocation.get("inputGraph")
     if not isinstance(graph, dict) or set(graph) != {"roots", "objects"}:
         _fail("Invocation input graph")
@@ -564,22 +593,21 @@ def _initial_state(program, invocation, functions=()):
     for node in graph["objects"]:
         row = {
             "kind": node["kind"],
-            "prototype": "ordinary",
+            "prototype": node.get("prototype", "ordinary"),
             "properties": [[p["key"], p["value"]] for p in node["properties"]],
         }
         heap.append([node["id"], row])
     fn = next((f for f in functions if f.get("name") == invocation.get("entry")), {})
-    params = fn.get("params", [])
     locals_ = []
     aliases = []
-    for index, value in enumerate(graph["roots"]):
+    for index, (name, value) in enumerate(_invocation_bindings(fn, invocation).items()):
         cell = f"a0b{index}"
         locals_.append([cell, value])
-        if index < len(params):
-            aliases.append([params[index], cell])
-    for name, index in invocation.get("bindings", {}).items():
-        if type(index) is int and 0 <= index < len(graph["roots"]) and name not in dict(aliases):
-            aliases.append([name, f"a0b{index}"])
+        aliases.append([name, cell])
+    if random_seed is not None and (
+        type(random_seed) is not int or not 0 <= random_seed <= 0xFFFFFFFF
+    ):
+        _fail("Malformed deterministic random seed")
     return {
         "heap": heap,
         "locals": locals_,
@@ -587,7 +615,7 @@ def _initial_state(program, invocation, functions=()):
         "effects": [],
         "jobs": [],
         "ready": [],
-        "randomState": None,
+        "randomState": random_seed,
         "pending": None,
         "lastReturn": None,
         "completion": None,
@@ -646,13 +674,18 @@ def _replay_shared_state(timeline, contexts, programs_from_context, *, roundtrip
                 "source"
             ) != fields.get("source"):
                 _fail("Public region definition differs from immutable source publication")
-            published[fields["programId"]] = (program, fields.get("functions", []))
+            random_seed = fields.get("randomSeed")
+            if "randomSeed" in fields and (
+                type(random_seed) is not int or not 0 <= random_seed <= 0xFFFFFFFF
+            ):
+                _fail("Malformed deterministic random seed")
+            published[fields["programId"]] = (program, fields.get("functions", []), random_seed)
             continue
         if kind == "invocation":
             published_row = published.get(fields["programId"])
             if published_row is None:
                 _fail("Invocation has no preceding program")
-            program, functions = published_row
+            program, functions, random_seed = published_row
             if fields.get("sourceDigest") != program.get("sourceDigest"):
                 _fail("Invocation source/definition binding")
             if fields.get("activation") == "callback" and (
@@ -664,7 +697,9 @@ def _replay_shared_state(timeline, contexts, programs_from_context, *, roundtrip
                 base = state if state is not None else common_state
                 callback_invocation = copy.deepcopy(fields)
                 callback_invocation["inputGraph"]["roots"] = []
-                callback_state = _initial_state(program, callback_invocation, functions)
+                callback_state = _initial_state(
+                    program, callback_invocation, functions, random_seed
+                )
                 callback_state["heap"] = copy.deepcopy(base["heap"])
                 callback_state["locals"] = copy.deepcopy(base["locals"])
                 callback_state["scheduler"] = copy.deepcopy(base["scheduler"])
@@ -705,19 +740,20 @@ def _replay_shared_state(timeline, contexts, programs_from_context, *, roundtrip
                     ),
                     None,
                 )
-                params = function.get("params", []) if function else []
-                roots = fields.get("inputGraph", {}).get("roots", [])
-                for index, value in enumerate(roots):
-                    # Callback invocation identifiers end in their deterministic event ordinal.
-                    suffix = "".join(c for c in fields["invocationId"] if c.isdigit()) or "0"
-                    cell = f"a{suffix}b{index}"
+                # Callback invocation identifiers end in their deterministic event ordinal.
+                suffix = "".join(c for c in fields["invocationId"] if c.isdigit()) or "0"
+                ordinal = 0
+                for name, value in _invocation_bindings(function or {}, fields).items():
+                    cell = f"a{suffix}b{ordinal}"
+                    while cell in dict(callback_state["locals"]):
+                        ordinal += 1
+                        cell = f"a{suffix}b{ordinal}"
+                    ordinal += 1
                     _set_row(callback_state["locals"], cell, value)
-                    _set_row(callback_state["captureAliases"], params[index], cell) if index < len(
-                        params
-                    ) else None
+                    _set_row(callback_state["captureAliases"], name, cell)
                 state = callback_state
             elif fields.get("activation") == "call":
-                state = _initial_state(program, fields, functions)
+                state = _initial_state(program, fields, functions, random_seed)
             else:
                 _fail("Unsupported invocation activation in v8 shared replay")
             active_invocation = fields["invocationId"]
@@ -940,6 +976,13 @@ def _table(state, field):
     return {key: value for key, value in state[field]}
 
 
+def _next_random_state(state):
+    seed = state.get("randomState")
+    if type(seed) is not int or not 0 <= seed <= 0xFFFFFFFF:
+        _fail("Random transition needs a committed deterministic seed")
+    return (seed * 1664525 + 1013904223) & 0xFFFFFFFF
+
+
 def _eval_detail_expression(expr, state):
     from . import algorithm_v7 as v7
 
@@ -959,7 +1002,7 @@ def _eval_detail_expression(expr, state):
         prop = dict(heap["properties"])
         return copy.deepcopy(prop.get(expr["key"], ["undefined"]))
     if op == "random":
-        _fail("Random transition needs explicit checked state")
+        return ["num", _next_random_state(state) / 4294967296]
     if op == "unary":
         arg = _eval_detail_expression(expr["arg"], state)
         mapping = _UNARY_OPERATORS
@@ -1099,7 +1142,15 @@ def _apply_detail(
         if "code" in fields:
             node["code"] = fields["code"]
         if "captures" in fields:
-            node["captures"] = fields["captures"]
+            aliases = dict(state["captureAliases"])
+            node["captures"] = [
+                {**capture, "cell": aliases.get(capture["cell"], capture["cell"])}
+                for capture in fields["captures"]
+            ]
+        if node["kind"] == "closure" and any(
+            capture["cell"] not in dict(state["locals"]) for capture in node["captures"]
+        ):
+            _fail("Closure references a cell not yet committed")
         if "length" in fields:
             node["properties"].append(["length", ["num", fields["length"]]])
         _set_row(state["heap"], fields["name"], node)
@@ -1168,21 +1219,26 @@ def _apply_detail(
                 _fail("Branch decision path is inconsistent")
             if path in ("use-left", "evaluate-right"):
                 op = fields["expr"].get("op")
-                args = fields["expr"].get("args", [])
-                if not args:
-                    _fail("Malformed lazy expression")
-                left = _eval_detail_expression(args[0], state)
-                use_right = (
-                    _detail_truthy(left)
-                    if op == "and"
-                    else not _detail_truthy(left)
-                    if op == "or"
-                    else left[0] in ("null", "undefined")
-                    if op == "coalesce"
-                    else None
-                )
-                if use_right is None or (path == "evaluate-right") != use_right:
-                    _fail("Logical decision path is inconsistent")
+                if op in ("and", "or", "coalesce"):
+                    args = fields["expr"].get("args", [])
+                    if len(args) != 2:
+                        _fail("Malformed lazy expression")
+                    left = _eval_detail_expression(args[0], state)
+                    use_right = (
+                        _detail_truthy(left)
+                        if op == "and"
+                        else not _detail_truthy(left)
+                        if op == "or"
+                        else left[0] in ("null", "undefined")
+                    )
+                    if (path == "evaluate-right") != use_right:
+                        _fail("Logical decision path is inconsistent")
+                # A detailed witness can publish only the already-evaluated
+                # left decision (literal/local/binary), without its logical
+                # operator. The checked value remains public; the separate
+                # live source-admission gate checks its source path.
+        if fields["expr"].get("op") == "random":
+            state["randomState"] = _next_random_state(state)
     elif kind in ("return", "throw"):
         value = fields["value"]
         invocation = fields.get(
