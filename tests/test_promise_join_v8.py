@@ -58,6 +58,48 @@ def finish_row(output="output"):
 
 
 class PromiseJoinBoundaryTests(unittest.TestCase):
+    def test_shared_join_heap_retains_controller_ownership_after_root_return(self):
+        state, row = joined_machine()
+        apply_protocol_record(state, row)
+        self.assertEqual(state["heap"]["result"]["join"]["owner"], "root")
+        state["stack"] = []
+        self.assertTrue(validate_state(state))
+
+        callback = copy.deepcopy(state)
+        callback.update(
+            stack=["callback"], frameFunctions={"callback": "handler"}, jobs=[], ready=[]
+        )
+        self.assertTrue(validate_state(callback))
+        apply_protocol_record(state, finish_row())
+        callback["heap"] = copy.deepcopy(state["heap"])
+        self.assertTrue(validate_state(callback))
+        self.assertEqual(callback["heap"]["result"]["result"], ["ref", "output"])
+
+    def test_join_jobs_cannot_migrate_between_controllers(self):
+        state, row = joined_machine()
+        apply_protocol_record(state, row)
+        for mutation in ("join-owner", "job-owner", "controller-owner"):
+            changed = copy.deepcopy(state)
+            if mutation == "join-owner":
+                changed["heap"]["result"]["join"]["owner"] = "callback"
+            elif mutation == "job-owner":
+                changed["jobs"][0][1]["owner"] = "callback"
+            else:
+                changed["frameFunctions"] = {"callback": "handler"}
+                changed["stack"] = ["callback"]
+            with self.subTest(mutation=mutation), self.assertRaisesRegex(
+                ProtocolV8Error, "another invocation|scheduler linkage"
+            ):
+                validate_state(changed)
+
+        changed = copy.deepcopy(state)
+        changed["stack"] = []
+        changed["frameFunctions"] = {"callback": "handler"}
+        before = copy.deepcopy(changed)
+        with self.assertRaisesRegex(ProtocolV8Error, "unknown or stale"):
+            apply_protocol_record(changed, finish_row())
+        self.assertEqual(changed, before)
+
     def test_legacy_settlement_cannot_bypass_join_result_ownership(self):
         state, row = joined_machine()
         apply_protocol_record(state, row)

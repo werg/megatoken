@@ -86,6 +86,12 @@ def _list_rows(value):
     return [[key, row] for key, row in value.items()]
 
 
+def _owner(machine):
+    """The controller root survives after its JavaScript stack has returned."""
+    frames = _dict_rows(machine.get("frameFunctions", {}))
+    return next(iter(frames), None) or next(iter(machine.get("stack", [])), None)
+
+
 def _promise(machine, identity):
     node = machine["heap"].get(identity)
     if not node or node.get("kind") != "promise":
@@ -130,6 +136,8 @@ def apply_record(machine, record):
     scheduler = machine.setdefault("scheduler", {"registration": 0, "ready": 0})
     result = _promise(machine, record["result"])
     if record["kind"] == "promise.join":
+        owner = _owner(machine)
+        _identity(owner)
         if (
             result["state"] != "pending"
             or result.get("join") is not None
@@ -164,6 +172,7 @@ def apply_record(machine, record):
             _settle(machine, record["result"], "fulfilled", ["ref", output])
             result["join"] = {
                 "schema": STATE_SCHEMA,
+                "owner": owner,
                 "mode": "all",
                 "inputs": [],
                 "jobs": [],
@@ -176,6 +185,7 @@ def apply_record(machine, record):
         else:
             result["join"] = {
                 "schema": STATE_SCHEMA,
+                "owner": owner,
                 "mode": record["mode"],
                 "inputs": copy.deepcopy(record["inputs"]),
                 "jobs": copy.deepcopy(record["jobs"]),
@@ -185,7 +195,6 @@ def apply_record(machine, record):
                 "error": None,
                 "settled": False,
             }
-            owner = machine.get("stack", [None])[0]
             for index, (identity, input_id) in enumerate(
                 zip(record["jobs"], record["inputs"], strict=True)
             ):
@@ -210,6 +219,7 @@ def apply_record(machine, record):
     if (
         not join
         or join.get("schema") != STATE_SCHEMA
+        or join.get("owner") != _owner(machine)
         or join.get("settled") != (result["state"] != "pending")
     ):
         _fail("unknown or stale join result")
@@ -219,6 +229,7 @@ def apply_record(machine, record):
     job = jobs.get(record["job"])
     if (
         not job
+        or job.get("owner") != join["owner"]
         or job.get("reaction") != "join"
         or job.get("joinResult") != record["result"]
         or job.get("joinIndex") != index
@@ -278,12 +289,14 @@ def validate_state(machine):
     heap = machine.get("heap", {})
     jobs = _dict_rows(machine.get("jobs", []))
     ready = machine.get("ready", [])
+    owner = _owner(machine)
     for result_id, result in heap.items():
         if not isinstance(result, dict) or result.get("kind") != "promise":
             continue
         join = result.get("join")
         if join is None:
             continue
+        _identity(join.get("owner"))
         if (
             join.get("schema") != STATE_SCHEMA
             or result.get("adopted") is not None
@@ -321,8 +334,13 @@ def validate_state(machine):
             elif join["values"][index] is not None:
                 _fail("unobserved input value")
             job = jobs.get(job_id)
+            if owner is not None and join["owner"] != owner:
+                if job is not None:
+                    _fail("join job belongs to another invocation")
+                continue
             if (
                 not job
+                or job.get("owner") != join["owner"]
                 or job.get("reaction") != "join"
                 or job.get("joinResult") != result_id
                 or job.get("joinIndex") != index
@@ -337,6 +355,10 @@ def validate_state(machine):
         result = heap.get(job.get("joinResult"))
         if not result or not result.get("join") or job_id not in result["join"]["jobs"]:
             _fail("orphan join job")
+        if job.get("owner") != result["join"]["owner"] or (
+            owner is not None and job.get("owner") != owner
+        ):
+            _fail("join job belongs to another invocation")
         if job.get("status") not in ("waiting", "queued", "completed"):
             _fail("join job lifecycle")
         if job["status"] == "queued" and job_id not in ready:
