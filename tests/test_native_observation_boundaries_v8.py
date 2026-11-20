@@ -2,8 +2,8 @@ import copy
 import unittest
 
 from megatoken.data.detailed_v7 import encode_record
+from megatoken.data.detailed_v8 import parse_record as parse_detailed
 from megatoken.data.native_v8 import NativeV8Error, _apply_observation, _initial_state
-from megatoken.data.witness_v6 import parse_record as parse_witness
 
 
 def pending_delivery():
@@ -201,7 +201,10 @@ class NativeObservationBoundaryTests(unittest.TestCase):
                 intent = dict(obligations["intents"])["root/e1"]
                 self.assertEqual(intent["status"], "settled")
                 self.assertEqual(intent["result"]["ownerSequence"], 1)
-                self.assertEqual(parse_witness(intent["result"]["line"])[1]["graph"], graph)
+                self.assertEqual(
+                    parse_detailed(intent["result"]["line"], role="observed")[1]["graph"],
+                    graph,
+                )
                 self.assert_refused_without_mutation(holders, row, "outstanding dispatch")
 
     def test_graph_collision_rolls_back_earlier_fresh_nodes(self):

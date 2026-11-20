@@ -318,23 +318,22 @@ def test_executed_tool_result_uses_teacher_consistent_group_continuation(monkeyp
     torch.testing.assert_close(selected[0][1].state.raw, actual, atol=1e-6, rtol=1e-6)
 
 
-def test_semantic_execution_continues_from_teacher_recorded_semantics(monkeypatch, tmp_path):
-    """Every dependent semantic group commits the recorded target after scoring P."""
+def test_semantic_execution_requires_an_explicit_schema_even_when_unverified_is_allowed(
+    tmp_path,
+):
+    """The generic unverified-data switch cannot admit unversioned semantics."""
     from dataclasses import replace
+    from types import SimpleNamespace
 
     from megatoken.data.schema import Supervision
 
-    torch.set_num_threads(1)
-    torch.manual_seed(47)
     example = replace(
         fixture_episode(),
         stream="semantic_execution",
         supervision=Supervision(
-            annotations_json='{"session_metadata":{"task":"semantic-execution/6","modality":"text"},'
-            '"semantic_execution":{"continuation":"teacher_conditioned"}}'
+            annotations_json='{"semantic_execution":{"continuation":"teacher_conditioned"}}'
         ),
     )
-    model = tiny_model()
     config = replace(train_config(tmp_path, "recurrent"), allow_unverified_data=True)
     window = next(
         iter_windows(
@@ -343,28 +342,9 @@ def test_semantic_execution_continues_from_teacher_recorded_semantics(monkeypatc
             WindowConfig(max_records=8, max_decisions=4, max_window_tokens=4096),
         )
     )
-    (batch,) = prepare_batches(
-        model,
-        [EpisodeWindow(example, window, TEXT_ONLY_ASSETS)],
-        config,
-    )
-    choices = []
-    original = MultiTrackGenerator.supervised_meridian
-
-    def capture(self, state, **kwargs):
-        choices.append(kwargs["teacher_forced_action"])
-        return original(self, state, **kwargs)
-
-    monkeypatch.setattr(MultiTrackGenerator, "supervised_meridian", capture)
-    ledger = LossLedger(batch.counts, batch.counts, config.loss_weights)
-    forward_meridian_batch(
-        model,
-        batch,
-        ledger,
-        config,
-        torch.device("cpu"),
-        0,
-        transducer=TransducerTrainer(model.transducer),
-    )
-    ledger.finish()
-    assert choices == [True, True]
+    with pytest.raises(ValueError, match="missing or unknown execution schema"):
+        prepare_batches(
+            SimpleNamespace(),
+            [EpisodeWindow(example, window, TEXT_ONLY_ASSETS)],
+            config,
+        )
