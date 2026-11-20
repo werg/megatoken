@@ -6,6 +6,7 @@ from __future__ import annotations
 import argparse
 import hashlib
 import json
+import os
 import subprocess
 from pathlib import Path
 
@@ -13,11 +14,29 @@ from megatoken.data.algorithm_v7 import stable_algorithm_hash
 from megatoken.data.native_v8 import prepare_native_v8_training, validate_v8_artifact
 from megatoken.data.semantic_contract_v8 import CONTRACT, CONTRACT_DIGEST, INTEROPERABILITY_DIGEST
 
+_REPOSITORY_GIT_ENV = {
+    "GIT_DIR",
+    "GIT_WORK_TREE",
+    "GIT_INDEX_FILE",
+    "GIT_COMMON_DIR",
+    "GIT_PREFIX",
+}
+
+
+def _git_environment():
+    """Keep unrelated caller settings while targeting another checkout."""
+    return {key: value for key, value in os.environ.items() if key not in _REPOSITORY_GIT_ENV}
+
 
 def checked_revision(root, expected):
-    actual = subprocess.check_output(["git", "rev-parse", "HEAD"], cwd=root, text=True).strip()
+    actual = subprocess.check_output(
+        ["git", "rev-parse", "HEAD"], cwd=root, text=True, env=_git_environment()
+    ).strip()
     dirty = subprocess.check_output(
-        ["git", "status", "--porcelain", "--untracked-files=no"], cwd=root, text=True
+        ["git", "status", "--porcelain", "--untracked-files=no"],
+        cwd=root,
+        text=True,
+        env=_git_environment(),
     ).strip()
     if actual != expected or dirty:
         raise ValueError("V8 native receipt requires the exact clean consumer revision")
@@ -37,22 +56,32 @@ def recheck_source_binding(document, input_path, producer_root, producer_revisio
     def check_producer_checkout():
         try:
             actual = subprocess.check_output(
-                ["git", "rev-parse", "HEAD"], cwd=root, text=True, timeout=10
+                ["git", "rev-parse", "HEAD"],
+                cwd=root,
+                text=True,
+                timeout=10,
+                env=_git_environment(),
             ).strip()
             top = subprocess.check_output(
-                ["git", "rev-parse", "--show-toplevel"], cwd=root, text=True, timeout=10
+                ["git", "rev-parse", "--show-toplevel"],
+                cwd=root,
+                text=True,
+                timeout=10,
+                env=_git_environment(),
             ).strip()
             dirty = subprocess.check_output(
                 ["git", "status", "--porcelain", "--untracked-files=all"],
                 cwd=root,
                 text=True,
                 timeout=10,
+                env=_git_environment(),
             ).strip()
             subprocess.check_output(
                 ["git", "ls-files", "--error-unmatch", "tools/recheck-semantic-native-source.mjs"],
                 cwd=root,
                 text=True,
                 timeout=10,
+                env=_git_environment(),
             )
         except (OSError, subprocess.SubprocessError) as error:
             raise ValueError("V8 source authority is not a pinned producer checkout") from error
@@ -78,6 +107,7 @@ def recheck_source_binding(document, input_path, producer_root, producer_revisio
             capture_output=True,
             text=True,
             timeout=30,
+            env=_git_environment(),
         )
     except (FileNotFoundError, subprocess.TimeoutExpired):
         return None

@@ -67,6 +67,44 @@ class NativeV8AdmissionTests(unittest.TestCase):
                 admit_semantic_v8.recheck_source_binding({}, artifact, root, revision)
             self.assertFalse(marker.exists())
 
+    def test_producer_git_checks_ignore_callers_consumer_repository_overrides(self):
+        with tempfile.TemporaryDirectory() as folder:
+            base = Path(folder)
+            root = base / "producer"
+            (root / "tools").mkdir(parents=True)
+            (root / "tools/recheck-semantic-native-source.mjs").write_text("console.log('{}');")
+            subprocess.run(["git", "init", "--quiet"], cwd=root, check=True)
+            subprocess.run(["git", "add", "."], cwd=root, check=True)
+            subprocess.run(
+                [
+                    "git",
+                    "-c",
+                    "user.name=Test",
+                    "-c",
+                    "user.email=test@example.invalid",
+                    "commit",
+                    "--quiet",
+                    "-m",
+                    "test producer authority",
+                ],
+                cwd=root,
+                check=True,
+            )
+            revision = subprocess.check_output(
+                ["git", "rev-parse", "HEAD"], cwd=root, text=True
+            ).strip()
+            wrong_git_dir = base / "consumer.git"
+            wrong_git_dir.mkdir()
+            artifact = base / "artifact.json"
+            artifact.write_text("{}")
+            with patch.dict(os.environ, {"GIT_DIR": str(wrong_git_dir)}, clear=False):
+                with self.assertRaisesRegex(ValueError, "exact clean producer revision"):
+                    admit_semantic_v8.recheck_source_binding({}, artifact, root, "0" * 40)
+                # A correctly pinned producer must reach the tool; the stub's
+                # incomplete receipt is rejected only after that source check.
+                with self.assertRaisesRegex(ValueError, "does not bind this artifact"):
+                    admit_semantic_v8.recheck_source_binding({}, artifact, root, revision)
+
     @classmethod
     def setUpClass(cls):
         fixture = Path(__file__).parent / "fixtures" / "semantic-regions-v8.json.gz.b64"
