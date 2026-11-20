@@ -49,9 +49,11 @@ jobs:
           python -m pip install -e '.[train,data,cache,storage,dev]'
       - name: Lint and validate shell entrypoints
         run: |
-          python -m ruff check src tests scripts
-          python -m ruff format --check src tests scripts
-          bash -n src/megatoken/cloud_bootstrap.sh
+          semantic_lint_status=0
+          python -m ruff check src tests scripts || semantic_lint_status=1
+          python -m ruff format --diff src tests scripts || semantic_lint_status=1
+          bash -n src/megatoken/cloud_bootstrap.sh || semantic_lint_status=1
+          test "$semantic_lint_status" -eq 0
       - name: Build and install the distribution under test
         run: |
           python -m build

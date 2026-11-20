@@ -103,6 +103,14 @@ def export_served(
         }
         if bundled_codec != "byte":
             manifest["tokenizer_sha256"] = sha256_file(temporary / bundled_codec)
+        from megatoken.semantic_lineage_v8 import build_served_lineage_v8, checkpoint_lineage_v8
+
+        training_lineage = checkpoint_lineage_v8(payload, metadata)
+        if training_lineage is not None:
+            lineage = build_served_lineage_v8(training_lineage, manifest)
+            write_json(temporary / "semantic-v8-lineage.json", lineage)
+            manifest["semantic_v8_lineage_sha256"] = sha256_file(temporary / "semantic-v8-lineage.json")
+            manifest["semantic_v8_lineage_digest"] = lineage["digest"]
         if payload["train_config"].get("semantic_experiment") is not None:
             from megatoken.training.semantic_budget import (
                 SemanticExperimentConfig,
@@ -202,13 +210,32 @@ class ServedBundle:
                 raise ValueError("Unsafe served codec path")
             if sha256_file(directory / codec_name) != manifest["tokenizer_sha256"]:
                 raise ValueError("Served tokenizer checksum mismatch")
-        self.codec = load_codec(
+        lineage_fields = {"semantic_v8_lineage_digest", "semantic_v8_lineage_sha256"}
+        has_v8_lineage = bool(lineage_fields.intersection(manifest))
+        codec_loader = load_codec
+        if has_v8_lineage:
+            if not lineage_fields.issubset(manifest):
+                raise ValueError("Served V8 lineage binding is incomplete")
+            from megatoken.training.semantic_v8 import load_semantic_v8_codec
+
+            codec_loader = load_semantic_v8_codec
+        self.codec = codec_loader(
             "byte" if codec_name == "byte" else directory / codec_name,
             vocab_size=self.config.vocab_size,
         )
         if self.codec.fingerprint != manifest["codec_fingerprint"]:
             raise ValueError("Served codec mapping differs from the training codec")
         self.chunking = ChunkingConfig.from_identity(manifest["chunking"], self.codec)
+        self.semantic_v8_lineage = None
+        if has_v8_lineage:
+            from megatoken.io import strict_json_loads
+            from megatoken.semantic_lineage_v8 import validate_served_lineage_v8
+
+            if sha256_file(directory / "semantic-v8-lineage.json") != manifest["semantic_v8_lineage_sha256"]:
+                raise ValueError("Served V8 training lineage checksum mismatch")
+            self.semantic_v8_lineage = validate_served_lineage_v8(
+                strict_json_loads((directory / "semantic-v8-lineage.json").read_text()), manifest
+            )
         if self.chunking.hard_max_tokens > self.config.max_capacity:
             raise ValueError("Served chunk policy exceeds the configured model capacity")
         self.device = (

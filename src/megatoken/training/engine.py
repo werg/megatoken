@@ -601,7 +601,10 @@ def train(
         packs_fingerprint = sha256_file(config.packs) if config.packs else None
         payload = None
         if resume:
-            payload, _ = load_checkpoint(resume, map_location="cpu")
+            payload, resumed_metadata = load_checkpoint(resume, map_location="cpu")
+            from megatoken.semantic_lineage_v8 import checkpoint_lineage_v8
+
+            checkpoint_lineage_v8(payload, resumed_metadata)
             _resume_compatible(payload["train_config"], config, phase_transition)
             if payload["codec_fingerprint"] != codec.fingerprint:
                 raise ValueError("Checkpoint codec identity differs")
@@ -808,6 +811,21 @@ def train(
             )
         if config.eval_every:
             heldout = HeldOutEvaluator(config, codec, windows_config, require=True)
+        semantic_training_v8 = None
+        if config.semantic_v8_policy is not None:
+            from megatoken.semantic_lineage_v8 import build_training_lineage_v8
+
+            semantic_training_v8 = build_training_lineage_v8(
+                policy=config.semantic_v8_policy,
+                tokenizer_identity=codec.fingerprint,
+                prepared_manifests=[
+                    json.loads((root / "manifest.json").read_text())["fingerprint"]
+                    for root in dataset.all_roots
+                ],
+                corpus_identity=dataset.identity,
+                stream_identity=stream.fingerprint,
+                chunking=chunking_identity,
+            )
         if config.decoupled is not None:
             diloco = DecoupledWorker(
                 config.decoupled,
@@ -926,6 +944,8 @@ def train(
                             "global_step": global_step,
                             "phase_consumed": consumed,
                             "counters": asdict(counters),
+                            **({"semantic_training_v8": semantic_training_v8}
+                               if semantic_training_v8 is not None else {}),
                             **semantic_training_state(exposure, cohort_digest=cohort_digest),
                         }
                     )
@@ -939,6 +959,8 @@ def train(
                         "chunking_fingerprint": chunking_identity["fingerprint"],
                         "routing_version": model_config.routing_version,
                         "config_fingerprint": content_hash(asdict(config)),
+                        **({"semantic_v8_lineage_digest": semantic_training_v8["digest"]}
+                           if semantic_training_v8 is not None else {}),
                     }
                     from .stream import source_sampling_report
 
