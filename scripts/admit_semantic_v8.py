@@ -223,6 +223,7 @@ def main():
                     "number-conversion-source/1",
                     "ordinary-data-proxy-source/1",
                     "ordinary-array-map-source/1",
+                    "ordinary-for-in/1",
                 }
                 if (
                     not isinstance(extensions, list)

@@ -17,6 +17,10 @@ from .construction_v8 import apply_record as apply_construction_record
 from .construction_v8 import assert_next as assert_construction_next
 from .construction_v8 import validate_record as validate_construction_record
 from .construction_v8 import validate_state as validate_construction_record_state
+from .enumeration_v8 import FIELDS as ENUMERATION_FIELDS
+from .enumeration_v8 import apply_record as apply_enumeration_record
+from .enumeration_v8 import validate_record as validate_enumeration_record
+from .enumeration_v8 import validate_state as validate_enumeration_state
 from .generator_v8 import FIELDS as GENERATOR_FIELDS
 from .generator_v8 import apply_record as apply_generator_record
 from .generator_v8 import assert_next as assert_generator_next
@@ -91,6 +95,7 @@ FIELDS = {
     "end": {"kind", "completion"},
     "property.define": {"kind", "object", "key", "descriptor", "success"},
     "property.get": {"kind", "object", "key", "receiver", "result"},
+    "property.hasOwn": {"kind", "object", "key", "result"},
     "property.set": {"kind", "object", "key", "receiver", "value", "success"},
     "property.delete": {"kind", "object", "key", "success"},
     "property.keys": {"kind", "object", "mode", "name", "keys"},
@@ -109,6 +114,7 @@ class ProtocolV8Error(ValueError):
 FIELDS.update(CONSTRUCTION_FIELDS)
 FIELDS.update(MEMORY_FIELDS)
 FIELDS.update(ITERATOR_FIELDS)
+FIELDS.update(ENUMERATION_FIELDS)
 FIELDS.update(PROMISE_JOIN_FIELDS)
 FIELDS.update(PROMISE_EXECUTOR_FIELDS)
 FIELDS.update(NUMBER_FIELDS)
@@ -232,6 +238,8 @@ def _expression(term, depth=0, budget=None):
 def validate_protocol_record(record):
     if type(record) is not dict or not isinstance(record.get("kind"), str):
         _fail("record kind must be a string")
+    if record["kind"] in ENUMERATION_FIELDS:
+        return validate_enumeration_record(record)
     if record["kind"] in PROMISE_EXECUTOR_FIELDS:
         return validate_promise_executor_record(record)
     if type(record) is dict and record.get("kind") in PROXY_FIELDS:
@@ -355,6 +363,8 @@ def validate_protocol_record(record):
         _fail("choice path")
     elif kind == "property.define":
         _validate_descriptor(record["descriptor"])
+    elif kind == "property.hasOwn" and record["result"][0] != "bool":
+        _fail("own property result boolean")
     elif kind == "property.keys":
         if record["mode"] not in (
             "own",
@@ -784,6 +794,10 @@ def _apply(machine, record):
         if not apply_iterator_record(machine, record):
             _fail("unsupported iterator transition")
         return
+    if kind in ENUMERATION_FIELDS:
+        if not apply_enumeration_record(machine, record):
+            _fail("unsupported enumeration transition")
+        return
     if kind in PROMISE_JOIN_FIELDS:
         if not apply_promise_join_record(machine, record):
             _fail("unsupported Promise join transition")
@@ -1043,6 +1057,10 @@ def _apply(machine, record):
                 _fail("false descriptor compatibility")
             if success and "keyOrder" not in node:
                 node["keyOrder"] = _ordered(node)
+        elif kind == "property.hasOwn":
+            expected = ["bool", _descriptor(node, key) is not None]
+            if expected != record["result"]:
+                _fail("false own property result")
         elif kind == "property.get":
             _, descriptor = _lookup_descriptor(machine, record["object"], key)
             if (
@@ -1500,6 +1518,7 @@ def validate_protocol_state(snapshot, heap_ids=(), shared_state=None):
         )
         validate_memory_state(memory_machine)
         validate_iterator_state(memory_machine)
+        validate_enumeration_state({**memory_machine, "protocol": snapshot})
         from .promise_join_v8 import validate_state as validate_promise_join_state
 
         validate_promise_join_state(memory_machine)
@@ -1556,6 +1575,7 @@ def assert_detailed_record_compatible(shared_state, kind, fields):
             or node.get("prototype") not in (None, "ordinary")
             or any(isinstance(key, tuple) for key in node.get("properties", {}))
             or node.get("kind") == "generator"
+            or node.get("kind") == "enumerator"
             or node.get("generatorFunction") is True
             or node.get("kind") == "proxy"
             or node.get("promiseResolver")
