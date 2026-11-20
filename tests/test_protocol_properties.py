@@ -215,7 +215,7 @@ class OrdinaryArrayPropertyTests(unittest.TestCase):
             "property.finish", id="getter-call", completion={"kind": "normal", "value": ["num", 7]}
         )
 
-    def test_branch_path_matches_truthiness_including_short_circuit_guards(self):
+    def test_branch_path_matches_truthiness(self):
         expr = {"op": "literal", "value": ["num", 0]}
         self.send("choose", expr=expr, decision=["num", 0], path="else")
         with self.assertRaisesRegex(ProtocolV8Error, "false branch path"):
@@ -225,14 +225,71 @@ class OrdinaryArrayPropertyTests(unittest.TestCase):
                 decision=["num", 1],
                 path="else",
             )
-        self.send("choose", expr=expr, decision=["num", 0], path="evaluate-right")
-        with self.assertRaisesRegex(ProtocolV8Error, "false short-circuit path"):
-            self.send("choose", expr=expr, decision=["num", 0], path="use-left")
-        with self.assertRaisesRegex(ProtocolV8Error, "false short-circuit path"):
+
+    def test_short_circuit_choices_check_left_operand_before_right_execution(self):
+        for operator, value, skip in (
+            ("&&", ["bool", True], False),
+            ("&&", ["num", 0], True),
+            ("||", ["bool", False], False),
+            ("||", ["str", "present"], True),
+            ("??", ["null"], False),
+            ("??", ["undefined"], False),
+            ("??", ["num", 0], True),
+            ("??", ["bool", False], True),
+            ("&&", ["bigint", "0"], True),
+            ("||", ["num", "NaN"], False),
+            ("&&", ["symbol", "well-known:iterator"], False),
+        ):
+            with self.subTest(operator=operator, value=value):
+                self.send("bind", name="left", value=value)
+                expr = {
+                    "op": "logical-test",
+                    "operator": operator,
+                    "arg": {"op": "local", "name": "left"},
+                }
+                self.send(
+                    "choose",
+                    expr=expr,
+                    decision=["bool", skip],
+                    path="use-left" if skip else "evaluate-right",
+                )
+                before = copy.deepcopy(self.machine)
+                with self.assertRaisesRegex(ProtocolV8Error, "false short-circuit path"):
+                    self.send(
+                        "choose",
+                        expr=expr,
+                        decision=["bool", skip],
+                        path="evaluate-right" if skip else "use-left",
+                    )
+                self.assertEqual(self.machine, before)
+                with self.assertRaisesRegex(ProtocolV8Error, "false protocol computation"):
+                    self.send(
+                        "choose",
+                        expr=expr,
+                        decision=["bool", not skip],
+                        path="evaluate-right" if skip else "use-left",
+                    )
+                self.assertEqual(self.machine, before)
+
+    def test_short_circuit_choice_refuses_unbound_boolean_and_future_operand(self):
+        for path in ("use-left", "evaluate-right"):
+            with self.assertRaisesRegex(ProtocolV8Error, "requires its logical test"):
+                self.send(
+                    "choose",
+                    expr={"op": "literal", "value": ["bool", path == "use-left"]},
+                    decision=["bool", path == "use-left"],
+                    path=path,
+                )
+        with self.assertRaisesRegex(ProtocolV8Error, "logical test fields"):
             self.send(
                 "choose",
-                expr={"op": "literal", "value": ["bool", True]},
-                decision=["bool", True],
+                expr={
+                    "op": "logical-test",
+                    "operator": "&&",
+                    "arg": {"op": "literal", "value": ["bool", True]},
+                    "right": {"op": "local", "name": "not-yet-evaluated"},
+                },
+                decision=["bool", False],
                 path="evaluate-right",
             )
 

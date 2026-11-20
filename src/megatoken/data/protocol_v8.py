@@ -193,6 +193,11 @@ def _expression(term, depth=0, budget=None):
         if term["operator"] not in ("!", "+", "-", "~", "typeof", "void"):
             _fail("unary operator")
         _expression(term["arg"], depth + 1, budget)
+    elif op == "logical-test":
+        _exact(term, {"op", "operator", "arg"}, "logical test")
+        if term["operator"] not in ("&&", "||", "??"):
+            _fail("logical operator")
+        _expression(term["arg"], depth + 1, budget)
     elif op == "binary":
         _exact(term, {"op", "operator", "left", "right"}, "binary")
         if term["operator"] not in (
@@ -656,6 +661,17 @@ def _eval(machine, expr):
     if expr["op"] == "local":
         return _known(machine, _local(machine, expr["name"]))
     op = expr["op"]
+    if op == "logical-test":
+        left = _eval(machine, expr["arg"])
+        truthy = left[0] == "symbol" or v7._truthy(left)
+        skip_right = (
+            not truthy
+            if expr["operator"] == "&&"
+            else truthy
+            if expr["operator"] == "||"
+            else left[0] not in ("null", "undefined")
+        )
+        return ["bool", skip_right]
     if op == "unary":
         a = _eval(machine, expr["arg"])
         if a[0] in ("ref", "symbol"):
@@ -901,13 +917,11 @@ def _apply(machine, record):
             truthy = result[0] == "symbol" or v7._truthy(result)
             if record["path"] == "then" and not truthy or record["path"] == "else" and truthy:
                 _fail("false branch path")
-            if (
-                record["path"] == "use-left"
-                and not truthy
-                or record["path"] == "evaluate-right"
-                and truthy
-            ):
-                _fail("false short-circuit path")
+            if record["path"] in ("use-left", "evaluate-right"):
+                if record["expr"]["op"] != "logical-test":
+                    _fail("short-circuit path requires its logical test")
+                if (record["path"] == "use-left") != result[1]:
+                    _fail("false short-circuit path")
         if kind == "compute" and record["bind"] is not None:
             machine["locals"][
                 machine.get("captureAliases", {}).get(record["bind"], record["bind"])
