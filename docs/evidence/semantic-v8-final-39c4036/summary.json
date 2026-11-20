@@ -1,0 +1,188 @@
+{
+  "schema": "semantic-v8-native-final-validation/1",
+  "passed": true,
+  "pins": {
+    "producer": {
+      "revision": "012c9fe49a082319bf98ac0c571596da925741a4",
+      "tree": "26454c685a6136ab6d6d18636e6073216ee9d195",
+      "status": ""
+    },
+    "consumer": {
+      "revision": "39c4036564428e44cc89caf261f517d856482695",
+      "tree": "ca55473db0ed3343ad930833a4ee09ad48bf7caf",
+      "status": ""
+    }
+  },
+  "finalPins": {
+    "producer": {
+      "revision": "012c9fe49a082319bf98ac0c571596da925741a4",
+      "tree": "26454c685a6136ab6d6d18636e6073216ee9d195",
+      "status": ""
+    },
+    "consumer": {
+      "revision": "39c4036564428e44cc89caf261f517d856482695",
+      "tree": "ca55473db0ed3343ad930833a4ee09ad48bf7caf",
+      "status": ""
+    }
+  },
+  "modules": [
+    "tests.test_admit_semantic_v8",
+    "tests.test_algorithm_v8",
+    "tests.test_construction_v8",
+    "tests.test_custom_iterator_v8",
+    "tests.test_enumeration_v8",
+    "tests.test_generator_boundaries_v8",
+    "tests.test_memory_v8",
+    "tests.test_native_array_boundaries_v8",
+    "tests.test_native_callback_boundaries_v8",
+    "tests.test_native_detail_regressions_v8",
+    "tests.test_native_generator_close_v8",
+    "tests.test_native_observation_boundaries_v8",
+    "tests.test_native_primitives_v8",
+    "tests.test_native_v8",
+    "tests.test_number_v8",
+    "tests.test_prediction_prefix_v8",
+    "tests.test_promise_executor_boundaries_v8",
+    "tests.test_promise_executor_v8",
+    "tests.test_promise_join_v8",
+    "tests.test_promise_scheduler_v8",
+    "tests.test_protocol_boundaries_v8",
+    "tests.test_protocol_v8",
+    "tests.test_proxy_v8",
+    "tests.test_semantic_model_v8",
+    "tests.test_serve_semantic_v8",
+    "tests.test_algorithm_v7",
+    "tests.test_protocol_properties"
+  ],
+  "checks": [
+    {
+      "name": "unit",
+      "exitCode": 0,
+      "command": [
+        "/workspace/scratch/d11743e0247b/native-venv/bin/python",
+        "-m",
+        "pytest",
+        "-q",
+        "tests/test_admit_semantic_v8.py",
+        "tests/test_algorithm_v8.py",
+        "tests/test_construction_v8.py",
+        "tests/test_custom_iterator_v8.py",
+        "tests/test_enumeration_v8.py",
+        "tests/test_generator_boundaries_v8.py",
+        "tests/test_memory_v8.py",
+        "tests/test_native_array_boundaries_v8.py",
+        "tests/test_native_callback_boundaries_v8.py",
+        "tests/test_native_detail_regressions_v8.py",
+        "tests/test_native_generator_close_v8.py",
+        "tests/test_native_observation_boundaries_v8.py",
+        "tests/test_native_primitives_v8.py",
+        "tests/test_native_v8.py",
+        "tests/test_number_v8.py",
+        "tests/test_prediction_prefix_v8.py",
+        "tests/test_promise_executor_boundaries_v8.py",
+        "tests/test_promise_executor_v8.py",
+        "tests/test_promise_join_v8.py",
+        "tests/test_promise_scheduler_v8.py",
+        "tests/test_protocol_boundaries_v8.py",
+        "tests/test_protocol_v8.py",
+        "tests/test_proxy_v8.py",
+        "tests/test_semantic_model_v8.py",
+        "tests/test_serve_semantic_v8.py",
+        "tests/test_algorithm_v7.py",
+        "tests/test_protocol_properties.py",
+        "--junitxml=/workspace/scratch/d11743e0247b/v8-final-native-validation/semantic-v8-tests.xml"
+      ],
+      "log": "pytest.log",
+      "logSha256": "6fa211d1f374f1bce9a3c61f07152386b0669aa15aa6d07b9637d90327a94e71",
+      "elapsedSeconds": 406.66967874299735,
+      "testsRun": 244,
+      "failures": 0,
+      "errors": 0,
+      "skips": 0
+    },
+    {
+      "name": "ruff",
+      "exitCode": 0,
+      "command": [
+        "/workspace/scratch/d11743e0247b/native-venv/bin/python",
+        "-m",
+        "ruff",
+        "check",
+        "src",
+        "tests",
+        "scripts"
+      ],
+      "log": "ruff-check.log",
+      "logSha256": "82b3e6a6c090a57601d22943bd23fca9218d1031dbe5a7b754092f9a156b4f18",
+      "elapsedSeconds": 0.4858895899960771
+    },
+    {
+      "name": "ruff-format",
+      "exitCode": 0,
+      "command": [
+        "/workspace/scratch/d11743e0247b/native-venv/bin/python",
+        "-m",
+        "ruff",
+        "format",
+        "--check",
+        "src",
+        "tests",
+        "scripts"
+      ],
+      "log": "ruff-format.log",
+      "logSha256": "9f340d78f35fe3c2c7a79b5697ba83485b7665002db15ff7ddf9b045cc8fb207",
+      "elapsedSeconds": 0.530325753003126
+    },
+    {
+      "name": "git-diff-check",
+      "exitCode": 0,
+      "command": [
+        "git",
+        "diff",
+        "--check"
+      ],
+      "log": "git-diff-check.log",
+      "logSha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+    }
+  ],
+  "environment": {
+    "OMP_NUM_THREADS": "1",
+    "MKL_NUM_THREADS": "1",
+    "PYTHONPATH": "/workspace/scratch/d11743e0247b/v8-final-native/src",
+    "TRACING_JS_SELF_ROOT": "/workspace/scratch/d11743e0247b/v8-final-producer",
+    "MEGATOKEN_NATIVE_SOURCE_PRODUCER": "/workspace/scratch/d11743e0247b/v8-final-producer",
+    "MEGATOKEN_TOKENIZER_JSON": "/workspace/scratch/d11743e0247b/tokenizer.json",
+    "MEGATOKEN_ROOT": "/workspace/scratch/d11743e0247b/v8-final-native",
+    "MEGATOKEN_PYTHON": "/workspace/scratch/d11743e0247b/native-venv/bin/python",
+    "SEMANTIC_V8_NATIVE_POLICY": "/workspace/scratch/d11743e0247b/v8-final-producer/contracts/semantic-native-policy-v8.json"
+  },
+  "policy": {
+    "schema": "semantic-native-policy/8",
+    "consumerRepository": "werg/megatoken",
+    "consumerRevision": "39c4036564428e44cc89caf261f517d856482695",
+    "contractDigest": "344f7e99aeed605a1965c70f0e0d8829707d6891437ba43dd743fa304cd777dc",
+    "fixtureDigest": "56f7f36d3b25b3b11a208be3de337e637b9782e6759faea1e1ec107b0a90f0ce",
+    "tokenizerIdentity": "7f52faca2fe82273a889023defd2f1a6fd6080a21096ec77e97f4798a0a370b2",
+    "tokenizerSha256": "40fb9d7d7795b8bd305aeff39ce9963f3f450915b9553f2938e009be9a1fed60",
+    "interoperabilityDigest": "ef962002482fbf7adb6698fc435535dfa202b12848907a29ee0e5fbb5683a7c7"
+  },
+  "tokenizerSha256": "40fb9d7d7795b8bd305aeff39ce9963f3f450915b9553f2938e009be9a1fed60",
+  "producerContractSha256": "4e8242c443fff11011e71539bbe5279aa81c62e53db3c0d88335ac9e2032d273",
+  "consumerContractSha256": "4e8242c443fff11011e71539bbe5279aa81c62e53db3c0d88335ac9e2032d273",
+  "allLiveSourceAuthorityChecksEnabled": true,
+  "junit": {
+    "path": "semantic-v8-tests.xml",
+    "sha256": "afd9a36f0465f4cd060e4172d195f8dea09138a0464f6011e019c7bc20ebab08"
+  },
+  "scope": "Final clean producer012c9fe and native39c4036; all workflow-selected v8, algorithm-v7, protocol-property and live source-admission tests, plus full Ruff lint/format.",
+  "runtime": {
+    "python": "3.12.14",
+    "pythonFull": "3.12.14 (main, Aug 25 2026, 14:00:49) [Clang 22.1.3 ]",
+    "executable": "/workspace/scratch/d11743e0247b/native-venv/bin/python",
+    "tokenizers": "0.23.3",
+    "ruff": "ruff 0.17.6",
+    "torch": "2.10.0+cpu",
+    "node": "v24.22.3",
+    "ruffVersion": "0.17.6"
+  }
+}

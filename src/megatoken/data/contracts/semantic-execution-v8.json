@@ -239,6 +239,618 @@
           ]
         },
         "meaning": "Existing checked selected-detailed/1 transitions, committed into the same shared machine."
+      },
+      "protocol": {
+        "schema": "semantic-protocol-record/1",
+        "prefix": "protocol ",
+        "fieldsByKind": {
+          "symbol.create": [
+            "kind",
+            "id",
+            "description"
+          ],
+          "symbol.for": [
+            "kind",
+            "id",
+            "key"
+          ],
+          "symbol.read": [
+            "kind",
+            "symbol",
+            "operation",
+            "result",
+            "bind"
+          ],
+          "allocate": [
+            "kind",
+            "name",
+            "objectKind",
+            "length",
+            "properties",
+            "code",
+            "captures",
+            "functionKind",
+            "lexicalReceiver"
+          ],
+          "bind": [
+            "kind",
+            "name",
+            "value"
+          ],
+          "compute": [
+            "kind",
+            "expr",
+            "result",
+            "bind"
+          ],
+          "choose": [
+            "kind",
+            "expr",
+            "decision",
+            "path"
+          ],
+          "call": [
+            "kind",
+            "child",
+            "callee",
+            "receiver",
+            "arguments"
+          ],
+          "return": [
+            "kind",
+            "value",
+            "invocation"
+          ],
+          "throw": [
+            "kind",
+            "value",
+            "invocation"
+          ],
+          "end": [
+            "kind",
+            "completion"
+          ],
+          "property.define": [
+            "kind",
+            "object",
+            "key",
+            "descriptor",
+            "success"
+          ],
+          "property.get": [
+            "kind",
+            "object",
+            "key",
+            "receiver",
+            "result"
+          ],
+          "property.hasOwn": [
+            "kind",
+            "object",
+            "key",
+            "result"
+          ],
+          "property.set": [
+            "kind",
+            "object",
+            "key",
+            "receiver",
+            "value",
+            "success"
+          ],
+          "property.delete": [
+            "kind",
+            "object",
+            "key",
+            "success"
+          ],
+          "property.keys": [
+            "kind",
+            "object",
+            "mode",
+            "name",
+            "keys"
+          ],
+          "property.prototype": [
+            "kind",
+            "object",
+            "prototype",
+            "success"
+          ],
+          "property.preventExtensions": [
+            "kind",
+            "object"
+          ],
+          "property.get.call": [
+            "kind",
+            "id",
+            "child",
+            "object",
+            "key",
+            "receiver"
+          ],
+          "property.set.call": [
+            "kind",
+            "id",
+            "child",
+            "object",
+            "key",
+            "receiver",
+            "value"
+          ],
+          "property.finish": [
+            "kind",
+            "id",
+            "completion"
+          ],
+          "memory.construct": [
+            "kind",
+            "constructor",
+            "name",
+            "backing",
+            "arguments"
+          ],
+          "memory.get": [
+            "kind",
+            "object",
+            "key",
+            "result"
+          ],
+          "memory.set": [
+            "kind",
+            "object",
+            "key",
+            "value"
+          ],
+          "memory.call": [
+            "kind",
+            "method",
+            "receiver",
+            "arguments",
+            "name",
+            "result"
+          ],
+          "callable.define": [
+            "kind",
+            "object",
+            "constructorKind",
+            "classConstructor"
+          ],
+          "callable.home": [
+            "kind",
+            "object",
+            "home"
+          ],
+          "class.link": [
+            "kind",
+            "object",
+            "prototype",
+            "heritage"
+          ],
+          "class.initializer": [
+            "kind",
+            "object",
+            "placement",
+            "initializer"
+          ],
+          "private.declare": [
+            "kind",
+            "id",
+            "owner",
+            "name"
+          ],
+          "private.define": [
+            "kind",
+            "object",
+            "privateId",
+            "elementKind",
+            "value"
+          ],
+          "private.get": [
+            "kind",
+            "object",
+            "privateId",
+            "result"
+          ],
+          "private.set": [
+            "kind",
+            "object",
+            "privateId",
+            "value"
+          ],
+          "private.has": [
+            "kind",
+            "object",
+            "privateId",
+            "result"
+          ],
+          "construct.enter": [
+            "kind",
+            "id",
+            "child",
+            "callee",
+            "newTarget",
+            "arguments",
+            "receiver",
+            "mode",
+            "owner"
+          ],
+          "construct.body": [
+            "kind",
+            "id",
+            "child"
+          ],
+          "construct.finish": [
+            "kind",
+            "id",
+            "completion"
+          ],
+          "construct.target": [
+            "kind",
+            "invocation",
+            "result"
+          ],
+          "construct.this": [
+            "kind",
+            "invocation",
+            "result"
+          ],
+          "super.select": [
+            "kind",
+            "owner",
+            "callee"
+          ],
+          "super.bind": [
+            "kind",
+            "owner",
+            "receiver",
+            "child"
+          ],
+          "super.finish": [
+            "kind",
+            "owner",
+            "completion"
+          ],
+          "iterator.lookup": [
+            "kind",
+            "receiver",
+            "key",
+            "method"
+          ],
+          "iterator.create": [
+            "kind",
+            "name",
+            "iterated",
+            "iterationKind"
+          ],
+          "iterator.next": [
+            "kind",
+            "object",
+            "name",
+            "entry",
+            "result",
+            "done"
+          ],
+          "iterator.identity": [
+            "kind",
+            "object",
+            "result"
+          ],
+          "iterator.read": [
+            "kind",
+            "object",
+            "key",
+            "result"
+          ],
+          "iterator.arrayGuard": [
+            "kind",
+            "iterated",
+            "result"
+          ],
+          "enumeration.create": [
+            "kind",
+            "name",
+            "source"
+          ],
+          "enumeration.next": [
+            "kind",
+            "object",
+            "name",
+            "result",
+            "done"
+          ],
+          "promise.join": [
+            "kind",
+            "mode",
+            "result",
+            "inputs",
+            "jobs",
+            "output",
+            "error"
+          ],
+          "promise.join.step": [
+            "kind",
+            "result",
+            "job",
+            "entry",
+            "output",
+            "error",
+            "status",
+            "value"
+          ],
+          "number.begin": [
+            "kind",
+            "id",
+            "value"
+          ],
+          "number.select": [
+            "kind",
+            "id",
+            "key",
+            "method",
+            "builtin"
+          ],
+          "number.call": [
+            "kind",
+            "id",
+            "child"
+          ],
+          "number.builtin": [
+            "kind",
+            "id",
+            "result"
+          ],
+          "number.return": [
+            "kind",
+            "id",
+            "value"
+          ],
+          "number.throw": [
+            "kind",
+            "id",
+            "value"
+          ],
+          "number.finish": [
+            "kind",
+            "id",
+            "result"
+          ],
+          "generator.function": [
+            "kind",
+            "object",
+            "prototype",
+            "name",
+            "length"
+          ],
+          "generator.create": [
+            "kind",
+            "name",
+            "child",
+            "callee",
+            "receiver",
+            "arguments"
+          ],
+          "generator.start": [
+            "kind",
+            "object"
+          ],
+          "generator.resume": [
+            "kind",
+            "object",
+            "method",
+            "argument"
+          ],
+          "generator.receive": [
+            "kind",
+            "object",
+            "bind"
+          ],
+          "generator.handler.enter": [
+            "kind",
+            "object",
+            "name",
+            "catch",
+            "finally"
+          ],
+          "generator.handler.route": [
+            "kind",
+            "object",
+            "completion"
+          ],
+          "generator.handler.catch": [
+            "kind",
+            "object",
+            "name",
+            "bind"
+          ],
+          "generator.handler.leave": [
+            "kind",
+            "object",
+            "name"
+          ],
+          "generator.delegate.enter": [
+            "kind",
+            "object",
+            "iterator",
+            "next"
+          ],
+          "generator.delegate.call": [
+            "kind",
+            "object",
+            "method",
+            "call"
+          ],
+          "generator.delegate.result": [
+            "kind",
+            "object",
+            "result",
+            "done"
+          ],
+          "generator.delegate.yield": [
+            "kind",
+            "object",
+            "result"
+          ],
+          "generator.delegate.receive": [
+            "kind",
+            "object"
+          ],
+          "generator.delegate.end": [
+            "kind",
+            "object"
+          ],
+          "generator.delegate.absent": [
+            "kind",
+            "object",
+            "method"
+          ],
+          "generator.delegate.abrupt": [
+            "kind",
+            "object",
+            "value"
+          ],
+          "generator.yield": [
+            "kind",
+            "object",
+            "value",
+            "name"
+          ],
+          "generator.finish": [
+            "kind",
+            "object",
+            "completion",
+            "name"
+          ],
+          "generator.completed": [
+            "kind",
+            "object",
+            "method",
+            "argument",
+            "name"
+          ],
+          "generator.lookup": [
+            "kind",
+            "receiver",
+            "key",
+            "method"
+          ],
+          "generator.read": [
+            "kind",
+            "object",
+            "key",
+            "result"
+          ],
+          "generator.identity": [
+            "kind",
+            "object",
+            "result"
+          ],
+          "proxy.create": [
+            "kind",
+            "name",
+            "target",
+            "handler"
+          ],
+          "proxy.get": [
+            "kind",
+            "object",
+            "key",
+            "result"
+          ],
+          "proxy.set": [
+            "kind",
+            "object",
+            "key",
+            "value",
+            "success"
+          ],
+          "proxy.get.call": [
+            "kind",
+            "id",
+            "object",
+            "key",
+            "child"
+          ],
+          "proxy.set.call": [
+            "kind",
+            "id",
+            "object",
+            "key",
+            "value",
+            "child"
+          ],
+          "proxy.finish": [
+            "kind",
+            "id",
+            "completion"
+          ],
+          "promise.executor.enter": [
+            "kind",
+            "promise",
+            "executor",
+            "child",
+            "resolve",
+            "reject"
+          ],
+          "promise.resolver.call": [
+            "kind",
+            "resolver",
+            "value"
+          ],
+          "promise.executor.finish": [
+            "kind",
+            "promise",
+            "invocation",
+            "completion"
+          ]
+        },
+        "expressionKinds": [
+          "literal",
+          "local",
+          "unary",
+          "binary",
+          "logical-test"
+        ],
+        "logicalTest": {
+          "fields": [
+            "op",
+            "operator",
+            "arg"
+          ],
+          "operators": [
+            "&&",
+            "||",
+            "??"
+          ],
+          "decision": "Boolean derived only from the current operand: && tests falsiness, || tests truthiness, ?? tests non-nullishness. No future right operand is included.",
+          "logicalPaths": {
+            "true": "use-left",
+            "false": "evaluate-right"
+          },
+          "optionalGuardPaths": {
+            "true": "then",
+            "false": "else"
+          }
+        },
+        "profile": "symbols-ordinary-properties/1",
+        "extensions": [
+          "owned-binary-memory/1",
+          "class-construction/1",
+          "builtin-iterator/1",
+          "ordinary-for-in/1",
+          "promise-join/1",
+          "number-conversion/1",
+          "synchronous-generator/1",
+          "ordinary-data-proxy/1",
+          "promise-executor/1"
+        ],
+        "limits": {
+          "symbols": 4096,
+          "properties": 4096,
+          "calls": 64,
+          "steps": 32768
+        },
+        "meaning": "Checked Symbol identities, descriptors, receiver-aware access, scoped calls, construction, iterators, ordinary enumeration, generators, Number conversion, Promise joins and executors, Proxy traps and binary memory in the same authoritative heap."
       }
     },
     "algorithm": {
@@ -1044,8 +1656,377 @@
       "activeJob",
       "scheduler",
       "frameFunctions",
-      "jobErrors"
+      "jobErrors",
+      "protocol"
     ],
+    "protocolState": {
+      "schema": "semantic-protocol-state/1",
+      "fields": [
+        "schema",
+        "symbols",
+        "pendingCalls",
+        "callFrames",
+        "sequence",
+        "construction",
+        "numberConversions",
+        "proxyCalls",
+        "promiseExecutors"
+      ],
+      "initial": null,
+      "heap": "Existing heap nodes with property, descriptor and private-element Maps serialized as entry arrays; Symbol keys remain tagged pairs.",
+      "construction": {
+        "schema": "semantic-construction-state/1",
+        "fields": [
+          "schema",
+          "privateNames",
+          "frames",
+          "lastCompletion"
+        ],
+        "initial": null,
+        "callableFields": [
+          "constructorKind",
+          "classConstructor",
+          "homeObject",
+          "instanceInitializer",
+          "staticInitializer"
+        ],
+        "frameFields": [
+          "id",
+          "parent",
+          "bodyInvocation",
+          "activeChild",
+          "callee",
+          "newTarget",
+          "arguments",
+          "receiver",
+          "initialized",
+          "phase",
+          "superParent",
+          "selectedSuper"
+        ],
+        "privateElementFields": [
+          "kind",
+          "value",
+          "version"
+        ],
+        "sourceCallables": "Explicit function source offsets and source-inventoried class:<offset>:constructor|instance|static bodies.",
+        "continuations": "Owned base/derived constructor receivers, newTarget, field initializers and captured superclass selection; private fields and methods retain declaring-class identities."
+      },
+      "iterators": {
+        "profile": "builtin-iterator/1",
+        "heapFields": [
+          "kind",
+          "iterated",
+          "iterationKind",
+          "nextIndex",
+          "done",
+          "properties"
+        ],
+        "capabilities": "Builtin array keys/values/entries and Unicode string iteration, live array length, sticky exhaustion and explicit result/pair allocation identities."
+      },
+      "ordinaryCompletions": {
+        "schema": "semantic-handler-scopes/1",
+        "fields": [
+          "schema",
+          "frames"
+        ],
+        "frameFields": [
+          "invocation",
+          "handlers"
+        ],
+        "optionalFrameFields": [
+          "targets"
+        ],
+        "handlerFields": [
+          "id",
+          "catch",
+          "finally",
+          "phase",
+          "caught",
+          "pending"
+        ],
+        "targetFields": [
+          "id",
+          "continue"
+        ],
+        "pendingKinds": [
+          "normal",
+          "return",
+          "throw",
+          "break",
+          "continue"
+        ],
+        "pendingFields": [
+          "kind",
+          "value"
+        ],
+        "optionalPendingFields": [
+          "target"
+        ],
+        "maxHandlersPerFrame": 64,
+        "maxTargetsPerFrame": 64,
+        "capabilities": "Ordinary synchronous catch/finally scopes retain pending completion and bounded loop target identities. Break and continue targets belong to the same frame; only loop targets permit continue. Source qualification privately checks destinations without publishing bytecode."
+      },
+      "customIteration": {
+        "profile": "custom-iterator-source/1",
+        "capabilities": "Ordinary synchronous custom for-of and flat variable array bindings use checked properties, cached next and receiver cells, scoped calls, and ordinary cleanup. Independent observations check acquisition, done/value reads, and IteratorClose order and precedence.",
+        "boundaries": "Malformed intrinsic TypeErrors, asynchronous iteration, and nested or assignment pattern source projection require separate qualification; runtime execution alone does not admit them."
+      },
+      "enumeration": {
+        "profile": "ordinary-for-in/1",
+        "heapFields": [
+          "kind",
+          "source",
+          "chain",
+          "keys",
+          "nextIndex",
+          "done",
+          "properties"
+        ],
+        "limits": {
+          "chain": 128,
+          "keys": 4096
+        },
+        "chainFields": [
+          "id",
+          "prototype",
+          "keys"
+        ],
+        "capabilities": "Stable ordinary for-in snapshots preserve own-key order, prototype walks, nonenumerable shadowing and fresh per-step result identities. Value writes are live; changed key/prototype structure is refused on the next step."
+      },
+      "promiseJoins": {
+        "profile": "promise-join/1",
+        "schema": "semantic-promise-join-state/1",
+        "modes": [
+          "all",
+          "race"
+        ],
+        "fields": [
+          "schema",
+          "mode",
+          "inputs",
+          "jobs",
+          "observed",
+          "values",
+          "settled",
+          "output",
+          "error"
+        ],
+        "jobFields": [
+          "status",
+          "owner",
+          "promise",
+          "reaction",
+          "closure",
+          "rejectionClosure",
+          "target",
+          "sequence",
+          "joinResult",
+          "joinIndex",
+          "readySequence"
+        ],
+        "capabilities": "Ordered Promise dependencies, FIFO internal jobs, first settlement and explicit late no-op steps; fresh result arrays are named only when allocated."
+      },
+      "numberConversions": {
+        "profile": "number-conversion/1",
+        "schema": "semantic-number-conversion-state/1",
+        "fields": [
+          "schema",
+          "operations"
+        ],
+        "initial": null,
+        "operationFields": [
+          "id",
+          "parent",
+          "input",
+          "index",
+          "method",
+          "builtin",
+          "child",
+          "phase",
+          "primitive",
+          "result"
+        ],
+        "phases": [
+          "select",
+          "call",
+          "builtin",
+          "waiting",
+          "convert",
+          "complete",
+          "abrupt"
+        ],
+        "capabilities": "Live data-method selection, original receiver and number hint, shared callback scopes, ordered ordinary fallback and checked primitive conversion. Synchronous callback throws preserve their completion through catch/finally and suppress fallback. Accessor selection, intrinsic TypeErrors and exotic conversion remain separate profiles."
+      },
+      "generators": {
+        "profile": "synchronous-generator/1",
+        "heapFields": [
+          "kind",
+          "callee",
+          "invocation",
+          "receiver",
+          "arguments",
+          "phase",
+          "resume",
+          "pending",
+          "yielded",
+          "handlers",
+          "delegation",
+          "prototype",
+          "properties"
+        ],
+        "intrinsicPrototypes": [
+          "GeneratorFunction.prototype",
+          "Generator.prototype",
+          "Iterator.prototype"
+        ],
+        "phases": [
+          "initializing",
+          "suspendedStart",
+          "executing",
+          "suspendedYield",
+          "completed"
+        ],
+        "methods": [
+          "next",
+          "return",
+          "throw"
+        ],
+        "handlerFields": [
+          "name",
+          "catch",
+          "finally",
+          "phase",
+          "caught",
+          "pending"
+        ],
+        "delegationFields": [
+          "iterator",
+          "next",
+          "request",
+          "phase",
+          "result"
+        ],
+        "capabilities": "Retained invocations, receivers, arguments and captures; sent values, catch/finally cleanup, suspension and cached-next delegation through declared builtin iterators and synchronous generators."
+      },
+      "proxyCalls": {
+        "profile": "ordinary-data-proxy/1",
+        "schema": "semantic-proxy-call-state/1",
+        "fields": [
+          "schema",
+          "pending"
+        ],
+        "initial": null,
+        "heapFields": [
+          "kind",
+          "target",
+          "handler",
+          "properties"
+        ],
+        "callFields": [
+          "id",
+          "operation",
+          "parent",
+          "child",
+          "object",
+          "target",
+          "handler",
+          "key",
+          "value",
+          "callee"
+        ],
+        "capabilities": "Distinct Proxy, target and handler identities; ordinary data forwarding and synchronous owned get/set traps with live target invariants and exact pending callback completion. Callable or revoked proxies and other traps require explicit profiles."
+      },
+      "promiseExecutors": {
+        "profile": "promise-executor/1",
+        "schema": "semantic-promise-executor-state/1",
+        "fields": [
+          "schema",
+          "capabilities",
+          "executors"
+        ],
+        "capabilityFields": [
+          "promise",
+          "resolve",
+          "reject",
+          "called",
+          "resolution"
+        ],
+        "executorFields": [
+          "promise",
+          "parent",
+          "child",
+          "phase",
+          "completion"
+        ],
+        "resolverFields": [
+          "promise",
+          "mode"
+        ],
+        "capabilities": "Synchronous source executor calls, stable resolving function identities, a shared first-call cell, retained resolvers, primitive or owned Promise resolution, and executor throw rejection. Thenables, self resolution and async executor bodies require separate profiles."
+      },
+      "binaryMemory": {
+        "profile": "owned-binary-memory/1",
+        "heapFields": {
+          "array-buffer": [
+            "kind",
+            "byteLength",
+            "maxByteLength",
+            "resizable",
+            "detached",
+            "bytes",
+            "properties"
+          ],
+          "shared-int32-buffer": [
+            "kind",
+            "byteLength",
+            "maxByteLength",
+            "growable",
+            "bytes",
+            "properties"
+          ],
+          "typed-array": [
+            "kind",
+            "bufferId",
+            "elementType",
+            "byteOffset",
+            "length",
+            "lengthTracking",
+            "properties"
+          ],
+          "shared-int32-view": [
+            "kind",
+            "bufferId",
+            "elementType",
+            "byteOffset",
+            "length",
+            "lengthTracking",
+            "properties"
+          ],
+          "data-view": [
+            "kind",
+            "bufferId",
+            "byteOffset",
+            "byteLength",
+            "lengthTracking",
+            "properties"
+          ],
+          "shared-data-view": [
+            "kind",
+            "bufferId",
+            "byteOffset",
+            "byteLength",
+            "lengthTracking",
+            "properties"
+          ]
+        },
+        "maxBufferBytes": 1024,
+        "typedArrayByteOrder": "little-endian",
+        "dataViewByteOrder": "explicit per operation",
+        "capabilities": "Fixed ordinary buffers and fixed/growable shared buffers; scalar conversions; shared view identities; bounded single-agent atomic operations. No detach, transfer, host buffers or cross-agent scheduling."
+      },
+      "lifecycle": "One fresh invocation without external host work. Declared ordinary catch/finally and loop cleanup use checked transfer detail. Declared Promise joins and executors may use internal Promise, await, resume, job and transfer detail; join steps require an empty stack and the FIFO ready head. External observations remain outside protocol profiles."
+    },
     "checkpoint": {
       "fields": [
         "schema",
@@ -1055,6 +2036,14 @@
         "selected",
         "integrity"
       ],
+      "protocolSelected": {
+        "schema": "semantic-protocol-continuation/1",
+        "fields": [
+          "schema",
+          "invocations"
+        ],
+        "meaning": "Exact shared states and activation statuses independently reconstructed from the complete public v8 history."
+      },
       "restore": "Validate public mixed replay and exact shared state. Restore existing intent/handler lifecycle without invoking adapters."
     },
     "supervision": {
@@ -1071,7 +2060,7 @@
       "default": "not promoted by engineering receipts alone"
     }
   },
-  "digest": "fe1eed56bafa5c0012354b29ebb3b40bbe33f085f063d6990fcb3f26cb261cc2",
+  "digest": "344f7e99aeed605a1965c70f0e0d8829707d6891437ba43dd743fa304cd777dc",
   "fixtureDigest": "56f7f36d3b25b3b11a208be3de337e637b9782e6759faea1e1ec107b0a90f0ce",
   "fixtures": [
     {
@@ -1094,6 +2083,149 @@
       "valid": false,
       "execution": "semantic-execution/7",
       "reason": "old artifacts require their original contract"
+    }
+  ],
+  "interoperabilityDigest": "ef962002482fbf7adb6698fc435535dfa202b12848907a29ee0e5fbb5683a7c7",
+  "interoperability": [
+    {
+      "id": "ordered-map",
+      "publicDigest": "b704bd98130eb8fe864342068f5772fab7cb3f2d1b42606d4474e11129b7f159",
+      "contextDigest": "2e307fc5bd194c55fbb2e8add4edc0459e25ca4aa2d0d0fb3728b069faa74018"
+    },
+    {
+      "id": "shared-getter",
+      "publicDigest": "8eb149a3c659355c843d16d3f4b76f1a5fb42e90088376f93fa9564f3b0caac5",
+      "contextDigest": "28401e10e99fe0aaf37dfb4cd2c0a467bfe59f941ab994a06533da62edda8443"
+    },
+    {
+      "id": "causal-counter",
+      "publicDigest": "c37a66e94edae5d7ca6f80be9bb46ccd8b31afa825074a88612c4b76645dbf4c",
+      "contextDigest": "112e1761435270b82947f142587d23d3c3b424d64f2fc50ab9973f99c54be310"
+    },
+    {
+      "id": "number-callback-cleanup",
+      "publicDigest": "caa05bbcd7bc85cde8901263fc6dee8008fb52ad1a827159a8977f4a839a6bd7",
+      "contextDigest": "dfbc7948643309ecf31ecd9d0ff1adce5de21e6d350426af2e4b64bcd130655a"
+    },
+    {
+      "id": "custom-iterator-close",
+      "publicDigest": "b7f126ce1de9b0596f74502afd5f7a81883f30a73a885b97f97d14c3a02c5bca",
+      "contextDigest": "01a5ecb69f45c8500d54940d3aa413d5241669f54de98cda34fc4ba110674634"
+    },
+    {
+      "id": "iterable-binding-close",
+      "publicDigest": "379ce9087733a01ed47718cee54723bdf3804af5b77d52d10fc7cc0d8b4b78b2",
+      "contextDigest": "f47756b3e317b5fe201543a5e8faf21d5d78e255382eba4dce4a9cb675069eb3"
+    },
+    {
+      "id": "protocol-machine",
+      "schema": "semantic-protocol-fixtures/1",
+      "fixtureDigest": "5c8ca536f82d51dd77dd797b48abbfcb9b53344b18562f63d219bebb28d34744"
+    },
+    {
+      "id": "iterator-machine",
+      "schema": "semantic-protocol-fixtures/1",
+      "fixtureDigest": "af1ab22e69e91e12d694c4a1c381057360e8284b2b37eb82c0fcb6a4efa7071e"
+    },
+    {
+      "id": "protocol-region:source-symbol-getter-arithmetic",
+      "publicDigest": "8ef59d81dd8326979a12b4708b6005f17773ee84ff5cddb779d0d79927c8c8fa",
+      "contextDigest": "b64e331dd9227885a2e7c5c1fe8f03912cb56e636b9a933ed1ccc28a595a8f4d"
+    },
+    {
+      "id": "protocol-region:typed-views-shared-backing",
+      "publicDigest": "bf88479ca947f7ae6250c493e458db1edac052b1ecd3ebdb8f8fe4f8b52e86d9",
+      "contextDigest": "e5969e47471b300424f46c1901b5d3407743d1e769f4cf328842216238d11c30"
+    },
+    {
+      "id": "protocol-region:source-derived-private-arithmetic",
+      "publicDigest": "430041e0644627ee81ba9e0a8fa1b6282fd7870b1637a330197aade3e4a6a34d",
+      "contextDigest": "ca65e9efa24e1744eea065e072d8a17d90e51f9d56a6acf7bfbcc31e52e1f99f"
+    },
+    {
+      "id": "protocol-region:builtin-iterator-mixed-arithmetic",
+      "publicDigest": "4c23306ead48399d7c166b310702a551b2b9b082e9b4d67c5bb9949c081dd8dd",
+      "contextDigest": "6ea8b7c3eb8f52e4a330c31a62a7b6e093c8eb707a7be29a4863ef3a307751c9"
+    },
+    {
+      "id": "protocol-region:source-promise-all-reaction-arithmetic",
+      "publicDigest": "d8c09083779e5151b2b0428979b29047af92b370f496a7bba46e4bada20453cd",
+      "contextDigest": "b2b197a8ff29a98d5fa66136b5709cd751fbc2db681193ee058f211a19aa569c"
+    },
+    {
+      "id": "protocol-region:source-promise-join-rejection-finally",
+      "publicDigest": "7d7365fa0f71e2301434f05bc1da3766e09f85588b76d12f94fc4380d5687001",
+      "contextDigest": "3fa9c55786017f220dca5a75dd6b7a53fdd28f8a592ed5ce34ffba051476cc62"
+    },
+    {
+      "id": "protocol-region:source-number-private-arithmetic",
+      "publicDigest": "3543aa60cfb66b183eec2c0f5e80c9ba97b80ede177d517f6d0829c91ff4df7b",
+      "contextDigest": "83ac144618f1c4242d3fb60f9c958cc20e5d76341127ac9f7c621986523f0cbb"
+    },
+    {
+      "id": "protocol-region:source-generator-cleanup-suspension",
+      "publicDigest": "afd8010d455b42109bfd3bdc369a8011a6d2f463669125b19ba9cf0392cfd197",
+      "contextDigest": "9af058f65f09f808a76aa1c8c90871aa2c5e5a4b9ca06b895711c2b297960d59"
+    },
+    {
+      "id": "protocol-region:source-generator-delegated-cleanup",
+      "publicDigest": "323a3c71c668543e26bd4eb026b003cdbc9546cfd779106461f22493d4753221",
+      "contextDigest": "6e02d196a798526b3e2267a27fc04acc96f0bc6247328dc9ec2d09af07642531"
+    },
+    {
+      "id": "protocol-region:source-proxy-traps-arithmetic",
+      "publicDigest": "494e988e8bcc34e561f193cbc51f63db15a53baeea4cf15d4c25f906201b5b73",
+      "contextDigest": "d85ab53565864d9e2e70ba243a55b8eb96fa765c7d3799f18b5bc04f26a883ee"
+    },
+    {
+      "id": "protocol-region:source-base-initializer-throw",
+      "publicDigest": "80f87fe2375a8e30ebdffa5e10643d69098523b172780e7ebfedc6b68012e777",
+      "contextDigest": "b6ee0279d62e10d84c534bc80bc72fd35736d5303a72ea9ffd516f0072572e49"
+    },
+    {
+      "id": "protocol-region:source-derived-initializer-throw",
+      "publicDigest": "308db677ef00a9bb681a3013e557b724db1c81d3995c279df5a33bdd09af52b6",
+      "contextDigest": "0bd104ee0ce69e9e2a66c78235f3d53608214dde126c51e2f63ad2214306b7d6"
+    },
+    {
+      "id": "protocol-region:source-promise-executor-first-call",
+      "publicDigest": "4ed6debf250dbc07e08e34048f3d3abd2bb7fd60e73882884272aa46004cf03f",
+      "contextDigest": "cd0ed811925bba84d976c3edb96cce4bf64436098533c77d7c890829bd01e082"
+    },
+    {
+      "id": "protocol-region:source-promise-executor-retained-resolution",
+      "publicDigest": "4ebf7b919e5b2191d655b22b2d8fd89dad1f4ecee6f64058ff6c6fde23051811",
+      "contextDigest": "cfcfe519fe9a4a249f541d8245bbf2b764f982ef44f6e86f943fa66af1ba337b"
+    },
+    {
+      "id": "protocol-region:source-promise-executor-abrupt",
+      "publicDigest": "2494dc360b6b178634186cdf30f8d227df99ddeeac8ca0a0f1bcff3bec2bbd39",
+      "contextDigest": "4165879acf7aa237c10b80a9a38ac604ad097fb13af15320e59cfddb032ff70b"
+    },
+    {
+      "id": "protocol-region:source-ordinary-constructor-prototype",
+      "publicDigest": "982388a5895e9fc5b37de5ebf970d1f9293e5ca6643c2e128af30bfee7106dfc",
+      "contextDigest": "a94465d7a4819a3b07f2fb78913c48189f091e1521ab94c6d02f6402099247d5"
+    },
+    {
+      "id": "protocol-region:source-enumeration-map-callback",
+      "publicDigest": "9b0ac56b147591d77ef3288f19d3b8e6d1a5bfd8a8b2cf942f96b030b9f881d2",
+      "contextDigest": "be7c7bd47da770aef4eb02641b90f33b551217b61eb7c8617508943059a1cbfc"
+    },
+    {
+      "id": "protocol-region:generator-own-symbol-alias",
+      "publicDigest": "9615d6b976e92697f24ef96fbc06ed29cf47b211f9b8dcbc50bb9cd737b7bc6e",
+      "contextDigest": "e0bbd3a516c4e8cb4e700fb920a0279ab93041b8afdfb3038dec24c85cbc8622"
+    },
+    {
+      "id": "protocol-region:source-logical-left-operands",
+      "publicDigest": "6f244d4b5dd9bcd659bc2bb217c7acbf44371dfaa96427c8810c178540dda3d5",
+      "contextDigest": "c57574aa4588198534eaefcca1dbcbc2fce5a375d3e09cae70dac68bbf8b8410"
+    },
+    {
+      "id": "protocol-region:source-for-in-own-keys",
+      "publicDigest": "5a5961de79bb1d7f3ad2565dba08869aa815f6f1410fce0579cc07afa98f03b3",
+      "contextDigest": "e7b05ac9f3c806862ac5894b7169290f2071b07f283ef4b61ff2d9ed8a601950"
     }
   ]
 }

@@ -29,6 +29,11 @@ def semantic_execution_metadata() -> dict[str, object]:
     return {"task": "semantic-execution/6", "modality": "text"}
 
 
+def semantic_execution_metadata_v8() -> dict[str, object]:
+    """The same observed session identity in v8 training and serving."""
+    return {"task": "semantic-execution/8", "modality": "text"}
+
+
 def canonical_semantic_observation(value: object) -> bytes:
     """Sorted, compact UTF-8 JSON for observed semantic execution records."""
     return json.dumps(
@@ -66,6 +71,20 @@ def semantic_selection_instruction(*, continuation: bool = False) -> str:
     )
     if continuation:
         text += " Continue the exact current record bytes; end only when the witness is complete."
+    return text
+
+
+def semantic_selection_instruction_v8(*, continuation: bool = False) -> str:
+    """One v8 instruction for both physical training and native generation."""
+    text = (
+        "Emit exactly one complete canonical semantic-trace/8 record. "
+        "Select an algorithm, region, detail, or protocol record using only the "
+        "published program, invocation, and current semantic-context/8 state. "
+        "Preserve values, identities, receiver, completion, cleanup, and causal order. "
+        "Never predict observations, native results, or future tool receipts."
+    )
+    if continuation:
+        text += " Continue the exact current record bytes; end only when the record is complete."
     return text
 
 

@@ -1,0 +1,155 @@
+name: Independent v8 source and native admission
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: semantic-v8-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  paired-v8:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 45
+    strategy:
+      fail-fast: false
+      matrix:
+        population: [interoperability, gallery]
+    defaults:
+      run:
+        shell: bash
+    env:
+      OMP_NUM_THREADS: '1'
+      MKL_NUM_THREADS: '1'
+      PYTHONPATH: ${{ github.workspace }}/megatoken/src
+      TRACING_JS_SELF_ROOT: ${{ github.workspace }}/tracing-js-self
+      MEGATOKEN_NATIVE_SOURCE_PRODUCER: ${{ github.workspace }}/tracing-js-self
+      MEGATOKEN_TOKENIZER_JSON: ${{ github.workspace }}/semantic-v8-tokenizer.json
+      MEGATOKEN_ROOT: ${{ github.workspace }}/megatoken
+      MEGATOKEN_PYTHON: python
+      SEMANTIC_V8_NATIVE_POLICY: ${{ github.workspace }}/semantic-v8-policy.json
+      V8_POPULATION: ${{ matrix.population }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+          path: megatoken
+          persist-credentials: false
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          repository: werg/tracing-js-self
+          ref: 012c9fe49a082319bf98ac0c571596da925741a4
+          path: tracing-js-self
+          persist-credentials: false
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
+        with:
+          node-version-file: tracing-js-self/.nvmrc
+      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
+        with:
+          python-version: '3.12.14'
+      - name: Install locked dependencies and the checked consumer
+        run: |
+          npm ci --prefix tracing-js-self --ignore-scripts --no-audit --no-fund
+          python -m pip install --require-hashes -r tracing-js-self/tools/native-consumer/requirements.lock
+          python -m pip install --no-deps --no-build-isolation -e ./megatoken
+      - name: Bind the production tokenizer and exact consumer under test
+        run: |
+          python - <<'PY'
+          import hashlib, json, os, re, shutil, subprocess
+          from pathlib import Path
+          from huggingface_hub import hf_hub_download
+          from megatoken.generation.codec import ByteCodec, LING_REPOSITORY, LING_REVISION, LING_TOKENIZER_SHA256
+          producer = Path(os.environ['TRACING_JS_SELF_ROOT'])
+          consumer = Path(os.environ['MEGATOKEN_ROOT'])
+          def snapshot(root):
+              revision = subprocess.check_output(['git', '-C', str(root), 'rev-parse', 'HEAD'], text=True).strip()
+              changes = subprocess.check_output(['git', '-C', str(root), 'status', '--porcelain', '--untracked-files=all'], text=True).strip()
+              if not re.fullmatch('[0-9a-f]{40}', revision) or changes:
+                  raise ValueError('Paired admission requires exact clean checkouts')
+              return {'revision': revision, 'tree': subprocess.check_output(['git', '-C', str(root), 'rev-parse', 'HEAD:'], text=True).strip()}
+          identity = {'producer': snapshot(producer), 'consumer': snapshot(consumer)}
+          tokenizer = Path(os.environ['MEGATOKEN_TOKENIZER_JSON'])
+          shutil.copyfile(hf_hub_download(LING_REPOSITORY, 'tokenizer.json', revision=LING_REVISION), tokenizer)
+          policy = json.loads((producer / 'contracts/semantic-native-policy-v8.json').read_text())
+          digest = hashlib.sha256(tokenizer.read_bytes()).hexdigest()
+          codec = ByteCodec.from_tokenizer_json(tokenizer, expected_sha256=LING_TOKENIZER_SHA256)
+          if policy['consumerRepository'] != 'werg/megatoken' or policy['tokenizerSha256'] != digest or digest != LING_TOKENIZER_SHA256 or policy['tokenizerIdentity'] != codec.fingerprint:
+              raise ValueError('Pinned tokenizer or consumer repository differs')
+          # Test this exact consumer without altering the clean producer or its
+          # contract, fixture, interoperability, and tokenizer requirements.
+          policy['consumerRevision'] = identity['consumer']['revision']
+          Path(os.environ['SEMANTIC_V8_NATIVE_POLICY']).write_text(json.dumps(policy, indent=2) + '\n')
+          identity['policy'] = policy
+          (Path(os.environ['RUNNER_TEMP']) / 'semantic-v8-identities.json').write_text(json.dumps(identity, indent=2) + '\n')
+          print(json.dumps(identity))
+          PY
+      - name: Check the shared contract and source-qualified fixtures
+        run: |
+          npm run semantic:v8:contract --prefix tracing-js-self 2>&1 | tee "$RUNNER_TEMP/semantic-v8-contract.log"
+          cmp tracing-js-self/contracts/semantic-execution-v8.json megatoken/src/megatoken/data/contracts/semantic-execution-v8.json
+      - name: Check independent replay and malformed restoration boundaries
+        working-directory: megatoken
+        run: |
+          python -m pytest -q tests/test_*v8.py tests/test_algorithm_v7.py tests/test_protocol_properties.py \
+            --junitxml="$RUNNER_TEMP/semantic-v8-tests.xml" 2>&1 | tee "$RUNNER_TEMP/semantic-v8-tests.log"
+          python - <<'PY'
+          import os, xml.etree.ElementTree as ET
+          from pathlib import Path
+          suites = ET.parse(Path(os.environ['RUNNER_TEMP']) / 'semantic-v8-tests.xml').getroot().iter('testsuite')
+          counts = {key: 0 for key in ('tests', 'failures', 'errors', 'skipped')}
+          for suite in suites:
+              for key in counts:
+                  counts[key] += int(suite.get(key, 0))
+          if counts['tests'] == 0 or any(counts[key] for key in ('failures', 'errors', 'skipped')):
+              raise ValueError(f'Native v8 tests, including live source checks, must all run and pass: {counts}')
+          PY
+      - id: qualification
+        name: Recollect complete source and native admission receipts
+        working-directory: tracing-js-self
+        run: |
+          node tools/qualify-semantic-v8.mjs --population "$V8_POPULATION" --inputs all --workers 2 \
+            --out "$RUNNER_TEMP/v8-admitted" --megatoken "$MEGATOKEN_ROOT" --python "$MEGATOKEN_PYTHON" \
+            --tokenizer "$MEGATOKEN_TOKENIZER_JSON" --native-policy "$SEMANTIC_V8_NATIVE_POLICY" \
+            2>&1 | tee "$RUNNER_TEMP/semantic-v8-qualification.log"
+      - name: Measure complete causal sequences and native physical packing
+        if: ${{ !cancelled() && steps.qualification.outcome != 'skipped' }}
+        working-directory: tracing-js-self
+        run: |
+          node tools/measure-semantic-v8.mjs --qualification "$RUNNER_TEMP/v8-admitted" \
+            --out "$RUNNER_TEMP/v8-costs" --tokenizer-module tools/semantic-v8-tokenizer-adapter.mjs \
+            2>&1 | tee "$RUNNER_TEMP/semantic-v8-costs.log"
+          node --input-type=module <<'JS'
+          import {readFileSync} from 'node:fs';
+          import {join} from 'node:path';
+          const read=directory=>JSON.parse(readFileSync(join(process.env.RUNNER_TEMP,directory,'report.json')));
+          const qualification=read('v8-admitted'),costs=read('v8-costs'),declared=qualification.declared;
+          if(!Number.isSafeInteger(declared)||declared<1||qualification.preparationOnly||
+            qualification.sourceQualified!==declared||qualification.nativeAdmitted!==declared)
+            throw new Error('Every declared CI case requires fresh source and native admission');
+          if(!costs.tokenizerEvidence||costs.summary.declared!==declared||
+            costs.summary.flat.measured!==declared||costs.summary.flat.tokenMeasuredEpisodes!==declared||
+            costs.summary.flat.tokenMeasurement!=='passed'||costs.summary.nativePacking.measuredEpisodes!==declared)
+            throw new Error('Every declared CI case requires complete production-tokenizer and native-packing measurements');
+          JS
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        if: always()
+        with:
+          name: semantic-v8-${{ matrix.population }}-native-evidence
+          if-no-files-found: warn
+          retention-days: 30
+          path: |
+            ${{ env.SEMANTIC_V8_NATIVE_POLICY }}
+            ${{ runner.temp }}/semantic-v8-identities.json
+            ${{ runner.temp }}/semantic-v8-contract.log
+            ${{ runner.temp }}/semantic-v8-tests.xml
+            ${{ runner.temp }}/semantic-v8-tests.log
+            ${{ runner.temp }}/semantic-v8-qualification.log
+            ${{ runner.temp }}/semantic-v8-costs.log
+            ${{ runner.temp }}/v8-admitted/
+            ${{ runner.temp }}/v8-costs/

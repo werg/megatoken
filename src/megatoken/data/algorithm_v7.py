@@ -1014,7 +1014,11 @@ def _to_string(value: list) -> str:
 
 
 def _number_from_string(text: str) -> float:
-    stripped = text.strip()
+    # StringNumericLiteral uses ECMAScript WhiteSpace and LineTerminator, not
+    # Python's wider Unicode whitespace classification (for example U+0085).
+    stripped = text.strip(
+        "\u0009\u000b\u000c\u0020\u00a0\u1680\u2000\u2001\u2002\u2003\u2004\u2005\u2006\u2007\u2008\u2009\u200a\u202f\u205f\u3000\ufeff\u000a\u000d\u2028\u2029"
+    )
     if not stripped:
         return 0.0
     if stripped in ("Infinity", "+Infinity"):
@@ -1271,7 +1275,7 @@ def _operation(name: str, values: list[list]) -> list:
             left[0] in ("null", "undefined")
             or (right is not None and right[0] in ("null", "undefined"))
         )
-        if name not in allowed or (not both_refs and not null_loose):
+        if name not in allowed or (name.startswith("loose_") and not both_refs and not null_loose):
             raise TypeError("Opaque reference coercion is outside the algorithm profile")
         equal = both_refs and left[1] == right[1]
         return ["bool", equal if name in ("equal", "loose_equal") else not equal]
@@ -1533,12 +1537,7 @@ def _dense_items(value: list, heap: dict[str, dict]) -> list[list]:
     items = []
     for index in range(count):
         item = props.get(str(index))
-        if (
-            item is None
-            or item[0] != "num"
-            or type(item[1]) not in (int, float)
-            or not math.isfinite(_as_js_number(item[1]))
-        ):
+        if item is None or item[0] != "num" or not math.isfinite(_decode_scalar(item)):
             raise AlgorithmV7Error("Ordered fold requires dense finite binary64 elements")
         items.append(item)
     return items
