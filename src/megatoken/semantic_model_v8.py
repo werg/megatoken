@@ -75,6 +75,8 @@ def _fork_session(session):
 class _Session:
     runtime: object
     public: dict | None = None
+    # Acknowledgement may include host rows that the next selection must ingest.
+    ingested_through: int = 0
     contexts: list = field(default_factory=list)
     pending: dict | None = None
     completed: set = field(default_factory=set)
@@ -248,7 +250,7 @@ class NativeSemanticInferenceV8:
             rows = public["timeline"]
             if rows[: len(old)] != old or contexts != (work.contexts if work is not None else []):
                 raise NativeSelectionV8Error("V8 selection rewrites acknowledged native history")
-            incoming = rows[len(old) :]
+            incoming = rows[work.ingested_through if work is not None else 0 :]
             if any(row["mode"] != "observed" for row in incoming):
                 raise NativeSelectionV8Error(
                     "V8 model history cannot import unacknowledged generated records"
@@ -449,7 +451,8 @@ class NativeSemanticInferenceV8:
             # are ingested only by the next selection, once independently checked.
             work.runtime = pending["branch"]
             self.runtime.memory.sessions[work.runtime.memory.session_id] = work.runtime.memory
-            work.public = copy.deepcopy({**public, "timeline": rows[: len(previous) + 1]})
+            work.public = copy.deepcopy(public)
+            work.ingested_through = len(previous) + 1
             work.contexts = copy.deepcopy(contexts)
             work.pending = None
             attempt["status"] = "committed"
@@ -512,6 +515,7 @@ class NativeSemanticInferenceV8:
                 ended = False
             if not ended:
                 raise NativeSelectionV8Error("V8 completion precedes its checked terminal record")
+            work.public = copy.deepcopy(public)
             work.completed.add(invocationId)
             # A callback may end while its caller is suspended or a retained
             # handler can still run again. Whole-session closure is explicit.
