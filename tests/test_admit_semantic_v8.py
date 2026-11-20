@@ -13,7 +13,7 @@ import unittest
 from pathlib import Path
 from unittest.mock import patch
 
-from megatoken.data.algorithm_v7 import stable_algorithm_hash
+from megatoken.data.algorithm_v7 import stable_algorithm_hash, stable_algorithm_json
 from megatoken.generation.codec import ByteCodec
 from scripts import admit_semantic_v8
 
@@ -224,6 +224,52 @@ class NativeV8AdmissionTests(unittest.TestCase):
                     artifact.write_text(json.dumps(document))
                     with self.assertRaisesRegex(ValueError, "Pinned producer rejected"):
                         admit_semantic_v8.recheck_source_binding(document, artifact, root, revision)
+
+    def test_live_source_checks_the_body_return_after_normal_yield_delegation(self):
+        producer_root = os.environ.get("MEGATOKEN_NATIVE_SOURCE_PRODUCER")
+        if not producer_root:
+            self.skipTest("set MEGATOKEN_NATIVE_SOURCE_PRODUCER to run the live V8 authority test")
+        root = Path(producer_root)
+        revision = subprocess.check_output(
+            ["git", "rev-parse", "HEAD"], cwd=root, text=True
+        ).strip()
+        cases = json.loads((root / "test/fixtures/semantic-protocol-region-v8.json").read_text())[
+            "cases"
+        ]
+        document = copy.deepcopy(
+            next(
+                case["artifact"]
+                for case in cases
+                if case["id"] == "source-generator-delegated-cleanup"
+            )
+        )
+        with tempfile.TemporaryDirectory() as folder:
+            artifact = Path(folder) / "artifact.json"
+            artifact.write_text(json.dumps(document))
+            receipt = admit_semantic_v8.recheck_source_binding(document, artifact, root, revision)
+            self.assertTrue(receipt["sourceValidated"])
+            # Normal yield* exposes its checked result to the remaining source;
+            # it does not force an arbitrary later return to equal that result.
+            # The live source authority must reject a forged enclosing return,
+            # even after its enclosing public digest is recomputed consistently.
+            ended = False
+            for row in document["public"]["timeline"]:
+                line = row["fields"].get("line", "")
+                if not line.startswith("protocol "):
+                    continue
+                record = json.loads(line[len("protocol ") :])
+                if record["kind"] == "generator.delegate.end":
+                    ended = True
+                elif ended and record["kind"] == "generator.finish":
+                    record["completion"]["value"] = ["num", 99]
+                    row["fields"]["line"] = "protocol " + stable_algorithm_json(record)
+                    break
+            else:
+                self.fail("source golden has no enclosing completion after yield delegation")
+            document["sidecar"]["publicDigest"] = stable_algorithm_hash(document["public"])
+            artifact.write_text(json.dumps(document))
+            with self.assertRaisesRegex(ValueError, "Pinned producer rejected"):
+                admit_semantic_v8.recheck_source_binding(document, artifact, root, revision)
 
 
 if __name__ == "__main__":
