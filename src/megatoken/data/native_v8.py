@@ -13,7 +13,11 @@ import hashlib
 import json
 from collections.abc import Mapping
 
-from megatoken.controls import canonical_semantic_observation, semantic_selection_instruction
+from megatoken.controls import (
+    canonical_semantic_observation,
+    semantic_execution_metadata_v8,
+    semantic_selection_instruction_v8,
+)
 
 from . import algorithm_v7 as v7
 from .algorithm_v7 import _truthy as _detail_truthy
@@ -355,7 +359,7 @@ def prepare_native_v8_training(document, *, codec, max_positions=8192, max_histo
                         "text",
                         index,
                         role,
-                        instruction=semantic_selection_instruction() if masked else "",
+                        instruction=semantic_selection_instruction_v8() if masked else "",
                     ),
                 ),
             )
@@ -374,7 +378,7 @@ def prepare_native_v8_training(document, *, codec, max_positions=8192, max_histo
         supervision=Supervision(
             annotations_json=json.dumps(
                 {
-                    "session_metadata": {"schema": "semantic-execution-metadata/8"},
+                    "session_metadata": semantic_execution_metadata_v8(),
                     "semantic_execution": {
                         "schema": "semantic-execution/8",
                         "representation": "mixed",
@@ -393,7 +397,7 @@ def prepare_native_v8_training(document, *, codec, max_positions=8192, max_histo
         codec=codec,
         max_positions=max_positions,
         max_history=max_history,
-        selection_instruction=lambda continuation=False: semantic_selection_instruction(
+        selection_instruction=lambda continuation=False: semantic_selection_instruction_v8(
             continuation=continuation
         ),
         emit_context_windows=False,
@@ -635,7 +639,9 @@ def _initial_state(program, invocation, functions=(), random_seed=None):
     }
 
 
-def _replay_shared_state(timeline, contexts, programs_from_context, *, roundtrip):
+def _replay_shared_state(
+    timeline, contexts, programs_from_context, *, roundtrip, boundary_invocation=None
+):
     snapshots = {
         row["sequence"]: ctx
         for ctx, (_, row) in zip(
@@ -661,6 +667,7 @@ def _replay_shared_state(timeline, contexts, programs_from_context, *, roundtrip
     completion_policies = {}
     functions = []
     callback_invocations = set()
+    invocation_inputs = {}
     for prior in timeline:
         if prior.get("fields", {}).get("track") != "host":
             owner_sequence += 1
@@ -698,6 +705,10 @@ def _replay_shared_state(timeline, contexts, programs_from_context, *, roundtrip
                 if owner and owner not in suspended:
                     suspended[owner] = copy.deepcopy(state)
                 base = state if state is not None else common_state
+                invocation_inputs[fields["invocationId"]] = {
+                    "graph": copy.deepcopy(fields["inputGraph"]),
+                    "retained": [identity for identity, _ in base["heap"]],
+                }
                 function = next(
                     (
                         fn
@@ -759,6 +770,9 @@ def _replay_shared_state(timeline, contexts, programs_from_context, *, roundtrip
                 state = callback_state
             elif fields.get("activation") == "call":
                 state = _initial_state(program, fields, functions, random_seed)
+                invocation_inputs[fields["invocationId"]] = {
+                    "graph": copy.deepcopy(fields["inputGraph"])
+                }
             else:
                 _fail("Unsupported invocation activation in v8 shared replay")
             active_invocation = fields["invocationId"]
@@ -902,7 +916,25 @@ def _replay_shared_state(timeline, contexts, programs_from_context, *, roundtrip
         ):
             state = None
             active_invocation = None
-    return state
+    if boundary_invocation is None:
+        return state
+    if boundary_invocation == active_invocation:
+        boundary_state = state
+    elif state is None and boundary_invocation in suspended:
+        boundary_state = copy.deepcopy(suspended[boundary_invocation])
+        if common_state is not None:
+            _merge_callback_state(boundary_state, common_state)
+    else:
+        _fail("V8 prediction boundary does not name the active invocation")
+    if boundary_state is None or boundary_invocation not in invocation_inputs:
+        _fail("V8 prediction boundary has no independently replayed invocation")
+    return {
+        "programs": [{"id": identity, "program": item[0]} for identity, item in published.items()],
+        "input": invocation_inputs[boundary_invocation],
+        "state": boundary_state,
+        "regionCursor": {"active": None, "consumed": consumed},
+        "obligations": obligations,
+    }
 
 
 def _merge_callback_state(target, source):
