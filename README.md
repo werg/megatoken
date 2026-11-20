@@ -9,47 +9,69 @@ candidate integration; serving-cost and comprehension qualification remain open.
 
 ## Native semantic execution v8
 
-The v8 candidate adds independent replay and physical-record packing for mixed
-algorithm, region, detailed, and protocol records. The
-[producer training and dataset runbook](https://github.com/werg/tracing-js-self/blob/baeaa136bf701da5def14e3946bae1baa877331d/docs/SEMANTIC_V8_TRAINING.md)
+The bounded v8 candidate adds independent replay and physical-record packing
+for mixed algorithm, region, detailed, and protocol records, together with
+actual native model serving and a reproducible fitting diagnostic. This is the
+delivery scope of [consumer PR #37](https://github.com/werg/megatoken/pull/37)
+and [producer PR #46](https://github.com/werg/tracing-js-self/pull/46). The
+[producer training and dataset runbook](https://github.com/werg/tracing-js-self/blob/64239894b36607de1265b67c337f537f3fc9a163/docs/SEMANTIC_V8_TRAINING.md)
 describes source collection, frozen family splits, and native-admitted exports.
 
-The qualified implementation is pinned to consumer
-`6adf99f1301557ee5b95269581a3acd4162496b4` and producer
-`b66c19be960f114b69787746b2487e6f23a73577`. Its final focused consumer suite
-passed **214 tests with no failures or skips**, including live source-authority
-checks, replay and checkpoint restoration, protocol boundaries, and property
-semantics. Ruff checks and formatting passed for all 524 checked files.
+The final measured implementation is pinned to consumer
+`39c4036564428e44cc89caf261f517d856482695` and producer
+`012c9fe49a082319bf98ac0c571596da925741a4`. The retained
+[native regression](docs/evidence/semantic-v8-final-39c4036/README.md) passed
+**244 tests with zero failures, errors, or skips**, including live source-authority
+checks, replay and checkpoint restoration, protocol boundaries, native serving,
+and property semantics. Ruff checks and formatting passed for all 532 checked
+Python files. Subsequent consumer changes through `6164754` affect documentation
+and the CI producer pin; the implementation, tests, and dependencies are unchanged.
 
-At these same revisions, **23 of 23 interoperability cases** and **11 of 11 gallery
-cases** passed source, independent native, and tokenizer qualification. The
-[prepared dataset report](https://github.com/werg/tracing-js-self/blob/baeaa136bf701da5def14e3946bae1baa877331d/coverage/language-expansion/dataset-v8-b66c19b/README.md)
-retains those qualification reports and the independently verified export:
-**34 episodes, 898 complete examples, and 29,374 generated tokens**, including
-898 end-of-sequence tokens. Every exported episode received fresh native
-admission after its split was frozen. The export performed **zero optimizer
-steps**.
+At this exact producer/consumer pair, the
+[complete qualification](https://github.com/werg/tracing-js-self/blob/64239894b36607de1265b67c337f537f3fc9a163/coverage/language-expansion/native-v8-012c9fe-all/README.md)
+retains **665 of 665 expansion cases**, **26 of 26 interoperability cases**, and
+**11 of 11 gallery cases** passing source checks, independent native admission,
+exact production-tokenizer measurement, and native physical packing. The
+populations overlap and are reported separately. The independent reference
+benchmark passed 624 equivalent-program executions and all 52 distinguishing
+pairs. Supplementary Number, cleanup, custom-iterator, and iterable-binding
+results retain their own inventories and expected refusals in that evidence index.
 
-| Split | Episodes | Complete examples |
-| --- | ---: | ---: |
-| Train | 23 | 523 |
-| Validation | 7 | 239 |
-| Test | 4 | 136 |
-| Total | 34 | 898 |
+The [prepared dataset report](https://github.com/werg/tracing-js-self/blob/64239894b36607de1265b67c337f537f3fc9a163/coverage/language-expansion/dataset-v8-012c9fe/README.md)
+retains **37 episodes, 1,021 complete examples, and 33,850 generated tokens**,
+including 1,021 end-of-sequence tokens. Every exported episode received fresh
+native admission after its global split was frozen. All 34 family components
+remain isolated across splits. The export performed **zero optimizer steps**.
 
-The [producer regression report](https://github.com/werg/tracing-js-self/blob/baeaa136bf701da5def14e3946bae1baa877331d/coverage/language-expansion/producer-regression-b66c19b/README.md)
-retains full producer tests, contract checks, and reference-fixture results.
-Hosted checks on the measured consumer commit also passed:
+| Split | Episodes | Complete examples | Generated tokens, including EOS |
+| --- | ---: | ---: | ---: |
+| Train | 26 | 646 | 21,555 |
+| Validation | 7 | 239 | 8,056 |
+| Test | 4 | 136 | 4,239 |
+| Total | 37 | 1,021 | 33,850 |
 
-- [CI](https://github.com/werg/megatoken/actions/runs/44740013999).
-- [Source-certified semantic corpus and production native gates](https://github.com/werg/megatoken/actions/runs/44740013895).
-- [Pinned selected semantic harness bridge](https://github.com/werg/megatoken/actions/runs/44740013827).
+An independent second export produced byte-identical examples and token counts;
+its separate receipt does not double the dataset. The earlier
+[34-episode export](https://github.com/werg/tracing-js-self/blob/baeaa136bf701da5def14e3946bae1baa877331d/coverage/language-expansion/dataset-v8-b66c19b/README.md)
+remains historical evidence for its original revisions.
 
-These hosted runs cover the general repository and existing v6/native bridge
-pipelines; the v8 source, native, and token qualification is recorded separately
-above. These pins describe the recorded runs and do not qualify later
-implementation changes. Model-execution qualification, end-to-end serving costs,
-and default promotion remain separate gates.
+All four hosted workflows passed at consumer
+`61647547912dc3cb397ed69376bd911a9c69052b`:
+
+- [Python 3.11/3.12 CI](https://github.com/werg/megatoken/actions/runs/44785537294).
+- [Independent v8 source and native admission](https://github.com/werg/megatoken/actions/runs/44785537371).
+- [Source-certified semantic corpus and production native gates](https://github.com/werg/megatoken/actions/runs/44785537396).
+- [Pinned selected semantic harness bridge](https://github.com/werg/megatoken/actions/runs/44785537301).
+
+The conditional Blackwell job did not run and is not counted as passing.
+These links describe exact recorded runs; later commits retain their own hosted
+checks. The bounded candidate does not promote the default representation.
+External-model comprehension, broadly generalizing learned execution, controlled
+cost/latency/cache comparisons at matched usefulness, and coordinated default
+promotion are follow-up research outside these PRs' completion scope. Their
+quality and cost requirements remain necessary before any future promotion.
+The [bounded model experiment](docs/SEMANTIC_V8_BOUNDED_FIT.md) records its actual
+in-sample successes, failed held-out-input attempts, and evidence limitations.
 
 The [consumer v8 workflow](.github/workflows/semantic-v8.yml) checks each pull
 request's exact consumer commit against a pinned clean producer. It runs the

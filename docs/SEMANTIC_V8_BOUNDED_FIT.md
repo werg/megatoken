@@ -4,10 +4,11 @@ A small CPU experiment exercised actual Megatoken training, full checkpoint
 save/reload, and two successive native model selections. After correcting a
 host-envelope bug, the unchanged fitted checkpoint completed its training input
 on all three declared seeds in a frozen JavaScript/process study with fresh
-source authority. All three held-out runs failed. The zero-update model completed
-none of its six runs. This establishes narrow in-sample execution through the
-real model, independent native replay, and private source comparison. It does
-not establish generalization, external-model comprehension, broad language
+source authority. All three runs at the input excluded from optimization failed.
+Both inputs belong to the same program and family. The zero-update model
+completed none of its six runs. This establishes narrow in-sample execution
+through the real model, independent native replay, and private source comparison.
+It does not establish generalization, external-model comprehension, broad language
 coverage, or a favorable serving-cost comparison.
 
 The result was reproduced without retraining at the final contract/frontend
@@ -17,8 +18,32 @@ contain every new declared outcome, emitted fragment, admission receipt,
 study, measured cost, and the passing 244-test native gate. The
 [earlier experiment packet](https://github.com/werg/tracing-js-self/tree/e91ba6c78f1d3e53947bfdf84c6549ba8e7ddd99/coverage/language-expansion/native-v8-fit-23cd478)
 preserves the original training, parity evidence, and confounded evaluations.
-The large model/checkpoint archive is retained separately by the filename and
-hash documented in both packets.
+Both packets name and hash a separate 43 MB model/checkpoint archive, but that
+archive is absent from the repositories and has no published retrieval URL.
+The [independent audit](https://github.com/werg/tracing-js-self/tree/ff0aa41700818efca02acb9865a22bc918345646/coverage/language-expansion/native-v8-fit-39c4036/independent-audit)
+reproduces all twelve private-source outcomes and decodes all fifteen original
+prediction fragments. It could not reload the historical weights or regenerate
+their neural emissions. These retained-output checks do not establish independent
+reproduction of the historical model run.
+
+## Completion scope
+
+[Consumer PR #37](https://github.com/werg/megatoken/pull/37) and
+[producer PR #46](https://github.com/werg/tracing-js-self/pull/46) deliver the
+bounded candidate, its checked native serving and fitting path, and the complete
+declared engineering qualification. External-model comprehension, generalized
+held-out execution, a statistically powered notation comparison, controlled
+cost/latency/cache comparisons at matched usefulness, and default promotion are
+separate follow-up studies outside these PRs' completion criteria. They require
+independent response collection or new frozen model experiments and budgets;
+this sandbox does not supply those study resources or the missing historical
+checkpoint archive. Their unmeasured or unsuccessful outcomes remain explicit,
+and the existing quality and cost gates still apply before future promotion.
+
+The completed source/native populations and dataset are linked from the
+[repository overview](../README.md#native-semantic-execution-v8). A data export
+with zero optimizer steps establishes training-data admission; it adds no model
+successes to this experiment. The default representation remains unchanged.
 
 ## Exact experiment
 
@@ -283,8 +308,11 @@ before/after identities alongside the source and model reports.
 | Fitted full checkpoint | `3bb46a876f1bf2a4fa3b744f251385bbebdc97c7af9bca4c9c74e9074543846c` |
 | Unchanged served transducer attachment | `f355a3f3e4b8fabb84c5f97b2d9b596052b8ebfd12985105f2c0c7dd54ff8ba5` |
 
-The experiment output contains `baseline/`, `fitted/`, both full checkpoints,
+The original experiment output contained `baseline/`, `fitted/`, both full checkpoints,
 `baseline-evaluation.json`, `progress.json`, and the original `report.json`.
+The historical weight/checkpoint archive containing those model bundles is not
+available from the repository; its recorded identities above remain useful for
+checking a future recovered copy, but hashes cannot reconstruct its contents.
 The original report retains its original failed outcome; it was not overwritten
 to conceal the envelope defect. `corrected-envelope-development.json` records
 the unchanged-weight reevaluation. `first-boundary-parity.json` and
