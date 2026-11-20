@@ -145,6 +145,10 @@ def main():
                     "owned-binary-memory/1",
                     "builtin-iterator/1",
                     "class-private-source/1",
+                    "synchronous-generator-source/1",
+                    "promise-join/1",
+                    "number-conversion-source/1",
+                    "ordinary-data-proxy-source/1",
                 }
                 if (
                     not isinstance(extensions, list)

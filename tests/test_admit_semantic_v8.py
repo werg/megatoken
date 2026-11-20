@@ -120,6 +120,28 @@ class NativeV8AdmissionTests(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, "mismatched extensions"):
             self.run_cli(document)
 
+    def test_integrated_protocol_source_profiles_are_recognized(self):
+        profiles = [
+            "owned-binary-memory/1",
+            "builtin-iterator/1",
+            "class-private-source/1",
+            "synchronous-generator-source/1",
+            "promise-join/1",
+            "number-conversion-source/1",
+            "ordinary-data-proxy-source/1",
+        ]
+        document = self.source_document(protocol=True)
+        document["sidecar"].update(
+            protocolProfile="protocol-source-extensions/1", protocolExtensions=profiles
+        )
+        document["sidecar"]["sourceArtifact"]["sidecar"]["compiler"]["extensions"] = profiles
+        document["sidecar"]["sourceArtifactDigest"] = stable_algorithm_hash(
+            document["sidecar"]["sourceArtifact"]
+        )
+        receipt = self.run_cli(document)
+        self.assertEqual(receipt["checks"]["sourceBinding"], "untested")
+        self.assertFalse(receipt["admitted"])
+
     def test_live_producer_rejects_internally_consistent_but_false_source_evidence(self):
         producer_root = os.environ.get("MEGATOKEN_NATIVE_SOURCE_PRODUCER")
         if not producer_root:
