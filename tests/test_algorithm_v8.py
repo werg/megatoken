@@ -346,6 +346,43 @@ class AlgorithmV8Tests(unittest.TestCase):
         self.assertEqual(obj["properties"]["2"], obj["properties"]["z"])
         self.assertEqual(len(heap), 2)
 
+    def test_legacy_numeric_fold_uses_v8_lexical_terms_and_shared_work_budget(self):
+        fold = {
+            "op": "fold_left",
+            "input": bound(0),
+            "initial": bound(1),
+            "step": "add",
+            "order": "ascending",
+            "profile": "dense-number-array/1",
+        }
+        term = {
+            "op": "let",
+            "bindings": [
+                {
+                    "op": "array",
+                    "items": [lit(["num", 1e16]), lit(["num", 1]), lit(["num", -1e16])],
+                },
+                lit(["num", 2]),
+            ],
+            "body": fold,
+        }
+        result, heap, allocator = evaluate_term(term)
+        self.assertEqual(result, ["num", 4])
+        self.assertEqual(heap["v8:0"]["properties"]["length"], ["num", 3])
+        self.assertEqual(allocator["next"], 1)
+        with self.assertRaisesRegex(AlgorithmV8Error, "semantic work budget"):
+            evaluate_term(term, budget={"remaining": 8})
+        for field, invalid in (
+            ("step", "multiply"),
+            ("order", "descending"),
+            ("profile", "dense-primitive-array/1"),
+        ):
+            with (
+                self.subTest(field=field),
+                self.assertRaisesRegex(AlgorithmV8Error, "legacy fold profile"),
+            ):
+                evaluate_term({**term, "body": {**fold, field: invalid}})
+
     def test_resource_limits_and_scope_errors_fail_closed(self):
         with self.assertRaises(AlgorithmV8Error):
             evaluate_term(

@@ -132,6 +132,16 @@ def validate_term(term: Any, *, scopes=(), inputs=None, values=None, budget=None
             if cb["arity"] != arity:
                 _fail("callback arity")
             visit(cb["body"], depth + 1, (arity, *lexical))
+        elif op == "fold_left":
+            _exact(t, ("op", "input", "initial", "step", "order", "profile"))
+            if (
+                t["step"] != "add"
+                or t["order"] != "ascending"
+                or t["profile"] != "dense-number-array/1"
+            ):
+                _fail("legacy fold profile")
+            visit(t["input"], depth + 1, lexical)
+            visit(t["initial"], depth + 1, lexical)
         else:
             if op not in v7.OPERATIONS:
                 _fail("unknown operation")
@@ -445,7 +455,15 @@ def evaluate_term(
             )
             return visit(t["args"][1], env_inputs, env_values, env_scopes) if take else left
         if op == "fold_left":
-            return v7.evaluate_term(t, {"inputs": env_inputs, "values": env_values, "heap": heap})
+            input_value = visit(t["input"], env_inputs, env_values, env_scopes)
+            initial = visit(t["initial"], env_inputs, env_values, env_scopes)
+            items = v7._dense_items(input_value, heap)
+            if initial[0] != "num":
+                _fail("numeric fold initial value")
+            result = v7._decode_scalar(initial)
+            for item in items:
+                result += v7._decode_scalar(item)
+            return v7._encode_scalar(result)
         return v7._operation(op, [visit(a, env_inputs, env_values, env_scopes) for a in t["args"]])
 
     return visit(term), heap, allocator
