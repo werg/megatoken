@@ -219,6 +219,8 @@ def _expression(term, depth=0, budget=None):
 
 
 def validate_protocol_record(record):
+    if type(record) is not dict or not isinstance(record.get("kind"), str):
+        _fail("record kind must be a string")
     if type(record) is dict and record.get("kind") in PROXY_FIELDS:
         return validate_proxy_record(record)
     if type(record) is dict and record.get("kind") in NUMBER_FIELDS:
@@ -425,6 +427,19 @@ def _known(machine, value, self_id=None):
     return value
 
 
+def _assert_fresh_heap_identity(machine, identity):
+    _identity(identity)
+    protocol = machine.get("protocol") or {}
+    heap = machine["heap"]
+    heap_ids = set(heap) if isinstance(heap, dict) else {row[0] for row in heap}
+    reserved = {row["id"] for row in protocol.get("symbols", [])}
+    reserved.update(
+        row["id"] for row in (protocol.get("construction") or {}).get("privateNames", [])
+    )
+    if identity in heap_ids or identity in reserved:
+        _fail("duplicate or reserved heap identity")
+
+
 def _node(machine, identity):
     node = machine["heap"].get(identity)
     if not isinstance(node, dict) or node.get("kind") not in ("object", "array", "closure"):
@@ -471,6 +486,8 @@ def _lookup_descriptor(machine, identity, key):
 def _install(node, key, d):
     exists = _descriptor(node, key) is not None
     if not exists:
+        if len(set(node["properties"]) | set(node.get("descriptors", {}))) >= 4096:
+            _fail("own property bound")
         if "keyOrder" not in node:
             node["keyOrder"] = _ordered(node)
         node["keyOrder"].append(key)
@@ -815,13 +832,7 @@ def _apply(machine, record):
                 machine.get("captureAliases", {}).get(record["bind"], record["bind"])
             ] = record["result"]
     elif kind == "allocate":
-        reserved = {row["id"] for row in (p.get("construction") or {}).get("privateNames", [])}
-        if (
-            record["name"] in machine["heap"]
-            or any(x["id"] == record["name"] for x in p["symbols"])
-            or record["name"] in reserved
-        ):
-            _fail("duplicate heap identity")
+        _assert_fresh_heap_identity(machine, record["name"])
         captures = [
             {
                 **copy.deepcopy(capture),
@@ -875,7 +886,12 @@ def _apply(machine, record):
             truthy = result[0] == "symbol" or v7._truthy(result)
             if record["path"] == "then" and not truthy or record["path"] == "else" and truthy:
                 _fail("false branch path")
-            if record["path"] == "use-left" and not truthy:
+            if (
+                record["path"] == "use-left"
+                and not truthy
+                or record["path"] == "evaluate-right"
+                and truthy
+            ):
                 _fail("false short-circuit path")
         if kind == "compute" and record["bind"] is not None:
             machine["locals"][
@@ -896,6 +912,8 @@ def _apply(machine, record):
             _fail("class constructor cannot be called without construction")
         if any(capture["cell"] not in machine["locals"] for capture in node["captures"]):
             _fail("closure capture is not initialized")
+        if len(p["callFrames"]) >= 64:
+            _fail("active call frame bound")
         p["callFrames"].append(
             {
                 "child": record["child"],
@@ -922,6 +940,8 @@ def _apply(machine, record):
         if machine["stack"][-1] != record["invocation"]:
             _fail("completion invocation")
         if len(machine["stack"]) > 1:
+            if not p["callFrames"]:
+                _fail("completion requires a protocol call frame")
             frame = p["callFrames"].pop()
             if frame["child"] != record["invocation"]:
                 _fail("call frame completion")
@@ -937,7 +957,7 @@ def _apply(machine, record):
             machine["stack"]
             or p["pendingCalls"]
             or p["callFrames"]
-            or machine.get("pending", {}).get("kind") != record["completion"]
+            or (machine.get("pending") or {}).get("kind") != record["completion"]
         ):
             _fail("terminal completion or outstanding protocol calls")
         machine["completion"] = copy.deepcopy(machine["pending"])
@@ -1467,6 +1487,7 @@ def assert_detailed_record_compatible(shared_state, kind, fields):
     if protocol is None:
         return True
     machine = _internal_machine(shared_state)
+    assert_construction_next(machine, {"kind": kind, **fields})
     assert_number_next(machine, {"kind": kind, **fields})
     assert_generator_next(machine, {"kind": kind, **fields})
     assert_proxy_next(machine, {"kind": kind, **fields})
@@ -1515,4 +1536,8 @@ def assert_detailed_record_compatible(shared_state, kind, fields):
             _fail("Detailed call bypasses generator creation/resume protocol")
     if shared_state["protocol"]["pendingCalls"] and kind == "end":
         _fail("Unfinished accessor call")
+    if kind in ("return", "throw") and machine["stack"]:
+        child = fields.get("invocation", machine["stack"][-1])
+        if any(frame["child"] == child for frame in protocol["callFrames"]):
+            _fail("Protocol-owned invocation requires protocol completion")
     return True

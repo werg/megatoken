@@ -215,7 +215,7 @@ class OrdinaryArrayPropertyTests(unittest.TestCase):
             "property.finish", id="getter-call", completion={"kind": "normal", "value": ["num", 7]}
         )
 
-    def test_branch_path_matches_truthiness_and_rejects_unmodeled_paths(self):
+    def test_branch_path_matches_truthiness_including_short_circuit_guards(self):
         expr = {"op": "literal", "value": ["num", 0]}
         self.send("choose", expr=expr, decision=["num", 0], path="else")
         with self.assertRaisesRegex(ProtocolV8Error, "false branch path"):
@@ -225,8 +225,16 @@ class OrdinaryArrayPropertyTests(unittest.TestCase):
                 decision=["num", 1],
                 path="else",
             )
-        with self.assertRaisesRegex(ProtocolV8Error, "unsupported short-circuit path"):
-            self.send("choose", expr=expr, decision=["num", 0], path="evaluate-right")
+        self.send("choose", expr=expr, decision=["num", 0], path="evaluate-right")
+        with self.assertRaisesRegex(ProtocolV8Error, "false short-circuit path"):
+            self.send("choose", expr=expr, decision=["num", 0], path="use-left")
+        with self.assertRaisesRegex(ProtocolV8Error, "false short-circuit path"):
+            self.send(
+                "choose",
+                expr={"op": "literal", "value": ["bool", True]},
+                decision=["bool", True],
+                path="evaluate-right",
+            )
 
     def test_array_length_definition_requires_fixed_descriptor_flags(self):
         self.array(2)

@@ -23,6 +23,7 @@ from .detailed_v7 import parse_record
 from .detailed_v7 import value as validate_value
 from .protocol_v8 import (
     ProtocolV8Error,
+    _assert_fresh_heap_identity,
     apply_protocol_to_shared_state,
     assert_detailed_record_compatible,
     decode_protocol_record,
@@ -974,6 +975,12 @@ def _apply_region(state, target):
 
 def _apply_algorithm(state, core, graph, line):
     expected = json.loads(line[10:])
+    identities = set()
+    for allocation in expected["allocations"]:
+        _assert_fresh_heap_identity(state, allocation["id"])
+        if allocation["id"] in identities:
+            _fail("Duplicate algorithm allocation identity")
+        identities.add(allocation["id"])
     for allocation in expected["allocations"]:
         _set_row(
             state["heap"],
@@ -998,6 +1005,7 @@ def _apply_detail(state, kind, fields, row, obligations=None, program=None, task
         alias = dict(state["captureAliases"]).get(fields["name"])
         _set_row(state["locals"], alias or fields["name"], fields["value"])
     elif kind == "allocate":
+        _assert_fresh_heap_identity(state, fields["name"])
         node = {
             "kind": fields["kind"],
             "code": None,

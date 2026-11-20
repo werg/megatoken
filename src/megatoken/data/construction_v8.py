@@ -349,6 +349,10 @@ def _call(machine, child, callee, receiver, arguments, *, construction=False):
     if child in machine["frameFunctions"]:
         _fail("duplicate invocation identity")
     protocol = machine["protocol"]
+    if len(protocol["callFrames"]) >= 64:
+        _fail("active call frame bound")
+    if any(row["cell"] not in machine["locals"] for row in node.get("captures", [])):
+        _fail("closure capture is not initialized")
     protocol["callFrames"].append(
         {
             "child": child,
