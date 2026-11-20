@@ -106,11 +106,7 @@ def _known(machine, value):
 def _standard_array(machine, value):
     _known(machine, value)
     node = machine["heap"].get(value[1]) if value[0] == "ref" else None
-    if (
-        not node
-        or node.get("kind") != "array"
-        or node.get("prototype", "ordinary") not in ("ordinary", None)
-    ):
+    if not node or node.get("kind") != "array" or node.get("prototype", "ordinary") != "ordinary":
         return False
     return _descriptor(node, ["symbol", "well-known:iterator"]) is None
 
@@ -129,10 +125,7 @@ def _selected_method(machine, receiver, key):
         _fail("iterator lookup receiver")
     node = machine["heap"].get(receiver[1])
     if node and node.get("kind") == "array":
-        if (
-            node.get("prototype", "ordinary") not in ("ordinary", None)
-            or _descriptor(node, key) is not None
-        ):
+        if node.get("prototype", "ordinary") != "ordinary" or _descriptor(node, key) is not None:
             _fail("array iterator is overridden")
         if key == ["symbol", "well-known:iterator"]:
             return "Array.prototype.values"

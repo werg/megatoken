@@ -222,6 +222,7 @@ def main():
                     "promise-executor/1",
                     "number-conversion-source/1",
                     "ordinary-completions-source/1",
+                    "custom-iterator-source/1",
                     "ordinary-data-proxy-source/1",
                     "ordinary-array-map-source/1",
                     "ordinary-for-in/1",

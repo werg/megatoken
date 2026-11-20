@@ -1569,7 +1569,12 @@ def validate_completion_detail(shared_state, kind, fields):
             _fail("Symbol cleanup needs protocol transfer")
 
     for frame in scope["frames"]:
-        _exact(frame, {"invocation", "handlers"}, "ordinary handler frame")
+        _exact(
+            frame,
+            {"invocation", "handlers"}
+            | ({"targets"} if type(frame) is dict and "targets" in frame else set()),
+            "ordinary handler frame",
+        )
         if (
             frame["invocation"] not in machine["stack"]
             or frame["invocation"] not in machine["frameFunctions"]
@@ -1579,6 +1584,17 @@ def validate_completion_detail(shared_state, kind, fields):
         if index <= previous:
             _fail("ordinary handler frame stack order")
         previous = index
+        targets = {}
+        if "targets" in frame:
+            if type(frame["targets"]) is not list or not 0 < len(frame["targets"]) <= 64:
+                _fail("ordinary loop target bound")
+            for target in frame["targets"]:
+                _exact(target, {"id", "continue"}, "ordinary loop target")
+                _identity(target["id"])
+                if target["id"] in identities or type(target["continue"]) is not bool:
+                    _fail("ordinary loop target identity/capability")
+                identities.add(target["id"])
+                targets[target["id"]] = target
         if type(frame["handlers"]) is not list or not 0 < len(frame["handlers"]) <= 64:
             _fail("ordinary handler bound")
         for handler in frame["handlers"]:
@@ -1610,12 +1626,24 @@ def validate_completion_detail(shared_state, kind, fields):
                 _fail("ordinary cleanup pending completion")
             if handler["pending"] is not None:
                 pending = handler["pending"]
-                _exact(pending, {"kind", "value"}, "ordinary pending completion")
-                if pending["kind"] not in ("normal", "return", "throw"):
+                jump = type(pending) is dict and pending.get("kind") in ("break", "continue")
+                _exact(
+                    pending,
+                    {"kind", "value"} | ({"target"} if jump else set()),
+                    "ordinary pending completion",
+                )
+                if pending["kind"] not in ("normal", "return", "throw", "break", "continue"):
                     _fail("ordinary completion kind")
                 value(pending["value"])
-                if pending["kind"] == "normal" and pending["value"] != ["undefined"]:
-                    _fail("normal cleanup has no return value")
+                if pending["kind"] in ("normal", "break", "continue") and pending["value"] != [
+                    "undefined"
+                ]:
+                    _fail("normal or loop cleanup has no return value")
+                if jump:
+                    _identity(pending["target"])
+                    target = targets.get(pending["target"])
+                    if not target or pending["kind"] == "continue" and not target["continue"]:
+                        _fail("ordinary completion target is absent or cannot continue")
     return True
 
 
