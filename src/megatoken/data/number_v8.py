@@ -145,6 +145,15 @@ def assert_next(machine, record):
     )
     if row is None:
         return True
+    fields = record.get("fields") or {}
+    if (
+        row["phase"] in ("select", "convert")
+        and record.get("kind") == "transfer"
+        and fields.get("kind") == "cleanup"
+        and fields.get("value") == ["undefined"]
+        and (fields.get("handler") or {}).get("schema") == "semantic-handler-scopes/1"
+    ):
+        return True
     if row["phase"] == "waiting" and row["child"] in machine["stack"]:
         return True
     _require(bool(machine["stack"]) and machine["stack"][-1] == row["parent"], "continuation owner")

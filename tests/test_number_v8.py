@@ -68,6 +68,66 @@ def define(state, identity, key, value):
 
 
 class NumberProtocolTests(unittest.TestCase):
+    def test_cleanup_scope_transfer_is_bounded_and_cannot_skip_number_conversion(self):
+        from megatoken.data.protocol_v8 import (
+            _external_machine,
+            assert_detailed_record_compatible,
+            validate_completion_detail,
+        )
+
+        state = machine()
+        apply(state, {"kind": "number.begin", "id": "n", "value": ["num", 3]})
+        public = _external_machine(state)
+        fields = {
+            "kind": "cleanup",
+            "value": ["undefined"],
+            "handler": {
+                "schema": "semantic-handler-scopes/1",
+                "frames": [
+                    {
+                        "invocation": "root",
+                        "handlers": [
+                            {
+                                "id": "handler1",
+                                "catch": True,
+                                "finally": True,
+                                "phase": "finally",
+                                "caught": None,
+                                "pending": {"kind": "throw", "value": ["num", 7]},
+                            }
+                        ],
+                    }
+                ],
+            },
+        }
+        self.assertTrue(validate_completion_detail(public, "transfer", fields))
+        self.assertTrue(assert_detailed_record_compatible(public, "transfer", fields))
+        self.assertEqual(
+            state["protocol"]["numberConversions"]["operations"][0]["phase"], "convert"
+        )
+        with self.assertRaisesRegex(ProtocolV8Error, "number.finish"):
+            assert_detailed_record_compatible(
+                public, "transfer", {"kind": "return", "value": ["num", 3], "handler": "finally"}
+            )
+        mutations = [
+            lambda f: f["handler"]["frames"][0].update(invocation="absent"),
+            lambda f: f["handler"]["frames"].append(copy.deepcopy(f["handler"]["frames"][0])),
+            lambda f: f["handler"]["frames"][0]["handlers"][0].update(pending=None),
+            lambda f: f["handler"]["frames"][0]["handlers"][0].update(caught=["num", 7]),
+            lambda f: f["handler"]["frames"][0]["handlers"][0]["pending"].update(
+                value=["ref", "absent"]
+            ),
+            lambda f: f["handler"]["frames"][0]["handlers"][0].update(bytecode=[]),
+        ]
+        before = copy.deepcopy(public)
+        for mutate in mutations:
+            malformed = copy.deepcopy(fields)
+            mutate(malformed)
+            with self.assertRaises(ProtocolV8Error):
+                validate_completion_detail(public, "transfer", malformed)
+            self.assertEqual(public, before)
+        apply(state, {"kind": "number.finish", "id": "n", "result": ["num", 3]})
+
     def test_abrupt_callback_is_terminal_exact_and_restorable(self):
         state = machine()
         allocate(state, "object")

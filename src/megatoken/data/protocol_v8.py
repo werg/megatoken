@@ -1545,8 +1545,83 @@ def apply_protocol_to_shared_state(shared_state, line):
     return _external_machine(machine)
 
 
+def validate_completion_detail(shared_state, kind, fields):
+    """Validate the existing transfer's bounded, non-executable handler scopes."""
+    scope = fields.get("handler")
+    if (
+        kind != "transfer"
+        or not isinstance(scope, dict)
+        or scope.get("schema") != "semantic-handler-scopes/1"
+    ):
+        return False
+    if fields.get("kind") != "cleanup" or fields.get("value") != ["undefined"]:
+        _fail("ordinary handler-scope transfer kind/value")
+    _exact(scope, {"schema", "frames"}, "ordinary handler scopes")
+    if type(scope["frames"]) is not list or len(scope["frames"]) > 64:
+        _fail("ordinary handler frame bound")
+    machine = _internal_machine(shared_state)
+    previous = -1
+    identities = set()
+
+    def value(tag):
+        _known(machine, tag)
+        if tag[0] == "symbol":
+            _fail("Symbol cleanup needs protocol transfer")
+
+    for frame in scope["frames"]:
+        _exact(frame, {"invocation", "handlers"}, "ordinary handler frame")
+        if (
+            frame["invocation"] not in machine["stack"]
+            or frame["invocation"] not in machine["frameFunctions"]
+        ):
+            _fail("ordinary handler frame is not active")
+        index = machine["stack"].index(frame["invocation"])
+        if index <= previous:
+            _fail("ordinary handler frame stack order")
+        previous = index
+        if type(frame["handlers"]) is not list or not 0 < len(frame["handlers"]) <= 64:
+            _fail("ordinary handler bound")
+        for handler in frame["handlers"]:
+            _exact(
+                handler,
+                {"id", "catch", "finally", "phase", "caught", "pending"},
+                "ordinary handler",
+            )
+            _identity(handler["id"])
+            if handler["id"] in identities:
+                _fail("ordinary handler identity")
+            identities.add(handler["id"])
+            if (
+                type(handler["catch"]) is not bool
+                or type(handler["finally"]) is not bool
+                or not (handler["catch"] or handler["finally"])
+                or handler["phase"] not in ("try", "catch", "finally")
+                or handler["phase"] == "catch"
+                and not handler["catch"]
+                or handler["phase"] == "finally"
+                and not handler["finally"]
+            ):
+                _fail("ordinary handler phase/capability")
+            if handler["caught"] is not None:
+                if handler["phase"] != "catch":
+                    _fail("caught value outside catch")
+                value(handler["caught"])
+            if (handler["phase"] == "finally") != (handler["pending"] is not None):
+                _fail("ordinary cleanup pending completion")
+            if handler["pending"] is not None:
+                pending = handler["pending"]
+                _exact(pending, {"kind", "value"}, "ordinary pending completion")
+                if pending["kind"] not in ("normal", "return", "throw"):
+                    _fail("ordinary completion kind")
+                value(pending["value"])
+                if pending["kind"] == "normal" and pending["value"] != ["undefined"]:
+                    _fail("normal cleanup has no return value")
+    return True
+
+
 def assert_detailed_record_compatible(shared_state, kind, fields):
     """Reject legacy detail that would bypass rich protocol property state."""
+    validate_completion_detail(shared_state, kind, fields)
     protocol = shared_state.get("protocol")
     if protocol is None:
         return True
@@ -1554,7 +1629,7 @@ def assert_detailed_record_compatible(shared_state, kind, fields):
     if protocol["pendingCalls"] and protocol["pendingCalls"][-1]["child"] not in machine["stack"]:
         _fail("pending property completion requires protocol finish")
     assert_construction_next(machine, {"kind": kind, **fields})
-    assert_number_next(machine, {"kind": kind, **fields})
+    assert_number_next(machine, {"kind": kind, "fields": fields})
     assert_generator_next(machine, {"kind": kind, **fields})
     assert_proxy_next(machine, {"kind": kind, **fields})
     assert_promise_executor_next(machine, {"kind": kind, **fields})

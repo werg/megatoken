@@ -34,6 +34,7 @@ from .protocol_v8 import (
     apply_protocol_to_shared_state,
     assert_detailed_record_compatible,
     decode_protocol_record,
+    validate_completion_detail,
     validate_protocol_state,
 )
 from .schema import (
@@ -1298,6 +1299,10 @@ def _apply_detail(
             state["pending"] = {"kind": kind, "value": copy.deepcopy(value)}
             state["stack"] = []
     elif kind == "transfer":
+        try:
+            validate_completion_detail(state, kind, fields)
+        except ProtocolV8Error as error:
+            raise NativeV8Error(str(error)) from error
         completion_kind = fields["kind"]
         if completion_kind not in ("return", "throw", "cleanup"):
             _fail("Unknown completion transfer")
