@@ -30,10 +30,10 @@ jobs:
       PYTHONPATH: ${{ github.workspace }}/megatoken/src
       TRACING_JS_SELF_ROOT: ${{ github.workspace }}/tracing-js-self
       MEGATOKEN_NATIVE_SOURCE_PRODUCER: ${{ github.workspace }}/tracing-js-self
-      MEGATOKEN_TOKENIZER_JSON: ${{ runner.temp }}/semantic-v8-tokenizer.json
+      MEGATOKEN_TOKENIZER_JSON: ${{ github.workspace }}/semantic-v8-tokenizer.json
       MEGATOKEN_ROOT: ${{ github.workspace }}/megatoken
       MEGATOKEN_PYTHON: python
-      SEMANTIC_V8_NATIVE_POLICY: ${{ runner.temp }}/semantic-v8-policy.json
+      SEMANTIC_V8_NATIVE_POLICY: ${{ github.workspace }}/semantic-v8-policy.json
       V8_POPULATION: ${{ matrix.population }}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -144,7 +144,7 @@ jobs:
           if-no-files-found: warn
           retention-days: 30
           path: |
-            ${{ runner.temp }}/semantic-v8-policy.json
+            ${{ env.SEMANTIC_V8_NATIVE_POLICY }}
             ${{ runner.temp }}/semantic-v8-identities.json
             ${{ runner.temp }}/semantic-v8-contract.log
             ${{ runner.temp }}/semantic-v8-tests.xml
