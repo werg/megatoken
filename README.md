@@ -7,6 +7,43 @@ compact and detailed trace consumers, native admission, matching model-serving
 inputs, and prepared training with frozen semantic-family splits. It is a
 candidate integration; serving-cost and comprehension qualification remain open.
 
+## Native semantic execution v8
+
+The v8 candidate adds independent replay and physical-record packing for mixed
+algorithm, region, detailed, and protocol records. The
+[producer training and dataset runbook](https://github.com/werg/tracing-js-self/blob/f674f89ae05e874b548e167f8af50f40cf36f703/docs/SEMANTIC_V8_TRAINING.md)
+describes source collection, frozen family splits, and native-admitted exports.
+[Retained qualification](https://github.com/werg/tracing-js-self/tree/d7dd41250e2af07d65bc3de5910b8029ab995498/coverage/language-expansion/native-v8-8d1f7b5)
+covers 22 interoperability and 11 gallery cases at consumer `be3a8d7` and
+producer `8d1f7b5`. These are engineering results; model-execution qualification,
+serving costs, and default promotion remain separate gates.
+
+Run admission from the exact clean consumer checkout selected by the producer's
+`contracts/semantic-native-policy-v8.json`. Supply the matching clean producer
+checkout and revision so the live source authority can re-execute and verify the
+source-bound artifact. The production tokenizer is the pinned Ling tokenizer
+with SHA-256 `40fb9d7d7795b8bd305aeff39ce9963f3f450915b9553f2938e009be9a1fed60`;
+the qualified environment uses `tokenizers==0.23.3`. Keep input and receipt files
+outside the producer checkout so it stays clean.
+
+```sh
+python -m pip install -e '.[data]' 'tokenizers==0.23.3'
+PYTHONPATH=src python scripts/admit_semantic_v8.py \
+  --input /path/to/source-bound-v8.json --output /path/to/native-receipt.json \
+  --consumer-revision EXACT_CONSUMER_COMMIT \
+  --producer-root /path/to/clean/tracing-js-self \
+  --producer-revision EXACT_PRODUCER_COMMIT \
+  --tokenizer-json /path/to/pinned-Ling-tokenizer.json
+```
+
+Check the receipt's `admitted` field and all six checks: replay, contexts,
+continuation, masks, source binding, and tokenizer. Exit status zero means a
+receipt was written; it does not by itself mean admission. The Python APIs
+`megatoken.data.native_v8.validate_v8_artifact` and
+`prepare_native_v8_training` provide replay checks and physical packing,
+respectively; neither grants admission or replaces live source verification.
+Missing source authority or tokenizer checks remain untested.
+
 ## One architecture
 
 One selected raw-facet representation powers ordinary E/C/P/R generation, and one learned memory sits beside it: the [Continuous State Transducer](docs/continuous-state-transducer-plan.md) (v10, implemented, not yet trained). At chosen boundaries the model emits a query, searches a sparse bank of location-to-location edges with an agenda-wide neighbourhood search, and admits what it finds as extra attention slots ("knowledge megatokens"). Edges carry FP8 routing vectors and 32,768-wide FP4 values; a momentum-free local-scale optimizer trains them, hindsight writes fill them, and error-driven growth adds and splits them. The transducer is always on: there is no switch and no older retrieval stack (the v9 source catalog, search index and embedding-alignment sidecars were removed). The implementation and executed checks define current behavior; design documents describe intended work.

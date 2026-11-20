@@ -73,10 +73,11 @@ def _exact(obj, keys, label):
 
 
 def validate_v8_artifact(document):
-    """Check public v8 versions, causal contexts, and each available pure target.
+    """Replay public v8 records, causal contexts, and shared continuations.
 
-    Returns a cautious receipt: detailed controller continuation and source
-    correspondence are explicitly untested, so this is never serving admission.
+    The engineering receipt reports replay, context, and continuation checks.
+    Masks, tokenizer, and live source correspondence remain untested here;
+    this function always returns admitted=False.
     """
     if not isinstance(document, dict) or not isinstance(document.get("public"), dict):
         _fail("Expected semantic-execution/8 public artifact")
