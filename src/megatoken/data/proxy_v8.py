@@ -11,9 +11,19 @@ PROFILE = "ordinary-data-proxy/1"
 SCHEMA = "semantic-proxy-call-state/1"
 BOUND = 64
 TRAPS = (
-    "getPrototypeOf", "setPrototypeOf", "isExtensible", "preventExtensions",
-    "getOwnPropertyDescriptor", "defineProperty", "has", "get", "set",
-    "deleteProperty", "ownKeys", "apply", "construct",
+    "getPrototypeOf",
+    "setPrototypeOf",
+    "isExtensible",
+    "preventExtensions",
+    "getOwnPropertyDescriptor",
+    "defineProperty",
+    "has",
+    "get",
+    "set",
+    "deleteProperty",
+    "ownKeys",
+    "apply",
+    "construct",
 )
 FIELDS = {
     "proxy.create": {"kind", "name", "target", "handler"},
@@ -24,11 +34,23 @@ FIELDS = {
     "proxy.finish": {"kind", "id", "completion"},
 }
 HEAP_FIELDS = {"kind", "target", "handler", "properties"}
-CALL_FIELDS = {"id", "operation", "parent", "child", "object", "target", "handler", "key", "value", "callee"}
+CALL_FIELDS = {
+    "id",
+    "operation",
+    "parent",
+    "child",
+    "object",
+    "target",
+    "handler",
+    "key",
+    "value",
+    "callee",
+}
 
 
 def _protocol():
     from . import protocol_v8
+
     return protocol_v8
 
 
@@ -98,7 +120,11 @@ def _route(machine, node):
             _fail("Proxy trap accessors require their own protocol")
         if descriptor and descriptor["value"][0] not in ("undefined", "null"):
             value = descriptor["value"]
-            if trap not in ("get", "set") or value[0] != "ref" or p._node(machine, value[1])["kind"] != "closure":
+            if (
+                trap not in ("get", "set")
+                or value[0] != "ref"
+                or p._node(machine, value[1])["kind"] != "closure"
+            ):
                 _fail("Proxy trap " + trap + " requires its explicit call boundary")
     return handler
 
@@ -120,8 +146,12 @@ def _eq(left, right):
             except (TypeError, ValueError, OverflowError):
                 return True
         return True
-    if (isinstance(left, list) and isinstance(right, list) and len(left) == len(right) == 2
-            and left[0] == right[0] == "num"):
+    if (
+        isinstance(left, list)
+        and isinstance(right, list)
+        and len(left) == len(right) == 2
+        and left[0] == right[0] == "num"
+    ):
         try:
             a, b = float(left[1]), float(right[1])
             return math.isnan(a) and math.isnan(b)
@@ -141,7 +171,10 @@ def _args(row):
 def assert_next(machine, record):
     pending = (machine.get("protocol", {}).get("proxyCalls") or {}).get("pending", [])
     if pending and pending[-1]["child"] not in machine["stack"]:
-        _require(record["kind"] == "proxy.finish" and record.get("id") == pending[-1]["id"], "pending callback requires its finish")
+        _require(
+            record["kind"] == "proxy.finish" and record.get("id") == pending[-1]["id"],
+            "pending callback requires its finish",
+        )
     return True
 
 
@@ -158,9 +191,20 @@ def apply_record(machine, record):
     if kind == "proxy.create":
         _id(record["name"])
         reserved = {row["id"] for row in machine["protocol"].get("symbols", [])}
-        reserved.update(row["id"] for row in (machine["protocol"].get("construction") or {}).get("privateNames", []))
-        _require(record["name"] not in machine["heap"] and record["name"] not in reserved, "fresh identity")
-        node = {"kind": "proxy", "target": copy.deepcopy(record["target"]), "handler": copy.deepcopy(record["handler"]), "properties": {}}
+        reserved.update(
+            row["id"]
+            for row in (machine["protocol"].get("construction") or {}).get("privateNames", [])
+        )
+        _require(
+            record["name"] not in machine["heap"] and record["name"] not in reserved,
+            "fresh identity",
+        )
+        node = {
+            "kind": "proxy",
+            "target": copy.deepcopy(record["target"]),
+            "handler": copy.deepcopy(record["handler"]),
+            "properties": {},
+        }
         _route(machine, node)
         machine["heap"][record["name"]] = node
         _state(machine)
@@ -168,7 +212,15 @@ def apply_record(machine, record):
     if kind == "proxy.finish":
         pending = _state(machine)["pending"]
         returned = machine.get("lastReturn")
-        _require(bool(pending) and pending[-1]["id"] == record["id"] and machine["stack"][-1] == pending[-1]["parent"] and pending[-1]["child"] not in machine["stack"] and returned and returned["kind"] in ("return", "throw"), "callback completion identity")
+        _require(
+            bool(pending)
+            and pending[-1]["id"] == record["id"]
+            and machine["stack"][-1] == pending[-1]["parent"]
+            and pending[-1]["child"] not in machine["stack"]
+            and returned
+            and returned["kind"] in ("return", "throw"),
+            "callback completion identity",
+        )
         row = pending[-1]
         node = machine["heap"].get(row["object"])
         _require(node and node["kind"] == "proxy", "known Proxy identity required")
@@ -176,13 +228,24 @@ def apply_record(machine, record):
         expected = {"kind": "throw", "value": copy.deepcopy(returned["value"])}
         if returned["kind"] == "return":
             if row["operation"] == "set":
-                _require(scalar._truthy(returned["value"]), "false Proxy set trap needs abrupt completion")
+                _require(
+                    scalar._truthy(returned["value"]),
+                    "false Proxy set trap needs abrupt completion",
+                )
             target = p._node(machine, node["target"][1])
             descriptor = p._descriptor(target, p._key(row["key"]))
             if descriptor and not descriptor["configurable"] and not descriptor["writable"]:
                 trapped = returned["value"] if row["operation"] == "get" else row["value"]
-                _require(_eq(descriptor["value"], trapped), "Proxy trap violates frozen target data invariant")
-            expected = {"kind": "normal", "value": copy.deepcopy(returned["value"] if row["operation"] == "get" else row["value"])}
+                _require(
+                    _eq(descriptor["value"], trapped),
+                    "Proxy trap violates frozen target data invariant",
+                )
+            expected = {
+                "kind": "normal",
+                "value": copy.deepcopy(
+                    returned["value"] if row["operation"] == "get" else row["value"]
+                ),
+            }
         _require(record["completion"] == expected, "false Proxy callback completion")
         pending.pop()
         return True
@@ -194,13 +257,31 @@ def apply_record(machine, record):
     method = (p._descriptor(handler, operation) or {}).get("value", ["undefined"])
     if kind.endswith(".call"):
         pending = _state(machine)["pending"]
-        _require(len(pending) < BOUND and all(row["id"] != record["id"] for row in pending), "pending call identity or bound")
-        _require(method[0] == "ref" and p._node(machine, method[1])["kind"] == "closure", "call requires a live owned trap")
+        _require(
+            len(pending) < BOUND and all(row["id"] != record["id"] for row in pending),
+            "pending call identity or bound",
+        )
+        _require(
+            method[0] == "ref" and p._node(machine, method[1])["kind"] == "closure",
+            "call requires a live owned trap",
+        )
         value = copy.deepcopy(record["value"]) if operation == "set" else None
         if value is not None:
             p._known(machine, value)
-        row = {"id": record["id"], "operation": operation, "parent": machine["stack"][-1], "child": record["child"], "object": record["object"], "target": copy.deepcopy(node["target"]), "handler": copy.deepcopy(node["handler"]), "key": copy.deepcopy(record["key"]), "value": value, "callee": copy.deepcopy(method)}
+        row = {
+            "id": record["id"],
+            "operation": operation,
+            "parent": machine["stack"][-1],
+            "child": record["child"],
+            "object": record["object"],
+            "target": copy.deepcopy(node["target"]),
+            "handler": copy.deepcopy(node["handler"]),
+            "key": copy.deepcopy(record["key"]),
+            "value": value,
+            "callee": copy.deepcopy(method),
+        }
         from .construction_v8 import _call
+
         _call(machine, row["child"], row["callee"], row["handler"], _args(row))
         pending.append(row)
         return True
@@ -222,8 +303,15 @@ def apply_record(machine, record):
             if own is not None and (own["kind"] != "data" or not own["writable"]):
                 success = False
             else:
-                current = own or {"kind": "data", "writable": True, "enumerable": True, "configurable": True}
-                success = p._define_own_property(target, key, {**current, "value": copy.deepcopy(record["value"])})
+                current = own or {
+                    "kind": "data",
+                    "writable": True,
+                    "enumerable": True,
+                    "configurable": True,
+                }
+                success = p._define_own_property(
+                    target, key, {**current, "value": copy.deepcopy(record["value"])}
+                )
         _require(success == record["success"], "false Proxy assignment result")
     return True
 
@@ -237,13 +325,21 @@ def validate_state(machine):
         proxies += 1
         _id(identity)
         _protocol()._exact(node, HEAP_FIELDS, "Proxy heap node")
-        _require(type(node["properties"]) is dict and not node["properties"], "Proxy has invented own storage")
+        _require(
+            type(node["properties"]) is dict and not node["properties"],
+            "Proxy has invented own storage",
+        )
         _route(machine, node)
     if state is None:
         _require(proxies == 0, "Proxy heap lacks call state")
         return True
     _protocol()._exact(state, {"schema", "pending"}, "Proxy call state")
-    _require(state["schema"] == SCHEMA and type(state["pending"]) is list and len(state["pending"]) <= BOUND, "state schema or bound")
+    _require(
+        state["schema"] == SCHEMA
+        and type(state["pending"]) is list
+        and len(state["pending"]) <= BOUND,
+        "state schema or bound",
+    )
     seen = set()
     for row in state["pending"]:
         _protocol()._exact(row, CALL_FIELDS, "Proxy pending call")
@@ -252,23 +348,57 @@ def validate_state(machine):
         _require(row["id"] not in seen and row["operation"] in ("get", "set"), "call identity")
         seen.add(row["id"])
         node = machine["heap"].get(row["object"])
-        _require(node and node["kind"] == "proxy" and node["target"] == row["target"] and node["handler"] == row["handler"], "target/handler identity")
+        _require(
+            node
+            and node["kind"] == "proxy"
+            and node["target"] == row["target"]
+            and node["handler"] == row["handler"],
+            "target/handler identity",
+        )
         _protocol().validate_protocol_key(row["key"])
         if row["key"][0] == "symbol":
             _protocol()._symbol(machine, row["key"][1])
         _protocol()._known(machine, row["callee"])
         callee = _protocol()._node(machine, row["callee"][1])
-        _require(row["callee"][0] == "ref" and callee["kind"] == "closure" and machine["frameFunctions"].get(row["child"]) == callee["code"] and row["parent"] in machine["frameFunctions"], "callback source identity")
+        _require(
+            row["callee"][0] == "ref"
+            and callee["kind"] == "closure"
+            and machine["frameFunctions"].get(row["child"]) == callee["code"]
+            and row["parent"] in machine["frameFunctions"],
+            "callback source identity",
+        )
         if row["operation"] == "get":
             _require(row["value"] is None, "get has no assignment value")
         else:
             _protocol()._known(machine, row["value"])
-        receiver = callee.get("lexicalReceiver") if callee.get("functionKind") == "arrow" else row["handler"]
+        receiver = (
+            callee.get("lexicalReceiver")
+            if callee.get("functionKind") == "arrow"
+            else row["handler"]
+        )
         _require(machine["locals"].get(row["child"] + ":this") == receiver, "callback receiver")
         if row["child"] in machine["stack"]:
-            _require(machine["stack"].index(row["child"]) == machine["stack"].index(row["parent"]) + 1, "callback stack")
-            frame = next((frame for frame in machine["protocol"]["callFrames"] if frame["child"] == row["child"]), None)
-            _require(frame is not None and frame["arguments"] == _args(row), "callback retained arguments")
+            _require(
+                machine["stack"].index(row["child"]) == machine["stack"].index(row["parent"]) + 1,
+                "callback stack",
+            )
+            frame = next(
+                (
+                    frame
+                    for frame in machine["protocol"]["callFrames"]
+                    if frame["child"] == row["child"]
+                ),
+                None,
+            )
+            _require(
+                frame is not None and frame["arguments"] == _args(row),
+                "callback retained arguments",
+            )
         else:
-            _require(row is state["pending"][-1] and machine["stack"][-1] == row["parent"] and machine.get("lastReturn", {}).get("kind") in ("return", "throw"), "finished callback owner")
+            _require(
+                row is state["pending"][-1]
+                and machine["stack"][-1] == row["parent"]
+                and machine.get("lastReturn", {}).get("kind") in ("return", "throw"),
+                "finished callback owner",
+            )
     return True

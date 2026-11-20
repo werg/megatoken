@@ -8,9 +8,7 @@ PROFILE = "promise-join/1"
 STATE_SCHEMA = "semantic-promise-join-state/1"
 FIELDS = {
     "promise.join": {"kind", "mode", "result", "inputs", "jobs", "output", "error"},
-    "promise.join.step": {
-        "kind", "result", "job", "entry", "output", "error", "status", "value"
-    },
+    "promise.join.step": {"kind", "result", "job", "entry", "output", "error", "status", "value"},
 }
 BOUND = 4096
 
@@ -143,9 +141,11 @@ def apply_record(machine, record):
         if record["result"] in record["inputs"]:
             _fail("result cannot be an input")
         continuations = machine.get("continuations", [])
-        continuation_ids = set(continuations) if isinstance(continuations, dict) else {
-            row[0] for row in continuations
-        }
+        continuation_ids = (
+            set(continuations)
+            if isinstance(continuations, dict)
+            else {row[0] for row in continuations}
+        )
         occupied = set(machine["heap"]) | set(jobs) | continuation_ids
         for identity in record["jobs"]:
             if identity in occupied:
@@ -157,41 +157,82 @@ def apply_record(machine, record):
             if output in machine["heap"] or output in jobs:
                 _fail("empty all output identity collision")
             machine["heap"][output] = {
-                "kind": "array", "properties": {"length": ["num", 0]},
-                "prototype": "ordinary", "captures": [], "code": None,
+                "kind": "array",
+                "properties": {"length": ["num", 0]},
+                "prototype": "ordinary",
+                "captures": [],
+                "code": None,
             }
             _settle(machine, record["result"], "fulfilled", ["ref", output])
-            result["join"] = {"schema": STATE_SCHEMA, "mode": "all", "inputs": [], "jobs": [],
-                               "observed": [], "values": [], "output": output, "error": None,
-                               "settled": True}
+            result["join"] = {
+                "schema": STATE_SCHEMA,
+                "mode": "all",
+                "inputs": [],
+                "jobs": [],
+                "observed": [],
+                "values": [],
+                "output": output,
+                "error": None,
+                "settled": True,
+            }
         else:
-            result["join"] = {"schema": STATE_SCHEMA, "mode": record["mode"],
-                              "inputs": copy.deepcopy(record["inputs"]), "jobs": copy.deepcopy(record["jobs"]),
-                              "observed": [False] * len(record["inputs"]),
-                              "values": [None] * len(record["inputs"]), "output": None,
-                              "error": None, "settled": False}
+            result["join"] = {
+                "schema": STATE_SCHEMA,
+                "mode": record["mode"],
+                "inputs": copy.deepcopy(record["inputs"]),
+                "jobs": copy.deepcopy(record["jobs"]),
+                "observed": [False] * len(record["inputs"]),
+                "values": [None] * len(record["inputs"]),
+                "output": None,
+                "error": None,
+                "settled": False,
+            }
             owner = machine.get("stack", [None])[0]
-            for index, (identity, input_id) in enumerate(zip(record["jobs"], record["inputs"], strict=True)):
+            for index, (identity, input_id) in enumerate(
+                zip(record["jobs"], record["inputs"], strict=True)
+            ):
                 scheduler["registration"] += 1
-                jobs[identity] = {"status": "waiting", "owner": owner, "promise": input_id,
-                                  "reaction": "join", "closure": None, "rejectionClosure": None,
-                                  "target": None, "sequence": scheduler["registration"],
-                                  "joinResult": record["result"], "joinIndex": index}
+                jobs[identity] = {
+                    "status": "waiting",
+                    "owner": owner,
+                    "promise": input_id,
+                    "reaction": "join",
+                    "closure": None,
+                    "rejectionClosure": None,
+                    "target": None,
+                    "sequence": scheduler["registration"],
+                    "joinResult": record["result"],
+                    "joinIndex": index,
+                }
             machine["jobs"] = _list_rows(jobs)
             _refresh(machine)
         return True
 
     join = result.get("join")
-    if not join or join.get("schema") != STATE_SCHEMA or join.get("settled") != (result["state"] != "pending"):
+    if (
+        not join
+        or join.get("schema") != STATE_SCHEMA
+        or join.get("settled") != (result["state"] != "pending")
+    ):
         _fail("unknown or stale join result")
     if record["job"] not in join["jobs"]:
         _fail("unregistered join job")
     index = join["jobs"].index(record["job"])
     job = jobs.get(record["job"])
-    if not job or job.get("reaction") != "join" or job.get("joinResult") != record["result"] or \
-       job.get("joinIndex") != index or job.get("promise") != join["inputs"][index]:
+    if (
+        not job
+        or job.get("reaction") != "join"
+        or job.get("joinResult") != record["result"]
+        or job.get("joinIndex") != index
+        or job.get("promise") != join["inputs"][index]
+    ):
         _fail("join scheduler linkage")
-    if machine.get("stack") or machine.get("activeJob") or ready[:1] != [record["job"]] or job["status"] != "queued":
+    if (
+        machine.get("stack")
+        or machine.get("activeJob")
+        or ready[:1] != [record["job"]]
+        or job["status"] != "queued"
+    ):
         _fail("join step violates FIFO or stack turn")
     source = _promise(machine, join["inputs"][index])
     if source["state"] == "pending":
@@ -214,14 +255,19 @@ def apply_record(machine, record):
                 _fail("final Promise.all output identity")
             props = {str(i): copy.deepcopy(value) for i, value in enumerate(join["values"])}
             props["length"] = ["num", len(join["values"])]
-            machine["heap"][expected_output] = {"kind": "array", "properties": props,
-                                                 "prototype": "ordinary", "captures": [], "code": None}
+            machine["heap"][expected_output] = {
+                "kind": "array",
+                "properties": props,
+                "prototype": "ordinary",
+                "captures": [],
+                "code": None,
+            }
             join["output"] = expected_output
             _settle(machine, record["result"], "fulfilled", ["ref", expected_output])
             join["settled"] = True
     if record["output"] != expected_output:
         _fail("false output allocation identity")
-    if (result["state"] != record["status"] or result.get("result") != record["value"]):
+    if result["state"] != record["status"] or result.get("result") != record["value"]:
         _fail("false join settlement claim")
     machine["jobs"] = _list_rows(jobs)
     _refresh(machine)
@@ -239,10 +285,16 @@ def validate_state(machine):
         join = result.get("join")
         if join is None:
             continue
-        if (join.get("schema") != STATE_SCHEMA or join.get("mode") not in ("all", "race") or
-            not all(type(join.get(key)) is list for key in ("inputs", "jobs", "observed", "values")) or
-            len({len(join[key]) for key in ("inputs", "jobs", "observed", "values")}) != 1 or
-            type(join.get("settled")) is not bool or join["settled"] != (result["state"] != "pending")):
+        if (
+            join.get("schema") != STATE_SCHEMA
+            or join.get("mode") not in ("all", "race")
+            or not all(
+                type(join.get(key)) is list for key in ("inputs", "jobs", "observed", "values")
+            )
+            or len({len(join[key]) for key in ("inputs", "jobs", "observed", "values")}) != 1
+            or type(join.get("settled")) is not bool
+            or join["settled"] != (result["state"] != "pending")
+        ):
             _fail("restored join metadata")
         for index, (input_id, job_id) in enumerate(zip(join["inputs"], join["jobs"], strict=True)):
             _identity(input_id)
@@ -257,8 +309,13 @@ def validate_state(machine):
             elif join["values"][index] is not None:
                 _fail("unobserved input value")
             job = jobs.get(job_id)
-            if (not job or job.get("reaction") != "join" or job.get("joinResult") != result_id or
-                job.get("joinIndex") != index or job.get("promise") != input_id):
+            if (
+                not job
+                or job.get("reaction") != "join"
+                or job.get("joinResult") != result_id
+                or job.get("joinIndex") != index
+                or job.get("promise") != input_id
+            ):
                 _fail("restored scheduler linkage")
     for job_id, job in jobs.items():
         if job.get("reaction") != "join":

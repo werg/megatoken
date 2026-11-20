@@ -1232,12 +1232,22 @@ def replay_protocol_case(case):
             machine = _internal_machine(serialized)
             if machine["protocol"]["sequence"] != number + 1:
                 _fail("checkpoint sequence")
-            validate_protocol_state(machine["protocol"], machine["heap"], _external_machine(machine))
+            validate_protocol_state(
+                machine["protocol"], machine["heap"], _external_machine(machine)
+            )
     return _external_machine(machine)
 
 
 def validate_protocol_state(snapshot, heap_ids=(), shared_state=None):
-    base_fields = {"schema", "symbols", "pendingCalls", "callFrames", "sequence", "numberConversions", "proxyCalls"}
+    base_fields = {
+        "schema",
+        "symbols",
+        "pendingCalls",
+        "callFrames",
+        "sequence",
+        "numberConversions",
+        "proxyCalls",
+    }
     if type(snapshot) is dict and "construction" in snapshot:
         _exact(snapshot, base_fields | {"construction"}, "shared protocol state")
     else:
@@ -1383,7 +1393,11 @@ def validate_protocol_state(snapshot, heap_ids=(), shared_state=None):
     if shared_state is not None:
         active_machine = _internal_machine(shared_state)
         for binding, cell in active_machine.get("captureAliases", {}).items():
-            if not isinstance(binding, str) or not isinstance(cell, str) or cell not in active_machine["locals"]:
+            if (
+                not isinstance(binding, str)
+                or not isinstance(cell, str)
+                or cell not in active_machine["locals"]
+            ):
                 _fail("active closure capture is not initialized")
             _known(active_machine, active_machine["locals"][cell])
     if heap_nodes is not None:
@@ -1491,7 +1505,11 @@ def assert_detailed_record_compatible(shared_state, kind, fields):
             _fail("Detailed property transition bypasses rich protocol state")
     if kind in ("call", "construct"):
         callee = fields.get("callee")
-        identity = callee[1] if isinstance(callee, list) and len(callee) == 2 and callee[0] == "ref" else callee
+        identity = (
+            callee[1]
+            if isinstance(callee, list) and len(callee) == 2 and callee[0] == "ref"
+            else callee
+        )
         target = machine["heap"].get(identity)
         if target and target.get("generatorFunction") is True:
             _fail("Detailed call bypasses generator creation/resume protocol")

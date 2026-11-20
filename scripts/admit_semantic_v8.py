@@ -75,7 +75,9 @@ def recheck_source_binding(document, input_path, producer_root, producer_revisio
         "projectionValidated": True,
         "replayValidated": True,
     }
-    if not isinstance(receipt, dict) or any(receipt.get(key) != value for key, value in expected.items()):
+    if not isinstance(receipt, dict) or any(
+        receipt.get(key) != value for key, value in expected.items()
+    ):
         raise ValueError("Pinned producer source receipt does not bind this artifact")
     return receipt
 

@@ -73,7 +73,12 @@ class NativeV8AdmissionTests(unittest.TestCase):
             ]
             if producer_root is not None:
                 arguments.extend(
-                    ["--producer-root", str(producer_root), "--producer-revision", producer_revision]
+                    [
+                        "--producer-root",
+                        str(producer_root),
+                        "--producer-revision",
+                        producer_revision,
+                    ]
                 )
             with (
                 patch("sys.argv", arguments),
@@ -120,9 +125,11 @@ class NativeV8AdmissionTests(unittest.TestCase):
         if not producer_root:
             self.skipTest("set MEGATOKEN_NATIVE_SOURCE_PRODUCER to run the live V8 authority test")
         root = Path(producer_root)
-        revision = __import__("subprocess").check_output(
-            ["git", "rev-parse", "HEAD"], cwd=root, text=True
-        ).strip()
+        revision = (
+            __import__("subprocess")
+            .check_output(["git", "rev-parse", "HEAD"], cwd=root, text=True)
+            .strip()
+        )
         for mutation in ("source", "public", "contexts"):
             with self.subTest(mutation=mutation):
                 document = self.source_document()
@@ -136,14 +143,14 @@ class NativeV8AdmissionTests(unittest.TestCase):
                     document["sidecar"]["publicDigest"] = stable_algorithm_hash(document["public"])
                 else:
                     document["contexts"][0]["visibleThrough"] += 1
-                    document["sidecar"]["contextDigest"] = stable_algorithm_hash(document["contexts"])
+                    document["sidecar"]["contextDigest"] = stable_algorithm_hash(
+                        document["contexts"]
+                    )
                 with tempfile.TemporaryDirectory() as folder:
                     artifact = Path(folder) / "artifact.json"
                     artifact.write_text(json.dumps(document))
                     with self.assertRaisesRegex(ValueError, "Pinned producer rejected"):
-                        admit_semantic_v8.recheck_source_binding(
-                            document, artifact, root, revision
-                        )
+                        admit_semantic_v8.recheck_source_binding(document, artifact, root, revision)
 
 
 if __name__ == "__main__":

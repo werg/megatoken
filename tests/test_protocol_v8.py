@@ -118,26 +118,77 @@ class ProtocolV8CodecTests(unittest.TestCase):
 class PromiseJoinNativeTests(unittest.TestCase):
     def test_bounded_promise_all_join_uses_fifo_and_checks_settlement_claims(self):
         machine = {
-            "protocol": create_protocol_state(), "heap": {
-                "p1": {"kind": "promise", "properties": {}, "state": "fulfilled", "result": ["num", 7], "reactions": []},
-                "p2": {"kind": "promise", "properties": {}, "state": "fulfilled", "result": ["str", "ok"], "reactions": []},
-                "joined": {"kind": "promise", "properties": {}, "state": "pending", "result": None, "reactions": []},
+            "protocol": create_protocol_state(),
+            "heap": {
+                "p1": {
+                    "kind": "promise",
+                    "properties": {},
+                    "state": "fulfilled",
+                    "result": ["num", 7],
+                    "reactions": [],
+                },
+                "p2": {
+                    "kind": "promise",
+                    "properties": {},
+                    "state": "fulfilled",
+                    "result": ["str", "ok"],
+                    "reactions": [],
+                },
+                "joined": {
+                    "kind": "promise",
+                    "properties": {},
+                    "state": "pending",
+                    "result": None,
+                    "reactions": [],
+                },
             },
-            "locals": {}, "stack": ["invocation"], "effects": [], "jobs": [], "ready": [],
-            "scheduler": {"registration": 0, "ready": 0}, "continuations": [],
-            "captureAliases": {}, "frameFunctions": {},
-            "completion": None, "activeJob": None,
+            "locals": {},
+            "stack": ["invocation"],
+            "effects": [],
+            "jobs": [],
+            "ready": [],
+            "scheduler": {"registration": 0, "ready": 0},
+            "continuations": [],
+            "captureAliases": {},
+            "frameFunctions": {},
+            "completion": None,
+            "activeJob": None,
         }
-        apply_protocol_record(machine, {"kind": "promise.join", "mode": "all", "result": "joined",
-                                        "inputs": ["p1", "p2"], "jobs": ["j1", "j2"],
-                                        "output": None, "error": None})
+        apply_protocol_record(
+            machine,
+            {
+                "kind": "promise.join",
+                "mode": "all",
+                "result": "joined",
+                "inputs": ["p1", "p2"],
+                "jobs": ["j1", "j2"],
+                "output": None,
+                "error": None,
+            },
+        )
         self.assertEqual(machine["ready"], ["j1", "j2"])
         machine["stack"] = []
-        first = {"kind": "promise.join.step", "result": "joined", "job": "j1", "entry": None,
-                 "output": None, "error": None, "status": "pending", "value": None}
+        first = {
+            "kind": "promise.join.step",
+            "result": "joined",
+            "job": "j1",
+            "entry": None,
+            "output": None,
+            "error": None,
+            "status": "pending",
+            "value": None,
+        }
         apply_protocol_record(machine, first)
-        second = {"kind": "promise.join.step", "result": "joined", "job": "j2", "entry": None,
-                  "output": "out", "error": None, "status": "fulfilled", "value": ["ref", "out"]}
+        second = {
+            "kind": "promise.join.step",
+            "result": "joined",
+            "job": "j2",
+            "entry": None,
+            "output": "out",
+            "error": None,
+            "status": "fulfilled",
+            "value": ["ref", "out"],
+        }
         apply_protocol_record(machine, second)
         self.assertEqual(machine["heap"]["joined"]["state"], "fulfilled")
         self.assertEqual(machine["heap"]["out"]["properties"]["1"], ["str", "ok"])
@@ -208,16 +259,43 @@ class GeneratorProtocolNativeTests(unittest.TestCase):
                 self.assertEqual(replay_protocol_case(case), case["expected"])
 
     def test_direct_generator_calls_and_false_delegate_completion_are_rejected(self):
-        start = json.loads(json.dumps(next(case for case in self.document["cases"] if case["id"] == "return-before-body-start")))
-        declaration = next(i for i, line in enumerate(start["lines"]) if '"kind":"generator.function"' in line)
-        direct_call = {"kind": "call", "child": "forged-child", "callee": ["ref", "fn"],
-                       "receiver": ["undefined"], "arguments": []}
+        start = json.loads(
+            json.dumps(
+                next(
+                    case
+                    for case in self.document["cases"]
+                    if case["id"] == "return-before-body-start"
+                )
+            )
+        )
+        declaration = next(
+            i for i, line in enumerate(start["lines"]) if '"kind":"generator.function"' in line
+        )
+        direct_call = {
+            "kind": "call",
+            "child": "forged-child",
+            "callee": ["ref", "fn"],
+            "receiver": ["undefined"],
+            "arguments": [],
+        }
         start["lines"].insert(declaration + 1, encode_protocol_record(direct_call))
         with self.assertRaises(ProtocolV8Error):
             replay_protocol_case(start)
 
-        delegated = json.loads(json.dumps(next(case for case in self.document["cases"] if case["id"] == "delegate-array-preserves-result-identity")))
-        index = next(i for i, line in enumerate(delegated["lines"]) if '"kind":"generator.delegate.result"' in line)
+        delegated = json.loads(
+            json.dumps(
+                next(
+                    case
+                    for case in self.document["cases"]
+                    if case["id"] == "delegate-array-preserves-result-identity"
+                )
+            )
+        )
+        index = next(
+            i
+            for i, line in enumerate(delegated["lines"])
+            if '"kind":"generator.delegate.result"' in line
+        )
         record = decode_protocol_record(delegated["lines"][index])
         record["done"] = True
         delegated["lines"][index] = encode_protocol_record(record)

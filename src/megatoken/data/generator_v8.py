@@ -69,19 +69,34 @@ def validate_record(record):
     if "key" in record:
         p.validate_protocol_key(record["key"])
     if kind == "generator.function":
-        if not isinstance(record["name"], str) or len(record["name"]) > BOUND or type(record["length"]) is not int or not 0 <= record["length"] <= BOUND:
+        if (
+            not isinstance(record["name"], str)
+            or len(record["name"]) > BOUND
+            or type(record["length"]) is not int
+            or not 0 <= record["length"] <= BOUND
+        ):
             _fail("function metadata")
     if kind == "generator.create":
-        if record["callee"][0] != "ref" or type(record["arguments"]) is not list or len(record["arguments"]) > BOUND:
+        if (
+            record["callee"][0] != "ref"
+            or type(record["arguments"]) is not list
+            or len(record["arguments"]) > BOUND
+        ):
             _fail("generator call arguments")
         for value in record["arguments"]:
             p.validate_protocol_value(value)
     if kind in ("generator.resume", "generator.completed") and record["method"] not in METHODS:
         _fail("resume method")
     if kind == "generator.delegate.enter":
-        if record["next"] not in ("Iterator.next", "Generator.next") or record["iterator"][0] != "ref":
+        if (
+            record["next"] not in ("Iterator.next", "Generator.next")
+            or record["iterator"][0] != "ref"
+        ):
             _fail("delegate iterator or cached next")
-    if kind in ("generator.delegate.call", "generator.delegate.absent") and record["method"] not in METHODS:
+    if (
+        kind in ("generator.delegate.call", "generator.delegate.absent")
+        and record["method"] not in METHODS
+    ):
         _fail("delegated method")
     if kind == "generator.delegate.result" and type(record["done"]) is not bool:
         _fail("delegated done flag")
@@ -102,10 +117,18 @@ def validate_record(record):
         completion = record["completion"]
         p._exact(completion, {"kind", "value"}, "generator completion")
         allowed = ("return", "throw", "normal") if kind.endswith("route") else ("return", "throw")
-        if completion["kind"] not in allowed or completion["kind"] == "normal" and completion["value"] != ["undefined"]:
+        if (
+            completion["kind"] not in allowed
+            or completion["kind"] == "normal"
+            and completion["value"] != ["undefined"]
+        ):
             _fail("completion kind")
         p.validate_protocol_value(completion["value"])
-    if kind == "generator.handler.enter" and (type(record["catch"]) is not bool or type(record["finally"]) is not bool or not (record["catch"] or record["finally"])):
+    if kind == "generator.handler.enter" and (
+        type(record["catch"]) is not bool
+        or type(record["finally"]) is not bool
+        or not (record["catch"] or record["finally"])
+    ):
         _fail("handler requires catch or finally")
     return True
 
@@ -137,9 +160,20 @@ def _api_call(machine, call):
 
 
 def _allocate(machine, name, properties):
-    _api_call(machine, {"kind": "allocate", "name": name, "objectKind": "object", "length": None,
-                        "properties": [{"key": ["str", key], "value": value} for key, value in properties],
-                        "code": None, "captures": [], "functionKind": None, "lexicalReceiver": None})
+    _api_call(
+        machine,
+        {
+            "kind": "allocate",
+            "name": name,
+            "objectKind": "object",
+            "length": None,
+            "properties": [{"key": ["str", key], "value": value} for key, value in properties],
+            "code": None,
+            "captures": [],
+            "functionKind": None,
+            "lexicalReceiver": None,
+        },
+    )
 
 
 def _result(machine, name, value, done):
@@ -176,18 +210,84 @@ def _lookup(machine, receiver, key):
                 if key[0] == "str" and key[1] in METHODS:
                     return {"builtin": "Generator." + key[1]}
                 if key[0] == "symbol" and key[1] == "well-known:toStringTag":
-                    return {"descriptor": {"kind": "data", "value": ["str", "Generator"], "writable": False, "enumerable": False, "configurable": True}}
+                    return {
+                        "descriptor": {
+                            "kind": "data",
+                            "value": ["str", "Generator"],
+                            "writable": False,
+                            "enumerable": False,
+                            "configurable": True,
+                        }
+                    }
                 if key[0] == "str" and key[1] == "constructor":
                     return {"unsupported": True}
-            if prototype == "GeneratorFunction.prototype" and key == ["symbol", "well-known:toStringTag"]:
-                return {"descriptor": {"kind": "data", "value": ["str", "GeneratorFunction"], "writable": False, "enumerable": False, "configurable": True}}
-            if prototype == "GeneratorFunction.prototype" and key[0] == "str" and key[1] in ("prototype", "constructor", "call", "apply", "bind", "caller", "arguments", "toString", "valueOf", "__proto__"):
+            if prototype == "GeneratorFunction.prototype" and key == [
+                "symbol",
+                "well-known:toStringTag",
+            ]:
+                return {
+                    "descriptor": {
+                        "kind": "data",
+                        "value": ["str", "GeneratorFunction"],
+                        "writable": False,
+                        "enumerable": False,
+                        "configurable": True,
+                    }
+                }
+            if (
+                prototype == "GeneratorFunction.prototype"
+                and key[0] == "str"
+                and key[1]
+                in (
+                    "prototype",
+                    "constructor",
+                    "call",
+                    "apply",
+                    "bind",
+                    "caller",
+                    "arguments",
+                    "toString",
+                    "valueOf",
+                    "__proto__",
+                )
+            ):
                 return {"unsupported": True}
-            if key[0] == "symbol" and key[1] == "well-known:iterator" and prototype == "Iterator.prototype":
+            if (
+                key[0] == "symbol"
+                and key[1] == "well-known:iterator"
+                and prototype == "Iterator.prototype"
+            ):
                 return {"builtin": "Iterator.identity"}
-            if prototype == "Iterator.prototype" and key[0] == "str" and key[1] in ("constructor", "__proto__", "toString", "toLocaleString", "valueOf", "hasOwnProperty", "isPrototypeOf", "propertyIsEnumerable"):
+            if (
+                prototype == "Iterator.prototype"
+                and key[0] == "str"
+                and key[1]
+                in (
+                    "constructor",
+                    "__proto__",
+                    "toString",
+                    "toLocaleString",
+                    "valueOf",
+                    "hasOwnProperty",
+                    "isPrototypeOf",
+                    "propertyIsEnumerable",
+                )
+            ):
                 return {"unsupported": True}
-            if key[0] == "str" and key[1] in ("constructor", "__proto__", "toString", "toLocaleString", "valueOf", "hasOwnProperty", "isPrototypeOf", "propertyIsEnumerable", "__defineGetter__", "__defineSetter__", "__lookupGetter__", "__lookupSetter__"):
+            if key[0] == "str" and key[1] in (
+                "constructor",
+                "__proto__",
+                "toString",
+                "toLocaleString",
+                "valueOf",
+                "hasOwnProperty",
+                "isPrototypeOf",
+                "propertyIsEnumerable",
+                "__defineGetter__",
+                "__defineSetter__",
+                "__lookupGetter__",
+                "__lookupSetter__",
+            ):
                 return {"unsupported": True}
             return {"descriptor": None}
         if prototype in (None, "ordinary"):
@@ -217,18 +317,34 @@ def _resume_call(machine, node, method, argument):
     if any(capture["cell"] not in machine["locals"] for capture in closure.get("captures", [])):
         _fail("generator capture is not initialized")
     proto = machine["protocol"]
-    proto["callFrames"].append({"child": invocation, "parent": machine["stack"][-1],
-        "priorReceiver": copy.deepcopy(machine.get("receiver", ["undefined"])),
-        "priorAliases": [[key, value] for key, value in machine.get("captureAliases", {}).items()],
-        "arguments": copy.deepcopy(node["arguments"])})
-    machine["receiver"] = copy.deepcopy(closure.get("lexicalReceiver") if closure.get("functionKind") == "arrow" else node["receiver"])
+    proto["callFrames"].append(
+        {
+            "child": invocation,
+            "parent": machine["stack"][-1],
+            "priorReceiver": copy.deepcopy(machine.get("receiver", ["undefined"])),
+            "priorAliases": [
+                [key, value] for key, value in machine.get("captureAliases", {}).items()
+            ],
+            "arguments": copy.deepcopy(node["arguments"]),
+        }
+    )
+    machine["receiver"] = copy.deepcopy(
+        closure.get("lexicalReceiver")
+        if closure.get("functionKind") == "arrow"
+        else node["receiver"]
+    )
     machine["captureAliases"] = {row["binding"]: row["cell"] for row in closure.get("captures", [])}
     machine["locals"][invocation + ":this"] = copy.deepcopy(machine["receiver"])
     for index, value in enumerate(node["arguments"]):
         machine["locals"][invocation + ":argument:" + str(index)] = copy.deepcopy(value)
     machine["stack"].append(invocation)
-    node["resume"] = {"kind": method, "from": node["phase"],
-                       "value": ["undefined"] if method == "next" and node["phase"] == "suspendedStart" else copy.deepcopy(argument)}
+    node["resume"] = {
+        "kind": method,
+        "from": node["phase"],
+        "value": ["undefined"]
+        if method == "next" and node["phase"] == "suspendedStart"
+        else copy.deepcopy(argument),
+    }
     node["phase"] = "executing"
 
 
@@ -268,7 +384,11 @@ def _route(machine, node, completion):
             handler["phase"], handler["caught"] = "catch", copy.deepcopy(value)
             return
         if handler["phase"] != "finally" and handler["finally"]:
-            handler["phase"], handler["caught"], handler["pending"] = "finally", None, copy.deepcopy(completion)
+            handler["phase"], handler["caught"], handler["pending"] = (
+                "finally",
+                None,
+                copy.deepcopy(completion),
+            )
             return
         node["handlers"].pop()
     node["pending"] = copy.deepcopy(completion)
@@ -285,8 +405,13 @@ def _delegate_method(machine, iterator, method):
     if selected.get("builtin"):
         return selected["builtin"]
     descriptor = selected.get("descriptor")
-    if selected.get("unsupported") or descriptor and (
-        descriptor.get("kind") != "data" or descriptor.get("value", [None])[0] not in ("undefined", "null")
+    if (
+        selected.get("unsupported")
+        or descriptor
+        and (
+            descriptor.get("kind") != "data"
+            or descriptor.get("value", [None])[0] not in ("undefined", "null")
+        )
     ):
         _fail("custom delegate methods require their callable continuation")
     return None
@@ -309,30 +434,53 @@ def _apply_delegation(machine, node, record):
         _fail("delegation is not executing")
     kind = record["kind"]
     if kind == "generator.delegate.enter":
-        if node["delegation"] is not None or node["resume"] is not None or record["iterator"][1] == record["object"]:
+        if (
+            node["delegation"] is not None
+            or node["resume"] is not None
+            or record["iterator"][1] == record["object"]
+        ):
             _fail("existing delegation or unconsumed resume")
         if _delegate_method(machine, record["iterator"], "next") != record["next"]:
             _fail("false cached delegate method")
-        node["delegation"] = {"iterator": copy.deepcopy(record["iterator"]), "next": record["next"],
-                              "request": {"kind": "next", "value": ["undefined"]},
-                              "phase": "ready", "result": None}
+        node["delegation"] = {
+            "iterator": copy.deepcopy(record["iterator"]),
+            "next": record["next"],
+            "request": {"kind": "next", "value": ["undefined"]},
+            "phase": "ready",
+            "result": None,
+        }
         return
     delegate = node.get("delegation")
     if delegate is None:
         _fail("missing delegated iterator")
     if kind == "generator.delegate.receive":
-        if delegate["phase"] != "yielded" or not node["resume"] or node["resume"]["from"] != "suspendedYield":
+        if (
+            delegate["phase"] != "yielded"
+            or not node["resume"]
+            or node["resume"]["from"] != "suspendedYield"
+        ):
             _fail("missing delegated resume input")
-        delegate["request"] = {"kind": node["resume"]["kind"], "value": copy.deepcopy(node["resume"]["value"])}
+        delegate["request"] = {
+            "kind": node["resume"]["kind"],
+            "value": copy.deepcopy(node["resume"]["value"]),
+        }
         node["resume"], delegate["phase"], delegate["result"] = None, "ready", None
         return
     if node["resume"] is not None:
         _fail("delegation input must be consumed first")
     if kind == "generator.delegate.call":
         call = record["call"]
-        if delegate["phase"] != "ready" or record["method"] != delegate["request"]["kind"] or call.get("object") != delegate["iterator"][1]:
+        if (
+            delegate["phase"] != "ready"
+            or record["method"] != delegate["request"]["kind"]
+            or call.get("object") != delegate["iterator"][1]
+        ):
             _fail("delegate call changed request or receiver")
-        selected = delegate["next"] if record["method"] == "next" else _delegate_method(machine, delegate["iterator"], record["method"])
+        selected = (
+            delegate["next"]
+            if record["method"] == "next"
+            else _delegate_method(machine, delegate["iterator"], record["method"])
+        )
         delegate["phase"] = "calling"
         if selected == "Iterator.next":
             if record["method"] != "next" or call["kind"] != "iterator.next":
@@ -346,7 +494,12 @@ def _apply_delegation(machine, node, record):
                 machine.pop("_internalProtocolTransition", None)
             delegate["result"] = ["ref", call["name"]]
         else:
-            if selected != "Generator." + record["method"] or call["kind"] not in ("generator.resume", "generator.completed") or call["method"] != record["method"] or call["argument"] != delegate["request"]["value"]:
+            if (
+                selected != "Generator." + record["method"]
+                or call["kind"] not in ("generator.resume", "generator.completed")
+                or call["method"] != record["method"]
+                or call["argument"] != delegate["request"]["value"]
+            ):
                 _fail("selected generator method or sent value changed")
             machine["_internalProtocolTransition"] = True
             try:
@@ -358,20 +511,33 @@ def _apply_delegation(machine, node, record):
         if delegate["phase"] != "calling":
             _fail("no pending delegate call")
         returned = machine.get("lastReturn")
-        expected = delegate["result"] or (returned["value"] if returned and returned["kind"] == "return" else None)
+        expected = delegate["result"] or (
+            returned["value"] if returned and returned["kind"] == "return" else None
+        )
         if expected is None or expected != record["result"]:
             _fail("delegated result identity changed")
         _, done = _delegated_result(machine, record["result"])
         if done != record["done"]:
             _fail("delegated completion claim")
-        delegate["result"], delegate["phase"] = copy.deepcopy(record["result"]), "complete" if done else "result"
+        delegate["result"], delegate["phase"] = (
+            copy.deepcopy(record["result"]),
+            "complete" if done else "result",
+        )
         return
     if kind == "generator.delegate.yield":
-        if delegate["phase"] != "result" or delegate["result"] != record["result"] or _delegated_result(machine, record["result"])[1]:
+        if (
+            delegate["phase"] != "result"
+            or delegate["result"] != record["result"]
+            or _delegated_result(machine, record["result"])[1]
+        ):
             _fail("delegated yield result")
         if node["yielded"] >= BOUND:
             _fail("yield bound")
-        node["phase"], node["yielded"], delegate["phase"] = "suspendedYield", node["yielded"] + 1, "yielded"
+        node["phase"], node["yielded"], delegate["phase"] = (
+            "suspendedYield",
+            node["yielded"] + 1,
+            "yielded",
+        )
         _complete_frame(machine, node["invocation"], "return", record["result"])
         return
     if kind == "generator.delegate.end":
@@ -385,10 +551,19 @@ def _apply_delegation(machine, node, record):
             _fail("delegated value getter requires scoped call")
         node["delegation"] = None
         if delegate["request"]["kind"] == "return":
-            _route(machine, node, {"kind": "return", "value": value["value"] if value else ["undefined"]})
+            _route(
+                machine,
+                node,
+                {"kind": "return", "value": value["value"] if value else ["undefined"]},
+            )
         return
     if kind == "generator.delegate.absent":
-        if delegate["phase"] != "ready" or record["method"] != "return" or delegate["request"]["kind"] != "return" or _delegate_method(machine, delegate["iterator"], "return") is not None:
+        if (
+            delegate["phase"] != "ready"
+            or record["method"] != "return"
+            or delegate["request"]["kind"] != "return"
+            or _delegate_method(machine, delegate["iterator"], "return") is not None
+        ):
             _fail("delegate return method is not absent")
         node["delegation"] = None
         _route(machine, node, {"kind": "return", "value": delegate["request"]["value"]})
@@ -396,7 +571,15 @@ def _apply_delegation(machine, node, record):
     if kind == "generator.delegate.abrupt":
         returned = machine.get("lastReturn")
         target = machine["heap"].get(delegate["iterator"][1])
-        if delegate["phase"] != "calling" or delegate["result"] is not None or not target or target.get("kind") != "generator" or not returned or returned["kind"] != "throw" or returned["value"] != record["value"]:
+        if (
+            delegate["phase"] != "calling"
+            or delegate["result"] is not None
+            or not target
+            or target.get("kind") != "generator"
+            or not returned
+            or returned["kind"] != "throw"
+            or returned["value"] != record["value"]
+        ):
             _fail("delegated abrupt completion changed")
         node["delegation"] = None
         _route(machine, node, {"kind": "throw", "value": record["value"]})
@@ -409,7 +592,13 @@ def apply_record(machine, record):
     kind = record["kind"]
     if kind == "generator.function":
         fn = machine["heap"].get(record["object"])
-        if not fn or fn.get("kind") != "closure" or fn.get("functionKind") != "ordinary" or fn.get("generatorFunction") or fn.get("callable"):
+        if (
+            not fn
+            or fn.get("kind") != "closure"
+            or fn.get("functionKind") != "ordinary"
+            or fn.get("generatorFunction")
+            or fn.get("callable")
+        ):
             _fail("generator declaration requires ordinary closure")
         if fn.get("properties") or fn.get("descriptors"):
             _fail("generator closure already has descriptors")
@@ -422,9 +611,39 @@ def apply_record(machine, record):
         fn.setdefault("keyOrder", [])
         fn.setdefault("extensible", True)
         fn["generatorFunction"], fn["prototype"] = True, "GeneratorFunction.prototype"
-        p._install(fn, "length", {"kind": "data", "value": ["num", record["length"]], "writable": False, "enumerable": False, "configurable": True})
-        p._install(fn, "name", {"kind": "data", "value": ["str", record["name"]], "writable": False, "enumerable": False, "configurable": True})
-        p._install(fn, "prototype", {"kind": "data", "value": ["ref", record["prototype"]], "writable": True, "enumerable": False, "configurable": False})
+        p._install(
+            fn,
+            "length",
+            {
+                "kind": "data",
+                "value": ["num", record["length"]],
+                "writable": False,
+                "enumerable": False,
+                "configurable": True,
+            },
+        )
+        p._install(
+            fn,
+            "name",
+            {
+                "kind": "data",
+                "value": ["str", record["name"]],
+                "writable": False,
+                "enumerable": False,
+                "configurable": True,
+            },
+        )
+        p._install(
+            fn,
+            "prototype",
+            {
+                "kind": "data",
+                "value": ["ref", record["prototype"]],
+                "writable": True,
+                "enumerable": False,
+                "configurable": False,
+            },
+        )
         return True
     if kind == "generator.create":
         callee = _value(machine, record["callee"])
@@ -434,8 +653,16 @@ def apply_record(machine, record):
         _id(record["name"])
         machine["_internalProtocolTransition"] = True
         try:
-            _api_call(machine, {"kind": "call", "child": record["child"], "callee": record["callee"],
-                                "receiver": record["receiver"], "arguments": record["arguments"]})
+            _api_call(
+                machine,
+                {
+                    "kind": "call",
+                    "child": record["child"],
+                    "callee": record["callee"],
+                    "receiver": record["receiver"],
+                    "arguments": record["arguments"],
+                },
+            )
         finally:
             machine.pop("_internalProtocolTransition", None)
         prototype = _descriptor(fn, ["str", "prototype"])
@@ -443,11 +670,23 @@ def apply_record(machine, record):
             _fail("generator prototype descriptor")
         value = prototype["value"]
         proto = machine["heap"].get(value[1]) if value[0] == "ref" else None
-        machine["heap"][record["name"]] = {"kind": "generator", "callee": copy.deepcopy(record["callee"]),
-            "invocation": record["child"], "receiver": copy.deepcopy(record["receiver"]),
-            "arguments": copy.deepcopy(record["arguments"]), "phase": "initializing", "resume": None,
-            "pending": None, "yielded": 0, "handlers": [], "delegation": None,
-            "prototype": value if proto else "Generator.prototype", "properties": {}, "descriptors": {}, "extensible": True}
+        machine["heap"][record["name"]] = {
+            "kind": "generator",
+            "callee": copy.deepcopy(record["callee"]),
+            "invocation": record["child"],
+            "receiver": copy.deepcopy(record["receiver"]),
+            "arguments": copy.deepcopy(record["arguments"]),
+            "phase": "initializing",
+            "resume": None,
+            "pending": None,
+            "yielded": 0,
+            "handlers": [],
+            "delegation": None,
+            "prototype": value if proto else "Generator.prototype",
+            "properties": {},
+            "descriptors": {},
+            "extensible": True,
+        }
         return True
     if kind == "generator.lookup":
         selected = _lookup(machine, record["receiver"], record["key"])
@@ -458,9 +697,17 @@ def apply_record(machine, record):
     if kind == "generator.read":
         selected = _lookup(machine, ["ref", record["object"]], record["key"])
         descriptor = selected.get("descriptor")
-        if selected.get("builtin") or selected.get("unsupported") or descriptor and descriptor["kind"] != "data" and descriptor["get"] != ["undefined"]:
+        if (
+            selected.get("builtin")
+            or selected.get("unsupported")
+            or descriptor
+            and descriptor["kind"] != "data"
+            and descriptor["get"] != ["undefined"]
+        ):
             _fail("generator read requires callable profile")
-        actual = descriptor["value"] if descriptor and descriptor["kind"] == "data" else ["undefined"]
+        actual = (
+            descriptor["value"] if descriptor and descriptor["kind"] == "data" else ["undefined"]
+        )
         if _value(machine, record["result"]) != actual:
             _fail("false generator property read")
     elif kind == "generator.identity":
@@ -480,37 +727,72 @@ def apply_record(machine, record):
     elif kind == "generator.receive":
         _active(machine, node)
         resume = node.get("resume")
-        if node["phase"] != "executing" or not resume or resume["kind"] != "next" or record["bind"] is not None and resume["from"] != "suspendedYield":
+        if (
+            node["phase"] != "executing"
+            or not resume
+            or resume["kind"] != "next"
+            or record["bind"] is not None
+            and resume["from"] != "suspendedYield"
+        ):
             _fail("generator next input")
         if record["bind"] is not None:
             _set_local(machine, record["bind"], resume["value"])
         node["resume"] = None
     elif kind == "generator.handler.enter":
         _active(machine, node)
-        if node["phase"] != "executing" or node["resume"] is not None or node["pending"] is not None or len(node["handlers"]) >= 64 or any(h["name"] == record["name"] for h in node["handlers"]):
+        if (
+            node["phase"] != "executing"
+            or node["resume"] is not None
+            or node["pending"] is not None
+            or len(node["handlers"]) >= 64
+            or any(h["name"] == record["name"] for h in node["handlers"])
+        ):
             _fail("generator handler entry")
-        node["handlers"].append({"name": record["name"], "catch": record["catch"], "finally": record["finally"], "phase": "try", "caught": None, "pending": None})
+        node["handlers"].append(
+            {
+                "name": record["name"],
+                "catch": record["catch"],
+                "finally": record["finally"],
+                "phase": "try",
+                "caught": None,
+                "pending": None,
+            }
+        )
     elif kind == "generator.handler.route":
         _active(machine, node)
         if node["phase"] != "executing" or node["pending"] is not None:
             _fail("completion routing is not active")
         completion = record["completion"]
         if node["resume"] is not None:
-            if node["resume"]["kind"] == "next" or completion != {"kind": node["resume"]["kind"], "value": node["resume"]["value"]}:
+            if node["resume"]["kind"] == "next" or completion != {
+                "kind": node["resume"]["kind"],
+                "value": node["resume"]["value"],
+            }:
                 _fail("abrupt resume completion changed")
             node["resume"] = None
         _route(machine, node, completion)
     elif kind == "generator.handler.catch":
         _active(machine, node)
         handler = node["handlers"][-1] if node["handlers"] else None
-        if not handler or handler["name"] != record["name"] or handler["phase"] != "catch" or handler["caught"] is None:
+        if (
+            not handler
+            or handler["name"] != record["name"]
+            or handler["phase"] != "catch"
+            or handler["caught"] is None
+        ):
             _fail("generator catch state")
         _set_local(machine, record["bind"], handler["caught"])
         handler["caught"] = None
     elif kind == "generator.handler.leave":
         _active(machine, node)
         handler = node["handlers"][-1] if node["handlers"] else None
-        if not handler or handler["name"] != record["name"] or handler["phase"] != "finally" or handler["pending"] is None or node["pending"] is not None:
+        if (
+            not handler
+            or handler["name"] != record["name"]
+            or handler["phase"] != "finally"
+            or handler["pending"] is None
+            or node["pending"] is not None
+        ):
             _fail("generator cleanup state")
         node["handlers"].pop()
         if handler["pending"]["kind"] != "normal":
@@ -519,23 +801,39 @@ def apply_record(machine, record):
         _apply_delegation(machine, node, record)
     elif kind == "generator.yield":
         _active(machine, node)
-        if node["phase"] != "executing" or node["resume"] is not None or node["pending"] is not None or node["delegation"] is not None:
+        if (
+            node["phase"] != "executing"
+            or node["resume"] is not None
+            or node["pending"] is not None
+            or node["delegation"] is not None
+        ):
             _fail("generator suspension state")
         if node["yielded"] >= BOUND:
             _fail("generator yield bound")
         value = _value(machine, record["value"])
         node["phase"] = "suspendedYield"
         node["yielded"] += 1
-        _complete_frame(machine, node["invocation"], "return", _result(machine, record["name"], value, False))
+        _complete_frame(
+            machine, node["invocation"], "return", _result(machine, record["name"], value, False)
+        )
     elif kind == "generator.finish":
         _active(machine, node)
         completion = record["completion"]
         _completion(machine, completion)
-        if node["phase"] not in ("initializing", "executing") or node["handlers"] or node["delegation"] is not None or node["pending"] is not None and node["pending"] != completion:
+        if (
+            node["phase"] not in ("initializing", "executing")
+            or node["handlers"]
+            or node["delegation"] is not None
+            or node["pending"] is not None
+            and node["pending"] != completion
+        ):
             _fail("generator completion state")
         if node["phase"] == "initializing" and completion["kind"] != "throw":
             _fail("parameter initialization cannot return")
-        if node["resume"] is not None and (node["resume"]["kind"] == "next" or completion != {"kind": node["resume"]["kind"], "value": node["resume"]["value"]}):
+        if node["resume"] is not None and (
+            node["resume"]["kind"] == "next"
+            or completion != {"kind": node["resume"]["kind"], "value": node["resume"]["value"]}
+        ):
             _fail("abrupt resume changed")
         node["phase"], node["resume"], node["pending"] = "completed", None, None
         if completion["kind"] == "throw":
@@ -543,10 +841,17 @@ def apply_record(machine, record):
                 _fail("throw completion cannot allocate result")
             _complete_frame(machine, node["invocation"], "throw", completion["value"])
         else:
-            _complete_frame(machine, node["invocation"], "return", _result(machine, record["name"], completion["value"], True))
+            _complete_frame(
+                machine,
+                node["invocation"],
+                "return",
+                _result(machine, record["name"], completion["value"], True),
+            )
     elif kind == "generator.completed":
         _value(machine, record["argument"])
-        if node["phase"] != "completed" and not (node["phase"] == "suspendedStart" and record["method"] != "next"):
+        if node["phase"] != "completed" and not (
+            node["phase"] == "suspendedStart" and record["method"] != "next"
+        ):
             _fail("generator body still needs resume")
         if node["invocation"] in machine["stack"]:
             _fail("completed generator frame is active")
@@ -556,14 +861,28 @@ def apply_record(machine, record):
                 _fail("throw cannot allocate result")
             machine["lastReturn"] = {"kind": "throw", "value": copy.deepcopy(record["argument"])}
         else:
-            machine["lastReturn"] = {"kind": "return", "value": _result(machine, record["name"], record["argument"] if record["method"] == "return" else ["undefined"], True)}
+            machine["lastReturn"] = {
+                "kind": "return",
+                "value": _result(
+                    machine,
+                    record["name"],
+                    record["argument"] if record["method"] == "return" else ["undefined"],
+                    True,
+                ),
+            }
     return True
 
 
 def assert_next(machine, record):
     current_id = machine.get("stack", [])[-1] if machine.get("stack") else None
-    node = next(((identity, value) for identity, value in machine["heap"].items()
-                 if value.get("kind") == "generator" and value.get("invocation") == current_id), None)
+    node = next(
+        (
+            (identity, value)
+            for identity, value in machine["heap"].items()
+            if value.get("kind") == "generator" and value.get("invocation") == current_id
+        ),
+        None,
+    )
     if node is None:
         return True
     identity, current = node
@@ -572,15 +891,32 @@ def assert_next(machine, record):
     if resume and current.get("delegation") is not None:
         if kind != "generator.delegate.receive" or record.get("object") != identity:
             _fail("delegated resume input must be consumed")
-    elif resume.get("kind") == "next" and (kind != "generator.receive" or record.get("object") != identity):
+    elif resume.get("kind") == "next" and (
+        kind != "generator.receive" or record.get("object") != identity
+    ):
         _fail("normal resume input must be consumed")
-    elif resume and resume["kind"] != "next" and (kind not in ("generator.finish", "generator.handler.route") or record.get("object") != identity):
+    elif (
+        resume
+        and resume["kind"] != "next"
+        and (
+            kind not in ("generator.finish", "generator.handler.route")
+            or record.get("object") != identity
+        )
+    ):
         _fail("abrupt resume requires handler or completion")
     if current.get("pending") and (kind != "generator.finish" or record.get("object") != identity):
         _fail("pending generator completion cannot be discarded")
-    if current.get("delegation") and current["delegation"]["phase"] == "calling" and kind not in ("generator.delegate.result", "generator.delegate.abrupt"):
+    if (
+        current.get("delegation")
+        and current["delegation"]["phase"] == "calling"
+        and kind not in ("generator.delegate.result", "generator.delegate.abrupt")
+    ):
         _fail("delegated call must consume its exact result")
-    if current.get("handlers") and current["handlers"][-1].get("caught") is not None and (kind != "generator.handler.catch" or record.get("object") != identity):
+    if (
+        current.get("handlers")
+        and current["handlers"][-1].get("caught") is not None
+        and (kind != "generator.handler.catch" or record.get("object") != identity)
+    ):
         _fail("catch must consume exact thrown value")
     return True
 
@@ -590,37 +926,58 @@ def validate_state(machine):
     invocations = set()
     for _identity, node in machine.get("heap", {}).items():
         if node.get("generatorFunction") is True:
-            if node.get("kind") != "closure" or node.get("functionKind") != "ordinary" or node.get("prototype") != "GeneratorFunction.prototype":
+            if (
+                node.get("kind") != "closure"
+                or node.get("functionKind") != "ordinary"
+                or node.get("prototype") != "GeneratorFunction.prototype"
+            ):
                 _fail("generator function capability")
         if node.get("kind") != "generator":
             continue
         count += 1
-        if (node.get("phase") not in ("initializing", "suspendedStart", "executing", "suspendedYield", "completed") or
-            type(node.get("yielded")) is not int or not 0 <= node["yielded"] <= BOUND or
-            type(node.get("handlers")) is not list or len(node["handlers"]) > 64):
+        if (
+            node.get("phase")
+            not in ("initializing", "suspendedStart", "executing", "suspendedYield", "completed")
+            or type(node.get("yielded")) is not int
+            or not 0 <= node["yielded"] <= BOUND
+            or type(node.get("handlers")) is not list
+            or len(node["handlers"]) > 64
+        ):
             _fail("generator restored state")
         if node.get("invocation") in invocations:
             _fail("generator invocation reuse")
         invocations.add(node["invocation"])
-        if node.get("callee", [None])[0] != "ref" or machine["heap"].get(node["callee"][1], {}).get("generatorFunction") is not True:
+        if (
+            node.get("callee", [None])[0] != "ref"
+            or machine["heap"].get(node["callee"][1], {}).get("generatorFunction") is not True
+        ):
             _fail("generator retained callable")
         for handler in node["handlers"]:
-            if (set(handler) != {"name", "catch", "finally", "phase", "caught", "pending"} or
-                handler["phase"] not in ("try", "catch", "finally") or
-                handler["phase"] == "catch" and not handler["catch"] or
-                handler["phase"] == "finally" and (not handler["finally"] or handler["pending"] is None)):
+            if (
+                set(handler) != {"name", "catch", "finally", "phase", "caught", "pending"}
+                or handler["phase"] not in ("try", "catch", "finally")
+                or handler["phase"] == "catch"
+                and not handler["catch"]
+                or handler["phase"] == "finally"
+                and (not handler["finally"] or handler["pending"] is None)
+            ):
                 _fail("generator handler state")
         delegation = node.get("delegation")
         if delegation is not None:
-            if (set(delegation) != {"iterator", "next", "request", "phase", "result"} or
-                delegation["iterator"][0] != "ref" or delegation["next"] not in ("Iterator.next", "Generator.next") or
-                delegation["phase"] not in ("ready", "calling", "result", "complete", "yielded") or
-                delegation["request"].get("kind") not in METHODS):
+            if (
+                set(delegation) != {"iterator", "next", "request", "phase", "result"}
+                or delegation["iterator"][0] != "ref"
+                or delegation["next"] not in ("Iterator.next", "Generator.next")
+                or delegation["phase"] not in ("ready", "calling", "result", "complete", "yielded")
+                or delegation["request"].get("kind") not in METHODS
+            ):
                 _fail("delegation state")
             target = machine["heap"].get(delegation["iterator"][1])
             if not target or target.get("kind") not in ("iterator", "generator"):
                 _fail("delegated target")
-            if delegation["next"] != ("Iterator.next" if target["kind"] == "iterator" else "Generator.next"):
+            if delegation["next"] != (
+                "Iterator.next" if target["kind"] == "iterator" else "Generator.next"
+            ):
                 _fail("cached delegate method")
             if delegation["result"] is not None:
                 _delegated_result(machine, delegation["result"])
