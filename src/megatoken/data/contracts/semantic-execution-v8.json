@@ -238,7 +238,7 @@
             "id"
           ]
         },
-        "meaning": "Existing checked selected-detailed/1 transitions, committed into the same shared machine."
+        "meaning": "Direct V8 detail codec over version-neutral typed selected transitions; no legacy wire conversion."
       },
       "protocol": {
         "schema": "semantic-protocol-record/1",
@@ -1623,6 +1623,201 @@
         }
       }
     },
+    "lifecycle": {
+      "executionVersion": "semantic-lifecycle/8",
+      "traceVersion": "semantic-trace/8",
+      "contextVersion": "semantic-context/8",
+      "continuationVersion": "semantic-continuation/8",
+      "profile": "selected-harness/8",
+      "checkpointVersion": "semantic-checkpoint/8",
+      "supervisionVersion": "semantic-supervision/8",
+      "records": {
+        "program": {
+          "mode": "observed",
+          "required": [
+            "programId",
+            "digest",
+            "entry",
+            "source",
+            "sites",
+            "functions",
+            "capabilities",
+            "dependencies",
+            "sourceMap",
+            "languageProfile",
+            "module",
+            "sourceMetadata"
+          ],
+          "optional": [
+            "randomSeed"
+          ]
+        },
+        "invocation": {
+          "mode": "observed",
+          "required": [
+            "programId",
+            "invocationId",
+            "realmId",
+            "triggerId",
+            "completionPolicy",
+            "realmPolicy",
+            "inputGraph",
+            "entry",
+            "sourceDigest",
+            "receiver",
+            "closureId",
+            "activation",
+            "parentInvocationId",
+            "taskRevision",
+            "deadline",
+            "bindings",
+            "ingressKey"
+          ],
+          "optional": []
+        },
+        "semantic": {
+          "mode": "generated",
+          "required": [
+            "invocationId",
+            "traceFormat",
+            "line"
+          ],
+          "optional": []
+        },
+        "handler": {
+          "mode": "observed",
+          "required": [
+            "subscriptionId",
+            "programId",
+            "realmId",
+            "trackId",
+            "realmPolicy",
+            "entry",
+            "queueLimit",
+            "closureId",
+            "lifetime",
+            "ownerInvocationId"
+          ],
+          "optional": []
+        },
+        "event": {
+          "mode": "observed",
+          "required": [
+            "subscriptionId",
+            "eventId",
+            "invocationId",
+            "triggerId",
+            "programId",
+            "realmId"
+          ],
+          "optional": []
+        },
+        "handler-close": {
+          "mode": "observed",
+          "required": [
+            "subscriptionId",
+            "discarded"
+          ],
+          "optional": []
+        },
+        "dispatch": {
+          "mode": "observed",
+          "required": [
+            "invocationId",
+            "effectId",
+            "key",
+            "attempt"
+          ],
+          "optional": [
+            "nativeAction"
+          ]
+        },
+        "result": {
+          "mode": "observed",
+          "required": [
+            "invocationId",
+            "effectId",
+            "status",
+            "result",
+            "line",
+            "errorOrigin"
+          ],
+          "optional": []
+        },
+        "source-evict": {
+          "mode": "observed",
+          "required": [
+            "programId",
+            "digest"
+          ],
+          "optional": []
+        },
+        "source-read": {
+          "mode": "observed",
+          "required": [
+            "programId",
+            "digest",
+            "source"
+          ],
+          "optional": []
+        },
+        "model-context": {
+          "mode": "observed",
+          "required": [
+            "invocationId",
+            "sourceReads"
+          ],
+          "optional": [
+            "selectedState",
+            "realmPrefixDigest",
+            "visibleThrough"
+          ]
+        },
+        "cancel": {
+          "mode": "observed",
+          "required": [
+            "invocationId",
+            "reason",
+            "uncertain"
+          ],
+          "optional": []
+        },
+        "reconcile": {
+          "mode": "observed",
+          "required": [
+            "invocationId",
+            "effectId",
+            "disposition",
+            "evidenceId"
+          ],
+          "optional": []
+        },
+        "callback-reattach": {
+          "mode": "observed",
+          "required": [
+            "subscriptionId",
+            "realmId",
+            "evidenceId"
+          ],
+          "optional": []
+        }
+      },
+      "selectedStateFields": [
+        "schema",
+        "heap",
+        "locals",
+        "captureAliases",
+        "stack",
+        "continuations",
+        "ready",
+        "callReturn",
+        "pending",
+        "completion",
+        "randomState"
+      ],
+      "intentRecord": "Original canonical V8 detail bytes",
+      "recovery": "Replay acknowledged lifecycle records; restored dispatched work is uncertain and is never redispatched without explicit reconciliation."
+    },
     "contextFields": [
       "schema",
       "representation",
@@ -2060,7 +2255,7 @@
       "default": "not promoted by engineering receipts alone"
     }
   },
-  "digest": "344f7e99aeed605a1965c70f0e0d8829707d6891437ba43dd743fa304cd777dc",
+  "digest": "54d9769c22452263005bc9e6a5818ec5a1642325f91ef8d5661a45d71b56d298",
   "fixtureDigest": "56f7f36d3b25b3b11a208be3de337e637b9782e6759faea1e1ec107b0a90f0ce",
   "fixtures": [
     {
@@ -2085,7 +2280,7 @@
       "reason": "old artifacts require their original contract"
     }
   ],
-  "interoperabilityDigest": "ef962002482fbf7adb6698fc435535dfa202b12848907a29ee0e5fbb5683a7c7",
+  "interoperabilityDigest": "0ec1798afb729c3c877c7f2f08311730e9f0dae9bd303b500e90198633567b76",
   "interoperability": [
     {
       "id": "ordered-map",
@@ -2100,7 +2295,7 @@
     {
       "id": "causal-counter",
       "publicDigest": "c37a66e94edae5d7ca6f80be9bb46ccd8b31afa825074a88612c4b76645dbf4c",
-      "contextDigest": "112e1761435270b82947f142587d23d3c3b424d64f2fc50ab9973f99c54be310"
+      "contextDigest": "034c36e478d1f0fe063f95472d815cf3c34bbedd64a1b87b27f9e1956b953261"
     },
     {
       "id": "number-callback-cleanup",

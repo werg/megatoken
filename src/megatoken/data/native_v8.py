@@ -22,7 +22,7 @@ from megatoken.controls import (
 from . import algorithm_v7 as v7
 from .algorithm_v7 import _truthy as _detail_truthy
 from .algorithm_v8 import replay_algorithm_line
-from .detailed_v8 import parse_record
+from .detailed_v8 import encode_record, parse_record
 from .detailed_v8 import value as validate_value
 from .protocol_v8 import (
     ProtocolV8Error,
@@ -1441,28 +1441,20 @@ def _apply_detail(
                 },
             )
         if obligations is not None:
-            from . import witness_v6
-
             identity = fields["invocation"] + "/" + effect
-            rendered = [witness_v6._trace_value(v) for v in args]
-            call = fields["operation"] + "(" + ", ".join(rendered) + ")"
-            span = fields["site"]
-            suffix = (" promise @" + promise) if promise else ""
-            witness = (
-                "request @"
-                + effect
-                + " "
-                + call
-                + " payload "
-                + fields["payload"]
-                + suffix
-                + " in @"
-                + fields["invocation"]
-                + " at "
-                + str(span["start"])
-                + ".."
-                + str(span["end"])
-            )
+            request_fields = {
+                "effect": effect,
+                "operation": fields["operation"],
+                "arguments": args,
+                "invocation": fields["invocation"],
+                "site": fields["site"],
+                "payload": fields["payload"],
+            }
+            if promise is not None:
+                request_fields["promise"] = promise
+            witness = encode_record("request", request_fields, role="generated")
+            if row.get("fields", {}).get("line", witness) != witness:
+                _fail("Request witness differs from its canonical V8 detailed record")
             intents = {key: value for key, value in obligations["intents"]}
             if identity in intents:
                 _fail("Duplicate effect intent")
@@ -1687,11 +1679,12 @@ def _apply_observation_staged(state, row, dispatched, settled, obligations, trac
             if intent is None or intent["status"] != "dispatched":
                 _fail("Result without one dispatched obligation")
             intent["status"] = "settled"
-            from . import witness_v6
-
             seq = row["sequence"]
+            observed_line = encode_record("observe", obs, role="observed")
+            if fields.get("line") != observed_line:
+                _fail("Result witness differs from its canonical V8 detailed record")
             intent["result"] = {
-                "schema": "semantic-execution/6",
+                "schema": "semantic-lifecycle/8",
                 "session": fields["session"],
                 "sequence": seq,
                 "ownerSequence": (track_counts or {}).get(seq, seq - 1),
@@ -1702,7 +1695,7 @@ def _apply_observation_staged(state, row, dispatched, settled, obligations, trac
                 "effectId": obs["effect"],
                 "status": obs["status"],
                 "result": obs["result"],
-                "line": witness_v6.encode_record("observe", obs),
+                "line": observed_line,
                 "errorOrigin": fields.get("errorOrigin"),
             }
             obligations["intents"] = [[key, value] for key, value in intents.items()]
