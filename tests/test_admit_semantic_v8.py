@@ -31,8 +31,9 @@ class NativeV8AdmissionTests(unittest.TestCase):
                 + json.dumps(str(marker))
                 + ", 'ran');console.log('{}');"
             )
-            subprocess.run(["git", "init", "--quiet"], cwd=root, check=True)
-            subprocess.run(["git", "add", "."], cwd=root, check=True)
+            git_env = admit_semantic_v8._git_environment()
+            subprocess.run(["git", "init", "--quiet"], cwd=root, check=True, env=git_env)
+            subprocess.run(["git", "add", "."], cwd=root, check=True, env=git_env)
             subprocess.run(
                 [
                     "git",
@@ -47,9 +48,10 @@ class NativeV8AdmissionTests(unittest.TestCase):
                 ],
                 cwd=root,
                 check=True,
+                env=git_env,
             )
             revision = subprocess.check_output(
-                ["git", "rev-parse", "HEAD"], cwd=root, text=True
+                ["git", "rev-parse", "HEAD"], cwd=root, text=True, env=git_env
             ).strip()
             artifact = base / "artifact.json"
             artifact.write_text("{}")
@@ -73,8 +75,9 @@ class NativeV8AdmissionTests(unittest.TestCase):
             root = base / "producer"
             (root / "tools").mkdir(parents=True)
             (root / "tools/recheck-semantic-native-source.mjs").write_text("console.log('{}');")
-            subprocess.run(["git", "init", "--quiet"], cwd=root, check=True)
-            subprocess.run(["git", "add", "."], cwd=root, check=True)
+            git_env = admit_semantic_v8._git_environment()
+            subprocess.run(["git", "init", "--quiet"], cwd=root, check=True, env=git_env)
+            subprocess.run(["git", "add", "."], cwd=root, check=True, env=git_env)
             subprocess.run(
                 [
                     "git",
@@ -89,9 +92,10 @@ class NativeV8AdmissionTests(unittest.TestCase):
                 ],
                 cwd=root,
                 check=True,
+                env=git_env,
             )
             revision = subprocess.check_output(
-                ["git", "rev-parse", "HEAD"], cwd=root, text=True
+                ["git", "rev-parse", "HEAD"], cwd=root, text=True, env=git_env
             ).strip()
             wrong_git_dir = base / "consumer.git"
             wrong_git_dir.mkdir()
@@ -308,7 +312,10 @@ class NativeV8AdmissionTests(unittest.TestCase):
             self.skipTest("set MEGATOKEN_NATIVE_SOURCE_PRODUCER to run the live V8 authority test")
         root = Path(producer_root)
         revision = subprocess.check_output(
-            ["git", "rev-parse", "HEAD"], cwd=root, text=True
+            ["git", "rev-parse", "HEAD"],
+            cwd=root,
+            text=True,
+            env=admit_semantic_v8._git_environment(),
         ).strip()
         cases = json.loads((root / "test/fixtures/semantic-protocol-region-v8.json").read_text())[
             "cases"
