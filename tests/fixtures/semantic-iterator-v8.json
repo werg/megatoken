@@ -101,7 +101,8 @@
           "sequence": 0,
           "construction": null,
           "numberConversions": null,
-          "proxyCalls": null
+          "proxyCalls": null,
+          "promiseExecutors": null
         }
       },
       "lines": [
@@ -427,7 +428,8 @@
           "sequence": 12,
           "construction": null,
           "numberConversions": null,
-          "proxyCalls": null
+          "proxyCalls": null,
+          "promiseExecutors": null
         }
       }
     },
@@ -530,7 +532,8 @@
           "sequence": 0,
           "construction": null,
           "numberConversions": null,
-          "proxyCalls": null
+          "proxyCalls": null,
+          "promiseExecutors": null
         }
       },
       "lines": [
@@ -833,7 +836,8 @@
           "sequence": 7,
           "construction": null,
           "numberConversions": null,
-          "proxyCalls": null
+          "proxyCalls": null,
+          "promiseExecutors": null
         }
       }
     },
@@ -936,7 +940,8 @@
           "sequence": 0,
           "construction": null,
           "numberConversions": null,
-          "proxyCalls": null
+          "proxyCalls": null,
+          "promiseExecutors": null
         }
       },
       "lines": [
@@ -1169,7 +1174,8 @@
           "sequence": 8,
           "construction": null,
           "numberConversions": null,
-          "proxyCalls": null
+          "proxyCalls": null,
+          "promiseExecutors": null
         }
       }
     }

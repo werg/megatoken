@@ -130,6 +130,7 @@ class NativeV8AdmissionTests(unittest.TestCase):
             "number-conversion-source/1",
             "ordinary-data-proxy-source/1",
             "promise-executor/1",
+            "ordinary-array-map-source/1",
         ]
         document = self.source_document(protocol=True)
         document["sidecar"].update(

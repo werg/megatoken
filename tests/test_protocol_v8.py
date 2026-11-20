@@ -111,6 +111,11 @@ class ProtocolV8CodecTests(unittest.TestCase):
         with self.assertRaises(ProtocolV8Error):
             validate_protocol_state(bad)
         bad = json.loads(json.dumps(snapshot))
+        self.assertIsNone(bad["promiseExecutors"])
+        bad.pop("promiseExecutors")
+        with self.assertRaises(ProtocolV8Error):
+            validate_protocol_state(bad)
+        bad = json.loads(json.dumps(snapshot))
         bad["unchecked"] = True
         with self.assertRaises(ProtocolV8Error):
             validate_protocol_state(bad)
@@ -325,6 +330,11 @@ class ProtocolV8NativeReplayTests(unittest.TestCase):
             "source-proxy-traps-arithmetic": (22, 3, 25),
             "source-base-initializer-throw": (22, 0, 8),
             "source-derived-initializer-throw": (38, 0, 15),
+            "source-promise-executor-first-call": (5, 2, 16),
+            "source-promise-executor-retained-resolution": (5, 1, 10),
+            "source-promise-executor-abrupt": (3, 0, 11),
+            "source-ordinary-constructor-prototype": (25, 0, 8),
+            "source-enumeration-map-callback": (18, 0, 6),
         }
         from megatoken.data.semantic_contract_v8 import CONTRACT
 

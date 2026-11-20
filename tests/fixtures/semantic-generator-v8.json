@@ -101,7 +101,8 @@
           "sequence": 0,
           "construction": null,
           "numberConversions": null,
-          "proxyCalls": null
+          "proxyCalls": null,
+          "promiseExecutors": null
         }
       },
       "lines": [
@@ -452,7 +453,8 @@
           "sequence": 14,
           "construction": null,
           "numberConversions": null,
-          "proxyCalls": null
+          "proxyCalls": null,
+          "promiseExecutors": null
         }
       }
     },
@@ -555,7 +557,8 @@
           "sequence": 0,
           "construction": null,
           "numberConversions": null,
-          "proxyCalls": null
+          "proxyCalls": null,
+          "promiseExecutors": null
         }
       },
       "lines": [
@@ -834,7 +837,8 @@
           "sequence": 7,
           "construction": null,
           "numberConversions": null,
-          "proxyCalls": null
+          "proxyCalls": null,
+          "promiseExecutors": null
         }
       }
     },
@@ -937,7 +941,8 @@
           "sequence": 0,
           "construction": null,
           "numberConversions": null,
-          "proxyCalls": null
+          "proxyCalls": null,
+          "promiseExecutors": null
         }
       },
       "lines": [
@@ -1246,7 +1251,8 @@
           "sequence": 12,
           "construction": null,
           "numberConversions": null,
-          "proxyCalls": null
+          "proxyCalls": null,
+          "promiseExecutors": null
         }
       }
     },
@@ -1349,7 +1355,8 @@
           "sequence": 0,
           "construction": null,
           "numberConversions": null,
-          "proxyCalls": null
+          "proxyCalls": null,
+          "promiseExecutors": null
         }
       },
       "lines": [
@@ -1690,7 +1697,8 @@
           "sequence": 17,
           "construction": null,
           "numberConversions": null,
-          "proxyCalls": null
+          "proxyCalls": null,
+          "promiseExecutors": null
         }
       }
     },
@@ -1793,7 +1801,8 @@
           "sequence": 0,
           "construction": null,
           "numberConversions": null,
-          "proxyCalls": null
+          "proxyCalls": null,
+          "promiseExecutors": null
         }
       },
       "lines": [
@@ -2174,7 +2183,8 @@
           "sequence": 20,
           "construction": null,
           "numberConversions": null,
-          "proxyCalls": null
+          "proxyCalls": null,
+          "promiseExecutors": null
         }
       }
     },
@@ -2277,7 +2287,8 @@
           "sequence": 0,
           "construction": null,
           "numberConversions": null,
-          "proxyCalls": null
+          "proxyCalls": null,
+          "promiseExecutors": null
         }
       },
       "lines": [
@@ -2750,7 +2761,8 @@
           "sequence": 26,
           "construction": null,
           "numberConversions": null,
-          "proxyCalls": null
+          "proxyCalls": null,
+          "promiseExecutors": null
         }
       }
     }

@@ -760,6 +760,25 @@
             "kind",
             "id",
             "completion"
+          ],
+          "promise.executor.enter": [
+            "kind",
+            "promise",
+            "executor",
+            "child",
+            "resolve",
+            "reject"
+          ],
+          "promise.resolver.call": [
+            "kind",
+            "resolver",
+            "value"
+          ],
+          "promise.executor.finish": [
+            "kind",
+            "promise",
+            "invocation",
+            "completion"
           ]
         },
         "profile": "symbols-ordinary-properties/1",
@@ -770,7 +789,8 @@
           "promise-join/1",
           "number-conversion/1",
           "synchronous-generator/1",
-          "ordinary-data-proxy/1"
+          "ordinary-data-proxy/1",
+          "promise-executor/1"
         ],
         "limits": {
           "symbols": 4096,
@@ -778,7 +798,7 @@
           "calls": 64,
           "steps": 32768
         },
-        "meaning": "Checked Symbol identities, descriptors, receiver-aware access, scoped calls, construction, iterators, generators, Number conversion, Promise joins, Proxy traps and binary memory in the same authoritative heap."
+        "meaning": "Checked Symbol identities, descriptors, receiver-aware access, scoped calls, construction, iterators, generators, Number conversion, Promise joins and executors, Proxy traps and binary memory in the same authoritative heap."
       }
     },
     "algorithm": {
@@ -1597,7 +1617,8 @@
         "sequence",
         "construction",
         "numberConversions",
-        "proxyCalls"
+        "proxyCalls",
+        "promiseExecutors"
       ],
       "initial": null,
       "heap": "Existing heap nodes with property, descriptor and private-element Maps serialized as entry arrays; Symbol keys remain tagged pairs.",
@@ -1793,6 +1814,34 @@
         ],
         "capabilities": "Distinct Proxy, target and handler identities; ordinary data forwarding and synchronous owned get/set traps with live target invariants and exact pending callback completion. Callable or revoked proxies and other traps require explicit profiles."
       },
+      "promiseExecutors": {
+        "profile": "promise-executor/1",
+        "schema": "semantic-promise-executor-state/1",
+        "fields": [
+          "schema",
+          "capabilities",
+          "executors"
+        ],
+        "capabilityFields": [
+          "promise",
+          "resolve",
+          "reject",
+          "called",
+          "resolution"
+        ],
+        "executorFields": [
+          "promise",
+          "parent",
+          "child",
+          "phase",
+          "completion"
+        ],
+        "resolverFields": [
+          "promise",
+          "mode"
+        ],
+        "capabilities": "Synchronous source executor calls, stable resolving function identities, a shared first-call cell, retained resolvers, primitive or owned Promise resolution, and executor throw rejection. Thenables, self resolution and async executor bodies require separate profiles."
+      },
       "binaryMemory": {
         "profile": "owned-binary-memory/1",
         "heapFields": {
@@ -1853,7 +1902,7 @@
         "dataViewByteOrder": "explicit per operation",
         "capabilities": "Fixed ordinary buffers and fixed/growable shared buffers; scalar conversions; shared view identities; bounded single-agent atomic operations. No detach, transfer, host buffers or cross-agent scheduling."
       },
-      "lifecycle": "One fresh invocation without external host work. Declared Promise joins may use internal Promise, await, resume, job and transfer detail; join steps require an empty stack and the FIFO ready head. External observations remain outside protocol profiles."
+      "lifecycle": "One fresh invocation without external host work. Declared Promise joins and executors may use internal Promise, await, resume, job and transfer detail; join steps require an empty stack and the FIFO ready head. External observations remain outside protocol profiles."
     },
     "checkpoint": {
       "fields": [
@@ -1888,7 +1937,7 @@
       "default": "not promoted by engineering receipts alone"
     }
   },
-  "digest": "5cf992a16a3de77edb3c7b732673950b9afc037458f51b316d8b2801c43f29ae",
+  "digest": "9ba0d4794c364736db3c3725dbe2381f815770f3c326d86810081cd6420fbfec",
   "fixtureDigest": "56f7f36d3b25b3b11a208be3de337e637b9782e6759faea1e1ec107b0a90f0ce",
   "fixtures": [
     {
@@ -1913,7 +1962,7 @@
       "reason": "old artifacts require their original contract"
     }
   ],
-  "interoperabilityDigest": "fd5cb7bda86cd703d4dacf48d0acf468f1fc23e210623de97aa84a9c736e6eb0",
+  "interoperabilityDigest": "e045f3d64831b1be9a6a9bf4ae1c1f4976ab76f5838b0ce7a2ef0be69289126f",
   "interoperability": [
     {
       "id": "ordered-map",
@@ -1933,72 +1982,97 @@
     {
       "id": "protocol-machine",
       "schema": "semantic-protocol-fixtures/1",
-      "fixtureDigest": "e8d6016182e1222184ec6d483eb4126c10922ffcf32497f68a11d6fc20d29071"
+      "fixtureDigest": "5c8ca536f82d51dd77dd797b48abbfcb9b53344b18562f63d219bebb28d34744"
     },
     {
       "id": "iterator-machine",
       "schema": "semantic-protocol-fixtures/1",
-      "fixtureDigest": "4f6739129e3ba47c8256fd73e04fdd9845ba7dcdc658f1d93895060660bcf730"
+      "fixtureDigest": "af1ab22e69e91e12d694c4a1c381057360e8284b2b37eb82c0fcb6a4efa7071e"
     },
     {
       "id": "protocol-region:source-symbol-getter-arithmetic",
-      "publicDigest": "25740fcc4c7a2dae1d185fd5e8250c2fb727e1db97a176d751bc74752d37d573",
-      "contextDigest": "34e498ac227f3cd7bf927f8361281e6ce5d47ef7f91b05b5c1fcb905c8b35674"
+      "publicDigest": "8ef59d81dd8326979a12b4708b6005f17773ee84ff5cddb779d0d79927c8c8fa",
+      "contextDigest": "b64e331dd9227885a2e7c5c1fe8f03912cb56e636b9a933ed1ccc28a595a8f4d"
     },
     {
       "id": "protocol-region:typed-views-shared-backing",
       "publicDigest": "bf88479ca947f7ae6250c493e458db1edac052b1ecd3ebdb8f8fe4f8b52e86d9",
-      "contextDigest": "f0880fab0287c82b4b7c0ee5a712875f2770ed3483daf9c2352976da9b4a604e"
+      "contextDigest": "e5969e47471b300424f46c1901b5d3407743d1e769f4cf328842216238d11c30"
     },
     {
       "id": "protocol-region:source-derived-private-arithmetic",
-      "publicDigest": "49cbcd4007c3439d45bc8f9b3353b09d5ccca005c972d649eec2db95c0c9b463",
-      "contextDigest": "43baf9c535f89a441952fdd43c166f2f3cf7e4389869c344962159646ca11a8e"
+      "publicDigest": "430041e0644627ee81ba9e0a8fa1b6282fd7870b1637a330197aade3e4a6a34d",
+      "contextDigest": "ca65e9efa24e1744eea065e072d8a17d90e51f9d56a6acf7bfbcc31e52e1f99f"
     },
     {
       "id": "protocol-region:builtin-iterator-mixed-arithmetic",
-      "publicDigest": "923ae7d50aad887a9fc354de1dd8e2c71c810df562423fa0e5d3d243678a4939",
-      "contextDigest": "7aa559a57a0dbe36d07ae4aa1523f4c24f6b700dd32b1e96de8b2d990164bb30"
+      "publicDigest": "4c23306ead48399d7c166b310702a551b2b9b082e9b4d67c5bb9949c081dd8dd",
+      "contextDigest": "6ea8b7c3eb8f52e4a330c31a62a7b6e093c8eb707a7be29a4863ef3a307751c9"
     },
     {
       "id": "protocol-region:source-promise-all-reaction-arithmetic",
-      "publicDigest": "c6f23bce85ea1aa0e7b51f71e5432fb2e1759b73fcb15d5bc553df60eb23b13c",
-      "contextDigest": "86f4fb0a8b0cfcd22e0f1c16cdaa2bf28303455948d3172b456a1470d66ecba6"
+      "publicDigest": "d8c09083779e5151b2b0428979b29047af92b370f496a7bba46e4bada20453cd",
+      "contextDigest": "b2b197a8ff29a98d5fa66136b5709cd751fbc2db681193ee058f211a19aa569c"
     },
     {
       "id": "protocol-region:source-promise-join-rejection-finally",
       "publicDigest": "7d7365fa0f71e2301434f05bc1da3766e09f85588b76d12f94fc4380d5687001",
-      "contextDigest": "3f8b14c46aaf78eb4804e22f20a87afc2287ac277a9603f1d3ff7a88d0f1148d"
+      "contextDigest": "3fa9c55786017f220dca5a75dd6b7a53fdd28f8a592ed5ce34ffba051476cc62"
     },
     {
       "id": "protocol-region:source-number-private-arithmetic",
-      "publicDigest": "18e7a40509f398734e0e07410a0b90b556969ec99203fb37d3d51ddcf9b54116",
-      "contextDigest": "c4f7839118881a8f4a043e58eff87637a702fad7b83dfee940b7edeebe9e5a12"
+      "publicDigest": "3543aa60cfb66b183eec2c0f5e80c9ba97b80ede177d517f6d0829c91ff4df7b",
+      "contextDigest": "83ac144618f1c4242d3fb60f9c958cc20e5d76341127ac9f7c621986523f0cbb"
     },
     {
       "id": "protocol-region:source-generator-cleanup-suspension",
       "publicDigest": "afd8010d455b42109bfd3bdc369a8011a6d2f463669125b19ba9cf0392cfd197",
-      "contextDigest": "25fbee79668ac97d1130883c90b4c0392079771a3a5730c235189f86d82b5223"
+      "contextDigest": "9af058f65f09f808a76aa1c8c90871aa2c5e5a4b9ca06b895711c2b297960d59"
     },
     {
       "id": "protocol-region:source-generator-delegated-cleanup",
       "publicDigest": "acd9ac1cf59ce1ef29c627872deae5a70f04a119704adea9637d718c97fd9c9d",
-      "contextDigest": "3a81ec76c01fbd27e79c0d479b42610056451f210e5402d38f26be0708b1b855"
+      "contextDigest": "e0ae3953d75494ecd995a08cbf30073ebcb354ecf3b9924606e93642bdcd3ba0"
     },
     {
       "id": "protocol-region:source-proxy-traps-arithmetic",
-      "publicDigest": "8a7028de68baae6e315499727f843814ccfe340ec7ec13d78c2890be118a9952",
-      "contextDigest": "2e586831fb90d84958046b8093b090604816f82aec8738fa1b0463f492611610"
+      "publicDigest": "ee5fa70910f7cd8c135c46dc5eb0427be18203417a2bf797d323bf954c3e59d5",
+      "contextDigest": "2d8f5b152a0ef5b1073f19abf2f16fcc94ba831f69150d86badb221657d04307"
     },
     {
       "id": "protocol-region:source-base-initializer-throw",
       "publicDigest": "80f87fe2375a8e30ebdffa5e10643d69098523b172780e7ebfedc6b68012e777",
-      "contextDigest": "810964987bc26ca93e645e864821274c840970c4583b3ad2845810c76b23acf2"
+      "contextDigest": "b6ee0279d62e10d84c534bc80bc72fd35736d5303a72ea9ffd516f0072572e49"
     },
     {
       "id": "protocol-region:source-derived-initializer-throw",
       "publicDigest": "308db677ef00a9bb681a3013e557b724db1c81d3995c279df5a33bdd09af52b6",
-      "contextDigest": "5a32cc6dfc66828359491becee84020c860973435b6c8743ffcaf26b74a36def"
+      "contextDigest": "0bd104ee0ce69e9e2a66c78235f3d53608214dde126c51e2f63ad2214306b7d6"
+    },
+    {
+      "id": "protocol-region:source-promise-executor-first-call",
+      "publicDigest": "4ed6debf250dbc07e08e34048f3d3abd2bb7fd60e73882884272aa46004cf03f",
+      "contextDigest": "cd0ed811925bba84d976c3edb96cce4bf64436098533c77d7c890829bd01e082"
+    },
+    {
+      "id": "protocol-region:source-promise-executor-retained-resolution",
+      "publicDigest": "4ebf7b919e5b2191d655b22b2d8fd89dad1f4ecee6f64058ff6c6fde23051811",
+      "contextDigest": "cfcfe519fe9a4a249f541d8245bbf2b764f982ef44f6e86f943fa66af1ba337b"
+    },
+    {
+      "id": "protocol-region:source-promise-executor-abrupt",
+      "publicDigest": "2494dc360b6b178634186cdf30f8d227df99ddeeac8ca0a0f1bcff3bec2bbd39",
+      "contextDigest": "d8336c25ac54d6b2ebb1c07e2b23da53f959cf131306a183fa2904d7f6135936"
+    },
+    {
+      "id": "protocol-region:source-ordinary-constructor-prototype",
+      "publicDigest": "982388a5895e9fc5b37de5ebf970d1f9293e5ca6643c2e128af30bfee7106dfc",
+      "contextDigest": "a94465d7a4819a3b07f2fb78913c48189f091e1521ab94c6d02f6402099247d5"
+    },
+    {
+      "id": "protocol-region:source-enumeration-map-callback",
+      "publicDigest": "9b0ac56b147591d77ef3288f19d3b8e6d1a5bfd8a8b2cf942f96b030b9f881d2",
+      "contextDigest": "be7c7bd47da770aef4eb02641b90f33b551217b61eb7c8617508943059a1cbfc"
     }
   ]
 }
