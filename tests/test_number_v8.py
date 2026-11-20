@@ -224,6 +224,127 @@ class NumberProtocolTests(unittest.TestCase):
             with self.assertRaises(ProtocolV8Error):
                 number.validate_state(altered)
 
+    def test_rejected_direct_entry_does_not_initialize_retained_state(self):
+        for value in (["ref", "missing"], ["str", "3" * 10001]):
+            state = machine()
+            before = copy.deepcopy(state)
+            with self.assertRaises(ProtocolV8Error):
+                number.apply_record(state, {"kind": "number.begin", "id": "n", "value": value})
+            self.assertEqual(state, before)
+        state = machine()
+        state["stack"] = []
+        before = copy.deepcopy(state)
+        with self.assertRaisesRegex(ProtocolV8Error, "active invocation"):
+            number.apply_record(state, {"kind": "number.begin", "id": "n", "value": ["num", 3]})
+        self.assertEqual(state, before)
+        state = machine()
+        number.apply_record(
+            state, {"kind": "number.begin", "id": "n", "value": ["str", "3" * 10000]}
+        )
+        self.assertTrue(number.validate_state(state))
+
+    def test_oversized_callback_primitive_is_rejected_before_retention(self):
+        state = machine()
+        allocate(state, "object")
+        allocate(state, "method", "closure")
+        define(state, "object", ["symbol", "well-known:toPrimitive"], ["ref", "method"])
+        for record in (
+            {"kind": "number.begin", "id": "n", "value": ["ref", "object"]},
+            {
+                "kind": "number.select",
+                "id": "n",
+                "key": ["symbol", "well-known:toPrimitive"],
+                "method": ["ref", "method"],
+                "builtin": None,
+            },
+            {"kind": "number.call", "id": "n", "child": "convert"},
+            {"kind": "return", "invocation": "convert", "value": ["str", "3" * 10001]},
+        ):
+            apply_protocol_record(state, record)
+        before = copy.deepcopy(state)
+        with self.assertRaisesRegex(ProtocolV8Error, "scalar work bound"):
+            number.apply_record(
+                state, {"kind": "number.return", "id": "n", "value": ["str", "3" * 10001]}
+            )
+        self.assertEqual(state, before)
+
+    def test_noncallable_exotic_valueof_falls_back_to_tostring(self):
+        state = machine()
+        allocate(state, "object")
+        allocate(state, "method", "closure")
+        state["heap"]["promise"] = {
+            "kind": "promise",
+            "properties": {},
+            "state": "fulfilled",
+            "result": ["num", 1],
+            "reactions": [],
+        }
+        define(state, "object", ["str", "valueOf"], ["ref", "promise"])
+        define(state, "object", ["str", "toString"], ["ref", "method"])
+        for record in (
+            {"kind": "number.begin", "id": "n", "value": ["ref", "object"]},
+            {
+                "kind": "number.select",
+                "id": "n",
+                "key": ["symbol", "well-known:toPrimitive"],
+                "method": ["undefined"],
+                "builtin": None,
+            },
+            {
+                "kind": "number.select",
+                "id": "n",
+                "key": ["str", "valueOf"],
+                "method": ["ref", "promise"],
+                "builtin": None,
+            },
+            {
+                "kind": "number.select",
+                "id": "n",
+                "key": ["str", "toString"],
+                "method": ["ref", "method"],
+                "builtin": None,
+            },
+            {"kind": "number.call", "id": "n", "child": "convert"},
+            {"kind": "return", "invocation": "convert", "value": ["str", "3"]},
+            {"kind": "number.return", "id": "n", "value": ["str", "3"]},
+            {"kind": "number.finish", "id": "n", "result": ["num", 3]},
+        ):
+            apply_protocol_record(state, record)
+        self.assertEqual(state["lastReturn"], {"kind": "return", "value": ["num", 3]})
+        self.assertTrue(number.validate_state(state))
+
+    def test_unfinished_conversion_requires_a_live_parent_after_restore(self):
+        state = machine()
+        apply_protocol_record(state, {"kind": "number.begin", "id": "n", "value": ["str", "3"]})
+        altered = copy.deepcopy(state)
+        altered["stack"] = []
+        with self.assertRaisesRegex(ProtocolV8Error, "live parent"):
+            number.validate_state(altered)
+        apply_protocol_record(state, {"kind": "number.finish", "id": "n", "result": ["num", 3]})
+        state["stack"] = []
+        self.assertTrue(number.validate_state(state))
+
+    def test_noncallable_toprimitive_rejection_preserves_selected_state(self):
+        state = machine()
+        allocate(state, "object")
+        define(state, "object", ["symbol", "well-known:toPrimitive"], ["num", 1])
+        apply_protocol_record(
+            state, {"kind": "number.begin", "id": "n", "value": ["ref", "object"]}
+        )
+        before = copy.deepcopy(state)
+        with self.assertRaisesRegex(ProtocolV8Error, "noncallable method"):
+            number.apply_record(
+                state,
+                {
+                    "kind": "number.select",
+                    "id": "n",
+                    "key": ["symbol", "well-known:toPrimitive"],
+                    "method": ["num", 1],
+                    "builtin": None,
+                },
+            )
+        self.assertEqual(state, before)
+
 
 if __name__ == "__main__":
     unittest.main()

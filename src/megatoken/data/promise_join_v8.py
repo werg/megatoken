@@ -98,6 +98,14 @@ def _known(machine, value, self_id=None):
     return known(machine, value, self_id)
 
 
+def _fresh_output(machine, identity):
+    from .protocol_v8 import _assert_fresh_heap_identity
+
+    _assert_fresh_heap_identity(machine, identity)
+    if identity in _dict_rows(machine.get("jobs", [])):
+        _fail("output identity collides with a job")
+
+
 def _settle(machine, identity, status, value):
     node = _promise(machine, identity)
     if node["state"] != "pending":
@@ -154,8 +162,7 @@ def apply_record(machine, record):
             _promise(machine, identity)
         if record["mode"] == "all" and not record["inputs"]:
             output = record["output"]
-            if output in machine["heap"] or output in jobs:
-                _fail("empty all output identity collision")
+            _fresh_output(machine, output)
             machine["heap"][output] = {
                 "kind": "array",
                 "properties": {"length": ["num", 0]},
@@ -251,8 +258,9 @@ def apply_record(machine, record):
             join["settled"] = True
         elif all(join["observed"]):
             expected_output = record["output"]
-            if expected_output is None or expected_output in machine["heap"]:
+            if expected_output is None:
                 _fail("final Promise.all output identity")
+            _fresh_output(machine, expected_output)
             props = {str(i): copy.deepcopy(value) for i, value in enumerate(join["values"])}
             props["length"] = ["num", len(join["values"])]
             machine["heap"][expected_output] = {
@@ -317,6 +325,8 @@ def validate_state(machine):
                 or job.get("promise") != input_id
             ):
                 _fail("restored scheduler linkage")
+            if (job.get("status") == "completed") != join["observed"][index]:
+                _fail("restored job completion differs from observed input")
     for job_id, job in jobs.items():
         if job.get("reaction") != "join":
             continue

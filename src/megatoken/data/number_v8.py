@@ -52,6 +52,11 @@ def _numeric(value):
     return isinstance(value, list) and bool(value) and value[0] in NUMERIC
 
 
+def _primitive_bound(value):
+    if value[0] in ("str", "bigint"):
+        _require(len(value[1]) <= 10000, "scalar work bound")
+
+
 def scalar_number(value):
     """Number accepts BigInt explicitly; ordinary numeric coercion does not."""
     _require(_numeric(value), "scalar requires a separately modeled abrupt conversion")
@@ -66,7 +71,7 @@ def scalar_number(value):
 
 def validate_record(record):
     kind = record.get("kind") if type(record) is dict else None
-    if kind not in FIELDS:
+    if not isinstance(kind, str) or kind not in FIELDS:
         return False
     p = _protocol()
     p._exact(record, FIELDS[kind], "Number record")
@@ -121,6 +126,7 @@ def _lookup(machine, value, key):
 
 def _accept(row, value):
     if _primitive(value):
+        _primitive_bound(value)
         row["primitive"] = copy.deepcopy(value)
         row["phase"] = "convert"
     else:
@@ -155,8 +161,8 @@ def apply_record(machine, record):
         return False
     p = _protocol()
     if record["kind"] == "number.begin":
-        state = _state(machine)
         value = p._known(machine, record["value"])
+        state = machine["protocol"].get("numberConversions") or {"schema": SCHEMA, "operations": []}
         _require(
             len(state["operations"]) < 4096
             and all(row["id"] != record["id"] for row in state["operations"]),
@@ -164,11 +170,14 @@ def apply_record(machine, record):
         )
         _require(bool(machine["stack"]), "active invocation required")
         primitive = _primitive(value)
-        if not primitive:
+        if primitive:
+            _primitive_bound(value)
+        else:
             _require(
                 value[0] == "ref" and p._node(machine, value[1])["kind"] in ("object", "array"),
                 "ordinary input object required",
             )
+        state = _state(machine)
         state["operations"].append(
             {
                 "id": record["id"],
@@ -185,7 +194,12 @@ def apply_record(machine, record):
         )
         return True
     row = next(
-        (entry for entry in _state(machine)["operations"] if entry["id"] == record["id"]), None
+        (
+            entry
+            for entry in (machine["protocol"].get("numberConversions") or {}).get("operations", [])
+            if entry["id"] == record["id"]
+        ),
+        None,
     )
     _require(row is not None, "unknown operation")
     _require(
@@ -204,16 +218,16 @@ def apply_record(machine, record):
         p._known(machine, record["method"])
         selected = _lookup(machine, row["input"], key)
         _require(selected == (record["method"], record["builtin"]), "false method selection")
-        row["method"], row["builtin"] = copy.deepcopy(record["method"]), record["builtin"]
-        if row["builtin"] is not None:
-            row["phase"] = "builtin"
-        elif row["index"] == -1 and row["method"][0] in ("undefined", "null"):
-            row.update(index=0, method=None, phase="select")
-        elif row["method"][0] == "ref" and p._node(machine, row["method"][1])["kind"] == "closure":
-            row["phase"] = "call"
+        method, builtin = copy.deepcopy(record["method"]), record["builtin"]
+        if builtin is not None:
+            row.update(method=method, builtin=builtin, phase="builtin")
+        elif row["index"] == -1 and method[0] in ("undefined", "null"):
+            row.update(index=0, method=None, builtin=None, phase="select")
+        elif method[0] == "ref" and machine["heap"][method[1]]["kind"] == "closure":
+            row.update(method=method, builtin=None, phase="call")
         else:
             _require(row["index"] == 0, "noncallable method requires an abrupt conversion record")
-            row.update(index=1, method=None, phase="select")
+            row.update(index=1, method=None, builtin=None, phase="select")
     elif kind == "number.call":
         _require(row["phase"] == "call", "captured callable required")
         from .construction_v8 import _call
@@ -283,6 +297,10 @@ def validate_state(machine):
             and row["index"] in (-1, 0, 1)
             and row["phase"] in PHASES,
             "phase or owner",
+        )
+        _require(
+            row["phase"] == "complete" or row["parent"] in machine["stack"],
+            "unfinished conversion requires live parent",
         )
         p._known(machine, row["input"])
         for value in (row["method"], row["primitive"], row["result"]):
