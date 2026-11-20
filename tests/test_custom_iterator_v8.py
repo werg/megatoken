@@ -55,24 +55,86 @@ def cleanup(kind="break"):
     }
 
 
+def array_state():
+    selected = _internal_machine(state())
+    selected["stack"] = ["root"]
+    apply_protocol_record(
+        selected,
+        {
+            "kind": "allocate",
+            "name": "array",
+            "objectKind": "array",
+            "length": 0,
+            "properties": [],
+            "code": None,
+            "captures": [],
+            "functionKind": None,
+            "lexicalReceiver": None,
+        },
+    )
+    return selected
+
+
 class CustomIteratorContinuationTests(unittest.TestCase):
-    def test_null_prototype_array_does_not_inherit_builtin_iteration(self):
-        selected = _internal_machine(state())
-        selected["stack"] = ["root"]
+    def test_missing_intrinsic_values_cannot_be_fabricated_while_writable_iterator_can_be_shadowed(
+        self,
+    ):
+        selected = array_state()
+        before = copy.deepcopy(selected)
+        for key in (["str", "values"], ["symbol", "well-known:iterator"], ["str", "toString"]):
+            with self.assertRaisesRegex(ProtocolV8Error, "inherited intrinsic"):
+                apply_protocol_record(
+                    selected,
+                    {
+                        "kind": "property.get",
+                        "object": "array",
+                        "key": key,
+                        "receiver": ["ref", "array"],
+                        "result": ["undefined"],
+                    },
+                )
+            self.assertEqual(selected, before)
         apply_protocol_record(
             selected,
             {
-                "kind": "allocate",
-                "name": "array",
-                "objectKind": "array",
-                "length": 0,
-                "properties": [],
-                "code": None,
-                "captures": [],
-                "functionKind": None,
-                "lexicalReceiver": None,
+                "kind": "property.set",
+                "object": "array",
+                "key": ["symbol", "well-known:iterator"],
+                "receiver": ["ref", "array"],
+                "value": ["num", 3],
+                "success": True,
             },
         )
+        apply_protocol_record(
+            selected,
+            {
+                "kind": "property.get",
+                "object": "array",
+                "key": ["symbol", "well-known:iterator"],
+                "receiver": ["ref", "array"],
+                "result": ["num", 3],
+            },
+        )
+        apply_protocol_record(
+            selected, {"kind": "iterator.arrayGuard", "iterated": ["ref", "array"], "result": False}
+        )
+        before = copy.deepcopy(selected)
+        with self.assertRaisesRegex(ProtocolV8Error, "inherited intrinsic"):
+            apply_protocol_record(
+                selected,
+                {
+                    "kind": "property.set",
+                    "object": "array",
+                    "key": ["symbol", "well-known:unscopables"],
+                    "receiver": ["ref", "array"],
+                    "value": ["num", 3],
+                    "success": True,
+                },
+            )
+        self.assertEqual(selected, before)
+
+    def test_null_prototype_array_does_not_inherit_builtin_iteration(self):
+        selected = array_state()
         apply_protocol_record(
             selected,
             {"kind": "property.prototype", "object": "array", "prototype": None, "success": True},

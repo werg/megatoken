@@ -497,7 +497,78 @@ def _descriptor(node, key):
     }
 
 
-def _lookup_descriptor(machine, identity, key):
+_OBJECT_INTRINSIC_NAMES = {
+    "constructor",
+    "__proto__",
+    "toString",
+    "toLocaleString",
+    "valueOf",
+    "hasOwnProperty",
+    "isPrototypeOf",
+    "propertyIsEnumerable",
+    "__defineGetter__",
+    "__defineSetter__",
+    "__lookupGetter__",
+    "__lookupSetter__",
+}
+_ARRAY_INTRINSIC_NAMES = {
+    "at",
+    "concat",
+    "copyWithin",
+    "entries",
+    "every",
+    "fill",
+    "filter",
+    "find",
+    "findIndex",
+    "findLast",
+    "findLastIndex",
+    "flat",
+    "flatMap",
+    "forEach",
+    "includes",
+    "indexOf",
+    "join",
+    "keys",
+    "lastIndexOf",
+    "map",
+    "pop",
+    "push",
+    "reduce",
+    "reduceRight",
+    "reverse",
+    "shift",
+    "slice",
+    "some",
+    "sort",
+    "splice",
+    "toReversed",
+    "toSorted",
+    "toSpliced",
+    "unshift",
+    "values",
+    "with",
+}
+
+
+def _missing_intrinsic(node, key):
+    if isinstance(key, tuple):
+        return (
+            node["kind"] == "array"
+            and key[1] in ("well-known:iterator", "well-known:unscopables")
+            or node["kind"] == "closure"
+            and key[1] == "well-known:hasInstance"
+        )
+    return (
+        key in _OBJECT_INTRINSIC_NAMES
+        or node["kind"] == "array"
+        and key in _ARRAY_INTRINSIC_NAMES
+        or node["kind"] == "closure"
+        and key in ("call", "apply", "bind", "length", "name", "prototype", "arguments", "caller")
+    )
+
+
+def _lookup_descriptor(machine, identity, key, *, for_set=False):
     """Find an own or inherited descriptor and its owning object."""
     seen = set()
     while identity is not None:
@@ -509,6 +580,18 @@ def _lookup_descriptor(machine, identity, key):
         if descriptor is not None:
             return node, descriptor
         prototype = node.get("prototype", "ordinary")
+        if prototype == "ordinary":
+            if for_set and (
+                isinstance(key, str)
+                and key != "__proto__"
+                and key in _OBJECT_INTRINSIC_NAMES
+                or node["kind"] == "array"
+                and key == ("symbol", "well-known:iterator")
+            ):
+                return None, {"kind": "data", "writable": True}
+            if _missing_intrinsic(node, key):
+                _fail("inherited intrinsic property requires its callable protocol")
+            return None, None
         from .generator_v8 import INTRINSICS as GENERATOR_INTRINSICS
         from .generator_v8 import _lookup as generator_lookup
 
@@ -1080,7 +1163,7 @@ def _apply(machine, record):
                 _fail("false property read")
         elif kind == "property.set":
             _known(machine, record["value"])
-            _, descriptor = _lookup_descriptor(machine, record["object"], key)
+            _, descriptor = _lookup_descriptor(machine, record["object"], key, for_set=True)
             if (
                 descriptor
                 and descriptor["kind"] == "accessor"

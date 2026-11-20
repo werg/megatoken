@@ -300,7 +300,7 @@ def apply_record(machine, record):
         # Ordinary target [[Set]] forwards to the target as the receiver.
         target = p._node(machine, node["target"][1])
         key = p._key(record["key"])
-        _, descriptor = p._lookup_descriptor(machine, node["target"][1], key)
+        _, descriptor = p._lookup_descriptor(machine, node["target"][1], key, for_set=True)
         p._known(machine, record["value"])
         success = descriptor is None or descriptor["kind"] == "data" and descriptor["writable"]
         if success:
