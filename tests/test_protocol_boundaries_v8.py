@@ -223,6 +223,37 @@ class ProtocolBoundaryTests(unittest.TestCase):
                     _apply_detail(shared, kind, fields, {})
                 self.assertEqual(shared, before)
 
+    def test_detailed_writes_preserve_key_order_and_capacity_boundaries(self):
+        state = machine()
+        allocate(state, "object")
+        node = state["heap"]["object"]
+        node["keyOrder"] = ["x"]
+        node["properties"] = {"x": ["num", 1]}
+        fields = {"object": "object", "key": "x", "present": False, "value": ["undefined"]}
+        with self.assertRaisesRegex(ProtocolV8Error, "bypasses rich"):
+            assert_detailed_record_compatible(_external_machine(state), "write", fields)
+        node.pop("keyOrder")
+        node["properties"] = {f"k{i}": ["num", i] for i in range(4096)}
+        shared = _external_machine(state)
+        before = copy.deepcopy(shared)
+        with self.assertRaisesRegex(NativeV8Error, "property bound"):
+            _apply_detail(
+                shared,
+                "write",
+                {"object": "object", "key": "extra", "present": True, "value": ["num", 1]},
+                {},
+            )
+        self.assertEqual(shared, before)
+        fields = {
+            "name": "array",
+            "kind": "array",
+            "length": 4096,
+            "properties": [{"key": str(i), "value": ["num", i]} for i in range(4096)],
+        }
+        with self.assertRaisesRegex(NativeV8Error, "property bound"):
+            _apply_detail(shared, "allocate", fields, {})
+        self.assertEqual(shared, before)
+
 
 if __name__ == "__main__":
     unittest.main()

@@ -1013,6 +1013,11 @@ def _apply_detail(state, kind, fields, row, obligations=None, program=None, task
         _set_row(state["locals"], alias or fields["name"], fields["value"])
     elif kind == "allocate":
         _assert_fresh_allocation(state, fields["name"])
+        if (
+            state.get("protocol") is not None
+            and len(fields["properties"]) + ("length" in fields) > 4096
+        ):
+            _fail("Detailed allocation exceeds own property bound")
         node = {
             "kind": fields["kind"],
             "code": None,
@@ -1034,6 +1039,12 @@ def _apply_detail(state, kind, fields, row, obligations=None, program=None, task
             _fail("Write to absent object")
         props = dict(node["properties"])
         if fields["present"]:
+            if (
+                state.get("protocol") is not None
+                and fields["key"] not in props
+                and len(props) >= 4096
+            ):
+                _fail("Detailed write exceeds own property bound")
             props[fields["key"]] = fields["value"]
         else:
             props.pop(fields["key"], None)

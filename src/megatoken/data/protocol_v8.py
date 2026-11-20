@@ -1527,7 +1527,7 @@ def assert_detailed_record_compatible(shared_state, kind, fields):
     inspect(fields)
     if kind in ("read", "write"):
         node = machine["heap"].get(fields.get("object"))
-        if node and rich(node):
+        if node and (rich(node) or kind == "write" and "keyOrder" in node):
             _fail("Detailed property transition bypasses rich protocol state")
     if kind in ("call", "construct"):
         callee = fields.get("callee")
