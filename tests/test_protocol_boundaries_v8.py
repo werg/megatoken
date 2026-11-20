@@ -5,7 +5,7 @@ import json
 import unittest
 
 from megatoken.data.construction_v8 import _call
-from megatoken.data.native_v8 import _apply_algorithm, _apply_detail
+from megatoken.data.native_v8 import NativeV8Error, _apply_algorithm, _apply_detail
 from megatoken.data.protocol_v8 import (
     ProtocolV8Error,
     _external_machine,
@@ -184,7 +184,7 @@ class ProtocolBoundaryTests(unittest.TestCase):
         for identity in ("existing", "o7", "private"):
             shared = _external_machine(state)
             before = copy.deepcopy(shared)
-            with self.assertRaisesRegex(ProtocolV8Error, "heap identity"):
+            with self.assertRaisesRegex(NativeV8Error, "heap identity"):
                 _apply_detail(
                     shared, "allocate", {"name": identity, "kind": "object", "properties": []}, {}
                 )
@@ -198,9 +198,30 @@ class ProtocolBoundaryTests(unittest.TestCase):
                     "completion": {"kind": "return", "value": ["num", 7]},
                 }
             )
-            with self.assertRaisesRegex(ProtocolV8Error, "heap identity"):
+            with self.assertRaisesRegex(NativeV8Error, "heap identity"):
                 _apply_algorithm(shared, {}, {}, line)
             self.assertEqual(shared, before)
+            for kind, fields in (
+                ("promise", {"action": "create", "promise": identity}),
+                (
+                    "request",
+                    {
+                        "operation": "demo.number",
+                        "invocation": "root",
+                        "effect": "e1",
+                        "arguments": [],
+                        "payload": "[]",
+                        "promise": identity,
+                        "site": {"start": 0, "end": 1},
+                    },
+                ),
+            ):
+                with (
+                    self.subTest(kind=kind),
+                    self.assertRaisesRegex(NativeV8Error, "heap identity"),
+                ):
+                    _apply_detail(shared, kind, fields, {})
+                self.assertEqual(shared, before)
 
 
 if __name__ == "__main__":

@@ -973,11 +973,18 @@ def _apply_region(state, target):
         state["stack"] = []
 
 
+def _assert_fresh_allocation(state, identity):
+    try:
+        _assert_fresh_heap_identity(state, identity)
+    except ProtocolV8Error as error:
+        raise NativeV8Error(str(error)) from error
+
+
 def _apply_algorithm(state, core, graph, line):
     expected = json.loads(line[10:])
     identities = set()
     for allocation in expected["allocations"]:
-        _assert_fresh_heap_identity(state, allocation["id"])
+        _assert_fresh_allocation(state, allocation["id"])
         if allocation["id"] in identities:
             _fail("Duplicate algorithm allocation identity")
         identities.add(allocation["id"])
@@ -1005,7 +1012,7 @@ def _apply_detail(state, kind, fields, row, obligations=None, program=None, task
         alias = dict(state["captureAliases"]).get(fields["name"])
         _set_row(state["locals"], alias or fields["name"], fields["value"])
     elif kind == "allocate":
-        _assert_fresh_heap_identity(state, fields["name"])
+        _assert_fresh_allocation(state, fields["name"])
         node = {
             "kind": fields["kind"],
             "code": None,
@@ -1133,6 +1140,8 @@ def _apply_detail(state, kind, fields, row, obligations=None, program=None, task
             raise NativeV8Error("Malformed host request payload") from e
         if delivered != decoded:
             _fail("Host request payload differs from its tagged arguments")
+        if promise:
+            _assert_fresh_allocation(state, promise)
         row_effect = {
             "operation": fields["operation"],
             "invocation": fields["invocation"],
@@ -1229,6 +1238,7 @@ def _apply_detail(state, kind, fields, row, obligations=None, program=None, task
         identity = fields["promise"]
         heap = _table(state, "heap")
         if fields["action"] == "create":
+            _assert_fresh_allocation(state, identity)
             _set_row(
                 state["heap"],
                 identity,
