@@ -3,7 +3,8 @@
 import copy
 import json
 import unittest
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
+from pathlib import Path
 from types import SimpleNamespace
 
 from megatoken.contracts import ROLE_TO_ID
@@ -523,6 +524,90 @@ class NativeServingV8Tests(unittest.TestCase):
                         for key, value in weights.items()
                     )
                 )
+        finally:
+            for session in list(adapter.sessions):
+                adapter.cancel(session=session, reason="test-complete")
+            runtime.close()
+
+    def test_real_training_and_serving_prediction_state_and_controls_match_exactly(self):
+        import torch
+
+        from megatoken.loading import build_model
+        from megatoken.model import ModelConfig
+        from megatoken.model.multitrack import MultiTrackGenerator
+        from megatoken.multitrack_runtime import MultiTrackRuntime
+        from megatoken.training.config import TrainConfig
+        from scripts.fit_semantic_v8 import capture_boundaries
+
+        torch.set_num_threads(1)
+        torch.manual_seed(17)
+        codec = ByteCodec.byte_fallback()
+        model = build_model(
+            ModelConfig.tiny(max_history_chunks=128, max_capacity=512), codec
+        ).eval()
+        episode, _ = prepare_native_v8_training(
+            self.example, codec=codec, max_positions=512, max_history=128
+        )
+        episode = replace(
+            episode,
+            supervision=replace(
+                episode.supervision, outcome="success", verification="local_assertions"
+            ),
+        )
+        config = TrainConfig(
+            purpose="diagnostic",
+            phase="P1",
+            model="tiny",
+            datasets=["tests/fixtures"],
+            device="cpu",
+            precision="fp32",
+            representation_mode="bootstrap",
+            effort=1,
+            generated_capacity=512,
+            max_window_records=128,
+            max_history_tokens=16384,
+            max_record_bytes=16384,
+            scored_decisions=3,
+            max_steps=1,
+            gradient_checkpointing=False,
+            expert_backend="torch",
+            allow_byte_codec=True,
+        )
+        boundaries, _ = capture_boundaries(model, episode, config, Path(__file__).parent)
+        runtime = MultiTrackRuntime(MultiTrackGenerator.of(model))
+        adapter = NativeSemanticInferenceV8(
+            runtime, model_identity="a" * 64, max_tokens=4, max_fragments=1
+        )
+        actual_generate = runtime.generate
+        seen = []
+
+        def capture(session, **kwargs):
+            seen.append((session.state.detach(), kwargs))
+            return actual_generate(session, **kwargs)
+
+        runtime.generate = capture
+        try:
+            with torch.inference_mode():
+                adapter.initialize(
+                    seed=17, checkpointIdentity="a" * 64, tokenizerIdentity=codec.fingerprint
+                )
+                try:
+                    self.request(adapter)
+                except NativeSelectionV8Error:
+                    pass  # Random model output is not the assertion under test.
+            self.assertEqual(len(seen), 1)
+            trained, training_request = boundaries[0]
+            served, serving_request = seen[0]
+            for left, right in (
+                (trained.raw, served.raw),
+                (trained.history.keys, served.history.keys),
+                (trained.history.values, served.history.values),
+            ):
+                self.assertTrue(torch.equal(left, right))
+            self.assertEqual(trained.history_event_ids, served.history_event_ids)
+            self.assertEqual(trained.history_event_tracks, served.history_event_tracks)
+            self.assertEqual(trained.track_descriptions, served.track_descriptions)
+            self.assertEqual(training_request["control_payloads"], serving_request["controls"])
         finally:
             for session in list(adapter.sessions):
                 adapter.cancel(session=session, reason="test-complete")
