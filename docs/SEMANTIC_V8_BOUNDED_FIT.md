@@ -10,10 +10,15 @@ real model, independent native replay, and private source comparison. It does
 not establish generalization, external-model comprehension, broad language
 coverage, or a favorable serving-cost comparison.
 
-The producer's [retained experiment and immutable archive index](https://github.com/werg/tracing-js-self/tree/e91ba6c78f1d3e53947bfdf84c6549ba8e7ddd99/coverage/language-expansion/native-v8-fit-23cd478)
-contain every declared outcome, original failure, emitted fragment, admission
-receipt, study, and measured cost. The large model/checkpoint archive is retained
-separately by the filename and hash documented there.
+The result was reproduced without retraining at the final contract/frontend
+pair: producer `012c9fe` and native consumer `39c4036`. The producer's
+[final-revision evidence and archive index](https://github.com/werg/tracing-js-self/tree/6bfa59ee4eaa0b3405cad6b1bd5bb3a7003a8108/coverage/language-expansion/native-v8-fit-39c4036)
+contain every new declared outcome, emitted fragment, admission receipt,
+study, measured cost, and the passing 244-test native gate. The
+[earlier experiment packet](https://github.com/werg/tracing-js-self/tree/e91ba6c78f1d3e53947bfdf84c6549ba8e7ddd99/coverage/language-expansion/native-v8-fit-23cd478)
+preserves the original training, parity evidence, and confounded evaluations.
+The large model/checkpoint archive is retained separately by the filename and
+hash documented in both packets.
 
 ## Exact experiment
 
@@ -158,9 +163,9 @@ timings, context/cache snapshots, and rejected-attempt costs. The completed
 frozen process study below adds process initialization, RPC, JavaScript
 controller, and process memory evidence.
 
-## Final source-authoritative process study
+## Earlier source-authoritative process study
 
-The final producer was
+That study's producer was
 [`9d4f6b3fcff97e7f915ae9c7228f7fd75aaaec3c`](https://github.com/werg/tracing-js-self/commit/9d4f6b3fcff97e7f915ae9c7228f7fd75aaaec3c);
 the native consumer was
 [`23cd47816f9b99bbdb2ec9a32dd455daf68b732b`](https://github.com/werg/megatoken/commit/23cd47816f9b99bbdb2ec9a32dd455daf68b732b).
@@ -187,7 +192,7 @@ The first JavaScript/process study had used the older private source artifacts.
 Its source-identity recheck rejected the authority for the executing producer
 environment: three fitted public completions yielded **zero qualified
 executions**. Both original reports remain archived unchanged. Fresh source
-artifacts and independent native receipts were then generated at the final
+artifacts and independent native receipts were then generated at those
 study revisions. Their public observations and contexts are identical to the
 training inputs; only their private authority changed. All six admission gates
 passed for both inputs. The new study was frozen and rerun with the same fitted
@@ -221,6 +226,53 @@ initialization on the first row and controller work; these are not six
 independent cold starts. No controlled v6/v8 speed or memory comparison was
 performed.
 
+## Revalidation at the final contract and frontend
+
+After the remaining contract/frontend changes were published, the same saved
+models were run again at producer
+[`012c9fe49a082319bf98ac0c571596da925741a4`](https://github.com/werg/tracing-js-self/commit/012c9fe49a082319bf98ac0c571596da925741a4)
+and native consumer
+[`39c4036564428e44cc89caf261f517d856482695`](https://github.com/werg/megatoken/commit/39c4036564428e44cc89caf261f517d856482695).
+Their contract digest is
+`344f7e99aeed605a1965c70f0e0d8829707d6891437ba43dd743fa304cd777dc`.
+Fresh source artifacts and native receipts again passed all six admission
+gates. The original training observations and contexts match those new
+artifacts exactly. Both checkout identities and both served-model hashes were
+unchanged before and after the run.
+
+The inputs, three seeds, settings, limits, and saved checkpoints were unchanged,
+with **zero additional optimizer updates**. All twelve declared rollouts
+settled and both processes exited gracefully. The fitted model again completed
+all three training-input runs and none of the three held-out runs. The baseline
+completed none of six runs. The final result therefore preserves the same
+in-sample feasibility claim and zero held-out successes.
+
+| Measured at final revisions, across six rollouts | Zero-update | Fitted |
+| --- | ---: | ---: |
+| Completed and source-validated executions | 0 / 6 | 3 / 6, all in sample |
+| Actual prediction attempts | 6 | 9 |
+| Verified emitted tokens | 344 | 405 |
+| Native-reported token IDs / unknown-cost attempts | 564 / 2 | 405 / 0 |
+| Text input tokens excluding session metadata | 11,148 | 13,767 |
+| Sum of rollout elapsed time | 39.517 seconds | 73.656 seconds |
+| Reported native RPC compute time | 27.111 seconds | 60.500 seconds |
+| Native peak process memory | 527,986,688 bytes | 528,179,200 bytes |
+
+These are the actual new timings, not the earlier study's measurements. They
+are not a controlled speed comparison. The fresh audit again matches all 15
+original emitted fragments byte for byte with the production codec. The same
+two baseline fragments contain invalid UTF-8, with their 110 native-reported
+token IDs each retained separately from the verified cost total. No failed
+attempt or earlier report was replaced.
+
+The full workflow-selected native gate at these exact clean revisions passed
+244 tests across 27 modules with zero failures, errors, or skips, including the
+live source-authority checks. Full Ruff lint and formatting checks passed for
+all 532 Python files, as did `git diff --check`. Runtime evidence records Python
+3.12.14, PyTorch 2.10.0+cpu, tokenizers 0.23.3, Ruff 0.17.6, and Node v24.22.3.
+The final evidence packet retains all logs, JUnit results, settings, and clean
+before/after identities alongside the source and model reports.
+
 ## Immutable model identities and evidence
 
 | Artifact | SHA-256 |
@@ -239,7 +291,7 @@ the unchanged-weight reevaluation. `first-boundary-parity.json` and
 `complete-boundary-parity-development.json` record the real native state checks.
 `artifact-index.json` binds the retained files by SHA-256 and byte size. The
 corrected development reports are distinct from the later clean-checkout
-frozen JavaScript study. All four full process-study reports, including the
+frozen JavaScript studies. All six full process-study reports, including the
 failed source-authority run, are retained byte for byte alongside the inputs,
 native receipts, settings, and private scoring cases.
 
