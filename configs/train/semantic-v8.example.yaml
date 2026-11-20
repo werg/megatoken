@@ -1,0 +1,17 @@
+# Minimal diagnostic recipe using freshly source/native-admitted V8 data.
+# Replace the pins and prepared root with values from the matching preparation run.
+purpose: diagnostic
+phase: SC
+model: tiny
+datasets:
+- PIN_FRESH_V8_PREPARED_ROOT
+output: /work/runs/semantic-v8-diagnostic
+codec: PIN_PRODUCTION_CODEC_DIRECTORY
+device: auto
+precision: bf16
+max_steps: 1
+semantic_v8_policy:
+  schema: semantic-training-policy/8
+  producerRevision: PIN_40_CHARACTER_PRODUCER_REVISION
+  consumerRevision: PIN_40_CHARACTER_CONSUMER_REVISION
+  registryDigest: PIN_64_CHARACTER_FROZEN_REGISTRY_DIGEST

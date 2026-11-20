@@ -139,6 +139,15 @@ def prepare_batches(
             .get("semantic_execution", {})
             .get("schema")
         )
+        if episode.stream == "semantic_execution":
+            if semantic_version not in {
+                "semantic-execution/6",
+                "semantic-execution/7",
+                "semantic-execution/8",
+            }:
+                raise ValueError("Semantic training rejects a missing or unknown execution schema")
+            if semantic_version == "semantic-execution/6" and config.semantic_experiment is None:
+                raise ValueError("V6 semantic training requires its explicit admission policy")
         if semantic_version == "semantic-execution/7":
             from .semantic_v7 import validate_semantic_episode_v7
 
@@ -151,6 +160,35 @@ def prepare_batches(
                 max_history=model.config.max_history_chunks,
                 max_positions=model.config.max_capacity,
             )
+        elif semantic_version == "semantic-execution/8":
+            from .semantic_v8 import validate_semantic_episode_v8
+
+            if config.semantic_experiment is not None or config.semantic_v7_policy is not None:
+                raise ValueError("V8 data cannot use an older semantic training contract")
+            registry_path = next(
+                (
+                    Path(root) / "semantic-v8-families.json"
+                    for root in config.datasets
+                    if (Path(root) / "semantic-v8-families.json").is_file()
+                ),
+                None,
+            )
+            if registry_path is None:
+                raise ValueError("V8 training root lost its frozen source-family registry")
+            registry = json.loads(registry_path.read_text())
+            validate_semantic_episode_v8(
+                episode,
+                codec=model.codec,
+                policy=config.semantic_v8_policy,
+                registry=registry,
+                max_history=model.config.max_history_chunks,
+                max_positions=model.config.max_capacity,
+                expected_split=episode.lineage.frozen_split,
+            )
+        elif episode.stream == "semantic_execution" and (
+            config.semantic_v8_policy is not None or config.semantic_v7_policy is not None
+        ):
+            raise ValueError("Selected semantic policy does not accept this execution schema")
         elif config.semantic_experiment is not None:
             from .semantic_budget import validate_semantic_episode, validate_semantic_geometry
 
@@ -177,6 +215,7 @@ def prepare_batches(
             not config.allow_unverified_data
             and episode.stream in verified_streams
             and not episode.supervision.verified_success
+            and semantic_version != "semantic-execution/8"
         ):
             raise ValueError("Training stream requires independent verified success")
         if episode.stream == "long_verified_dependencies" and not episode.dependencies:
@@ -308,6 +347,8 @@ def _resume_compatible(old: dict[str, Any], config: TrainConfig, phase_transitio
             "semantic_experiment",
             "semantic_v7_policy",
         )
+    # Keep the active V8 policy and registry binding fixed across resume.
+    critical += ("semantic_v8_policy",)
     for key in critical:
         if key not in old or old[key] != current[key]:
             raise ValueError(
@@ -400,7 +441,12 @@ def train(
         model_config = load_model_config(config.model, **overrides)
         if config.generated_capacity > model_config.max_capacity:
             raise ValueError("generated_capacity exceeds the model's maximum output positions")
-        codec = load_codec(config.codec, vocab_size=model_config.vocab_size)
+        if config.semantic_v8_policy is not None:
+            from .semantic_v8 import load_semantic_v8_codec
+
+            codec = load_semantic_v8_codec(config.codec, vocab_size=model_config.vocab_size)
+        else:
+            codec = load_codec(config.codec, vocab_size=model_config.vocab_size)
         # Reject absent or causally unverified curriculum supply before loading
         # model weights, donor pipelines, optimizer masters or checkpoint tensors.
         windows_config = window_config(config)
@@ -412,6 +458,20 @@ def train(
             for part in dataset.parts
             for receipt in part.manifest.get("sources", [])
         )
+        has_v8 = any(
+            receipt.get("schema") == "semantic-preparation/8"
+            for part in dataset.parts
+            for receipt in part.manifest.get("sources", [])
+        )
+        has_v8_rows = any(
+            json.loads(episode.supervision.annotations_json)
+            .get("semantic_execution", {})
+            .get("schema")
+            == "semantic-execution/8"
+            for episode in dataset.iter_episodes()
+        )
+        if has_v8_rows and not has_v8:
+            raise ValueError("V8 semantic rows have no matching preparation manifest")
         if has_v7 or config.semantic_v7_policy is not None:
             from .semantic_v7 import (
                 validate_prepared_semantic_v7,
@@ -431,6 +491,20 @@ def train(
                 raise ValueError(
                     "V7 prepared data differs from the explicitly frozen training registry"
                 )
+        if has_v8 or config.semantic_v8_policy is not None:
+            from .semantic_v8 import (
+                validate_prepared_semantic_v8,
+                validate_semantic_training_policy_v8,
+            )
+
+            v8_policy = validate_semantic_training_policy_v8(config.semantic_v8_policy)
+            validate_prepared_semantic_v8(
+                config.datasets,
+                codec=codec,
+                policy=v8_policy,
+                max_history=model_config.max_history_chunks,
+                max_positions=model_config.max_capacity,
+            )
         if experiment is not None:
             from .semantic_budget import validate_stage_supply
 

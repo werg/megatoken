@@ -21,6 +21,26 @@ Validation: 39 existing focused detail/algorithm/native/prefix tests passed;
 direct-prefix run had one error-message assertion failure, corrected without
 weakening the rejection. Ruff and whitespace checks passed for changed files.
 
+## Ordinary V8 preparation and training admission
+
+The normal trainer now accepts an explicit `semantic-training-policy/8` with exact
+producer/consumer revisions and a complete family-registry digest. The preparation
+CLI rechecks source and family/split binding in the pinned producer, verifies raw
+tokenizer bytes, runs native replay/context/mask checks, and exports ordinary
+prepared shards. The normal loader rebuilds native records and compares the full
+normalized episode, including source lineage. Resume keeps the policy pinned.
+
+Source-admitted targets remain teacher-conditioned, with model execution outcome
+`unmeasured`; no preparation step marks learned success. Missing or unknown semantic
+schemas, unadmitted V8 targets, byte-fallback recipes and wrong tokenizer files are
+refused even when the general unverified-data option is enabled.
+
+Validation: five focused controls pass, including prepared-shard reconstruction
+and the normal `prepare_batches` path. The positive unit fixture explicitly injects
+the source/tokenizer verification boundary; it does not prove a real paired-source
+or production-tokenizer run. Ruff and format checks pass. Full ordinary optimizer,
+checkpoint/resume/export/reload and actual pinned-asset qualification remain open.
+
 ## Remaining native work
 
 - [ ] Remove old wire dependencies from effect receipts and remaining replay helpers.
