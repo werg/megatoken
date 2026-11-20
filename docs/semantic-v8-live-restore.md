@@ -9,7 +9,7 @@ semantic service or qualify a production release.
 
 A checkpoint covers the whole model adapter because its random stream and
 consumed attempt allowance are shared across its sessions. It binds the loaded
-model, tokenizer, semantic contract, generation settings, runtime configuration,
+model, tokenizer, ordinary training lineage, semantic contract, generation settings, runtime configuration,
 complete acknowledged public histories and contexts, observation-ingestion
 cursors, completed invocations, original generated fragments, and failed attempts.
 It retains Python, NumPy, CPU Torch and available CUDA random-generator states.
@@ -45,6 +45,21 @@ restore RPC's compute time separately; regenerated historical selections do not
 become additional successful tasks.
 
 ## Service calls
+
+The ordinary served bundle's validated `semantic_v8_lineage_digest` is the
+expected `trainingIdentity` in initialization. The service loads this digest from
+the bundle and requires the caller to supply the same value; leaving it out,
+substituting a different digest or trying to reset it to null refuses before a
+model session opens. The digest binds prepared source/data/policy/codec identities
+to the training checkpoint and exported model resources. It is retained in every
+selection and live checkpoint, and is checked against the loaded bundle before
+restoration. A diagnostic bundle without ordinary V8 lineage uses explicit null.
+This identity records provenance and never establishes learned execution quality.
+
+The producer freezes the expected value with `--training-identity HASH` in the
+experiment command, passes it through the process selector and checks both the
+initialization receipt and original selection evidence. Driver recovery also
+binds the entire externally expected initialization receipt.
 
 ```json
 {"id":"save-1","op":"checkpoint"}

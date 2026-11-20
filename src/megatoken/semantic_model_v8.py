@@ -98,6 +98,7 @@ class NativeSemanticInferenceV8:
         runtime,
         *,
         model_identity,
+        training_identity=None,
         effort=1,
         max_tokens=512,
         max_fragments=64,
@@ -106,6 +107,11 @@ class NativeSemanticInferenceV8:
     ):
         if not re.fullmatch("[0-9a-f]{64}", model_identity or ""):
             raise ValueError("V8 serving requires an immutable loaded model identity")
+        if training_identity is not None and (
+            not isinstance(training_identity, str)
+            or not re.fullmatch("[0-9a-f]{64}", training_identity)
+        ):
+            raise ValueError("V8 serving requires a valid training-lineage identity")
         if not 1 <= effort <= 6 or not 1 <= max_tokens <= 8192:
             raise ValueError("Invalid v8 effort or per-fragment token budget")
         if (
@@ -117,6 +123,7 @@ class NativeSemanticInferenceV8:
         self.runtime = runtime
         self.codec = runtime.generator.generator.codec
         self.model_identity = model_identity
+        self.training_identity = training_identity
         self.effort = effort
         self.max_tokens = min(max_tokens, runtime.generator.generator.config.max_capacity)
         self.max_fragments = max_fragments
@@ -128,7 +135,7 @@ class NativeSemanticInferenceV8:
         self.initialization = None
         self.lock = RLock()
 
-    def initialize(self, *, seed, checkpointIdentity, tokenizerIdentity):
+    def initialize(self, *, seed, checkpointIdentity, tokenizerIdentity, trainingIdentity=None):
         import random
 
         import numpy as np
@@ -143,8 +150,11 @@ class NativeSemanticInferenceV8:
             if (
                 checkpointIdentity != self.model_identity
                 or tokenizerIdentity != self.codec.fingerprint
+                or trainingIdentity != self.training_identity
             ):
-                raise NativeSelectionV8Error("Loaded v8 checkpoint or tokenizer identity differs")
+                raise NativeSelectionV8Error(
+                    "Loaded v8 checkpoint, tokenizer or training-lineage identity differs"
+                )
             random.seed(seed)
             np.random.seed(seed)
             torch.manual_seed(seed)
@@ -157,6 +167,7 @@ class NativeSemanticInferenceV8:
                 "seed": seed,
                 "checkpointIdentity": self.model_identity,
                 "tokenizerIdentity": self.codec.fingerprint,
+                "trainingIdentity": self.training_identity,
                 "nativeAdmissionClaim": False,
                 "generationSettings": {
                     "device": str(next(model.parameters()).device)
@@ -276,6 +287,7 @@ class NativeSemanticInferenceV8:
                 "invocationId": context["invocationId"],
                 "checkpointIdentity": self.model_identity,
                 "tokenizerIdentity": self.codec.fingerprint,
+                "trainingIdentity": self.training_identity,
                 "codecFingerprint": self.codec.fingerprint,
                 "prefixDigest": context["prefixDigest"],
                 "contextDigest": checked["contextDigest"],
@@ -646,6 +658,16 @@ class NativeSemanticInferenceV8:
                 raise NativeSelectionV8Error(
                     "V8 model checkpoint identity, settings or budget differs"
                 )
+            identity = packet["initialization"]
+            if (
+                type(identity) is not dict
+                or identity.get("checkpointIdentity") != self.model_identity
+                or identity.get("tokenizerIdentity") != self.codec.fingerprint
+                or identity.get("trainingIdentity") != self.training_identity
+            ):
+                raise NativeSelectionV8Error(
+                    "Restored v8 checkpoint, tokenizer or training-lineage identity differs"
+                )
             attempts = packet["attempts"]
             for index, attempt in enumerate(attempts):
                 if (
@@ -653,6 +675,7 @@ class NativeSemanticInferenceV8:
                     or attempt.get("selectionId") != f"v8:{index}"
                     or attempt.get("checkpointIdentity") != self.model_identity
                     or attempt.get("tokenizerIdentity") != self.codec.fingerprint
+                    or attempt.get("trainingIdentity") != self.training_identity
                     or attempt.get("status")
                     not in {
                         "committed",
@@ -668,6 +691,7 @@ class NativeSemanticInferenceV8:
             staged = NativeSemanticInferenceV8(
                 self.runtime,
                 model_identity=self.model_identity,
+                training_identity=self.training_identity,
                 effort=self.effort,
                 max_tokens=self.max_tokens,
                 max_fragments=self.max_fragments,
@@ -684,6 +708,7 @@ class NativeSemanticInferenceV8:
                     seed=identity["seed"],
                     checkpointIdentity=identity["checkpointIdentity"],
                     tokenizerIdentity=identity["tokenizerIdentity"],
+                    trainingIdentity=identity.get("trainingIdentity"),
                 )
                 if loaded != identity:
                     raise NativeSelectionV8Error(

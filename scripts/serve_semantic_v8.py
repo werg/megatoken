@@ -76,6 +76,7 @@ def main():
     adapter = NativeSemanticInferenceV8(
         runtime,
         model_identity=bundle.manifest["model_sha256"],
+        training_identity=bundle.manifest.get("semantic_v8_lineage_digest"),
         effort=args.effort,
         max_tokens=args.max_tokens,
         max_fragments=args.max_fragments,
