@@ -1407,6 +1407,26 @@ def _apply_detail(
 
 
 def _apply_observation(state, row, dispatched, settled, obligations=None, track_counts=None):
+    # A rejected delivery must leave the effect, receipt, and Promise together
+    # at their previous prefix, including failures after graph import.
+    staged_state, staged_dispatched, staged_settled, staged_obligations = copy.deepcopy(
+        (state, dispatched, settled, obligations)
+    )
+    _apply_observation_staged(
+        staged_state, row, staged_dispatched, staged_settled, staged_obligations, track_counts
+    )
+    for target, staged in (
+        (state, staged_state),
+        (dispatched, staged_dispatched),
+        (settled, staged_settled),
+        (obligations, staged_obligations),
+    ):
+        if target is not None:
+            target.clear()
+            target.update(staged)
+
+
+def _apply_observation_staged(state, row, dispatched, settled, obligations, track_counts):
     fields = row["fields"]
     if row["kind"] == "event":
         if obligations is not None:
@@ -1558,6 +1578,26 @@ def _apply_observation(state, row, dispatched, settled, obligations=None, track_
             _fail("Result of unknown effect")
         if obs["effect"] not in dispatched or obs["effect"] in settled:
             _fail("Result without one outstanding dispatch")
+        if "graph" in obs or obs["result"][0] == "ref":
+            from .host_operations import HOST_OPERATIONS
+
+            descriptor = HOST_OPERATIONS.get(effect[1]["operation"], {})
+            if descriptor.get("resultCodec") != "owned-graph/1":
+                _fail("Observed graph requires the operation's declared owned result codec")
+        for node in obs.get("graph", {}).get("objects", []):
+            _assert_fresh_allocation(state, node["id"])
+            state["heap"].append(
+                [
+                    node["id"],
+                    {
+                        "kind": node["kind"],
+                        "prototype": node.get("prototype", "ordinary"),
+                        "properties": [[p["key"], p["value"]] for p in node["properties"]],
+                    },
+                ]
+            )
+        if obs["result"][0] == "ref" and obs["result"][1] not in _table(state, "heap"):
+            _fail("Observed result references an unknown identity")
         settled.add(obs["effect"])
         effect[1]["status"] = obs["status"]
         effect[1]["result"] = obs["result"]
@@ -1583,12 +1623,7 @@ def _apply_observation(state, row, dispatched, settled, obligations=None, track_
                 "effectId": obs["effect"],
                 "status": obs["status"],
                 "result": obs["result"],
-                "line": "observe @"
-                + obs["effect"]
-                + " "
-                + obs["status"]
-                + " "
-                + witness_v6._trace_value(obs["result"]),
+                "line": witness_v6.encode_record("observe", obs),
                 "errorOrigin": fields.get("errorOrigin"),
             }
             obligations["intents"] = [[key, value] for key, value in intents.items()]
