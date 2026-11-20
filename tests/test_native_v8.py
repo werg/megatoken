@@ -10,7 +10,9 @@ from megatoken.data.native_v8 import (
     _apply_detail,
     _apply_observation,
     _native_checkpoint,
+    _replay_shared_state,
     _restore_native_checkpoint,
+    region_entry_v8,
     validate_v8_artifact,
 )
 
@@ -48,6 +50,60 @@ class NativeV8Tests(unittest.TestCase):
         region = next(row for row in example["public"]["timeline"] if row["kind"] == "region")
         region["fields"]["entry"]["stateDigest"] = "0" * 64
         with self.assertRaises(NativeV8Error):
+            validate_v8_artifact(example)
+
+    def test_algorithm_entry_binds_definition_region_state_and_exact_cutoff(self):
+        example = copy.deepcopy(self.document["examples"][0])
+        context = example["contexts"][0]
+        example["public"]["timeline"] = example["public"]["timeline"][
+            : context["visibleThrough"] + 1
+        ]
+        example["contexts"] = [context]
+        correct = example["public"]["timeline"][-1]["fields"]["entry"]
+        self.assertEqual(
+            correct, region_entry_v8(context["programs"][-1]["program"], context, "whole")
+        )
+        for changed in (
+            "run",
+            None,
+            {**correct, "definition": "0" * 64},
+            {**correct, "regionDigest": "0" * 64},
+            {**correct, "stateDigest": "0" * 64},
+            {**correct, "region": "r0"},
+            {**correct, "visibleThrough": context["visibleThrough"] + 1},
+            {**correct, "visibleThrough": float(context["visibleThrough"])},
+            {**correct, "future": True},
+        ):
+            forged = copy.deepcopy(example)
+            forged["public"]["timeline"][-1]["fields"]["entry"] = changed
+            with (
+                self.subTest(entry=changed),
+                self.assertRaisesRegex(NativeV8Error, "algorithm entry"),
+            ):
+                validate_v8_artifact(forged)
+
+    def test_fresh_entry_digest_cannot_repeat_a_whole_algorithm(self):
+        from megatoken.data.algorithm_v7 import stable_algorithm_hash
+
+        example = copy.deepcopy(self.document["examples"][0])
+        original = example["contexts"][0]
+        rows = example["public"]["timeline"][: original["visibleThrough"] + 1]
+        context = {
+            **original,
+            **_replay_shared_state(
+                rows, [original], {}, roundtrip=False, boundary_invocation=original["invocationId"]
+            ),
+            "visibleThrough": len(rows),
+            "prefixDigest": stable_algorithm_hash(rows),
+        }
+        duplicate = copy.deepcopy(rows[-1])
+        duplicate["sequence"] += 1
+        duplicate["fields"]["entry"] = region_entry_v8(
+            context["programs"][-1]["program"], context, "whole"
+        )
+        example["public"]["timeline"] = rows + [duplicate]
+        example["contexts"] = [original, context]
+        with self.assertRaisesRegex(NativeV8Error, "untouched invocation"):
             validate_v8_artifact(example)
 
     def test_false_shared_state_is_rejected_at_next_prediction(self):

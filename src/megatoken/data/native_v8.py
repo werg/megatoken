@@ -246,6 +246,28 @@ def validate_v8_artifact(document):
                 core = program.get("algorithm")
                 if core is None:
                     _fail("Algorithm target lacks its published core")
+                entry = fields.get("entry")
+                if (
+                    not isinstance(entry, dict)
+                    or type(entry.get("visibleThrough")) is not int
+                    or entry != region_entry_v8(program, context, "whole")
+                ):
+                    _fail("Stale, malformed, or false algorithm entry")
+                if (
+                    any(
+                        previous["mode"] == "generated"
+                        and previous["fields"].get("invocationId") == context["invocationId"]
+                        for previous in timeline[:cutoff]
+                    )
+                    or state["stack"] != [context["invocationId"]]
+                    or any(
+                        state[name]
+                        for name in ("completion", "pending", "effects", "jobs", "continuations")
+                    )
+                    or context["input"].get("retained")
+                    or (state.get("protocol") or {}).get("sequence")
+                ):
+                    _fail("Whole algorithm requires the untouched invocation entry")
                 graph = context["input"].get("graph")
                 if not isinstance(graph, dict):
                     _fail("Algorithm target lacks a public input graph")
@@ -459,6 +481,26 @@ def prepare_native_v8_training(document, *, codec, max_positions=8192, max_histo
         "terminalTokens": 0,
         "maskValidation": True,
         "framing": "native-physical-record-boundaries/1",
+    }
+
+
+def region_entry_v8(program, context, region):
+    """Construct host-owned entry metadata from current public authority only."""
+    if region == "whole":
+        if not isinstance(program.get("algorithm"), dict):
+            _fail("Algorithm entry requires a published pure core")
+        digest = stable_algorithm_hash(program["algorithm"])
+    else:
+        definition = next((item for item in program["regions"] if item.get("id") == region), None)
+        if definition is None:
+            _fail("Unknown region definition")
+        digest = definition["digest"]
+    return {
+        "definition": program["definitionDigest"],
+        "region": region,
+        "regionDigest": digest,
+        "visibleThrough": context["visibleThrough"],
+        "stateDigest": stable_algorithm_hash(context["state"]),
     }
 
 

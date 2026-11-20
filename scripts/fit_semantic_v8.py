@@ -29,7 +29,11 @@ from megatoken.data.algorithm_v7 import stable_algorithm_hash
 from megatoken.data.chunking import ChunkingConfig
 from megatoken.data.detailed_v7 import parse_record
 from megatoken.data.media_assets import TensorAssetStore
-from megatoken.data.native_v8 import _replay_shared_state, prepare_native_v8_training
+from megatoken.data.native_v8 import (
+    _replay_shared_state,
+    prepare_native_v8_training,
+    region_entry_v8,
+)
 from megatoken.data.prefix_v8 import validate_v8_committed_prefix
 from megatoken.data.protocol_v8 import decode_protocol_record
 from megatoken.data.semantic_contract_v8 import CONTRACT_DIGEST, DEFINITION
@@ -217,7 +221,10 @@ def actual_inference(model, identity, public, *, seed, max_tokens, max_records=4
                 "line": record,
             }
             if kind in {"algorithm", "region"}:
-                fields["entry"] = invocation["entry"]
+                region = "whole" if kind == "algorithm" else json.loads(record[7:])["region"]
+                fields["entry"] = region_entry_v8(
+                    context["programs"][-1]["program"], context, region
+                )
             candidate = copy.deepcopy(public)
             candidate["timeline"].append(
                 {
