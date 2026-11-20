@@ -96,6 +96,11 @@ class PromiseJoinBoundaryTests(unittest.TestCase):
             with self.assertRaisesRegex(ProtocolV8Error, "fresh pending"):
                 apply_protocol_record(state, row)
             self.assertEqual(state, before)
+            state, row = joined_machine()
+            apply_protocol_record(state, row)
+            state["heap"]["result"][field] = value
+            with self.assertRaisesRegex(ProtocolV8Error, "restored join metadata"):
+                validate_state(state)
 
     def test_all_bound_reserves_array_length_without_reducing_race_bound(self):
         state, row = joined_machine()

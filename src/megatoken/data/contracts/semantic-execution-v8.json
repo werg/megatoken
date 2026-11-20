@@ -324,6 +324,12 @@
             "receiver",
             "result"
           ],
+          "property.hasOwn": [
+            "kind",
+            "object",
+            "key",
+            "result"
+          ],
           "property.set": [
             "kind",
             "object",
@@ -540,6 +546,18 @@
             "kind",
             "iterated",
             "result"
+          ],
+          "enumeration.create": [
+            "kind",
+            "name",
+            "source"
+          ],
+          "enumeration.next": [
+            "kind",
+            "object",
+            "name",
+            "result",
+            "done"
           ],
           "promise.join": [
             "kind",
@@ -814,6 +832,7 @@
           "owned-binary-memory/1",
           "class-construction/1",
           "builtin-iterator/1",
+          "ordinary-for-in/1",
           "promise-join/1",
           "number-conversion/1",
           "synchronous-generator/1",
@@ -826,7 +845,7 @@
           "calls": 64,
           "steps": 32768
         },
-        "meaning": "Checked Symbol identities, descriptors, receiver-aware access, scoped calls, construction, iterators, generators, Number conversion, Promise joins and executors, Proxy traps and binary memory in the same authoritative heap."
+        "meaning": "Checked Symbol identities, descriptors, receiver-aware access, scoped calls, construction, iterators, ordinary enumeration, generators, Number conversion, Promise joins and executors, Proxy traps and binary memory in the same authoritative heap."
       }
     },
     "algorithm": {
@@ -1700,6 +1719,28 @@
         ],
         "capabilities": "Builtin array keys/values/entries and Unicode string iteration, live array length, sticky exhaustion and explicit result/pair allocation identities."
       },
+      "enumeration": {
+        "profile": "ordinary-for-in/1",
+        "heapFields": [
+          "kind",
+          "source",
+          "chain",
+          "keys",
+          "nextIndex",
+          "done",
+          "properties"
+        ],
+        "limits": {
+          "chain": 128,
+          "keys": 4096
+        },
+        "chainFields": [
+          "id",
+          "prototype",
+          "keys"
+        ],
+        "capabilities": "Stable ordinary for-in snapshots preserve own-key order, prototype walks, nonenumerable shadowing and fresh per-step result identities. Value writes are live; changed key/prototype structure is refused on the next step."
+      },
       "promiseJoins": {
         "profile": "promise-join/1",
         "schema": "semantic-promise-join-state/1",
@@ -1965,7 +2006,7 @@
       "default": "not promoted by engineering receipts alone"
     }
   },
-  "digest": "0880cbd31fe3dd749f3566f96183741451ae51c5fd58a309bf1b8a3fafa27e46",
+  "digest": "2d926a0ca0fe722452e3a37960375fed2840b9ce1b4218bf28af7e72905a01e0",
   "fixtureDigest": "56f7f36d3b25b3b11a208be3de337e637b9782e6759faea1e1ec107b0a90f0ce",
   "fixtures": [
     {
@@ -1990,7 +2031,7 @@
       "reason": "old artifacts require their original contract"
     }
   ],
-  "interoperabilityDigest": "6ff5cbe1b22fd9ab891275aef124e3bd0cfbb756709603c5f95ddc7dd31f780c",
+  "interoperabilityDigest": "720c330eb30cc8350fcc07c0db363537514af5c7f79d7b73b8951be42537e634",
   "interoperability": [
     {
       "id": "ordered-map",
@@ -2111,6 +2152,11 @@
       "id": "protocol-region:source-logical-left-operands",
       "publicDigest": "6f244d4b5dd9bcd659bc2bb217c7acbf44371dfaa96427c8810c178540dda3d5",
       "contextDigest": "c57574aa4588198534eaefcca1dbcbc2fce5a375d3e09cae70dac68bbf8b8410"
+    },
+    {
+      "id": "protocol-region:source-for-in-own-keys",
+      "publicDigest": "5a5961de79bb1d7f3ad2565dba08869aa815f6f1410fce0579cc07afa98f03b3",
+      "contextDigest": "e7b05ac9f3c806862ac5894b7169290f2071b07f283ef4b61ff2d9ed8a601950"
     }
   ]
 }

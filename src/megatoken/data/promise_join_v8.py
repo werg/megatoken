@@ -286,6 +286,8 @@ def validate_state(machine):
             continue
         if (
             join.get("schema") != STATE_SCHEMA
+            or result.get("adopted") is not None
+            or result.get("external") is not None
             or join.get("mode") not in ("all", "race")
             or not all(
                 type(join.get(key)) is list for key in ("inputs", "jobs", "observed", "values")

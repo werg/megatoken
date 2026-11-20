@@ -1,10 +1,15 @@
 """For-in keys, shadowing, and cursors are checked independently of their claims."""
 
+import base64
 import copy
+import gzip
 import json
 import unittest
+from pathlib import Path
 
+from megatoken.data.algorithm_v7 import stable_algorithm_hash
 from megatoken.data.enumeration_v8 import validate_state
+from megatoken.data.native_v8 import NativeV8Error, validate_v8_artifact
 from megatoken.data.protocol_v8 import (
     ProtocolV8Error,
     _external_machine,
@@ -56,6 +61,36 @@ def advance(state, key, name="result", *, cursor="cursor"):
 
 
 class EnumerationV8Tests(unittest.TestCase):
+    def test_source_golden_replays_every_context_and_matches_the_contract(self):
+        fixture = Path(__file__).parent / "fixtures/semantic-enumeration-v8.json.gz.b64"
+        artifact = json.loads(gzip.decompress(base64.b64decode(fixture.read_bytes())))
+        from megatoken.data.semantic_contract_v8 import CONTRACT
+
+        declaration = next(
+            row
+            for row in CONTRACT["interoperability"]
+            if row["id"] == "protocol-region:source-for-in-own-keys"
+        )
+        self.assertEqual(stable_algorithm_hash(artifact["public"]), declaration["publicDigest"])
+        self.assertEqual(stable_algorithm_hash(artifact["contexts"]), declaration["contextDigest"])
+        receipt = validate_v8_artifact(artifact)
+        for check in ("replay", "contexts", "continuation"):
+            self.assertEqual(receipt["checks"][check], "passed")
+        self.assertEqual(receipt["counts"]["contexts"], 40)
+        self.assertEqual(receipt["counts"]["protocolRecords"], 21)
+        self.assertEqual(receipt["counts"]["detailedRecords"], 19)
+        self.assertFalse(receipt["admitted"])
+        mutated = copy.deepcopy(artifact)
+        context = next(
+            row
+            for row in mutated["contexts"]
+            if any(node.get("kind") == "enumerator" for _, node in row["state"]["heap"])
+        )
+        cursor = next(node for _, node in context["state"]["heap"] if node["kind"] == "enumerator")
+        cursor["nextIndex"] = len(cursor["keys"]) + 1
+        with self.assertRaises(NativeV8Error):
+            validate_v8_artifact(mutated)
+
     def test_own_property_checks_distinguish_inherited_and_nonenumerable_keys(self):
         state = machine()
         allocate(state, "parent")
