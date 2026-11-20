@@ -229,6 +229,7 @@ class ProxyV8Tests(unittest.TestCase):
         for returned, accepted in (
             (["bigint", "0"], False),
             (["bigint", "2"], True),
+            (["bigint", "9" * 5000], True),
             (["symbol", "well-known:iterator"], True),
         ):
             state = base_state((("setTrap", REF("setTrap")),))

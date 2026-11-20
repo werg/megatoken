@@ -228,10 +228,15 @@ def apply_record(machine, record):
         expected = {"kind": "throw", "value": copy.deepcopy(returned["value"])}
         if returned["kind"] == "return":
             if row["operation"] == "set":
-                _require(
-                    returned["value"][0] == "symbol" or scalar._truthy(returned["value"]),
-                    "false Proxy set trap needs abrupt completion",
+                value = returned["value"]
+                truthy = (
+                    value[0] == "symbol"
+                    or value[0] == "bigint"
+                    and value[1] != "0"
+                    or value[0] != "bigint"
+                    and scalar._truthy(value)
                 )
+                _require(truthy, "false Proxy set trap needs abrupt completion")
             target = p._node(machine, node["target"][1])
             descriptor = p._descriptor(target, p._key(row["key"]))
             if descriptor and not descriptor["configurable"] and not descriptor["writable"]:
