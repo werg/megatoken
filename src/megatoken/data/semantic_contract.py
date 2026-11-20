@@ -54,6 +54,10 @@ def validate_envelope_record(item):
         if type(item[key]) is not int or item[key] < 1:
             raise ValueError("Envelope ordering requires positive integers")
     kind = item["kind"]
+    if kind == "realm-close" and (
+        item["track"] != "host" or not isinstance(item["reason"], str) or not item["reason"]
+    ):
+        raise ValueError("Realm closure must carry a host-owned reason")
     if kind == "program":
         if "randomSeed" in item and (
             type(item["randomSeed"]) is not int or not 0 <= item["randomSeed"] <= 0xFFFFFFFF
