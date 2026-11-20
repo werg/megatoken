@@ -781,6 +781,34 @@
             "completion"
           ]
         },
+        "expressionKinds": [
+          "literal",
+          "local",
+          "unary",
+          "binary",
+          "logical-test"
+        ],
+        "logicalTest": {
+          "fields": [
+            "op",
+            "operator",
+            "arg"
+          ],
+          "operators": [
+            "&&",
+            "||",
+            "??"
+          ],
+          "decision": "Boolean derived only from the current operand: && tests falsiness, || tests truthiness, ?? tests non-nullishness. No future right operand is included.",
+          "logicalPaths": {
+            "true": "use-left",
+            "false": "evaluate-right"
+          },
+          "optionalGuardPaths": {
+            "true": "then",
+            "false": "else"
+          }
+        },
         "profile": "symbols-ordinary-properties/1",
         "extensions": [
           "owned-binary-memory/1",
@@ -1937,7 +1965,7 @@
       "default": "not promoted by engineering receipts alone"
     }
   },
-  "digest": "9ba0d4794c364736db3c3725dbe2381f815770f3c326d86810081cd6420fbfec",
+  "digest": "0880cbd31fe3dd749f3566f96183741451ae51c5fd58a309bf1b8a3fafa27e46",
   "fixtureDigest": "56f7f36d3b25b3b11a208be3de337e637b9782e6759faea1e1ec107b0a90f0ce",
   "fixtures": [
     {
@@ -1962,7 +1990,7 @@
       "reason": "old artifacts require their original contract"
     }
   ],
-  "interoperabilityDigest": "e045f3d64831b1be9a6a9bf4ae1c1f4976ab76f5838b0ce7a2ef0be69289126f",
+  "interoperabilityDigest": "6ff5cbe1b22fd9ab891275aef124e3bd0cfbb756709603c5f95ddc7dd31f780c",
   "interoperability": [
     {
       "id": "ordered-map",
@@ -2031,13 +2059,13 @@
     },
     {
       "id": "protocol-region:source-generator-delegated-cleanup",
-      "publicDigest": "acd9ac1cf59ce1ef29c627872deae5a70f04a119704adea9637d718c97fd9c9d",
-      "contextDigest": "e0ae3953d75494ecd995a08cbf30073ebcb354ecf3b9924606e93642bdcd3ba0"
+      "publicDigest": "323a3c71c668543e26bd4eb026b003cdbc9546cfd779106461f22493d4753221",
+      "contextDigest": "6e02d196a798526b3e2267a27fc04acc96f0bc6247328dc9ec2d09af07642531"
     },
     {
       "id": "protocol-region:source-proxy-traps-arithmetic",
-      "publicDigest": "ee5fa70910f7cd8c135c46dc5eb0427be18203417a2bf797d323bf954c3e59d5",
-      "contextDigest": "2d8f5b152a0ef5b1073f19abf2f16fcc94ba831f69150d86badb221657d04307"
+      "publicDigest": "494e988e8bcc34e561f193cbc51f63db15a53baeea4cf15d4c25f906201b5b73",
+      "contextDigest": "d85ab53565864d9e2e70ba243a55b8eb96fa765c7d3799f18b5bc04f26a883ee"
     },
     {
       "id": "protocol-region:source-base-initializer-throw",
@@ -2073,6 +2101,16 @@
       "id": "protocol-region:source-enumeration-map-callback",
       "publicDigest": "9b0ac56b147591d77ef3288f19d3b8e6d1a5bfd8a8b2cf942f96b030b9f881d2",
       "contextDigest": "be7c7bd47da770aef4eb02641b90f33b551217b61eb7c8617508943059a1cbfc"
+    },
+    {
+      "id": "protocol-region:generator-own-symbol-alias",
+      "publicDigest": "9615d6b976e92697f24ef96fbc06ed29cf47b211f9b8dcbc50bb9cd737b7bc6e",
+      "contextDigest": "e0bbd3a516c4e8cb4e700fb920a0279ab93041b8afdfb3038dec24c85cbc8622"
+    },
+    {
+      "id": "protocol-region:source-logical-left-operands",
+      "publicDigest": "6f244d4b5dd9bcd659bc2bb217c7acbf44371dfaa96427c8810c178540dda3d5",
+      "contextDigest": "c57574aa4588198534eaefcca1dbcbc2fce5a375d3e09cae70dac68bbf8b8410"
     }
   ]
 }

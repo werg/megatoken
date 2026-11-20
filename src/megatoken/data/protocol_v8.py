@@ -459,7 +459,12 @@ def _assert_fresh_heap_identity(machine, identity):
 
 def _node(machine, identity):
     node = machine["heap"].get(identity)
-    if not isinstance(node, dict) or node.get("kind") not in ("object", "array", "closure"):
+    if not isinstance(node, dict) or node.get("kind") not in (
+        "object",
+        "array",
+        "closure",
+        "generator",
+    ):
         _fail("ordinary object required")
     node.setdefault("properties", {})
     return node
@@ -493,6 +498,14 @@ def _lookup_descriptor(machine, identity, key):
         if descriptor is not None:
             return node, descriptor
         prototype = node.get("prototype", "ordinary")
+        from .generator_v8 import INTRINSICS as GENERATOR_INTRINSICS
+        from .generator_v8 import _lookup as generator_lookup
+
+        if isinstance(prototype, str) and prototype in GENERATOR_INTRINSICS:
+            selected = generator_lookup(machine, ["ref", identity], _public(key))
+            if "descriptor" not in selected:
+                _fail("intrinsic property requires its declared protocol")
+            return None, selected["descriptor"]
         identity = prototype[1] if isinstance(prototype, list) and prototype[0] == "ref" else None
     return None, None
 

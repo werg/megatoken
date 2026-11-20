@@ -326,7 +326,7 @@ class ProtocolV8NativeReplayTests(unittest.TestCase):
             "source-promise-join-rejection-finally": (3, 1, 24),
             "source-number-private-arithmetic": (51, 2, 15),
             "source-generator-cleanup-suspension": (30, 0, 6),
-            "source-generator-delegated-cleanup": (49, 0, 30),
+            "source-generator-delegated-cleanup": (48, 0, 30),
             "source-proxy-traps-arithmetic": (22, 3, 25),
             "source-base-initializer-throw": (22, 0, 8),
             "source-derived-initializer-throw": (38, 0, 15),
@@ -335,6 +335,8 @@ class ProtocolV8NativeReplayTests(unittest.TestCase):
             "source-promise-executor-abrupt": (3, 0, 11),
             "source-ordinary-constructor-prototype": (25, 0, 8),
             "source-enumeration-map-callback": (18, 0, 6),
+            "generator-own-symbol-alias": (27, 0, 12),
+            "source-logical-left-operands": (29, 1, 19),
         }
         from megatoken.data.semantic_contract_v8 import CONTRACT
 

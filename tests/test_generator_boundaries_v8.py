@@ -112,6 +112,68 @@ class GeneratorBoundaryTests(unittest.TestCase):
         )
         self.assertEqual(state["heap"]["it"]["phase"], "completed")
 
+    def test_ordinary_generator_properties_preserve_aliases_and_intrinsic_guards(self):
+        state, _ = self.prefix("return-before-body-start", 4)
+        for key in (["str", "tag"], ["symbol", "well-known:match"]):
+            apply_protocol_record(
+                state,
+                {
+                    "kind": "property.set",
+                    "object": "it",
+                    "key": key,
+                    "receiver": ["ref", "it"],
+                    "value": ["ref", "fn"],
+                    "success": True,
+                },
+            )
+            apply_protocol_record(
+                state,
+                {
+                    "kind": "property.get",
+                    "object": "it",
+                    "key": key,
+                    "receiver": ["ref", "it"],
+                    "result": ["ref", "fn"],
+                },
+            )
+        before = copy.deepcopy(state)
+        with self.assertRaisesRegex(ProtocolV8Error, "intrinsic property"):
+            apply_protocol_record(
+                state,
+                {
+                    "kind": "property.get",
+                    "object": "it",
+                    "key": ["str", "next"],
+                    "receiver": ["ref", "it"],
+                    "result": ["undefined"],
+                },
+            )
+        self.assertEqual(state, before)
+        tag = ["symbol", "well-known:toStringTag"]
+        apply_protocol_record(
+            state,
+            {
+                "kind": "property.set",
+                "object": "it",
+                "key": tag,
+                "receiver": ["ref", "it"],
+                "value": ["str", "changed"],
+                "success": False,
+            },
+        )
+        apply_protocol_record(
+            state,
+            {
+                "kind": "property.get",
+                "object": "it",
+                "key": tag,
+                "receiver": ["ref", "it"],
+                "result": ["str", "Generator"],
+            },
+        )
+        shared = _external_machine(state)
+        self.assertTrue(validate_protocol_state(shared["protocol"], shared["heap"], shared))
+
     def test_unpublished_result_completion_must_match_saved_phase(self):
         for count, done in ((11, True), (16, False)):
             with self.subTest(count=count):
