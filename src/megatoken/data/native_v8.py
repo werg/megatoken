@@ -504,14 +504,14 @@ def _replay_region(program, context, line, entry):
             return values.get(name, locals_.get(name))
         if op == "select":
             c = term(node["test"])
-            truth = _detail_truthy(c)
+            truth = c[0] == "symbol" or _detail_truthy(c)
             selected = "consequent" if truth else "alternate"
             decisions.append({"kind": "select", "selected": selected})
             return term(node[selected])
         if op == "logical":
             left = term(node["left"])
             operator = node["operator"]
-            truth = _detail_truthy(left)
+            truth = left[0] == "symbol" or _detail_truthy(left)
             take_right = (
                 (operator == "&&" and truth)
                 or (operator == "||" and not truth)
@@ -964,8 +964,9 @@ def _eval_detail_expression(expr, state):
 
 
 def _apply_region(state, target):
+    aliases = dict(state["captureAliases"])
     for name, value in target["bindings"]:
-        _set_row(state["locals"], name, value)
+        _set_row(state["locals"], aliases.get(name, name), value)
     if target["completion"]["kind"] == "return":
         state["pending"] = {"kind": "return", "value": target["completion"]["value"]}
         state["stack"] = []
@@ -1040,11 +1041,14 @@ def _apply_detail(state, kind, fields, row, obligations=None, program=None, task
                 _fail("Branch decision path is inconsistent")
             if path in ("use-left", "evaluate-right"):
                 op = fields["expr"].get("op")
-                left = _eval_detail_expression(fields["expr"].get("left", {}), state)
+                args = fields["expr"].get("args", [])
+                if not args:
+                    _fail("Malformed lazy expression")
+                left = _eval_detail_expression(args[0], state)
                 use_right = (
-                    truth
+                    _detail_truthy(left)
                     if op == "and"
-                    else not truth
+                    else not _detail_truthy(left)
                     if op == "or"
                     else left[0] in ("null", "undefined")
                     if op == "coalesce"

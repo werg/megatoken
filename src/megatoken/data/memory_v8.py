@@ -478,6 +478,10 @@ def _call(machine, record):
     method = record["method"]
     args = record["arguments"]
     receiver = record["receiver"]
+
+    def argument(index):
+        return args[index] if index < len(args) else ["undefined"]
+
     allocation = method in (
         "TypedArray.prototype.subarray",
         "ArrayBuffer.prototype.slice",
@@ -488,7 +492,7 @@ def _call(machine, record):
     if method == "ArrayBuffer.isView":
         if receiver is not None:
             _fail("isView static receiver")
-        node = machine["heap"].get(args[0][1]) if args and args[0][0] == "ref" else None
+        node = machine["heap"].get(argument(0)[1]) if args and argument(0)[0] == "ref" else None
         return [
             "bool",
             bool(
@@ -498,15 +502,15 @@ def _call(machine, record):
             ),
         ]
     if method.startswith("Atomics."):
-        if receiver is not None or not args or args[0][0] != "ref":
+        if receiver is not None or not args or argument(0)[0] != "ref":
             _fail("Atomics view argument")
-        view = _node(machine, args[0][1])
+        view = _node(machine, argument(0)[1])
         if view["kind"] != "shared-int32-view":
             _fail("single-agent Atomics requires shared typed storage")
         if not TYPE_INFO[view["elementType"]][3]:
             _fail("Atomics requires integer element")
         buffer = _node(machine, view["bufferId"])
-        index = _index(args[1])
+        index = _index(argument(1))
         if index >= _effective_length(buffer, view):
             _fail("atomic view bounds")
         op = method[8:]
@@ -518,17 +522,17 @@ def _call(machine, record):
                 _fail("wait/notify element type")
             if op == "notify":
                 return ["num", 0]
-            if len(args) != 4 or _number(args[3]) != 0:
+            if len(args) != 4 or _number(argument(3)) != 0:
                 _fail("only zero-timeout wait is owned")
-            target = _integer_element(args[2], TYPE_INFO[view["elementType"]])
+            target = _integer_element(argument(2), TYPE_INFO[view["elementType"]])
             actual = int(old[1]) if old[0] == "bigint" else _number(old)
             return ["str", "timed-out" if actual == target else "not-equal"]
         spec = TYPE_INFO[view["elementType"]]
         if op == "store":
-            converted = _element(args[2], spec) if spec[2] else _integer(args[2])
-            _write_typed(buffer, view, index, args[2])
+            converted = _element(argument(2), spec) if spec[2] else _integer(argument(2))
+            _write_typed(buffer, view, index, argument(2))
             return ["bigint", str(converted)] if spec[2] else _tag_number(converted)
-        new = _integer_element(args[2], spec)
+        new = _integer_element(argument(2), spec)
         old_raw = int(old[1]) if old[0] == "bigint" else _number(old)
         if op == "add":
             new = old_raw + new
@@ -543,8 +547,8 @@ def _call(machine, record):
         elif op == "exchange":
             pass
         elif op == "compareExchange":
-            expected = _integer_element(args[2], spec)
-            replacement = _integer_element(args[3], spec)
+            expected = _integer_element(argument(2), spec)
+            replacement = _integer_element(argument(3), spec)
             new = replacement if old_raw == expected else old_raw
         else:
             _fail("unknown atomic operation")
@@ -567,7 +571,7 @@ def _call(machine, record):
         setter = name.startswith("set")
         type_name = name[3:]
         spec = DATA_TYPES[type_name]
-        index = _index(args[0])
+        index = _index(argument(0))
         size = (
             target["byteLength"]
             if not target["lengthTracking"]
@@ -580,7 +584,9 @@ def _call(machine, record):
         little = _truth(args[2 if setter else 1]) if len(args) > (2 if setter else 1) else False
         endian = "<" if little else ">"
         if setter:
-            converted = _integer_element(args[1], spec) if spec[3] else _element(args[1], spec)
+            converted = (
+                _integer_element(argument(1), spec) if spec[3] else _element(argument(1), spec)
+            )
             try:
                 packed = struct.pack(endian + spec[1], converted)
             except OverflowError:
@@ -600,13 +606,15 @@ def _call(machine, record):
         def clip(n):
             return max(0, full + n) if n < 0 else min(full, n)
 
-        begin = clip(_integer(args[0]))
-        end = full if len(args) < 2 or args[1][0] == "undefined" else clip(_integer(args[1]))
+        begin = clip(_integer(argument(0)))
+        end = (
+            full if len(args) < 2 or argument(1)[0] == "undefined" else clip(_integer(argument(1)))
+        )
         width = TYPE_INFO[target["elementType"]][0]
         offset = target["byteOffset"] + begin * width
         length = (
             None
-            if len(args) < 2 or args[1][0] == "undefined" and target["lengthTracking"]
+            if (len(args) < 2 or argument(1)[0] == "undefined") and target["lengthTracking"]
             else max(0, end - begin)
         )
         nlen = (
@@ -635,7 +643,7 @@ def _call(machine, record):
     if method == "SharedArrayBuffer.prototype.grow":
         if target["kind"] != "shared-int32-buffer" or not target["growable"]:
             _fail("growable SharedArrayBuffer required")
-        n = _index(args[0])
+        n = _index(argument(0))
         if n < target["byteLength"] or n > target["maxByteLength"]:
             _fail("shared growth range")
         target["bytes"].extend([0] * (n - target["byteLength"]))
@@ -649,11 +657,11 @@ def _call(machine, record):
     def clip(n):
         return max(0, target["byteLength"] + n) if n < 0 else min(target["byteLength"], n)
 
-    begin = clip(_integer(args[0]))
+    begin = clip(_integer(argument(0)))
     end = (
         target["byteLength"]
-        if len(args) < 2 or args[1][0] == "undefined"
-        else clip(_integer(args[1]))
+        if len(args) < 2 or argument(1)[0] == "undefined"
+        else clip(_integer(argument(1)))
     )
     length = max(0, end - begin)
     result = _buffer(expected, record["name"], length)

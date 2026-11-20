@@ -52,7 +52,7 @@ class BinaryMemoryConversionTests(unittest.TestCase):
             },
         )
 
-    def call(self, method, receiver, arguments, result):
+    def call(self, method, receiver, arguments, result, name=None):
         apply_protocol_record(
             self.machine,
             {
@@ -61,7 +61,7 @@ class BinaryMemoryConversionTests(unittest.TestCase):
                 "receiver": receiver,
                 "arguments": arguments,
                 "result": result,
-                "name": None,
+                "name": name,
             },
         )
 
@@ -189,6 +189,7 @@ class BinaryMemoryConversionTests(unittest.TestCase):
         ):
             with self.subTest(text=text):
                 self.set("words", "0", ["str", text])
+
                 self.get("words", "0", ["bigint", expected])
                 self.call(
                     "DataView.prototype.setBigInt64",
@@ -214,6 +215,44 @@ class BinaryMemoryConversionTests(unittest.TestCase):
                 self.assertRaisesRegex(ProtocolV8Error, "BigInt conversion"),
             ):
                 self.set("words", "0", ["str", text])
+
+    def test_omitted_builtin_arguments_use_undefined_defaults(self):
+        self.construct("ArrayBuffer", "buffer", [["num", 4]])
+        self.construct("DataView", "data", [["ref", "buffer"]])
+        self.construct("Uint8Array", "bytes", [["ref", "buffer"]])
+        self.set("bytes", "0", ["num", 7])
+        self.call("DataView.prototype.getUint8", ["ref", "data"], [], ["num", 7])
+        self.call("DataView.prototype.setUint8", ["ref", "data"], [], ["undefined"])
+        self.get("bytes", "0", ["num", 0])
+        self.call(
+            "ArrayBuffer.prototype.slice", ["ref", "buffer"], [], ["ref", "copy"], name="copy"
+        )
+        self.assertEqual(self.machine["heap"]["copy"]["byteLength"], 4)
+        self.call("TypedArray.prototype.subarray", ["ref", "bytes"], [], ["ref", "sub"], name="sub")
+        self.assertEqual(self.machine["heap"]["sub"]["length"], 4)
+        self.assertFalse(self.machine["heap"]["sub"]["lengthTracking"])
+        self.construct("SharedArrayBuffer", "shared", [["num", 4]])
+        self.construct("Int32Array", "words", [["ref", "shared"]])
+        self.call("Atomics.load", None, [["ref", "words"]], ["num", 0])
+        self.call("Atomics.store", None, [["ref", "words"]], ["num", 0])
+
+    def test_subarray_without_end_preserves_fixed_source_length(self):
+        for constructor in ("ArrayBuffer", "SharedArrayBuffer"):
+            with self.subTest(constructor=constructor):
+                self.setUp()
+                self.construct(constructor, "buffer", [["num", 4]])
+                self.construct("Uint8Array", "source", [["ref", "buffer"], ["num", 0], ["num", 2]])
+                for index, arguments in enumerate(([["num", 1]], [["num", 1], ["undefined"]])):
+                    name = f"sub{index}"
+                    self.call(
+                        "TypedArray.prototype.subarray",
+                        ["ref", "source"],
+                        arguments,
+                        ["ref", name],
+                        name=name,
+                    )
+                    self.assertEqual(self.machine["heap"][name]["length"], 1)
+                    self.assertFalse(self.machine["heap"][name]["lengthTracking"])
 
 
 if __name__ == "__main__":

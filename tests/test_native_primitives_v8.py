@@ -4,7 +4,13 @@ import json
 import unittest
 
 from megatoken.data.algorithm_v7 import stable_algorithm_hash
-from megatoken.data.native_v8 import NativeV8Error, _apply_detail, _replay_region
+from megatoken.data.native_v8 import (
+    NativeV8Error,
+    _apply_detail,
+    _apply_region,
+    _eval_detail_expression,
+    _replay_region,
+)
 
 
 def literal(value):
@@ -12,8 +18,8 @@ def literal(value):
 
 
 class NativeV8PrimitiveTests(unittest.TestCase):
-    def replay_region(self, term, result, decisions=()):
-        state = {"locals": [], "captureAliases": []}
+    def replay_region(self, term, result, decisions=(), state=None):
+        state = state or {"locals": [], "captureAliases": []}
         definition = {
             "id": "r1",
             "completion": "return",
@@ -85,6 +91,62 @@ class NativeV8PrimitiveTests(unittest.TestCase):
         fields["path"] = "then"
         with self.assertRaisesRegex(NativeV8Error, "Branch decision"):
             _apply_detail(state, "choose", fields, {"sequence": 1})
+
+    def test_compact_binding_updates_captured_cell(self):
+        state = {"locals": [["cell", ["num", 1]]], "captureAliases": [["x", "cell"]]}
+        _apply_region(state, {"bindings": [["x", ["num", 7]]], "completion": {"kind": "normal"}})
+        self.assertEqual(state["locals"], [["cell", ["num", 7]]])
+        self.assertEqual(_eval_detail_expression({"op": "local", "name": "x"}, state), ["num", 7])
+        self.replay_region({"op": "local", "name": "x"}, ["num", 7], state=state)
+
+    def test_compact_select_and_logical_paths_treat_owned_symbols_as_truthy(self):
+        state = {"locals": [["s", ["symbol", "s1"]]], "captureAliases": []}
+        local = {"op": "local", "name": "s"}
+        self.replay_region(
+            {
+                "op": "select",
+                "test": local,
+                "consequent": literal(["num", 1]),
+                "alternate": literal(["num", 2]),
+            },
+            ["num", 1],
+            [{"kind": "select", "selected": "consequent"}],
+            state=state,
+        )
+        for operator, expected, selected in (
+            ("&&", ["num", 7], "right"),
+            ("||", ["symbol", "s1"], "left"),
+        ):
+            self.replay_region(
+                {
+                    "op": "logical",
+                    "operator": operator,
+                    "left": local,
+                    "right": literal(["num", 7]),
+                },
+                expected,
+                [{"kind": operator, "selected": selected}],
+                state=state,
+            )
+
+    def test_detailed_lazy_path_uses_left_operand(self):
+        state = {"locals": [], "captureAliases": [], "heap": []}
+        for op, left, right, result, path in (
+            ("and", ["bool", True], ["bool", False], ["bool", False], "evaluate-right"),
+            ("or", ["bool", False], ["bool", True], ["bool", True], "evaluate-right"),
+            ("coalesce", ["null"], ["num", 0], ["num", 0], "evaluate-right"),
+            ("and", ["num", 0], ["num", 7], ["num", 0], "use-left"),
+            ("or", ["num", 7], ["num", 0], ["num", 7], "use-left"),
+        ):
+            fields = {
+                "expr": {"op": op, "args": [literal(left), literal(right)]},
+                "decision": result,
+                "path": path,
+            }
+            _apply_detail(state, "choose", fields, {"sequence": 1})
+            fields["path"] = "use-left" if path == "evaluate-right" else "evaluate-right"
+            with self.assertRaisesRegex(NativeV8Error, "Logical decision path"):
+                _apply_detail(state, "choose", fields, {"sequence": 1})
 
 
 if __name__ == "__main__":
