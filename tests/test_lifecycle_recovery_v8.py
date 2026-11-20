@@ -5,9 +5,10 @@ import copy
 import pytest
 
 from megatoken.data.native_v8 import NativeV8Error, _apply_observation, validate_v8_artifact
-from megatoken.data.prefix_v8 import validate_v8_committed_prefix
+from megatoken.data.prefix_v8 import validate_v8_committed_prefix, validate_v8_prediction_prefix
 from megatoken.data.semantic_json import stable_algorithm_hash
 from tests.test_native_observation_boundaries_v8 import pending_delivery
+from tests.test_prediction_prefix_v8 import examples
 from tests.test_protocol_host_v8 import callback_example, through
 
 
@@ -55,7 +56,9 @@ def test_cancel_then_explicit_realm_close_survives_public_replay_and_cannot_reop
         validate_v8_artifact(example)
 
 
-@pytest.mark.parametrize("fault", ("uncancelled", "unknown", "duplicate", "wrong-track"))
+@pytest.mark.parametrize(
+    "fault", ("uncancelled", "unknown", "duplicate", "wrong-track", "empty-reason")
+)
 def test_realm_closure_requires_exact_preceding_lifecycle_authority(fault):
     example, invocation = empty_realm()
     if fault != "uncancelled":
@@ -65,6 +68,8 @@ def test_realm_closure_requires_exact_preceding_lifecycle_authority(fault):
     row = close(example, "unknown" if fault == "unknown" else invocation["realmId"])
     if fault == "wrong-track":
         row["fields"]["track"] = invocation["track"]
+    if fault == "empty-reason":
+        row["fields"]["reason"] = ""
     with pytest.raises(NativeV8Error, match="Realm closure"):
         validate_v8_artifact(example)
 
@@ -161,3 +166,29 @@ def test_callback_allocator_advances_only_from_delivered_canonical_event_ids():
             obligations,
         )
     assert (state, dispatched, settled, obligations) == before
+
+
+def test_actual_native_callback_recovery_fixture_matches_independent_public_replay():
+    example = examples("semantic-host-recovery-v8.json.gz.b64")[0]
+    assert example["qualification"] == "controlled-machine-regression-not-source-certified"
+    receipt = validate_v8_artifact(example)
+    assert receipt["counts"]["contexts"] == 10
+    assert receipt["checks"]["continuation"] == "passed"
+    assert receipt["checks"]["sourceBinding"] == "untested"
+    validate_v8_committed_prefix(example["public"], example["contexts"])
+    midpoint = example["midpoint"]
+    public = {**example["public"], "timeline": example["public"]["timeline"][: midpoint["cut"]]}
+    contexts = [
+        context for context in example["contexts"] if context["visibleThrough"] < midpoint["cut"]
+    ]
+    context = midpoint["context"]
+    checked = validate_v8_prediction_prefix(public, contexts, context)
+    assert checked["context"] == context
+    assert all(
+        callback["sequence"] == 2 and callback["queued"] == []
+        for _, callback in context["obligations"]["callbacks"]
+    )
+    forged = copy.deepcopy(context)
+    forged["obligations"]["callbacks"][0][1]["sequence"] += 1
+    with pytest.raises(NativeV8Error, match="context differs from independent replay"):
+        validate_v8_prediction_prefix(public, contexts, forged)

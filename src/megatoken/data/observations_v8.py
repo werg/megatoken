@@ -173,8 +173,8 @@ def validate_observation_v8(row):
     elif kind in {"cancel", "realm-close"}:
         if type(fields["reason"]) is not str:
             raise ValueError("Lifecycle closure requires an explicit reason")
-        if kind == "realm-close" and fields["track"] != "host":
-            raise ValueError("Realm closure requires host observation authority")
+        if kind == "realm-close" and (fields["track"] != "host" or not fields["reason"]):
+            raise ValueError("Realm closure requires host observation authority and a reason")
         if kind == "cancel" and (
             type(fields["uncertain"]) is not list
             or any(
