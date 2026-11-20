@@ -352,8 +352,28 @@ class NativeV8AdmissionTests(unittest.TestCase):
                 self.fail("source golden has no enclosing completion after yield delegation")
             document["sidecar"]["publicDigest"] = stable_algorithm_hash(document["public"])
             artifact.write_text(json.dumps(document))
-            with self.assertRaisesRegex(ValueError, "Pinned producer rejected"):
-                admit_semantic_v8.recheck_source_binding(document, artifact, root, revision)
+            completed = subprocess.run(
+                [
+                    "node",
+                    str(root / "tools" / "recheck-semantic-native-source.mjs"),
+                    "--producer-root",
+                    str(root),
+                    "--producer-revision",
+                    revision,
+                    "--input",
+                    str(artifact),
+                ],
+                cwd=root,
+                check=False,
+                capture_output=True,
+                text=True,
+                timeout=30,
+                env=admit_semantic_v8._git_environment(),
+            )
+            self.assertNotEqual(completed.returncode, 0)
+            self.assertIn(
+                "public differs from the source-certified protocol projection", completed.stderr
+            )
 
 
 if __name__ == "__main__":
