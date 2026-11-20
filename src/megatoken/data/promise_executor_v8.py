@@ -60,8 +60,6 @@ def _resolver_node(promise, mode):
         "lexicalReceiver": None,
         "prototype": "ordinary",
         "properties": {},
-        "descriptors": {},
-        "extensible": True,
         "promiseResolver": {"promise": promise, "mode": mode},
     }
 
@@ -256,10 +254,23 @@ def apply_record(machine, record):
 
 
 def assert_next(machine, record):
+    fields = record.get("fields", record)
+    if record.get("kind") == "job" and fields.get("action") == "complete":
+        jobs = machine.get("jobs", [])
+        jobs = dict(jobs) if isinstance(jobs, list) else jobs
+        job = jobs.get(fields.get("job")) or {}
+        returned = job.get("returned") or {}
+        value = returned.get("value") or []
+        if (
+            job.get("target")
+            and returned.get("kind") == "return"
+            and value[:1] == ["ref"]
+            and machine["heap"].get(value[1], {}).get("kind") == "promise"
+        ):
+            _fail("reaction Promise return requires its assimilation job protocol")
     data = machine.get("protocol", {}).get("promiseExecutors")
     if not data:
         return True
-    fields = record.get("fields", record)
     active = next(
         (
             row

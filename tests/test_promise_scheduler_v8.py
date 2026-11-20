@@ -7,6 +7,8 @@ from megatoken.data.protocol_v8 import (
     _external_machine,
     _internal_machine,
     apply_protocol_record,
+    assert_detailed_record_compatible,
+    create_protocol_state,
 )
 from tests.test_number_v8 import allocate, machine
 
@@ -46,6 +48,82 @@ def callback(state):
 
 
 class PromiseSchedulerTests(unittest.TestCase):
+    def test_protocol_reaction_receiver_survives_await_and_restores_owner(self):
+        state = shared_state()
+        for identity in ("owner", "lexical"):
+            detail(state, "allocate", name=identity, kind="object", properties=[])
+        callback(state)
+        node = dict(state["heap"])["callback"]
+        node.update(functionKind="arrow", lexicalReceiver=["ref", "lexical"])
+        state["receiver"] = ["ref", "owner"]
+        state["protocol"] = create_protocol_state()
+        create(state, "source")
+        create(state, "pause")
+        for identity in ("source", "pause"):
+            detail(state, "promise", action="resolve", promise=identity, value=["num", 1])
+        detail(
+            state,
+            "promise",
+            action="react",
+            promise="source",
+            job="reaction",
+            reaction="then",
+            closure="callback",
+            target="result",
+        )
+        detail(state, "await", promise="result", continuation="outer", invocation="root")
+        detail(state, "job", action="dispatch", job="reaction", owner="root")
+        self.assertEqual(state["receiver"], ["ref", "lexical"])
+        detail(state, "await", promise="pause", continuation="inner", invocation="job:reaction")
+        self.assertEqual(state["receiver"], ["ref", "owner"])
+        self.assertEqual(dict(state["continuations"])["inner"]["receiver"], ["ref", "lexical"])
+        before = copy.deepcopy(state)
+        with self.assertRaisesRegex(NativeV8Error, "unresumed"):
+            detail(state, "job", action="complete", job="reaction", owner="root")
+        self.assertEqual(state, before)
+        detail(
+            state,
+            "resume",
+            continuation="inner",
+            invocation="job:reaction",
+            status="fulfilled",
+            result=["num", 1],
+        )
+        self.assertEqual(state["receiver"], ["ref", "lexical"])
+        detail(state, "return", invocation="job:reaction", value=["num", 7])
+        detail(state, "job", action="complete", job="reaction", owner="root")
+        self.assertEqual(state["receiver"], ["ref", "owner"])
+        detail(
+            state,
+            "resume",
+            continuation="outer",
+            invocation="root",
+            status="fulfilled",
+            result=["num", 7],
+        )
+        self.assertEqual(state["receiver"], ["ref", "owner"])
+
+    def test_protocol_job_return_cannot_invent_promise_assimilation(self):
+        state = shared_state()
+        create(state, "returned")
+        state["protocol"] = create_protocol_state()
+        state["jobs"] = [
+            [
+                "reaction",
+                {
+                    "status": "running",
+                    "target": "result",
+                    "returned": {"kind": "return", "value": ["ref", "returned"]},
+                },
+            ]
+        ]
+        before = copy.deepcopy(state)
+        with self.assertRaisesRegex(ProtocolV8Error, "assimilation job"):
+            assert_detailed_record_compatible(
+                state, "job", {"action": "complete", "job": "reaction", "owner": "root"}
+            )
+        self.assertEqual(state, before)
+
     def test_adoption_and_continuations_share_registration_order(self):
         state = shared_state()
         for identity in ("source", "adopter"):

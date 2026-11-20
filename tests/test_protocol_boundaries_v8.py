@@ -9,6 +9,7 @@ from megatoken.data.native_v8 import NativeV8Error, _apply_algorithm, _apply_det
 from megatoken.data.protocol_v8 import (
     ProtocolV8Error,
     _external_machine,
+    _internal_machine,
     apply_protocol_record,
     assert_detailed_record_compatible,
     validate_protocol_record,
@@ -41,7 +42,7 @@ class ProtocolBoundaryTests(unittest.TestCase):
         allocate(state, "object")
         node = state["heap"]["object"]
         node["properties"] = {f"k{i}": ["num", i] for i in range(4095)}
-        node["descriptors"]["getter"] = {
+        node.setdefault("descriptors", {})["getter"] = {
             "kind": "accessor",
             "get": ["undefined"],
             "set": ["undefined"],
@@ -244,6 +245,47 @@ class ProtocolBoundaryTests(unittest.TestCase):
                 {},
             )
         self.assertEqual(shared, before)
+
+    def test_empty_descriptor_metadata_survives_deletion_and_checkpoint(self):
+        state = machine()
+        allocate(state, "object")
+        apply_protocol_record(
+            state,
+            {
+                "kind": "property.define",
+                "object": "object",
+                "key": ["str", "x"],
+                "descriptor": {
+                    "kind": "data",
+                    "value": ["num", 1],
+                    "writable": True,
+                    "enumerable": True,
+                    "configurable": True,
+                },
+                "success": True,
+            },
+        )
+        fields = {"object": "object", "key": "x", "present": True, "value": ["num", 1]}
+        shared = _external_machine(state)
+        self.assertTrue(assert_detailed_record_compatible(shared, "read", fields))
+        with self.assertRaisesRegex(ProtocolV8Error, "bypasses rich"):
+            assert_detailed_record_compatible(shared, "write", fields)
+        apply_protocol_record(
+            state,
+            {"kind": "property.delete", "object": "object", "key": ["str", "x"], "success": True},
+        )
+        shared = _external_machine(state)
+        node = dict(shared["heap"])["object"]
+        self.assertEqual(node["descriptors"], [])
+        self.assertEqual(node["keyOrder"], [])
+        self.assertIs(node["extensible"], True)
+        self.assertEqual(_external_machine(_internal_machine(shared)), shared)
+        with self.assertRaisesRegex(ProtocolV8Error, "bypasses rich"):
+            assert_detailed_record_compatible(shared, "write", fields)
+
+    def test_detail_array_allocation_counts_implicit_length(self):
+        shared = _external_machine(machine())
+        before = copy.deepcopy(shared)
         fields = {
             "name": "array",
             "kind": "array",

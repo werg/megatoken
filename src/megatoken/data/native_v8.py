@@ -796,7 +796,12 @@ def _replay_shared_state(timeline, contexts, programs_from_context, *, roundtrip
                     or len(state["stack"]) != 1
                     or (
                         (state["jobs"] or state["ready"])
-                        and protocol_record["kind"] != "promise.join"
+                        and protocol_record["kind"]
+                        not in ("promise.join", "promise.executor.enter")
+                        and not any(
+                            node.get("kind") == "promise" and node.get("external", False) is None
+                            for _, node in state["heap"]
+                        )
                     )
                 ):
                     _fail("The first protocol profile must begin as a fresh synchronous invocation")

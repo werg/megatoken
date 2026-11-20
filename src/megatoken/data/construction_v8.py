@@ -231,7 +231,7 @@ def _desc(node, key):
     # Heap public representation stores ordinary values in `properties` and
     # descriptor flags separately, using protocol_v8's internal key shape.
     prop = node.setdefault("properties", {})
-    descriptors = node.setdefault("descriptors", {})
+    descriptors = node.get("descriptors", {})
     meta = descriptors.get(key)
     if meta and meta.get("kind") == "accessor":
         return copy.deepcopy(meta)
@@ -433,9 +433,6 @@ def _apply_continuation(machine, record):
                 "captures": [],
                 "prototype": parent_proto,
                 "properties": {},
-                "descriptors": {},
-                "keyOrder": [],
-                "extensible": True,
             }
         entry = {
             "id": record["id"],

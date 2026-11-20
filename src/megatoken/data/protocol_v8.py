@@ -457,9 +457,6 @@ def _node(machine, identity):
     if not isinstance(node, dict) or node.get("kind") not in ("object", "array", "closure"):
         _fail("ordinary object required")
     node.setdefault("properties", {})
-    node.setdefault("descriptors", {})
-    node.setdefault("prototype", "ordinary")
-    node.setdefault("extensible", True)
     return node
 
 
@@ -500,8 +497,11 @@ def _install(node, key, d):
     if not exists:
         if len(set(node["properties"]) | set(node.get("descriptors", {}))) >= 4096:
             _fail("own property bound")
-        if "keyOrder" not in node:
-            node["keyOrder"] = _ordered(node)
+    if "keyOrder" not in node:
+        node["keyOrder"] = _ordered(node)
+    node.setdefault("descriptors", {})
+    node.setdefault("extensible", True)
+    if not exists:
         node["keyOrder"].append(key)
     else:
         # The producer serializes its Map-backed properties and descriptors in
@@ -519,7 +519,7 @@ def _install(node, key, d):
 
 def _remove(node, key):
     node["properties"].pop(key, None)
-    node["descriptors"].pop(key, None)
+    node.get("descriptors", {}).pop(key, None)
     if "keyOrder" in node:
         node["keyOrder"] = [item for item in node["keyOrder"] if item != key]
 
@@ -561,7 +561,7 @@ def _set_array_length(node, new_length, writable=None):
         blockers = sorted(
             (
                 i
-                for key in set(node["properties"]) | set(node["descriptors"])
+                for key in set(node["properties"]) | set(node.get("descriptors", {}))
                 if (i := _array_index(key)) is not None and i >= new_length
             ),
             reverse=True,
@@ -574,7 +574,7 @@ def _set_array_length(node, new_length, writable=None):
             if not descriptor["configurable"]:
                 node["properties"]["length"] = ["num", index + 1]
                 if writable is False:
-                    node["descriptors"]["length"] = {
+                    node.setdefault("descriptors", {})["length"] = {
                         "kind": "data",
                         "writable": False,
                         "enumerable": False,
@@ -584,7 +584,7 @@ def _set_array_length(node, new_length, writable=None):
             _remove(node, key)
         node["properties"]["length"] = ["num", new_length]
     if writable is not None:
-        node["descriptors"]["length"] = {
+        node.setdefault("descriptors", {})["length"] = {
             "kind": "data",
             "writable": writable,
             "enumerable": False,
@@ -609,7 +609,7 @@ def _ordered(node):
 def _compatible(node, key, d):
     old = _descriptor(node, key)
     if old is None:
-        return node["extensible"]
+        return node.get("extensible", True)
     if old["configurable"]:
         return True
     if d["configurable"] or d["enumerable"] != old["enumerable"] or d["kind"] != old["kind"]:
@@ -865,8 +865,6 @@ def _apply(machine, record):
             "captures": captures,
             "prototype": "ordinary",
             "properties": {},
-            "descriptors": {},
-            "extensible": True,
         }
         if record["objectKind"] == "array":
             node["properties"]["length"] = ["num", record["length"]]
@@ -1105,7 +1103,7 @@ def _apply(machine, record):
             if isinstance(record["prototype"], list):
                 _known(machine, record["prototype"])
             before = node.get("prototype", "ordinary")
-            success = before == record["prototype"] or node["extensible"]
+            success = before == record["prototype"] or node.get("extensible", True)
             if success and isinstance(record["prototype"], list):
                 target = record["prototype"][1]
                 seen = set()
@@ -1231,21 +1229,15 @@ def _external_machine(machine):
             [key if isinstance(key, str) else ["symbol", key[1]], value]
             for key, value in n.get("properties", {}).items()
         ]
-        if n.get("descriptors"):
+        if "descriptors" in n:
             n["descriptors"] = [
                 [key if isinstance(key, str) else ["symbol", key[1]], value]
                 for key, value in n["descriptors"].items()
             ]
-        else:
-            n.pop("descriptors", None)
-        if n.get("keyOrder"):
+        if "keyOrder" in n:
             n["keyOrder"] = [
                 key if isinstance(key, str) else ["symbol", key[1]] for key in n.get("keyOrder", [])
             ]
-        else:
-            n.pop("keyOrder", None)
-        if n.get("extensible", True) is True and not n.get("descriptors"):
-            n.pop("extensible", None)
         if isinstance(n.get("privateElements"), dict):
             n["privateElements"] = [
                 [key, copy.deepcopy(value)] for key, value in n["privateElements"].items()
@@ -1521,14 +1513,26 @@ def assert_detailed_record_compatible(shared_state, kind, fields):
     assert_promise_executor_next(machine, {"kind": kind, **fields})
 
     def rich(node):
+        descriptors = node.get("descriptors", {})
+        nondefault = any(
+            metadata
+            != {
+                "kind": "data",
+                "writable": True,
+                "enumerable": not (node["kind"] == "array" and key == "length"),
+                "configurable": not (node["kind"] == "array" and key == "length"),
+            }
+            for key, metadata in descriptors.items()
+        )
         return bool(
-            node.get("descriptors")
+            nondefault
             or node.get("extensible") is False
             or node.get("prototype") not in (None, "ordinary")
             or any(isinstance(key, tuple) for key in node.get("properties", {}))
             or node.get("kind") == "generator"
             or node.get("generatorFunction") is True
             or node.get("kind") == "proxy"
+            or node.get("promiseResolver")
         )
 
     def inspect(value):
@@ -1550,7 +1554,9 @@ def assert_detailed_record_compatible(shared_state, kind, fields):
     inspect(fields)
     if kind in ("read", "write"):
         node = machine["heap"].get(fields.get("object"))
-        if node and (rich(node) or kind == "write" and "keyOrder" in node):
+        if node and (
+            rich(node) or kind == "write" and ("descriptors" in node or "keyOrder" in node)
+        ):
             _fail("Detailed property transition bypasses rich protocol state")
     if kind in ("call", "construct"):
         callee = fields.get("callee")

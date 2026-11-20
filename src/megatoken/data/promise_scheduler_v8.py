@@ -210,8 +210,13 @@ def apply_detail(machine, kind, fields, *, root, functions=()):
             "activeJob": machine.get("activeJob"),
             "captureAliases": [[key, value] for key, value in machine["captureAliases"].items()],
         }
+        if machine.get("protocol") is not None:
+            continuations[fields["continuation"]]["receiver"] = copy.deepcopy(machine["receiver"])
         if machine.get("activeJob"):
-            machine["captureAliases"] = dict(jobs[machine["activeJob"]]["priorAliases"])
+            suspended = jobs[machine["activeJob"]]
+            machine["captureAliases"] = dict(suspended["priorAliases"])
+            if machine.get("protocol") is not None and "priorReceiver" in suspended:
+                machine["receiver"] = copy.deepcopy(suspended["priorReceiver"])
             machine["activeJob"] = None
         store_rows(machine, "continuations", continuations)
         refresh_ready(machine)
@@ -233,6 +238,8 @@ def apply_detail(machine, kind, fields, *, root, functions=()):
         machine["stack"].append(continuation["invocation"])
         machine["activeJob"] = continuation["activeJob"]
         machine["captureAliases"] = dict(continuation["captureAliases"])
+        if machine.get("protocol") is not None and "receiver" in continuation:
+            machine["receiver"] = copy.deepcopy(continuation["receiver"])
     elif kind == "job":
         identity, action = fields["job"], fields["action"]
         if action == "enqueue":
@@ -288,6 +295,13 @@ def apply_detail(machine, kind, fields, *, root, functions=()):
                     if function is None:
                         _fail("callback has no immutable source function")
                     job["priorAliases"] = list(map(list, machine["captureAliases"].items()))
+                    if machine.get("protocol") is not None:
+                        job["priorReceiver"] = copy.deepcopy(machine["receiver"])
+                        machine["receiver"] = copy.deepcopy(
+                            node.get("lexicalReceiver")
+                            if node.get("functionKind") == "arrow"
+                            else ["undefined"]
+                        )
                     machine["captureAliases"] = {
                         capture["binding"]: capture["cell"] for capture in node.get("captures", [])
                     }
@@ -311,9 +325,16 @@ def apply_detail(machine, kind, fields, *, root, functions=()):
                     _fail("completion requires a running job")
                 if machine["stack"] or machine.get("activeJob") not in (None, identity):
                     _fail("callback frame has not completed")
+                if any(
+                    continuation.get("activeJob") == identity and continuation["state"] != "resumed"
+                    for continuation in continuations.values()
+                ):
+                    _fail("callback has an unresumed continuation")
                 job["status"] = "completed"
                 if machine.get("activeJob") == identity:
                     machine["captureAliases"] = dict(job["priorAliases"])
+                    if machine.get("protocol") is not None and "priorReceiver" in job:
+                        machine["receiver"] = copy.deepcopy(job["priorReceiver"])
                     machine["activeJob"] = None
                 returned = job.get("returned")
                 if job.get("promise") and job.get("target"):

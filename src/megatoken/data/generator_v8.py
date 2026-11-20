@@ -684,8 +684,6 @@ def apply_record(machine, record):
             "delegation": None,
             "prototype": value if proto else "Generator.prototype",
             "properties": {},
-            "descriptors": {},
-            "extensible": True,
         }
         return True
     if kind == "generator.lookup":
