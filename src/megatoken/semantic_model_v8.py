@@ -122,10 +122,21 @@ class NativeSemanticInferenceV8:
             raise ValueError("Invalid v8 serving capacity")
         self.runtime = runtime
         self.codec = runtime.generator.generator.codec
+        # Prepared V8 records may use a stricter physical budget than the model's
+        # position capacity. The retained bundle policy owns their boundaries.
+        from megatoken.data.chunking import ChunkingConfig
+
+        self.chunking = getattr(runtime, "chunking", None) or ChunkingConfig().with_hard_limit(
+            runtime.generator.generator.config.max_capacity
+        )
         self.model_identity = model_identity
         self.training_identity = training_identity
         self.effort = effort
-        self.max_tokens = min(max_tokens, runtime.generator.generator.config.max_capacity)
+        self.max_tokens = min(
+            max_tokens,
+            runtime.generator.generator.config.max_capacity,
+            self.chunking.hard_max_tokens,
+        )
         self.max_fragments = max_fragments
         self.max_sessions = max_sessions
         self.max_attempts = max_attempts
@@ -222,8 +233,9 @@ class NativeSemanticInferenceV8:
             logical_id=logical_id,
             role=role,
             codec=self.codec,
-            max_tokens=self.runtime.generator.generator.config.max_capacity,
-            max_bytes=16384,
+            chunking=self.chunking,
+            max_tokens=self.chunking.hard_max_tokens,
+            max_bytes=self.chunking.max_bytes,
             content_kind="text",
         )
         for chunk in chunks:

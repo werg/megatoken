@@ -93,10 +93,11 @@ def test_unverified_data_flag_cannot_admit_unqualified_v8_targets(tmp_path):
         )
 
 
-def test_freshly_prepared_v8_supply_passes_complete_native_batch_admission(tmp_path):
+def prepared_v8_fixture(tmp_path, *, max_positions=128, max_history=8):
+    """Real native rows with explicitly injected source/tokenizer audit boundaries."""
     fixture = Path(__file__).parent / "fixtures" / "semantic-regions-v8.json.gz.b64"
     document = json.loads(gzip.decompress(base64.b64decode(fixture.read_bytes())))["examples"][0]
-    source = "function run(){return 1}"
+    source = document["public"]["timeline"][0]["fields"]["source"]
     source_digest = hashlib.sha256(source.encode()).hexdigest()
     registry = {
         "schema": "semantic-region-family-registry/1",
@@ -198,15 +199,24 @@ def test_freshly_prepared_v8_supply_passes_complete_native_batch_admission(tmp_p
         consumer_revision=POLICY["consumerRevision"],
         source_verifier=lambda _: producer_receipt,
         tokenizer_evidence=tokenizer_evidence,
-        max_positions=128,
-        max_history=8,
+        max_positions=max_positions,
+        max_history=max_history,
     )
     policy = {**POLICY, "registryDigest": registry["digest"]}
     supply = validate_prepared_semantic_v8(
-        [str(output)], codec=codec, policy=policy, max_history=8, max_positions=128
+        [str(output)],
+        codec=codec,
+        policy=policy,
+        max_history=max_history,
+        max_positions=max_positions,
     )
     assert supply["episodes"]["train"] == 1
     assert supply["episodes"]["validation"] == 0
+    return document, codec, policy, output
+
+
+def test_freshly_prepared_v8_supply_passes_complete_native_batch_admission(tmp_path):
+    _, codec, policy, output = prepared_v8_fixture(tmp_path)
     import torch
 
     from megatoken.data import PreparedCorpus, iter_windows

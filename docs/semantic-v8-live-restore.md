@@ -56,6 +56,12 @@ selection and live checkpoint, and is checked against the loaded bundle before
 restoration. A diagnostic bundle without ordinary V8 lineage uses explicit null.
 This identity records provenance and never establishes learned execution quality.
 
+Observation and context splitting uses the served bundle's retained physical
+chunk policy. It does not expand chunks to the model's larger position capacity.
+Generated fragment budgets are capped by that policy as well. Consequently a
+model with 512 positions can consume data prepared in 128-token records without
+changing those record boundaries or the intervening retrieval history.
+
 The producer freezes the expected value with `--training-identity HASH` in the
 experiment command, passes it through the process selector and checks both the
 initialization receipt and original selection evidence. Driver recovery also
