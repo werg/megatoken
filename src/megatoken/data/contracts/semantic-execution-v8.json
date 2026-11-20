@@ -1724,6 +1724,54 @@
         ],
         "capabilities": "Builtin array keys/values/entries and Unicode string iteration, live array length, sticky exhaustion and explicit result/pair allocation identities."
       },
+      "ordinaryCompletions": {
+        "schema": "semantic-handler-scopes/1",
+        "fields": [
+          "schema",
+          "frames"
+        ],
+        "frameFields": [
+          "invocation",
+          "handlers"
+        ],
+        "optionalFrameFields": [
+          "targets"
+        ],
+        "handlerFields": [
+          "id",
+          "catch",
+          "finally",
+          "phase",
+          "caught",
+          "pending"
+        ],
+        "targetFields": [
+          "id",
+          "continue"
+        ],
+        "pendingKinds": [
+          "normal",
+          "return",
+          "throw",
+          "break",
+          "continue"
+        ],
+        "pendingFields": [
+          "kind",
+          "value"
+        ],
+        "optionalPendingFields": [
+          "target"
+        ],
+        "maxHandlersPerFrame": 64,
+        "maxTargetsPerFrame": 64,
+        "capabilities": "Ordinary synchronous catch/finally scopes retain pending completion and bounded loop target identities. Break and continue targets belong to the same frame; only loop targets permit continue. Source qualification privately checks destinations without publishing bytecode."
+      },
+      "customIteration": {
+        "profile": "custom-iterator-source/1",
+        "capabilities": "Ordinary synchronous custom for-of and flat variable array bindings use checked properties, cached next and receiver cells, scoped calls, and ordinary cleanup. Independent observations check acquisition, done/value reads, and IteratorClose order and precedence.",
+        "boundaries": "Malformed intrinsic TypeErrors, asynchronous iteration, and nested or assignment pattern source projection require separate qualification; runtime execution alone does not admit them."
+      },
       "enumeration": {
         "profile": "ordinary-for-in/1",
         "heapFields": [
@@ -1805,9 +1853,10 @@
           "builtin",
           "waiting",
           "convert",
-          "complete"
+          "complete",
+          "abrupt"
         ],
-        "capabilities": "Live data-method selection, original receiver and number hint, shared callback scopes, ordered ordinary fallback and checked primitive conversion. Accessor selection and abrupt conversion need explicit profiles."
+        "capabilities": "Live data-method selection, original receiver and number hint, shared callback scopes, ordered ordinary fallback and checked primitive conversion. Synchronous callback throws preserve their completion through catch/finally and suppress fallback. Accessor selection, intrinsic TypeErrors and exotic conversion remain separate profiles."
       },
       "generators": {
         "profile": "synchronous-generator/1",
@@ -1976,7 +2025,7 @@
         "dataViewByteOrder": "explicit per operation",
         "capabilities": "Fixed ordinary buffers and fixed/growable shared buffers; scalar conversions; shared view identities; bounded single-agent atomic operations. No detach, transfer, host buffers or cross-agent scheduling."
       },
-      "lifecycle": "One fresh invocation without external host work. Declared Promise joins and executors may use internal Promise, await, resume, job and transfer detail; join steps require an empty stack and the FIFO ready head. External observations remain outside protocol profiles."
+      "lifecycle": "One fresh invocation without external host work. Declared ordinary catch/finally and loop cleanup use checked transfer detail. Declared Promise joins and executors may use internal Promise, await, resume, job and transfer detail; join steps require an empty stack and the FIFO ready head. External observations remain outside protocol profiles."
     },
     "checkpoint": {
       "fields": [
@@ -2011,7 +2060,7 @@
       "default": "not promoted by engineering receipts alone"
     }
   },
-  "digest": "ed3eb82c994823e2adf49c3bfdb463f22d7c8ed0a5184af1564015c345f0b7ab",
+  "digest": "344f7e99aeed605a1965c70f0e0d8829707d6891437ba43dd743fa304cd777dc",
   "fixtureDigest": "56f7f36d3b25b3b11a208be3de337e637b9782e6759faea1e1ec107b0a90f0ce",
   "fixtures": [
     {
@@ -2036,7 +2085,7 @@
       "reason": "old artifacts require their original contract"
     }
   ],
-  "interoperabilityDigest": "001711716452ffb26ac595e8b128be678a8ff52d5eb916f3b0d169e96c55bc6b",
+  "interoperabilityDigest": "ef962002482fbf7adb6698fc435535dfa202b12848907a29ee0e5fbb5683a7c7",
   "interoperability": [
     {
       "id": "ordered-map",
@@ -2052,6 +2101,21 @@
       "id": "causal-counter",
       "publicDigest": "c37a66e94edae5d7ca6f80be9bb46ccd8b31afa825074a88612c4b76645dbf4c",
       "contextDigest": "112e1761435270b82947f142587d23d3c3b424d64f2fc50ab9973f99c54be310"
+    },
+    {
+      "id": "number-callback-cleanup",
+      "publicDigest": "caa05bbcd7bc85cde8901263fc6dee8008fb52ad1a827159a8977f4a839a6bd7",
+      "contextDigest": "dfbc7948643309ecf31ecd9d0ff1adce5de21e6d350426af2e4b64bcd130655a"
+    },
+    {
+      "id": "custom-iterator-close",
+      "publicDigest": "b7f126ce1de9b0596f74502afd5f7a81883f30a73a885b97f97d14c3a02c5bca",
+      "contextDigest": "01a5ecb69f45c8500d54940d3aa413d5241669f54de98cda34fc4ba110674634"
+    },
+    {
+      "id": "iterable-binding-close",
+      "publicDigest": "379ce9087733a01ed47718cee54723bdf3804af5b77d52d10fc7cc0d8b4b78b2",
+      "contextDigest": "f47756b3e317b5fe201543a5e8faf21d5d78e255382eba4dce4a9cb675069eb3"
     },
     {
       "id": "protocol-machine",
