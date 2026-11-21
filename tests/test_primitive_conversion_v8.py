@@ -117,7 +117,7 @@ def returned(state, identity, child, value, *, getter=False, thrown=False):
 class PrimitiveConversionTests(unittest.TestCase):
     def refuse(self, state, record, message=None):
         before = copy.deepcopy(state)
-        with self.assertRaisesRegex((ProtocolV8Error, TypeError), message or ".*"):
+        with self.assertRaisesRegex((ValueError, TypeError), message or ".*"):
             apply_protocol_record(state, record)
         self.assertEqual(state, before)
 
@@ -396,6 +396,18 @@ class PrimitiveConversionTests(unittest.TestCase):
             )
             apply(state, define("error", ["str", "message"], ["str", "changed by catch"]))
             self.assertTrue(conversion.validate_state(state))
+
+    def test_fault_allocation_requires_a_valid_reference_before_mutation(self):
+        state = machine()
+        apply(state, begin("convert", "Number", ["symbol", "well-known:iterator"]))
+        for name in ("bad/name", "bad name", "0error", "error\n"):
+            record = {"kind": "conversion.fault", "id": "convert", "error": name}
+            self.refuse(state, record, "value reference")
+            with self.assertRaisesRegex((ValueError, TypeError), "value reference"):
+                encode_protocol_record(record)
+            self.assertTrue(conversion.validate_state(state))
+        apply(state, {"kind": "conversion.fault", "id": "convert", "error": "typeError"})
+        self.assertEqual(state["lastReturn"], {"kind": "throw", "value": ["ref", "typeError"]})
 
     def test_object_and_dense_array_builtins_are_derived(self):
         for name, props, options, expected in (

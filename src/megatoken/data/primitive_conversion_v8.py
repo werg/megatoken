@@ -321,6 +321,7 @@ def validate_record(record):
         _identity(record["child"])
     elif kind == "conversion.fault":
         _identity(record["error"])
+        p.validate_protocol_value(["ref", record["error"]])
     elif kind == "conversion.lookup":
         p.validate_protocol_key(record["key"])
         p.validate_protocol_value(record["value"])
