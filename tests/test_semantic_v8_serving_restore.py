@@ -124,8 +124,9 @@ print(json.dumps({"receipt":receipt,"committed":committed,"attempts":len(packet[
         capture_output=True,
         text=True,
         timeout=60,
-        check=True,
+        check=False,
     )
+    assert completed.returncode == 0, completed.stderr
     result = json.loads(completed.stdout.strip().splitlines()[-1])
     assert result["receipt"]["restored"] and result["committed"]["committed"]
     assert result["attempts"] == 2
@@ -146,6 +147,9 @@ def test_rehashed_false_history_cursor_tokens_cache_and_missing_receipts_are_ref
         lambda p: p["attempts"][0].update(payloadHex="00"),
         lambda p: p["attempts"][0]["fragments"][0]["tokenIds"].append(0),
         lambda p: p["sessions"][session]["replay"][0].update(acknowledgedThrough=0),
+        lambda p: p["attempts"][0].update(generatedTokens=p["attempts"][0]["generatedTokens"] + 1),
+        lambda p: p["attempts"][0]["contextBefore"].update(visible_events=[]),
+        lambda p: p["openings"][0].update(metadataTokens=p["openings"][0]["metadataTokens"] + 1),
         lambda p: p["sessions"][session]["openingRandom"].update(torch="invalid"),
         lambda p: p["settings"].update(maxAttempts=10001),
     ]

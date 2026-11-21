@@ -664,6 +664,7 @@ class NativeSemanticInferenceV8:
                 or packet["settings"] != self._checkpoint_settings()
                 or type(packet["attempts"]) is not list
                 or len(packet["attempts"]) > self.max_attempts
+                or type(packet["openings"]) is not list
                 or type(packet["sessions"]) is not dict
                 or len(packet["sessions"]) > self.max_sessions
             ):
@@ -814,22 +815,39 @@ class NativeSemanticInferenceV8:
                         session=session, public=public, contexts=contexts, context=context
                     )
                     original, actual = attempts[index], generated["selection"]
-                    for field_name in (
-                        "selectionId",
-                        "session",
-                        "invocationId",
-                        "prefixDigest",
-                        "contextDigest",
-                        "publicDigest",
-                        "checkpointIdentity",
-                        "tokenizerIdentity",
-                        "payloadHex",
-                        "fragments",
-                    ):
-                        if actual[field_name] != original[field_name]:
-                            raise NativeSelectionV8Error(
-                                "Restored native model selection differs: " + field_name
-                            )
+                    # A committed ledger entry is the evidence for the exact
+                    # selection that was acknowledged. Comparing just its
+                    # payload and identity leaves rehashed edits to accounting
+                    # (token counts, context visibility, event IDs, etc.)
+                    # undetected even though those fields are deterministic.
+                    # Wall-clock measurements and the acknowledgement lifecycle
+                    # label are expected to differ when replaying in a new process.
+                    replay_volatile = {
+                        "status",
+                        "generationSeconds",
+                        "preparationSeconds",
+                        "totalSeconds",
+                    }
+                    actual_evidence = {
+                        key: value for key, value in actual.items() if key not in replay_volatile
+                    }
+                    original_evidence = {
+                        key: value
+                        for key, value in original.items()
+                        if key not in replay_volatile
+                    }
+                    if actual_evidence != original_evidence:
+                        differing = next(
+                            (
+                                key
+                                for key in sorted(set(actual_evidence) | set(original_evidence))
+                                if actual_evidence.get(key) != original_evidence.get(key)
+                            ),
+                            "selection evidence",
+                        )
+                        raise NativeSelectionV8Error(
+                            "Restored native model selection differs: " + differing
+                        )
                     staged.commit(
                         session=session,
                         public={**saved["public"], "timeline": rows[:acknowledged_through]},
@@ -862,6 +880,20 @@ class NativeSemanticInferenceV8:
                         )
                     work.opening_random = copy.deepcopy(saved["openingRandom"])
                     work.replay = copy.deepcopy(saved["replay"])
+                if len(packet["openings"]) != len(staged.openings):
+                    raise NativeSelectionV8Error("V8 session opening accounting differs")
+                opening_volatile = {"openSeconds"}
+                actual_openings = [
+                    {key: value for key, value in row.items() if key not in opening_volatile}
+                    for row in staged.openings
+                ]
+                saved_openings = [
+                    {key: value for key, value in row.items() if key not in opening_volatile}
+                    for row in packet["openings"]
+                    if type(row) is dict
+                ]
+                if actual_openings != saved_openings:
+                    raise NativeSelectionV8Error("V8 session opening evidence differs")
                 restore_random_state(packet["randomState"])
                 restored_attempts = copy.deepcopy(attempts)
                 for attempt in restored_attempts:
