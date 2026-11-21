@@ -832,9 +832,7 @@ class NativeSemanticInferenceV8:
                         key: value for key, value in actual.items() if key not in replay_volatile
                     }
                     original_evidence = {
-                        key: value
-                        for key, value in original.items()
-                        if key not in replay_volatile
+                        key: value for key, value in original.items() if key not in replay_volatile
                     }
                     if actual_evidence != original_evidence:
                         differing = next(
