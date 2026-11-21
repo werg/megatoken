@@ -9,6 +9,7 @@ controller. Rejection preserves the preceding native model continuation.
 from __future__ import annotations
 
 import copy
+import math
 import re
 import time
 from dataclasses import dataclass, field, fields, replace
@@ -34,6 +35,11 @@ from megatoken.semantic_checkpoint_v8 import (
 )
 
 ADAPTER = "native-semantic-v8/1"
+
+
+def _json_nonnegative_integer(value):
+    # JSON's 1 and 1.0 are the same ECMAScript number; bool is a separate type.
+    return type(value) in (int, float) and 0 <= value <= 2**53 - 1 and value == int(value)
 
 
 class NativeSelectionV8Error(ValueError):
@@ -755,9 +761,11 @@ class NativeSemanticInferenceV8:
                 type(row) is not dict
                 or set(row) != {"session", "metadataTokens", "metadataBytes", "openSeconds"}
                 or type(row["session"]) is not str
-                or type(row["metadataTokens"]) is not int
-                or type(row["metadataBytes"]) is not int
+                or not _json_nonnegative_integer(row["metadataTokens"])
+                or not _json_nonnegative_integer(row["metadataBytes"])
                 or type(row["openSeconds"]) not in (int, float)
+                or not math.isfinite(row["openSeconds"])
+                or row["openSeconds"] < 0
                 for row in packet["openings"]
             ):
                 raise NativeSelectionV8Error("V8 session opening evidence differs")

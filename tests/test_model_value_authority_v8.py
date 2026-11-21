@@ -73,6 +73,7 @@ def test_rehashed_model_checkpoint_requires_an_integer_context_index(committed_c
         ("attempts", 0, "generatedTokens"),
         ("attempts", 0, "fragments", 0, "meridian"),
         ("openings", 0, "metadataTokens"),
+        ("openings", 0, "metadataBytes"),
     ],
 )
 def test_model_checkpoint_preserves_ecmascript_number_equivalence(committed_checkpoint, path):
@@ -85,6 +86,27 @@ def test_model_checkpoint_preserves_ecmascript_number_equivalence(committed_chec
     restored, _ = adapter_for([target(example, 0)])
     receipt = restored.restore(checkpoint=changed)
     assert receipt["restored"] and receipt["reexecutedSelections"] == 1
+
+
+@pytest.mark.parametrize(
+    "field,value",
+    [
+        ("metadataTokens", True),
+        ("metadataTokens", -1),
+        ("metadataTokens", 1.5),
+        ("metadataTokens", 2**53),
+        ("metadataBytes", False),
+        ("metadataBytes", "1"),
+        ("metadataBytes", None),
+        ("openSeconds", -1),
+        ("openSeconds", False),
+    ],
+)
+def test_opening_costs_refuse_invalid_json_numbers_before_native_state(
+    committed_checkpoint, field, value
+):
+    example, packet = committed_checkpoint
+    refused_checkpoint(example, replaced(packet, ("openings", 0, field), value))
 
 
 def model_after_acknowledged_dispatch(value):

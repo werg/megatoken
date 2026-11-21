@@ -27,6 +27,11 @@ is idempotent and does not reopen or reset a session. If building a closed cut
 fails, the candidate and session remain untouched. The global attempt sequence
 and its consumed limit span both active and closed sessions.
 
+Opening receipts use ECMAScript number equivalence: JSON `1` and `1.0` preserve
+the same receipt identity. Metadata token and byte counts must still be
+nonnegative safe integers; booleans, fractional counts, and negative or nonfinite
+opening times refuse recovery before native model state is allocated.
+
 Only committed model continuations are saved. An outstanding candidate remains in
 attempt evidence and consumes its original allowance, but its speculative state
 is omitted. Restore marks it abandoned; it cannot become an acknowledged action.
