@@ -8,7 +8,12 @@ from collections import Counter
 from dataclasses import replace
 from pathlib import Path
 
-from megatoken.data.native_v8 import prepare_native_v8_training, validate_v8_artifact
+from megatoken.data.detailed_v8 import parse_record
+from megatoken.data.native_v8 import (
+    logical_rows_v8,
+    prepare_native_v8_training,
+    validate_v8_artifact,
+)
 from megatoken.data.semantic_contract_v8 import (
     CONTRACT_DIGEST,
     FIXTURE_DIGEST,
@@ -169,7 +174,11 @@ def _native_admission(
 
 
 def semantic_behaviors_v8(episode):
-    """Derive the small stage coverage vocabulary from V8 public records."""
+    """Count causal V8 behavior in the checked, actually trained history.
+
+    This does not establish original-source admission or learned task success.
+    Coordinator-only child histories are not guest semantic training records.
+    """
     annotations = json.loads(episode.supervision.annotations_json)
     semantic = annotations.get("semantic_execution", {})
     if semantic.get("schema") != "semantic-execution/8":
@@ -177,24 +186,74 @@ def semantic_behaviors_v8(episode):
     artifact = semantic.get("publicArtifact")
     if not isinstance(artifact, dict) or not isinstance(artifact.get("public"), dict):
         raise ValueError("V8 behavior census requires retained public records")
-    rows = artifact["public"].get("timeline", [])
-    kinds = [row["kind"] for row in rows]
-    fields = [row["fields"] for row in rows]
+    expected = logical_rows_v8(artifact)
+    if not any(masked for _identity, _role, _payload, masked in expected):
+        raise ValueError("V8 behavior census requires checked generated training targets")
+    actual = list(episode.iter_logical_records())
+    if len(actual) != len(expected) or sum(map(len, actual)) != len(episode.records):
+        raise ValueError("V8 behavior census public history differs from training records")
+    for parts, (identity, role, payload, masked) in zip(actual, expected, strict=True):
+        if (
+            not parts
+            or any(
+                part.logical_id != identity
+                or part.role != role
+                or part.policy_mask != masked
+                or part.free_spans is not None
+                or part.emitted_free_mask is not None
+                or part.emitted_ids is not None
+                or part.part_index != index
+                or part.part_count != len(parts)
+                for index, part in enumerate(parts)
+            )
+            or b"".join(part.payload for part in parts) != payload
+        ):
+            raise ValueError("V8 behavior census public history differs from training records")
+
+    rows = artifact["public"]["timeline"]
     behaviors = {"semantic_v8"}
-    if "program" in kinds and "invocation" in kinds:
-        behaviors.add("semantic_code_invocation")
-    if "request" in kinds:
-        behaviors.add("semantic_tool_feedback")
-    if "await" in kinds or "resume" in kinds:
-        behaviors.add("semantic_async")
-    if any(row.get("activation") == "callback" for row in fields):
-        behaviors.add("semantic_callback")
-    if any(row.get("activation") == "module-init" for row in fields):
-        behaviors.add("semantic_initialization")
-    if "cancel" in kinds:
-        behaviors.add("semantic_cancel")
-    if "reconcile" in kinds or "callback-reattach" in kinds:
-        behaviors.add("semantic_recovery")
+    invocations = Counter()
+    requests, awaiting, evicted, feedback = set(), set(), set(), set()
+    for row in rows:
+        kind, fields = row["kind"], row["fields"]
+        invocation = (fields.get("session"), fields.get("invocationId"))
+        if row["mode"] == "generated":
+            # The continuation must actually consume an earlier result in the
+            # same invocation, not merely coexist with an unrelated request.
+            if invocation in feedback:
+                behaviors.add("semantic_tool_feedback")
+            if kind != "semantic":
+                continue
+            kind, detail = parse_record(fields["line"])
+            if kind == "request":
+                requests.add((*invocation, detail["effect"]))
+            elif kind == "await":
+                awaiting.add((*invocation, detail["continuation"]))
+            elif kind == "resume" and (*invocation, detail["continuation"]) in awaiting:
+                behaviors.add("semantic_async")
+            continue
+        if kind == "invocation":
+            behaviors.add("semantic_code_invocation")
+            invocations[(fields["session"], fields["programId"])] += 1
+            if fields.get("activation") == "callback":
+                behaviors.add("semantic_callback")
+            elif fields.get("activation") == "module-init":
+                behaviors.add("semantic_initialization")
+        elif kind == "result" and (*invocation, fields["effectId"]) in requests:
+            feedback.add(invocation)
+        elif kind in {"source-evict", "source-read"}:
+            source = tuple(fields[name] for name in ("session", "track", "programId", "digest"))
+            if kind == "source-evict":
+                evicted.add(source)
+            elif source in evicted:
+                behaviors.add("semantic_source_reread")
+                evicted.remove(source)
+        elif kind == "cancel":
+            behaviors.add("semantic_cancel")
+        elif kind in {"reconcile", "callback-reattach"}:
+            behaviors.add("semantic_recovery")
+    if any(count > 1 for count in invocations.values()):
+        behaviors.add("semantic_repeated_invocation")
     return behaviors
 
 

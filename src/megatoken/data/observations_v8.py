@@ -178,6 +178,11 @@ def validate_observation_v8(row):
         for key in ("sourceMap", "sourceMetadata"):
             if fields[key] is not None and type(fields[key]) is not dict:
                 raise ValueError("Source mapping metadata must be an explicit object or null")
+    elif kind in {"source-read", "source-evict"}:
+        if type(fields["digest"]) is not str or not DIGEST.fullmatch(fields["digest"]):
+            raise ValueError("Source cache observation requires an immutable source digest")
+        if kind == "source-read" and type(fields["source"]) is not str:
+            raise ValueError("Source reread requires the original source bytes")
     elif kind == "invocation":
         deadline = fields["deadline"]
         if deadline is not None and (

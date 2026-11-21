@@ -323,8 +323,12 @@ def validate_v8_artifact(document):
     }
 
 
-def prepare_native_v8_training(document, *, codec, max_positions=8192, max_history=1024):
-    """Build the exact native physical rows, masks, token counts and digest."""
+def logical_rows_v8(document):
+    """Replay and render the exact model-visible logical rows before framing.
+
+    Sharing this rendering with the coverage census binds its public history to
+    actual training bytes. This is native replay, not source/tokenizer admission.
+    """
     validate_v8_artifact(document)
     public = document["public"]
     timeline = public["timeline"]
@@ -357,6 +361,16 @@ def prepare_native_v8_training(document, *, codec, max_positions=8192, max_histo
                     False,
                 )
             )
+    return rows
+
+
+def prepare_native_v8_training(document, *, codec, max_positions=8192, max_history=1024):
+    """Build the exact native physical rows, masks, token counts and digest."""
+    rows = logical_rows_v8(document)
+    public = document["public"]
+    timeline = public["timeline"]
+    generated = [(i, row) for i, row in enumerate(timeline) if row["mode"] == "generated"]
+    contexts = document["contexts"]
     logical_records = []
     meridians = []
     ids = {}
@@ -851,6 +865,13 @@ def _replay_shared_state(
             ):
                 _fail("Malformed deterministic random seed")
             published[fields["programId"]] = (program, fields.get("functions", []), random_seed)
+            continue
+        if kind in {"source-read", "source-evict"}:
+            cached = published.get(fields["programId"])
+            if cached is None or fields["digest"] != cached[0].get("sourceDigest"):
+                _fail("Source cache observation has no exact published program/digest")
+            if kind == "source-read" and fields["source"] != cached[0].get("source"):
+                _fail("Source reread differs from the immutable published source bytes")
             continue
         if kind == "invocation":
             if fields["realmId"] in closed_realms:
