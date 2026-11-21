@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Bounded decoder training and actual v8 inference from a freshly admitted artifact.
+"""Bounded decoder diagnostic using an ordinary source-admitted V8 train row.
 
 This diagnostic freezes native E/C/P and the memory bank, captures causal
 boundaries through the production grouped trainer, and trains the actual text
@@ -19,7 +19,7 @@ import platform
 import subprocess
 import sys
 import time
-from dataclasses import asdict, replace
+from dataclasses import asdict
 from pathlib import Path
 from unittest.mock import patch
 
@@ -35,8 +35,9 @@ from megatoken.data.native_v8 import (
 )
 from megatoken.data.prefix_v8 import validate_v8_committed_prefix
 from megatoken.data.protocol_v8 import decode_protocol_record
-from megatoken.data.semantic_contract_v8 import CONTRACT_DIGEST, DEFINITION
+from megatoken.data.semantic_contract_v8 import DEFINITION
 from megatoken.data.semantic_json import stable_algorithm_hash
+from megatoken.data.storage import PreparedCorpus
 from megatoken.generation.codec import LING_TOKENIZER_SHA256, ByteCodec
 from megatoken.io import sha256_file
 from megatoken.loading import build_model
@@ -51,6 +52,10 @@ from megatoken.training.engine import prepare_batches, window_config
 from megatoken.training.losses import LossLedger
 from megatoken.training.meridians import forward_meridian_batch
 from megatoken.training.optimizer import MasterAdamW
+from megatoken.training.semantic_v8 import (
+    validate_prepared_semantic_v8,
+    validate_semantic_training_policy_v8,
+)
 from megatoken.training.stream import EpisodeWindow, _WindowPlan
 from megatoken.training.transducer import TransducerTrainer
 
@@ -71,51 +76,38 @@ def tensor_identity(state):
     return digest.hexdigest()
 
 
-def require_admission(document, receipt, artifact_path, codec):
-    """Bind all six independent checks to these exact source and model inputs."""
+def verified_train_example(roots, *, codec, policy, source_id=None):
+    """Return one ordinary prepared V8 train row after full source/split validation."""
     root = Path(__file__).resolve().parents[1]
     revision = subprocess.check_output(["git", "rev-parse", "HEAD"], cwd=root, text=True).strip()
     if subprocess.check_output(
         ["git", "status", "--porcelain", "--untracked-files=no"], cwd=root, text=True
     ).strip():
-        raise ValueError("The admitted consumer implementation must be a clean checkout")
-    required = {
-        "schema": "semantic-native-admission/8",
-        "admitted": True,
-        "publicDigest": stable_algorithm_hash(document["public"]),
-        "contextsDigest": stable_algorithm_hash(document["contexts"]),
-        "sourceArtifactDigest": stable_algorithm_hash(document["sidecar"]["sourceArtifact"]),
-        "consumerRevision": revision,
-        "contractDigest": CONTRACT_DIGEST,
-    }
-    if any(receipt.get(key) != value for key, value in required.items()):
-        raise ValueError("Training requires a fresh exact-revision v8 native admission receipt")
-    if any(
-        receipt.get("checks", {}).get(name) != "passed"
-        for name in ("replay", "contexts", "continuation", "masks", "sourceBinding", "tokenizer")
-    ):
-        raise ValueError("Training requires all six native admission checks")
-    if receipt.get("tokenizer") != {
-        "status": "passed",
-        "identity": codec.fingerprint,
-        "sha256": LING_TOKENIZER_SHA256,
-    }:
-        raise ValueError("Training receipt does not bind the loaded production tokenizer")
-    source = receipt.get("sourceVerification", {})
-    if source.get("artifactSha256") != sha256_file(artifact_path) or any(
-        source.get(name) is not True
-        for name in (
-            "producerTreeClean",
-            "sourceValidated",
-            "projectionValidated",
-            "replayValidated",
-        )
-    ):
-        raise ValueError("Training receipt has no exact live source verification")
-    _, packing = prepare_native_v8_training(document, codec=codec)
-    if receipt.get("nativeTrainingDigest") != packing["nativeTrainingDigest"]:
-        raise ValueError("Admitted physical training bytes differ from fresh preparation")
-    return revision
+        raise ValueError("The consumer implementation must be a clean checkout")
+    policy = validate_semantic_training_policy_v8(policy)
+    if policy["consumerRevision"] != revision:
+        raise ValueError("Prepared training policy does not pin this exact consumer revision")
+    supply = validate_prepared_semantic_v8(
+        roots, codec=codec, policy=policy, max_history=128, max_positions=512
+    )
+    with PreparedCorpus(roots, split="train", stream="semantic_execution") as corpus:
+        matches = []
+        for episode in corpus.iter_episodes():
+            annotation = json.loads(episode.supervision.annotations_json)["semantic_execution"]
+            if source_id is None or annotation["sourceId"] == source_id:
+                matches.append(episode)
+        if not matches:
+            raise ValueError("No verified V8 training row matches the requested source")
+        if len(matches) != 1:
+            raise ValueError("Select one source with --source-id; ambiguous train membership")
+        episode = matches[0]
+    annotation = json.loads(episode.supervision.annotations_json)["semantic_execution"]
+    if annotation["split"] != "train" or episode.lineage.frozen_split != "train":
+        raise ValueError("The selected V8 row is not an assigned training example")
+    artifact = annotation.get("publicArtifact")
+    if not isinstance(artifact, dict) or set(artifact) != {"public", "contexts"}:
+        raise ValueError("Verified training row does not retain its admitted public artifact")
+    return episode, artifact, revision, supply, annotation
 
 
 def capture_boundaries(model, episode, config, output):
@@ -169,6 +161,23 @@ def initial_public(document):
     return public
 
 
+def complete_targets(episode):
+    """Reassemble admitted teacher targets from their immutable physical rows."""
+    groups = {}
+    for record in episode.records:
+        if record.policy_mask:
+            groups.setdefault(record.logical_id, []).append(record)
+    targets = []
+    for records in groups.values():
+        records.sort(key=lambda record: record.part_index)
+        if len(records) != records[0].part_count:
+            raise ValueError("Prepared V8 target has incomplete physical fragments")
+        targets.append(
+            (b"".join(record.payload for record in records).decode("utf-8"), len(records))
+        )
+    return targets
+
+
 @torch.inference_mode()
 def actual_inference(model, identity, public, *, seed, max_tokens, max_records=4):
     """Predict and independently replay actual records; no teacher target is accepted."""
@@ -181,7 +190,7 @@ def actual_inference(model, identity, public, *, seed, max_tokens, max_records=4
         runtime, model_identity=identity, max_tokens=max_tokens, max_fragments=1
     )
     records = []
-    outcome = {"status": "failed", "completed": False}
+    outcome = {"status": "failed", "completed": False, "acknowledged": 0}
     started = time.perf_counter()
     try:
         adapter.initialize(
@@ -242,6 +251,7 @@ def actual_inference(model, identity, public, *, seed, max_tokens, max_records=4
                 record=record,
                 selection=selected["selection"],
             )
+            outcome["acknowledged"] += 1
             public, contexts = candidate, contexts + [context]
             terminal = (
                 parse_record(record)[0] == "end"
@@ -255,6 +265,12 @@ def actual_inference(model, identity, public, *, seed, max_tokens, max_records=4
                     session=session, public=public, contexts=contexts, invocationId=invocation_id
                 )
                 outcome.update(status="completed", completed=True)
+                outcome["finalState"] = _replay_shared_state(
+                    public["timeline"], contexts, {}, roundtrip=True
+                )
+                break
+            if len(records) == max_records:
+                outcome.update(status="accepted-nonterminal", completed=False)
                 outcome["finalState"] = _replay_shared_state(
                     public["timeline"], contexts, {}, roundtrip=True
                 )
@@ -322,14 +338,15 @@ def save_bundle(model, optimizer, transducer, config, output, name, *, steps):
 
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("--artifact", type=Path, required=True)
-    parser.add_argument("--admission", type=Path, required=True)
-    parser.add_argument("--heldout", type=Path, action="append", default=[])
+    parser.add_argument("--prepared", type=Path, action="append", required=True)
+    parser.add_argument("--policy", type=Path, required=True)
+    parser.add_argument("--source-id")
     parser.add_argument("--tokenizer-json", type=Path, required=True)
     parser.add_argument("--output", type=Path, required=True)
     parser.add_argument("--seed", type=int, choices=(17, 29, 43), default=17)
     parser.add_argument("--max-steps", type=int, default=256)
     parser.add_argument("--max-tokens", type=int, default=128)
+    parser.add_argument("--records", type=int, choices=(1, 2, 3), default=1)
     parser.add_argument("--evaluate-every", type=int, default=32)
     parser.add_argument("--learning-rate", type=float, default=0.02)
     args = parser.parse_args()
@@ -349,30 +366,27 @@ def main():
     codec = ByteCodec.from_tokenizer_json(
         args.tokenizer_json, expected_sha256=LING_TOKENIZER_SHA256
     )
-    document = json.loads(args.artifact.read_text())
-    admission = json.loads(args.admission.read_text())
-    revision = require_admission(document, admission, args.artifact, codec)
-    episode, preparation = prepare_native_v8_training(
+    policy = json.loads(args.policy.read_text())
+    episode, artifact, revision, supply, semantic = verified_train_example(
+        args.prepared, codec=codec, policy=policy, source_id=args.source_id
+    )
+    document = {"public": artifact["public"], "contexts": artifact["contexts"]}
+    _, preparation = prepare_native_v8_training(
         document, codec=codec, max_positions=512, max_history=128
     )
-    episode = replace(
-        episode,
-        supervision=replace(episode.supervision, outcome="success", verification="external_tests"),
-    )
-    targets = [
-        row["fields"]["line"]
-        for row in document["public"]["timeline"]
-        if row["mode"] == "generated"
-    ]
-    if not 2 <= len(targets) <= 3 or any(
-        len(codec.encode(target.encode())) > args.max_tokens for target in targets
+    targets_with_parts = complete_targets(episode)[: args.records]
+    if len(targets_with_parts) != args.records or any(
+        parts != 1 for _, parts in targets_with_parts
     ):
-        raise ValueError("Bounded fit requires 2..3 complete one-fragment target records")
+        raise ValueError("Bounded fit requires complete one-fragment prepared targets")
+    targets = [target for target, _ in targets_with_parts]
+    if any(len(codec.encode(target.encode())) > args.max_tokens for target in targets):
+        raise ValueError("Selected complete targets exceed the bounded generation budget")
     config = TrainConfig(
         purpose="diagnostic",
         phase="P1",
         model="tiny",
-        datasets=[str(args.artifact.resolve())],
+        datasets=[str(path.resolve()) for path in args.prepared],
         output=str(args.output),
         codec=str(args.tokenizer_json.resolve()),
         device="cpu",
@@ -386,6 +400,7 @@ def main():
         max_history_tokens=16384,
         max_record_bytes=16384,
         scored_decisions=3,
+        semantic_v8_policy=policy,
         gradient_checkpointing=False,
         expert_backend="torch",
         use_stage_mixture=False,
@@ -398,7 +413,8 @@ def main():
     initial_state = {
         name: value.detach().cpu().clone() for name, value in model.state_dict().items()
     }
-    boundaries, transducer = capture_boundaries(model, episode, config, args.output)
+    all_boundaries, transducer = capture_boundaries(model, episode, config, args.output)
+    boundaries = all_boundaries[: args.records]
     if len(boundaries) != len(targets):
         raise ValueError("Diagnostic target boundaries were unexpectedly split or duplicated")
     optimizer = MasterAdamW(model, lr=args.learning_rate, weight_decay=0.0)
@@ -409,9 +425,7 @@ def main():
     baseline, baseline_manifest = save_bundle(
         model, optimizer, transducer, config, args.output, "baseline", steps=0
     )
-    inference_inputs = [initial_public(document)] + [
-        initial_public(json.loads(path.read_text())) for path in args.heldout
-    ]
+    inference_inputs = [initial_public(document)]
     evaluations = [
         {
             "optimizerSteps": 0,
@@ -421,17 +435,9 @@ def main():
                 inference_inputs[0],
                 seed=args.seed,
                 max_tokens=args.max_tokens,
+                max_records=args.records,
             ),
-            "heldout": [
-                actual_inference(
-                    baseline.model,
-                    baseline_manifest["model_sha256"],
-                    value,
-                    seed=args.seed,
-                    max_tokens=args.max_tokens,
-                )
-                for value in inference_inputs[1:]
-            ],
+            "heldout": [],
         }
     ]
     write_json(args.output / "baseline-evaluation.json", evaluations[0])
@@ -475,6 +481,7 @@ def main():
                 inference_inputs[0],
                 seed=args.seed,
                 max_tokens=args.max_tokens,
+                max_records=args.records,
             )
             evaluations.append(
                 {"optimizerSteps": step, "identityKind": "in-memory-tensor-sha256", "train": result}
@@ -518,6 +525,7 @@ def main():
             inference_inputs[0],
             seed=args.seed,
             max_tokens=args.max_tokens,
+            max_records=args.records,
         ),
         "heldout": [
             actual_inference(
@@ -536,8 +544,13 @@ def main():
         "scope": "Actual native grouped decoder optimization and reloaded serving on 2..3 in-sample records. No generalization, external-comprehension, or production-training claim.",
         "consumerRevision": revision,
         "scriptSha256": sha256_file(Path(__file__)),
-        "admission": admission,
-        "artifactSha256": sha256_file(args.artifact),
+        "trainingPolicy": policy,
+        "preparedSupply": supply,
+        "sourceId": semantic["sourceId"],
+        "componentId": semantic["componentId"],
+        "frozenSplit": semantic["split"],
+        "registryDigest": semantic["registryDigest"],
+        "preparedEpisodeId": episode.episode_id,
         "seed": args.seed,
         "optimizer": "MasterAdamW",
         "optimizerSteps": step,
@@ -554,7 +567,7 @@ def main():
         "final": final,
         "inSampleExactSuccess": final["train"]["completed"]
         and final["train"]["records"] == targets,
-        "heldoutCompleted": [result["completed"] for result in final["heldout"]],
+        "heldoutCompleted": [],
         "generalizationEstablished": False,
         "externalComprehensionEstablished": False,
         "optimizerSeconds": sum(row["seconds"] for row in history),
