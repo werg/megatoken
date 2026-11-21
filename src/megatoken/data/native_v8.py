@@ -634,6 +634,33 @@ def _invocation_bindings(function, invocation):
     return bindings
 
 
+def _closure_entry_function(functions, entry, closure):
+    """Bind both public spellings to the same immutable source function site."""
+    if not isinstance(closure, dict) or closure.get("kind") != "closure":
+        _fail("Closure invocation has no published guest closure")
+
+    def resolve(reference):
+        matches = [
+            function
+            for function in functions
+            if isinstance(function, dict)
+            and isinstance(reference, str)
+            and (
+                function.get("name") == reference
+                or "function:" + str(function.get("start")) == reference
+            )
+        ]
+        if len(matches) != 1 or type(matches[0].get("start")) is not int or matches[0]["start"] < 0:
+            _fail("Closure entry must resolve to one immutable function site")
+        return matches[0]
+
+    selected = resolve(entry)
+    declared = resolve(closure.get("code"))
+    if selected["start"] != declared["start"]:
+        _fail("Closure entry differs from its immutable function site")
+    return selected
+
+
 def _initial_state(program, invocation, functions=(), random_seed=None):
     graph = invocation.get("inputGraph")
     if not isinstance(graph, dict) or set(graph) != {"roots", "objects"}:
@@ -783,20 +810,16 @@ def _replay_shared_state(
                     and state["stack"]
                 ):
                     _fail("Callback cannot interrupt a running JavaScript stack")
+                # Resolve before importing the observed graph or allocating any
+                # cells. A caller cannot redirect retained captures to another
+                # function by changing only the public entry spelling.
+                closure = _table(base, "heap").get(fields.get("closureId"))
+                function = _closure_entry_function(functions, fields.get("entry"), closure)
                 invocation_inputs[fields["invocationId"]] = {
                     "graph": copy.deepcopy(fields["inputGraph"]),
                     "retained": [identity for identity, _ in base["heap"]],
                 }
-                function = next(
-                    (
-                        fn
-                        for fn in functions
-                        if fn.get("name") == fields.get("entry")
-                        or "function:" + str(fn.get("start")) == fields.get("entry")
-                    ),
-                    None,
-                )
-                callback_bindings = _invocation_bindings(function or {}, fields)
+                callback_bindings = _invocation_bindings(function, fields)
                 callback_invocation = copy.deepcopy(fields)
                 callback_invocation["inputGraph"]["roots"] = []
                 callback_invocation["bindings"] = {}
@@ -824,16 +847,6 @@ def _replay_shared_state(
                 callback_state["receiver"] = fields.get("receiver", ["undefined"])
                 callback_state["captureAliases"] = []
                 callback_state["frameFunctions"] = [[fields["invocationId"], fields["entry"]]]
-                closure = next(
-                    (
-                        value
-                        for identity, value in callback_state["heap"]
-                        if identity == fields.get("closureId")
-                    ),
-                    None,
-                )
-                if closure is None or closure.get("kind") != "closure":
-                    _fail("Callback invocation has no published guest closure")
                 callback_state["captureAliases"] = [
                     [capture["binding"], capture["cell"]] for capture in closure.get("captures", [])
                 ]
@@ -850,6 +863,24 @@ def _replay_shared_state(
                     _set_row(callback_state["captureAliases"], name, cell)
                 state = callback_state
             elif fields.get("activation") == "call":
+                if fields.get("closureId") is not None:
+                    retained_owner = next(
+                        (
+                            identity
+                            for identity in reversed(controllers)
+                            if invocation_metadata[identity]["realmId"] == fields["realmId"]
+                        ),
+                        None,
+                    )
+                    if retained_owner is None or invocation_metadata[retained_owner][
+                        "sourceDigest"
+                    ] != program.get("sourceDigest"):
+                        _fail("Closure invocation differs from its retained realm source")
+                    _closure_entry_function(
+                        functions,
+                        fields.get("entry"),
+                        _table(controllers[retained_owner], "heap").get(fields["closureId"]),
+                    )
                 state = _initial_state(program, fields, functions, random_seed)
                 invocation_inputs[fields["invocationId"]] = {
                     "graph": copy.deepcopy(fields["inputGraph"])
@@ -1063,6 +1094,22 @@ def _replay_shared_state(
             if fields.get("realmId") in closed_realms:
                 _fail("Callback observation targets a closed realm")
             target = controllers.get(fields.get("ownerInvocationId"), state)
+            if kind == "handler" and fields.get("closureId") is not None:
+                owner = fields.get("ownerInvocationId")
+                handler_program = published.get(fields.get("programId"))
+                if (
+                    owner not in controllers
+                    or handler_program is None
+                    or invocation_metadata[owner]["realmId"] != fields.get("realmId")
+                    or invocation_metadata[owner]["sourceDigest"]
+                    != handler_program[0].get("sourceDigest")
+                ):
+                    _fail("Handler closure differs from its retained realm source")
+                _closure_entry_function(
+                    handler_program[1],
+                    fields.get("entry"),
+                    _table(target, "heap").get(fields["closureId"]),
+                )
             _apply_observation(target, row, dispatched, settled, obligations, owner_sequences)
         if active_invocation is not None:
             controllers[active_invocation] = state

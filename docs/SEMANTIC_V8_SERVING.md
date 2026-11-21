@@ -53,6 +53,17 @@ collections. It preserves the loaded checkpoint's normal native transducer.
 Completion is per invocation: ending a child callback does not erase its
 parent's continuation or a retained handler's later callbacks.
 
+A retained closure binds its invocation and handler registration to one
+immutable function site in the published program. Both the requested entry
+and the closure's saved code reference must resolve uniquely, and their source
+starts must match. An unambiguous declared name and `function:<start>` may name
+the same function; an ambiguous name is rejected even if the other spelling is
+unique. Handler registration also checks that the retained realm belongs to the
+selected source. These checks run before input graph import, cell allocation,
+or handler publication. They prevent public observations from redirecting saved
+captures to a different function; they do not expand the native module or host
+callback profiles.
+
 ## Framing and measurement
 
 V8 preparation and serving use `semantic-execution/8` session metadata and the
