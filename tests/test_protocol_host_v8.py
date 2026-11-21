@@ -62,7 +62,9 @@ def test_handler_cannot_rename_a_pending_callback_capability(field, value):
     handler = next(row for row in example["public"]["timeline"] if row["kind"] == "handler")
     cut = copy.deepcopy(through(example, handler["sequence"]))
     cut["public"]["timeline"][-1]["fields"][field] = value
-    with pytest.raises(NativeV8Error, match="pending callback capability"):
+    with pytest.raises(
+        NativeV8Error, match="pending callback capability|retained realm source or owner"
+    ):
         validate_v8_artifact(cut)
 
 
@@ -233,6 +235,6 @@ def test_observed_result_retires_call_callbacks_and_failed_subscriptions(
     close = {"kind": "handler-close", "fields": {"subscriptionId": "callback1", "discarded": []}}
     _apply_observation(state, close, dispatched, settled, obligations)
     before = copy.deepcopy((state, dispatched, settled, obligations))
-    with pytest.raises(NativeV8Error, match="callback registration"):
+    with pytest.raises(NativeV8Error, match="active source handler"):
         _apply_observation(state, event, dispatched, settled, obligations)
     assert (state, dispatched, settled, obligations) == before

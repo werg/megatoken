@@ -71,6 +71,8 @@ OBSERVATIONS = {
     "handler-close": ({"subscriptionId", "discarded"}, set()),
     "cancel": ({"invocationId", "reason", "uncertain"}, set()),
     "realm-close": ({"realmId", "reason"}, set()),
+    "reconcile": ({"invocationId", "effectId", "disposition", "evidenceId"}, set()),
+    "callback-reattach": ({"subscriptionId", "realmId", "evidenceId"}, set()),
     "event": (
         {"subscriptionId", "eventId", "invocationId", "triggerId", "programId", "realmId"},
         set(),
@@ -199,6 +201,16 @@ def validate_observation_v8(row):
             or len(set(fields["discarded"])) != len(fields["discarded"])
         ):
             raise ValueError("Handler close requires host authority and distinct discarded events")
+    elif kind in {"reconcile", "callback-reattach"}:
+        if type(fields["evidenceId"]) is not str or not fields["evidenceId"]:
+            raise ValueError("Recovery receipt requires explicit independent evidence")
+        if kind == "reconcile" and fields["disposition"] not in {
+            "not-dispatched",
+            "lost",
+            "fulfilled",
+            "rejected",
+        }:
+            raise ValueError("Unknown external effect reconciliation disposition")
     elif kind in {"cancel", "realm-close"}:
         if type(fields["reason"]) is not str:
             raise ValueError("Lifecycle closure requires an explicit reason")

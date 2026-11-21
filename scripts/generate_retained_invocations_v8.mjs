@@ -112,6 +112,18 @@ enter(discarded.h, 'after', {entry: 'run', args: [9]});
 finish(discarded, 'after', ['num', 9]);
 retain('host-discards-private-arrivals', discarded);
 
+const ownedFresh = machine('host-owned-fresh-handler');
+enter(ownedFresh.h, 'owner', {args: [5]});
+finish(ownedFresh, 'owner', ['num', 5]);
+ownedFresh.h.registerEventHandler({subscriptionId: 'outside', programId: 'program', realmId: 'realm',
+  trackId: 'worker', realmPolicy: 'fresh', entry: 'run', ownerInvocationId: 'owner', queueLimit: 2});
+ownedFresh.h.postEvent({subscriptionId: 'outside', eventId: 'first', args: [2]});
+finish(ownedFresh, 'event1', ['num', 2]);
+ownedFresh.h.postEvent({subscriptionId: 'outside', eventId: 'second', args: [8]});
+finish(ownedFresh, 'event2', ['num', 8]);
+ownedFresh.h.closeEventHandler('outside');
+retain('host-owned-fresh-static-handler', ownedFresh);
+
 writeFileSync(output, gzipSync(JSON.stringify({schema: 'semantic-retained-invocation-controls/1',
   producerRevision, evidenceScope: 'selected-public-replay-controls', examples})).toString('base64') + '\n');
 console.log(JSON.stringify({producerRevision, examples: examples.length,

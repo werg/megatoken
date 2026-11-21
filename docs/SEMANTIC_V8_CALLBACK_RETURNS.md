@@ -40,10 +40,10 @@ still cannot carry an error origin.
 ## Explicit remaining boundaries
 
 Module initialization, original-source certification of arbitrary retained
-sessions, full external effect reconciliation and model execution remain
-separate gates. A parentless callback requires an independently observed handler
-event. The controls below do not promote selected records to original-source
-or training admission.
+sessions, recovery without subsequently retained public observations, and model
+execution remain separate gates. A parentless callback requires an independently
+observed handler event. The controls below do not promote selected records to
+original-source or training admission.
 
 ## Retained call and callback initialization
 
@@ -89,8 +89,11 @@ Native replay now supports host-owned handlers independently of guest host
 requests. Registration creates a handler obligation without fabricating a guest
 dispatch or callback capability. A static handler may be registered before any
 invocation; its arrivals may use fresh or retained realms. A retained closure
-handler preserves the closure's code and captured cells. Guest-owned handlers
-still require the corresponding unique dispatched callback capability.
+handler preserves the closure's code and captured cells. A handler's lifetime
+owner alone does not make it a guest callback registration: an externally
+registered handler can have a live owning invocation and use a fresh event
+realm. An actual pending guest callback capability still requires its unique
+dispatched request and exact registration identity.
 
 Every event is checked against the registered program, track, derived realm,
 trigger and next available event invocation identity before it marks delivery.
@@ -126,3 +129,62 @@ host handlers, retained invocations, callback identity/returns/boundaries,
 observation transactions, recovery and realm scheduling. Ruff and whitespace
 checks pass. No external adapter, optimizer or model decoder runs in these
 selected-control tests.
+
+## External effect reconciliation and subscription reattachment
+
+The native consumer now reconstructs the public effect recovery receipts. A
+receipt requires the exact outstanding effect, invocation and track, plus a
+nonempty external evidence identifier. A fulfilled or rejected disposition must
+be followed immediately by the matching observed result. No generated prediction
+may occur between those two observations. Result delivery keeps the normal
+graph, Promise and callback-retirement checks.
+
+A `not-dispatched` disposition returns the request to eligibility while retaining
+its existing attempt count. The next dispatch must use exactly the next attempt;
+reusing or skipping a number refuses. A `lost` disposition leaves the result
+unresolved, blocks automatic retry and refuses a later invented result. Rejected
+observations leave all state, outstanding dispatches and obligations unchanged.
+
+An evidence identifier is an opaque reference supplied by the embedding. The
+consumer checks its presence and causal effect binding; it does not authenticate
+the external service's claim. The same identifier may refer to independently
+verified batch evidence, so the consumer does not invent a uniqueness rule.
+
+Reattachment requires the exact retained handler, track and realm, with explicit
+evidence. The public history may still show the handler as active when the
+private native handle was lost; that is a valid restoration boundary. Closing
+or closed handlers and revoked guest callback capabilities cannot be revived.
+Reattachment does not issue a new guest request, create a dispatch or repeat the
+original registration.
+
+`scripts/generate_recovery_v8.mjs` retains five producer-generated recovery
+controls, with 18 selected records: fulfilled and rejected recovery, an explicitly
+unresolved lost result, verified non-dispatch followed by attempt 2, and an
+existing subscription reattached after JSON restoration. The first three start
+with one actual controlled adapter call, then prove recovery does not call it
+again. The retry control imports the documented boundary before the adapter;
+only its verified second attempt makes one actual adapter call. Subscription
+recovery registers once and reattaches once, then delivers two callbacks without
+repeating registration. Every context and prediction boundary is independently
+reconstructed in Python, including its saved continuation.
+
+The retained-handler controls now also include a nonnull lifetime owner with
+fresh event realms: eight selected episodes, 58 records in total. This guards
+against confusing lifetime ownership with a guest registration effect. The
+two current fixtures were regenerated from clean producer
+`9c7d6b6424acfeec0c3e4b3cd90ba19f8aaba453`, with checked producer replay and
+JSON restoration before export. The
+recovery and retained controls remain selected public replay evidence;
+`admitted:false`, untested source binding, masks and tokenizer are preserved.
+
+Reproduce the recovery controls with:
+
+```sh
+node scripts/generate_recovery_v8.mjs /path/to/clean/tracing-js-self
+```
+
+Validation of the integrated recovery increment: **178 tests pass** across
+external recovery, handlers, retained calls, callback results and identity,
+observation transactions, cancellation, realm scheduling and mixed host/Promise
+composition. The regenerated fixtures also pass the 121-test focused subset;
+these overlapping counts are not additive. Ruff and whitespace checks pass.

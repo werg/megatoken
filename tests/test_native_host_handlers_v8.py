@@ -23,7 +23,7 @@ def through(document, row):
     return document
 
 
-@pytest.mark.parametrize("case", (3, 4, 5))
+@pytest.mark.parametrize("case", (3, 4, 5, 7))
 def test_host_handler_registration_delivery_retention_and_close_replay_every_boundary(case):
     document = artifact(case)
     receipt = validate_v8_artifact(document)
@@ -44,7 +44,7 @@ def test_host_handler_registration_delivery_retention_and_close_replay_every_bou
     assert final["obligations"]["callbacks"] == []
     assert final["obligations"]["closureQueue"] == []
     handler = dict(final["obligations"]["handlers"])["outside"]
-    assert handler["ownerInvocationId"] is None
+    assert handler["ownerInvocationId"] == ("owner" if case == 7 else None)
     assert handler["state"] == "closed"
     assert handler["seen"] == ["first", "second"]
     assert handler["queue"] == []
@@ -52,6 +52,8 @@ def test_host_handler_registration_delivery_retention_and_close_replay_every_bou
         assert dict(final["state"]["locals"])["count"] == ["num", 11]
     elif case == 4:
         assert final["state"]["locals"] == [["a1b0", ["num", 8]]]
+    elif case == 7:
+        assert final["state"]["locals"] == [["a2b0", ["num", 8]]]
     else:
         assert final["state"]["locals"] == [["a0b0", ["num", 2]], ["a1b0", ["num", 8]]]
 

@@ -72,11 +72,12 @@ def test_event_callback_cannot_be_changed_into_a_closure_backed_call():
 
 
 @pytest.mark.parametrize("entry", ["function:77", "run"])
-def test_host_owned_handler_resolves_the_same_retained_function(entry):
+def test_guest_handler_cannot_remove_its_owner_to_bypass_the_pending_capability(entry):
     document, row = callback_prefix("handler")
     row["fields"].update(ownerInvocationId=None, entry=entry)
     if entry == "function:77":
-        validate_v8_committed_prefix(document["public"], document["contexts"])
+        with pytest.raises(NativeV8Error, match="exactly one dispatched callback capability"):
+            validate_v8_committed_prefix(document["public"], document["contexts"])
     else:
         with pytest.raises(NativeV8Error, match="immutable function site"):
             validate_v8_committed_prefix(document["public"], document["contexts"])
