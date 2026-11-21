@@ -244,6 +244,7 @@ def main():
                     "promise-join/1",
                     "promise-executor/1",
                     "number-conversion-source/1",
+                    "primitive-conversion-source/1",
                     "ordinary-completions-source/1",
                     "custom-iterator-source/1",
                     "ordinary-data-proxy-source/1",
