@@ -232,6 +232,7 @@ def main():
                     raise ValueError("Base protocol source evidence cannot claim extensions")
             elif profile in (
                 "protocol-source-extensions/1",
+                "composed-protocol-source/1",
                 "promise-joins-source/1",
                 "promise-executors-source/1",
             ):

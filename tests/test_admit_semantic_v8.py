@@ -260,6 +260,63 @@ class NativeV8AdmissionTests(unittest.TestCase):
         self.assertEqual(receipt["checks"]["sourceBinding"], "untested")
         self.assertFalse(receipt["admitted"])
 
+    def test_composed_protocol_profile_uses_exact_inventory_and_still_requires_live_source(self):
+        extensions = [
+            "number-conversion-source/1",
+            "ordinary-data-proxy-source/1",
+            "owned-binary-memory/1",
+            "promise-executor/1",
+            "promise-join/1",
+        ]
+        document = self.source_document(protocol=True)
+        sidecar = document["sidecar"]
+        sidecar.update(
+            protocolProfile="composed-protocol-source/1", protocolExtensions=extensions
+        )
+        sidecar["sourceArtifact"]["sidecar"]["compiler"]["extensions"] = extensions
+        sidecar["sourceArtifactDigest"] = stable_algorithm_hash(sidecar["sourceArtifact"])
+
+        # The profile makes the compiler inventory structurally acceptable,
+        # but locally asserted evidence cannot pass the producer source check.
+        receipt = self.run_cli(document)
+        self.assertEqual(receipt["protocolProfile"], "composed-protocol-source/1")
+        self.assertEqual(receipt["protocolExtensions"], extensions)
+        self.assertEqual(receipt["checks"]["sourceBinding"], "untested")
+        self.assertFalse(receipt["admitted"])
+
+        invalid_inventories = (
+            [],
+            ["number-conversion-source/1", "invented-extension/1"],
+            ["promise-join/1", "promise-join/1"],
+        )
+        for invalid in invalid_inventories:
+            with self.subTest(extensions=invalid):
+                changed = copy.deepcopy(document)
+                changed["sidecar"]["protocolExtensions"] = invalid
+                changed["sidecar"]["sourceArtifact"]["sidecar"]["compiler"][
+                    "extensions"
+                ] = invalid
+                changed["sidecar"]["sourceArtifactDigest"] = stable_algorithm_hash(
+                    changed["sidecar"]["sourceArtifact"]
+                )
+                with self.assertRaisesRegex(ValueError, "unsupported or mismatched extensions"):
+                    self.run_cli(changed)
+
+        changed = copy.deepcopy(document)
+        changed["sidecar"]["protocolProfile"] = "unreviewed-composed-profile/1"
+        with self.assertRaisesRegex(ValueError, "unsupported protocol profile"):
+            self.run_cli(changed)
+
+        changed = copy.deepcopy(document)
+        changed["sidecar"]["sourceArtifact"]["sidecar"]["compiler"][
+            "extensions"
+        ] = extensions[:-1]
+        changed["sidecar"]["sourceArtifactDigest"] = stable_algorithm_hash(
+            changed["sidecar"]["sourceArtifact"]
+        )
+        with self.assertRaisesRegex(ValueError, "unsupported or mismatched extensions"):
+            self.run_cli(changed)
+
     def test_specialized_promise_profiles_require_their_exact_inventory_and_live_source(self):
         for profile, extensions in (
             ("promise-joins-source/1", ["promise-join/1"]),
