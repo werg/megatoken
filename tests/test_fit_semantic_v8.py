@@ -1,9 +1,11 @@
 """Admission and train-membership controls for the bounded V8 fitter."""
 
+import copy
 import importlib.util
 import json
 import subprocess
 from pathlib import Path
+from types import SimpleNamespace
 
 import pytest
 from test_semantic_v8_training_policy import prepared_v8_fixture
@@ -14,6 +16,65 @@ _MODULE = importlib.util.module_from_spec(_SPEC)
 _SPEC.loader.exec_module(_MODULE)
 verified_train_example = _MODULE.verified_train_example
 capture_boundaries = _MODULE.capture_boundaries
+
+
+@pytest.mark.parametrize("mutation", [None, "state", "replay-count", "host-dispatch", "next-token"])
+def test_accepted_recovery_collector_requires_exact_state_and_original_next_tokens(
+    tmp_path, monkeypatch, mutation
+):
+    from tests.test_prediction_prefix_v8 import examples
+    from tests.test_semantic_v8_serving_restore import adapter_for, commit, select, target
+
+    example = examples("semantic-regions-v8.json.gz.b64")[0]
+    adapter, _ = adapter_for([target(example, 0), target(example, 1)])
+    commit(adapter, example, 0, select(adapter, example, 0))
+    packet = adapter.checkpoint()
+    next_selection = select(adapter, example, 1)
+    outcome = {
+        "acknowledgedCheckpoint": packet,
+        "acknowledged": 1,
+        "completed": False,
+        "nextSelectionRequest": {"session": next_selection["selection"]["session"]},
+        "nextSelectionResponse": {"ok": True, "result": next_selection},
+    }
+    responses = [
+        {
+            "id": "restore",
+            "ok": True,
+            "result": {"restored": True, "hostDispatches": 0, "reexecutedSelections": 1},
+        },
+        {"id": "checkpoint", "ok": True, "result": copy.deepcopy(packet)},
+        {"id": "next", "ok": True, "result": copy.deepcopy(next_selection)},
+    ]
+    if mutation == "state":
+        responses[1]["result"]["randomState"]["torch"] = "altered"
+    elif mutation == "replay-count":
+        responses[0]["result"]["reexecutedSelections"] = 0
+    elif mutation == "host-dispatch":
+        responses[0]["result"]["hostDispatches"] = 1
+    elif mutation == "next-token":
+        responses[2]["result"]["selection"]["payloadHex"] = "00"
+
+    def injected_service(command, **kwargs):
+        # The collector's process boundary is explicitly injected here. Separate
+        # command-level evidence must use the actual service and fitted tensors.
+        assert Path(command[1]).name == "serve_semantic_v8.py"
+        requests = [json.loads(line) for line in kwargs["input"].splitlines()]
+        assert requests[0]["checkpoint"] == packet
+        assert [request["op"] for request in requests] == ["restore", "checkpoint", "select"]
+        return SimpleNamespace(
+            returncode=0, stdout="".join(json.dumps(row) + "\n" for row in responses), stderr=""
+        )
+
+    monkeypatch.setattr(subprocess, "run", injected_service)
+    result = _MODULE.qualify_accepted_restoration(tmp_path / "served", outcome, tmp_path / "proof")
+    assert result["status"] == ("passed" if mutation is None else "failed")
+    assert result["sourceCorrespondenceClaim"] is False
+    assert result["generalizationClaim"] is False
+    assert (tmp_path / "proof" / "service-stdout.jsonl").exists()
+    if mutation is None:
+        assert result["acknowledgedCheckpointExact"] and result["nextSelectionExact"]
+        assert result["nextSelectionAcknowledged"] is False
 
 
 def test_selected_prefix_identity_counts_only_scored_targets_and_retains_prepared_chunking(

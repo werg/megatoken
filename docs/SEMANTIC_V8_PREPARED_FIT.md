@@ -26,3 +26,28 @@ Structural test fixtures explicitly inject source and tokenizer verification.
 These tests do not replace a command-level run with the pinned tokenizer and
 fresh producer/native source admission. Generalization, full source completion,
 production training and default routing remain separate gates.
+
+## Actual accepted-state recovery
+
+When the reloaded fitted model produces an acknowledged prefix, the diagnostic
+saves the complete native model checkpoint before probing any further output.
+It then starts the ordinary JSONL service in a fresh Python process with the
+same served weights, tokenizer, training identity and generation limits. The
+service regenerates every accepted selection from its saved random state,
+compares its original token and accounting evidence, independently replays the
+semantics and reconstructs the exact retained model continuation.
+
+The collector requires the resulting checkpoint to match the original in full,
+including acknowledged public history, random state, attempt budget, cache and
+session evidence. For a nonterminal prefix it also compares the next actual
+selection, including rejected output, with the uninterrupted process. This probe
+is retained and measured but never acknowledged. A restore that performs host
+work, omits an accepted selection or changes the next output remains failed.
+
+All requests, original responses, standard output, standard error and the final
+qualification summary are retained. Tests of the collector explicitly inject
+its process boundary; the fitted command itself uses the unmodified service and
+actual exported tensors. An accepted-prefix replay remains an in-sample recovery
+diagnostic. Original-source correspondence must be checked separately by the
+producer, and completing an entire program or generalizing to held-out sources
+is not implied.

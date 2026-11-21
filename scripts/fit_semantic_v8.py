@@ -231,6 +231,29 @@ def exact_selected_prefix(outcome, targets):
     )
 
 
+def prediction_context(public, contexts, invocation_id):
+    boundary = _replay_shared_state(
+        public["timeline"], contexts, {}, roundtrip=False, boundary_invocation=invocation_id
+    )
+    return {
+        "schema": DEFINITION["context"],
+        "representation": "mixed",
+        "profile": DEFINITION["profile"],
+        "invocationId": invocation_id,
+        **boundary,
+        "visibleThrough": len(public["timeline"]),
+        "prefixDigest": stable_algorithm_hash(public["timeline"]),
+    }
+
+
+def deterministic_attempt(attempt):
+    return {
+        key: value
+        for key, value in attempt.items()
+        if key not in {"status", "generationSeconds", "preparationSeconds", "totalSeconds"}
+    }
+
+
 @torch.inference_mode()
 def actual_inference(
     model,
@@ -242,6 +265,7 @@ def actual_inference(
     max_records=4,
     chunking=None,
     training_identity=None,
+    capture_recovery=False,
 ):
     """Predict and independently replay actual records; no teacher target is accepted."""
     public = copy.deepcopy(public)
@@ -267,18 +291,7 @@ def actual_inference(
             trainingIdentity=training_identity,
         )
         for _ in range(max_records):
-            boundary = _replay_shared_state(
-                public["timeline"], contexts, {}, roundtrip=False, boundary_invocation=invocation_id
-            )
-            context = {
-                "schema": DEFINITION["context"],
-                "representation": "mixed",
-                "profile": DEFINITION["profile"],
-                "invocationId": invocation_id,
-                **boundary,
-                "visibleThrough": len(public["timeline"]),
-                "prefixDigest": stable_algorithm_hash(public["timeline"]),
-            }
+            context = prediction_context(public, contexts, invocation_id)
             selected = adapter.select(
                 session=session, public=public, contexts=contexts, context=context
             )
@@ -347,6 +360,31 @@ def actual_inference(
                 break
         else:
             raise ValueError("Actual inference exceeded the bounded record limit")
+        if capture_recovery and outcome["acknowledged"]:
+            outcome["acknowledgedCheckpoint"] = adapter.checkpoint()
+            if not outcome["completed"]:
+                request = {
+                    "session": session,
+                    "public": public,
+                    "contexts": contexts,
+                    "context": prediction_context(public, contexts, invocation_id),
+                }
+                try:
+                    selected = adapter.select(**request)
+                    next_attempt = {"ok": True, "result": selected}
+                except Exception as error:
+                    next_attempt = {
+                        "ok": False,
+                        "error": {
+                            "category": type(error).__name__,
+                            "message": str(error),
+                            "evidence": getattr(error, "evidence", None),
+                        },
+                    }
+                # Preserve original output before cancellation changes lifecycle
+                # labels. This probe is measured but never acknowledged.
+                outcome["nextSelectionRequest"] = copy.deepcopy(request)
+                outcome["nextSelectionResponse"] = copy.deepcopy(next_attempt)
     except Exception as error:
         outcome["error"] = {"category": type(error).__name__, "message": str(error)}
         work = adapter.sessions.get(session)
@@ -367,6 +405,115 @@ def actual_inference(
         "seconds": time.perf_counter() - started,
         "metrics": adapter.metrics(),
     }
+
+
+def qualify_accepted_restoration(served, outcome, output):
+    """Restore actual accepted selections through the unmodified JSONL service."""
+    packet = outcome.get("acknowledgedCheckpoint")
+    if packet is None:
+        return {
+            "status": "not-executed",
+            "reason": "The fitted model has no acknowledged prefix to restore",
+            "acknowledgedModelSelections": 0,
+        }
+    output.mkdir(parents=True, exist_ok=False)
+    write_json(output / "acknowledged-checkpoint.json", packet)
+    requests = [
+        {"id": "restore", "op": "restore", "checkpoint": packet},
+        {"id": "checkpoint", "op": "checkpoint"},
+    ]
+    if "nextSelectionRequest" in outcome:
+        requests.append({"id": "next", "op": "select", **outcome["nextSelectionRequest"]})
+        write_json(output / "original-next-selection.json", outcome["nextSelectionResponse"])
+    wire = "".join(json.dumps(request, allow_nan=False) + "\n" for request in requests)
+    (output / "requests.jsonl").write_text(wire)
+    settings = packet["settings"]
+    command = [
+        sys.executable,
+        str(Path(__file__).with_name("serve_semantic_v8.py")),
+        "--served",
+        str(served),
+        "--device",
+        "cpu",
+        "--threads",
+        "1",
+        "--effort",
+        str(settings["effort"]),
+        "--max-tokens",
+        str(settings["maxTokens"]),
+        "--max-fragments",
+        str(settings["maxFragments"]),
+        "--max-sessions",
+        str(settings["maxSessions"]),
+        "--profile-output",
+        str(output / "service-profile.json"),
+    ]
+    report = {
+        "status": "failed",
+        "command": command,
+        "acknowledgedModelSelections": outcome["acknowledged"],
+        "completeSourceExecution": outcome["completed"],
+        "sourceCorrespondenceClaim": False,
+        "generalizationClaim": False,
+    }
+    try:
+        completed = subprocess.run(
+            command, input=wire, text=True, capture_output=True, timeout=180, check=False
+        )
+        (output / "service-stdout.jsonl").write_text(completed.stdout)
+        (output / "service-stderr.log").write_text(completed.stderr)
+        report["exitCode"] = completed.returncode
+        if completed.returncode != 0:
+            raise ValueError("Fresh-process native service failed; retained stderr has details")
+        responses = [json.loads(line) for line in completed.stdout.splitlines() if line.strip()]
+        if [response.get("id") for response in responses] != [
+            request["id"] for request in requests
+        ]:
+            raise ValueError("Fresh native service omitted or changed response identities")
+        if not responses[0].get("ok") or not responses[1].get("ok"):
+            raise ValueError("Fresh native service refused acknowledged model restoration")
+        receipt = responses[0]["result"]
+        if (
+            receipt.get("restored") is not True
+            or receipt.get("hostDispatches") != 0
+            or receipt.get("reexecutedSelections") != outcome["acknowledged"]
+            or responses[1]["result"] != packet
+        ):
+            raise ValueError("Restoration changed original accepted state, accounting or RNG")
+        report.update(restoration=receipt, acknowledgedCheckpointExact=True)
+        if len(responses) == 3:
+            original, actual = outcome["nextSelectionResponse"], responses[2]
+
+            def evidence(value):
+                return (
+                    value["result"]["selection"] if value["ok"] else value["error"].get("evidence")
+                )
+
+            original_attempt, actual_attempt = evidence(original), evidence(actual)
+            if (
+                original["ok"] != actual["ok"]
+                or not isinstance(original_attempt, dict)
+                or not isinstance(actual_attempt, dict)
+                or deterministic_attempt(original_attempt) != deterministic_attempt(actual_attempt)
+                or (original["ok"] and original["result"]["record"] != actual["result"]["record"])
+            ):
+                raise ValueError("Fresh-process next original selection differs")
+            report["nextSelectionExact"] = True
+            report["nextSelectionAcknowledged"] = False
+        report["status"] = "passed"
+    except subprocess.TimeoutExpired as error:
+        for name, data in (
+            ("service-stdout.jsonl", error.stdout),
+            ("service-stderr.log", error.stderr),
+        ):
+            (output / name).write_text(
+                data.decode(errors="replace") if isinstance(data, bytes) else data or ""
+            )
+        report["error"] = {"category": type(error).__name__, "message": str(error)}
+    except Exception as error:
+        report["error"] = {"category": type(error).__name__, "message": str(error)}
+    write_json(output / "summary.json", report)
+    return report
 
 
 def save_bundle(
@@ -628,6 +775,7 @@ def main():
             max_records=args.records,
             chunking=fitted.chunking,
             training_identity=fitted_manifest["semantic_v8_lineage_digest"],
+            capture_recovery=True,
         ),
         "heldout": [
             actual_inference(
@@ -642,6 +790,9 @@ def main():
             for value in inference_inputs[1:]
         ],
     }
+    restoration = qualify_accepted_restoration(
+        args.output / "fitted", final["train"], args.output / "accepted-restoration"
+    )
     optimizer.close()
     report = {
         "schema": "semantic-native-bounded-fit/8",
@@ -670,6 +821,7 @@ def main():
         "history": history,
         "evaluations": evaluations,
         "final": final,
+        "acceptedRestoration": restoration,
         "inSampleExactSuccess": final["train"]["completed"]
         and final["train"]["records"] == targets,
         "inSampleExactPrefixSuccess": exact_selected_prefix(final["train"], targets),
