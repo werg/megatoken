@@ -43,7 +43,7 @@ def test_full_native_fixture_replay_and_recovery_without_legacy_wire_imports():
         from megatoken.generation.codec import ByteCodec
 
         directory = Path(sys.argv[1])
-        checked = targets = 0
+        checked = targets = source_refused = 0
         for filename in (
             "semantic-regions-v8.json.gz.b64",
             "semantic-protocol-region-v8.json.gz.b64",
@@ -51,11 +51,19 @@ def test_full_native_fixture_replay_and_recovery_without_legacy_wire_imports():
             "semantic-callback-return-v8.json.gz.b64",
             "semantic-host-protocol-v8.json.gz.b64",
             "semantic-host-recovery-v8.json.gz.b64",
+            "semantic-primitive-conversion-v8.json.gz.b64",
         ):
             fixture = json.loads(gzip.decompress(base64.b64decode((directory / filename).read_bytes())))
             examples = [fixture] if "public" in fixture else fixture.get("examples", fixture.get("cases", []))
             assert examples, filename
             for row in examples:
+                if row.get("status") == "source-unqualified":
+                    assert filename == "semantic-primitive-conversion-v8.json.gz.b64"
+                    assert "artifact" not in row and row["boundary"] in {
+                        "intrinsic-error-source-metadata", "node24-reference-disagreement"
+                    }
+                    source_refused += 1
+                    continue
                 example = row.get("artifact", row)
                 result = validate_v8_artifact(example)
                 assert result["admitted"] is False
@@ -91,7 +99,8 @@ def test_full_native_fixture_replay_and_recovery_without_legacy_wire_imports():
                 else:
                     raise AssertionError("Forged continuation accepted: " + str(row.get("id")))
         assert not blocked.intersection(sys.modules)
-        print(json.dumps({"examples":checked, "prediction_contexts":targets}))
+        print(json.dumps({"examples":checked, "prediction_contexts":targets,
+                          "source_refused":source_refused}))
         """
     )
     completed = subprocess.run(
@@ -106,3 +115,4 @@ def test_full_native_fixture_replay_and_recovery_without_legacy_wire_imports():
     result = json.loads(completed.stdout)
     assert result["examples"] >= 30
     assert result["prediction_contexts"] >= result["examples"]
+    assert result["source_refused"] == 5

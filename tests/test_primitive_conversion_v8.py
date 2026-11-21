@@ -400,7 +400,15 @@ class PrimitiveConversionTests(unittest.TestCase):
     def test_fault_allocation_requires_a_valid_reference_before_mutation(self):
         state = machine()
         apply(state, begin("convert", "Number", ["symbol", "well-known:iterator"]))
-        for name in ("bad/name", "bad name", "0error", "error\n"):
+        for name in (
+            "bad/name",
+            "bad name",
+            "0error",
+            "error\n",
+            "error\r",
+            "error\u2028",
+            "error\u2029",
+        ):
             record = {"kind": "conversion.fault", "id": "convert", "error": name}
             self.refuse(state, record, "value reference")
             with self.assertRaisesRegex((ValueError, TypeError), "value reference"):
