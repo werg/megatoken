@@ -25,7 +25,7 @@ from megatoken.data.prefix_v8 import (
     validate_v8_prediction_prefix,
 )
 from megatoken.data.schema import make_records
-from megatoken.data.semantic_json import stable_algorithm_hash
+from megatoken.data.semantic_json import stable_algorithm_hash, stable_algorithm_json
 from megatoken.semantic_checkpoint_v8 import (
     capture_random_state,
     continuation_fingerprint,
@@ -281,7 +281,11 @@ class NativeSemanticInferenceV8:
                 )
             old = work.public["timeline"] if work is not None and work.public is not None else []
             rows = public["timeline"]
-            if rows[: len(old)] != old or contexts != (work.contexts if work is not None else []):
+            if stable_algorithm_json(rows[: len(old)]) != stable_algorithm_json(
+                old
+            ) or stable_algorithm_json(contexts) != stable_algorithm_json(
+                work.contexts if work is not None else []
+            ):
                 raise NativeSelectionV8Error("V8 selection rewrites acknowledged native history")
             incoming = rows[work.ingested_through if work is not None else 0 :]
             if any(row["mode"] != "observed" for row in incoming):
@@ -470,14 +474,15 @@ class NativeSemanticInferenceV8:
             rows = public.get("timeline", [])
             appended = rows[len(previous) :]
             if (
-                rows[: len(previous)] != previous
+                stable_algorithm_json(rows[: len(previous)]) != stable_algorithm_json(previous)
                 or not appended
                 or appended[0].get("mode") != "generated"
                 or appended[0].get("fields", {}).get("line") != record
                 or appended[0].get("fields", {}).get("invocationId") != invocationId
                 or appended[0].get("fields", {}).get("session") != session
                 or any(row.get("mode") != "observed" for row in appended[1:])
-                or contexts != checked["contexts"] + [checked["context"]]
+                or stable_algorithm_json(contexts)
+                != stable_algorithm_json(checked["contexts"] + [checked["context"]])
             ):
                 raise NativeSelectionV8Error(
                     "V8 acknowledgement must append exactly its checked candidate"
@@ -533,8 +538,8 @@ class NativeSemanticInferenceV8:
             previous = work.public["timeline"]
             rows = public.get("timeline", [])
             if (
-                rows[: len(previous)] != previous
-                or contexts != work.contexts
+                stable_algorithm_json(rows[: len(previous)]) != stable_algorithm_json(previous)
+                or stable_algorithm_json(contexts) != stable_algorithm_json(work.contexts)
                 or any(row.get("mode") != "observed" for row in rows[len(previous) :])
             ):
                 raise NativeSelectionV8Error("V8 completion rewrites acknowledged model history")
@@ -661,7 +666,8 @@ class NativeSemanticInferenceV8:
                 or packet["equivalence"] != "verified-model-reexecution"
                 or packet["contractDigest"] != CONTRACT_DIGEST
                 or digest != stable_algorithm_hash(packet)
-                or packet["settings"] != self._checkpoint_settings()
+                or stable_algorithm_json(packet["settings"])
+                != stable_algorithm_json(self._checkpoint_settings())
                 or type(packet["attempts"]) is not list
                 or len(packet["attempts"]) > self.max_attempts
                 or type(packet["openings"]) is not list
@@ -723,7 +729,7 @@ class NativeSemanticInferenceV8:
                     tokenizerIdentity=identity["tokenizerIdentity"],
                     trainingIdentity=identity.get("trainingIdentity"),
                 )
-                if loaded != identity:
+                if stable_algorithm_json(loaded) != stable_algorithm_json(identity):
                     raise NativeSelectionV8Error(
                         "Restored model device or generation settings differ"
                     )
@@ -773,6 +779,7 @@ class NativeSemanticInferenceV8:
                             != {"attempt", "contextIndex", "acknowledgedThrough", "randomBefore"}
                             or type(entry["attempt"]) is not int
                             or not 0 <= entry["attempt"] < len(attempts)
+                            or type(entry["contextIndex"]) is not int
                             or entry["contextIndex"] != context_index
                             or type(entry["acknowledgedThrough"]) is not int
                         ):
@@ -834,12 +841,15 @@ class NativeSemanticInferenceV8:
                     original_evidence = {
                         key: value for key, value in original.items() if key not in replay_volatile
                     }
-                    if actual_evidence != original_evidence:
+                    if stable_algorithm_json(actual_evidence) != stable_algorithm_json(
+                        original_evidence
+                    ):
                         differing = next(
                             (
                                 key
                                 for key in sorted(set(actual_evidence) | set(original_evidence))
-                                if actual_evidence.get(key) != original_evidence.get(key)
+                                if stable_algorithm_json(actual_evidence.get(key))
+                                != stable_algorithm_json(original_evidence.get(key))
                             ),
                             "selection evidence",
                         )
@@ -866,13 +876,14 @@ class NativeSemanticInferenceV8:
                         )
                     if (
                         work.ingested_through != saved["ingestedThrough"]
-                        or work.contexts != saved["contexts"]
+                        or stable_algorithm_json(work.contexts)
+                        != stable_algorithm_json(saved["contexts"])
                         or continuation_fingerprint(work.runtime) != saved["continuationDigest"]
                     ):
                         raise NativeSelectionV8Error(
                             "Restored V8 cache, continuation or observation cursor differs"
                         )
-                    if work.public != saved["public"]:
+                    if stable_algorithm_json(work.public) != stable_algorithm_json(saved["public"]):
                         raise NativeSelectionV8Error(
                             "Restored V8 acknowledged public history differs"
                         )
@@ -890,7 +901,7 @@ class NativeSemanticInferenceV8:
                     for row in packet["openings"]
                     if type(row) is dict
                 ]
-                if actual_openings != saved_openings:
+                if stable_algorithm_json(actual_openings) != stable_algorithm_json(saved_openings):
                     raise NativeSelectionV8Error("V8 session opening evidence differs")
                 restore_random_state(packet["randomState"])
                 restored_attempts = copy.deepcopy(attempts)

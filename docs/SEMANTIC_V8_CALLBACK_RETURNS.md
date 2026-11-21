@@ -311,3 +311,40 @@ boundary explicit and reconstructs a pending guest callback before its handler
 receipt. Its two affected test modules pass all 22 controls. That historical run
 is not relabeled as evidence for the later runtime change; the complete test
 selection must run again on its published revision.
+
+## Model acknowledgements and request payloads retain JSON value authority
+
+The model service applies the same canonical JSON comparisons to its acknowledged
+history, saved settings and identity, independently reexecuted selection
+evidence, restored contexts, and session opening receipts. An observed dispatch
+may be acknowledged before the next model selection ingests its bytes. Its
+metadata remains bound during that interval: a caller cannot change a boolean
+to a number and present the changed history as a valid extension.
+
+Checkpoint controls independently reproduce and reject changes to the selected
+model flag, fragment termination flag, admission claim, and generation effort,
+even when the checkpoint checksum is recomputed. Reconstruction also requires
+an integer context index; Python's boolean indexing no longer supplies an
+alternate spelling of index zero. Refusals preserve the prior model continuation
+and random state, and leave no staged runtime allocations behind. The supplied
+decoder in these controls establishes engineering authority behavior; it does
+not measure learned semantic performance.
+
+The native request interpreter also compares decoded external JSON with its
+selected tagged arguments canonically. For example, a selected boolean `true`
+cannot authorize a numeric `1` in the adapter payload. The existing independent
+operation materializer already rejects that mismatch; native replay now agrees
+before creating an effect. Valid booleans and equivalent ECMAScript numeric
+representations remain accepted.
+
+All 14 newly reproduced refusals failed before these guards: six checkpoint
+cases, four acknowledged-history substitutions and four request substitutions.
+Eleven positive controls preserve valid booleans and equivalent numeric
+representations. No source certificate, fixture pin or model-quality claim is
+changed by this follow-up.
+
+Validation of this increment: **114 focused tests pass**, covering the new
+controls, serving transactions, saved model restoration and identity, native
+action receipts and detailed replay regressions. This includes the existing
+tiny real-model random-state/cache restoration control; its generated output is
+still not labeled learned semantic success. Ruff and whitespace checks pass.

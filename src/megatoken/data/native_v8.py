@@ -1902,7 +1902,7 @@ def _apply_detail(
                 delivered = json.loads(fields["payload"])
             except (TypeError, json.JSONDecodeError) as e:
                 raise NativeV8Error("Malformed host request payload") from e
-            if delivered != decoded:
+            if stable_algorithm_json(delivered) != stable_algorithm_json(decoded):
                 _fail("Host request payload differs from its tagged arguments")
         if promise:
             _assert_fresh_allocation(state, promise)
