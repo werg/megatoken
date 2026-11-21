@@ -2003,6 +2003,7 @@
         "schema": "semantic-promise-join-state/1",
         "modes": [
           "all",
+          "allSettled",
           "race"
         ],
         "fields": [
@@ -2030,7 +2031,7 @@
           "joinIndex",
           "readySequence"
         ],
-        "capabilities": "Invocation-owned Promise joins share the realm heap. A settlement publishes eligible dependencies across all retained invocations in registration order; an explicit queueMicrotask preserves enqueue order. Steps require the realm FIFO head and no competing active turn. First settlement and explicit late no-op steps preserve result identity."
+        "capabilities": "Invocation-owned Promise joins share the realm heap. A settlement publishes eligible dependencies across all retained invocations in registration order; an explicit queueMicrotask preserves enqueue order. Steps require the realm FIFO head and no competing active turn. First settlement and explicit late no-op steps preserve result identity. allSettled allocates one distinct ordinary status/value-or-reason object per input reaction, waits for every input and preserves input order and value aliases. Entries become ordinary mutable guest objects after fulfillment. Collecting joins reserve one array property for length."
       },
       "numberConversions": {
         "profile": "number-conversion/1",
@@ -2255,7 +2256,40 @@
           "id",
           "bytes"
         ],
-        "meaning": "Private write-ahead arrival chain head. Each registered arrival is captured before yielding, persisted and read back before queue mutation or delivery. Checkpoints refuse unresolved/failed writes and retain their acknowledged head. Restore requires an independently retained equal or later head; validates every source, public prefix, graph and arrival order before applying absent inputs. Delivered/discarded inputs are reconciled without redispatch; a later public boundary than the checkpoint refuses."
+        "meaning": "Private write-ahead arrival chain head. Each registered or return-value callback arrival is captured before yielding, persisted and read back before queue mutation or delivery. Checkpoints refuse unresolved/failed writes and retain their acknowledged head. Restore requires an independently retained equal or later head; validates every source, public prefix, graph and arrival order before applying absent inputs. Delivered/discarded inputs are reconciled without redispatch; a later public boundary than the checkpoint refuses."
+      },
+      "callbackArrival": {
+        "schema": "semantic-callback-return-arrival/8",
+        "fields": [
+          "schema",
+          "sessionId",
+          "visibleThrough",
+          "prefixDigest",
+          "binding",
+          "event"
+        ],
+        "bindingFields": [
+          "ownerInvocationId",
+          "parentEffectId",
+          "programId",
+          "sourceDigest",
+          "realmId",
+          "trackId",
+          "taskRevision",
+          "deadline",
+          "closureId",
+          "closureCode",
+          "closureCaptures",
+          "effectDigest",
+          "retainedIds"
+        ],
+        "eventFields": [
+          "invocationId",
+          "arrivalSequence",
+          "inputGraph",
+          "receiverValue"
+        ],
+        "meaning": "Private return-value callback input bound to its original source, public prefix, supplied closure/captures and committed external parent. Receiver and arguments share one alias-preserving graph; introduced objects cannot overwrite retained identities. Queued arrivals reconstruct from the independent journal with shared registered-event/callback FIFO. Active and completed children must match public history. Neither an adapter Promise nor an external parent result is reconstructed or inferred."
       },
       "ingressReceipt": {
         "schema": "semantic-host-ingress-receipt/8",
@@ -2302,7 +2336,7 @@
           "maxOutstanding",
           "automaticDelivery"
         ],
-        "meaning": "Exact shared states, activation statuses and host policy are independently reconstructed from the complete public V8 history. Pending registered events require the separately retained private ingress receipt and snapshot. Pending unjournaled native ingress refuses checkpoint creation. Restore marks acknowledged outstanding work uncertain and existing subscriptions lost; only explicitly supplied services and reattachment may recover them."
+        "meaning": "Exact shared states, activation statuses and host policy are independently reconstructed from the complete public V8 history. Pending registered events require the separately retained private ingress receipt and snapshot. Queued return-value callbacks require their independently retained journal and exact original input/parent binding. Pending unjournaled native ingress refuses checkpoint creation. Restore marks acknowledged outstanding work uncertain and existing subscriptions lost; only explicitly supplied services and reattachment may recover them. Completed callback return/throw is available for explicit parent reconciliation without recreating adapter continuations or redispatching effects."
       },
       "restore": "Validate public mixed replay and exact shared state. Restore existing intent/handler lifecycle without invoking adapters."
     },
@@ -2320,7 +2354,7 @@
       "default": "not promoted by engineering receipts alone"
     }
   },
-  "digest": "a3ef5979c34f7151495b78bef19315baf6342fd659bb06a597fffba0817242e0",
+  "digest": "5c5583fe37dd851dc6f008ee14271c66a605d79d14ce21415a9208ba9fee3b5d",
   "fixtureDigest": "56f7f36d3b25b3b11a208be3de337e637b9782e6759faea1e1ec107b0a90f0ce",
   "fixtures": [
     {
