@@ -62,12 +62,11 @@ def test_changing_activation_does_not_bypass_closure_binding():
         validate_v8_committed_prefix(document["public"], document["contexts"])
 
 
-def test_matching_closure_backed_call_does_not_discard_its_retained_cells():
+def test_matching_closure_backed_call_preserves_its_retained_cells():
     document, row = callback_prefix("invocation")
     row["fields"]["activation"] = "call"
     before = copy.deepcopy(document)
-    with pytest.raises(NativeV8Error, match="retained-call replay profile"):
-        validate_v8_committed_prefix(document["public"], document["contexts"])
+    validate_v8_committed_prefix(document["public"], document["contexts"])
     assert document == before
 
 

@@ -661,25 +661,68 @@ def _closure_entry_function(functions, entry, closure):
     return selected
 
 
-def _initial_state(program, invocation, functions=(), random_seed=None):
+def _initial_state(
+    program,
+    invocation,
+    functions=(),
+    random_seed=None,
+    *,
+    retained_state=None,
+    invocation_ordinal=0,
+):
     graph = invocation.get("inputGraph")
     if not isinstance(graph, dict) or set(graph) != {"roots", "objects"}:
         _fail("Invocation input graph")
-    heap = []
+    from .semantic_records import graph as validate_graph
+
+    heap = copy.deepcopy(retained_state["heap"]) if retained_state is not None else []
+    retained = {identity for identity, _ in heap}
+    try:
+        validate_graph(graph, retained=retained)
+    except ValueError as error:
+        raise NativeV8Error("Invalid invocation input graph: " + str(error)) from error
     for node in graph["objects"]:
+        if node["id"] in retained:
+            _fail("Invocation graph overwrites a retained heap identity")
         row = {
             "kind": node["kind"],
             "prototype": node.get("prototype", "ordinary"),
             "properties": [[p["key"], p["value"]] for p in node["properties"]],
         }
         heap.append([node["id"], row])
-    fn = next((f for f in functions if f.get("name") == invocation.get("entry")), {})
-    locals_ = []
-    aliases = []
-    for index, (name, value) in enumerate(_invocation_bindings(fn, invocation).items()):
-        cell = f"a0b{index}"
-        locals_.append([cell, value])
-        aliases.append([name, cell])
+    receiver = invocation.get("receiver", ["undefined"])
+    if receiver[0] == "ref" and receiver[1] not in dict(heap):
+        _fail("Invocation receiver references an unknown identity")
+    closure_id = invocation.get("closureId")
+    closure = dict(heap).get(closure_id) if closure_id is not None else None
+    fn = (
+        _closure_entry_function(functions, invocation.get("entry"), closure)
+        if closure_id is not None
+        else next(
+            (
+                f
+                for f in functions
+                if f.get("name") == invocation.get("entry")
+                or "function:" + str(f.get("start")) == invocation.get("entry")
+            ),
+            {},
+        )
+    )
+    locals_ = copy.deepcopy(retained_state["locals"]) if retained_state is not None else []
+    aliases = [
+        [capture["binding"], capture["cell"]] for capture in (closure or {}).get("captures", [])
+    ]
+    ordinal = 0
+    for name, tagged in _invocation_bindings(fn, invocation).items():
+        cell = f"a{invocation_ordinal}b{ordinal}"
+        while cell in dict(locals_):
+            ordinal += 1
+            cell = f"a{invocation_ordinal}b{ordinal}"
+        ordinal += 1
+        _set_row(locals_, cell, tagged)
+        _set_row(aliases, name, cell)
+    if any(cell not in dict(locals_) for _, cell in aliases):
+        _fail("Closure captures an unavailable retained cell")
     if random_seed is not None and (
         type(random_seed) is not int or not 0 <= random_seed <= 0xFFFFFFFF
     ):
@@ -691,18 +734,22 @@ def _initial_state(program, invocation, functions=(), random_seed=None):
         "effects": [],
         "jobs": [],
         "ready": [],
-        "randomState": random_seed,
+        "randomState": retained_state["randomState"]
+        if retained_state is not None and random_seed is not None
+        else random_seed,
         "pending": None,
         "lastReturn": None,
         "completion": None,
-        "receiver": invocation.get("receiver", ["undefined"]),
+        "receiver": copy.deepcopy(receiver),
         "captureAliases": aliases,
         "continuations": [],
         "reactionSequence": 0,
         "blockedSync": None,
         "callReturn": None,
         "activeJob": None,
-        "scheduler": {"registration": 0, "ready": 0},
+        "scheduler": copy.deepcopy(retained_state["scheduler"])
+        if retained_state is not None
+        else {"registration": 0, "ready": 0},
         "frameFunctions": [[invocation["invocationId"], invocation["entry"]]],
         "jobErrors": [],
         "protocol": None,
@@ -791,103 +838,69 @@ def _replay_shared_state(
             program, functions, random_seed = published_row
             if fields.get("sourceDigest") != program.get("sourceDigest"):
                 _fail("Invocation source/definition binding")
+            retained_owner = next(
+                (
+                    identity
+                    for identity in reversed(controllers)
+                    if invocation_metadata[identity]["realmId"] == fields["realmId"]
+                ),
+                None,
+            )
+            base = controllers.get(retained_owner)
+            if base is not None:
+                if fields.get("realmPolicy") != "retained":
+                    _fail("Fresh realm identity cannot be reused")
+                previous = invocation_metadata[retained_owner]
+                if (
+                    previous["sourceDigest"] != program.get("sourceDigest")
+                    or published[previous["programId"]][2] != random_seed
+                ):
+                    _fail("Retained invocation differs from its realm source or seed")
+                if fields["taskRevision"] < previous["taskRevision"]:
+                    _fail("Retained invocation has a stale task revision")
+                if any(
+                    saved["stack"]
+                    for identity, saved in controllers.items()
+                    if invocation_metadata[identity]["realmId"] == fields["realmId"]
+                    and identity not in cancelled_invocations
+                ):
+                    _fail("Invocation cannot interrupt a running JavaScript stack")
+            owner = fields.get("parentInvocationId")
+            if owner is not None and (owner not in controllers or owner in cancelled_invocations):
+                _fail("Child has no live owning invocation")
             if fields.get("activation") == "callback":
-                owner = fields.get("parentInvocationId")
-                base = controllers.get(owner)
-                if base is None:
+                if owner is None or base is None:
                     _fail("Callback has no independently replayed owner")
-                if owner in cancelled_invocations:
-                    _fail("Callback belongs to a cancelled invocation")
                 if any(
                     fields[key] != invocation_metadata[owner][key]
                     for key in ("realmId", "programId", "track")
                 ):
                     _fail("Callback differs from its retained owner's realm or program")
-                if (
-                    same_realm(owner, active_invocation)
-                    and active_invocation not in cancelled_invocations
-                    and state is not None
-                    and state["stack"]
-                ):
-                    _fail("Callback cannot interrupt a running JavaScript stack")
-                # Resolve before importing the observed graph or allocating any
-                # cells. A caller cannot redirect retained captures to another
-                # function by changing only the public entry spelling.
-                closure = _table(base, "heap").get(fields.get("closureId"))
-                function = _closure_entry_function(functions, fields.get("entry"), closure)
-                invocation_inputs[fields["invocationId"]] = {
-                    "graph": copy.deepcopy(fields["inputGraph"]),
-                    "retained": [identity for identity, _ in base["heap"]],
-                }
-                callback_bindings = _invocation_bindings(function, fields)
-                callback_invocation = copy.deepcopy(fields)
-                callback_invocation["inputGraph"]["roots"] = []
-                callback_invocation["bindings"] = {}
-                # Retained callback cells are allocated below, once, against
-                # the original observed arguments and the retained cell set.
-                callback_state = _initial_state(program, callback_invocation, (), random_seed)
-                for identity, _ in callback_state["heap"]:
-                    if identity in dict(base["heap"]):
-                        _fail("Callback graph overwrites a retained heap identity")
-                callback_state["heap"] = copy.deepcopy(base["heap"]) + callback_state["heap"]
-                callback_state["locals"] = copy.deepcopy(base["locals"])
-                callback_state["scheduler"] = copy.deepcopy(base["scheduler"])
-                callback_state["reactionSequence"] = base["reactionSequence"]
-                callback_state["randomState"] = base["randomState"]
-                callback_state["effects"] = []
-                callback_state["jobs"] = []
-                callback_state["ready"] = []
-                callback_state["continuations"] = []
-                callback_state["stack"] = [fields["invocationId"]]
-                callback_state["pending"] = None
-                callback_state["lastReturn"] = None
-                callback_state["completion"] = None
-                callback_state["callReturn"] = None
-                callback_state["blockedSync"] = None
-                callback_state["receiver"] = fields.get("receiver", ["undefined"])
-                callback_state["captureAliases"] = []
-                callback_state["frameFunctions"] = [[fields["invocationId"], fields["entry"]]]
-                callback_state["captureAliases"] = [
-                    [capture["binding"], capture["cell"]] for capture in closure.get("captures", [])
-                ]
-                # Callback invocation identifiers end in their deterministic event ordinal.
-                suffix = "".join(c for c in fields["invocationId"] if c.isdigit()) or "0"
-                ordinal = 0
-                for name, value in callback_bindings.items():
-                    cell = f"a{suffix}b{ordinal}"
-                    while cell in dict(callback_state["locals"]):
-                        ordinal += 1
-                        cell = f"a{suffix}b{ordinal}"
-                    ordinal += 1
-                    _set_row(callback_state["locals"], cell, value)
-                    _set_row(callback_state["captureAliases"], name, cell)
-                state = callback_state
-            elif fields.get("activation") == "call":
-                if fields.get("closureId") is not None:
-                    retained_owner = next(
-                        (
-                            identity
-                            for identity in reversed(controllers)
-                            if invocation_metadata[identity]["realmId"] == fields["realmId"]
-                        ),
-                        None,
-                    )
-                    if retained_owner is None or invocation_metadata[retained_owner][
-                        "sourceDigest"
-                    ] != program.get("sourceDigest"):
-                        _fail("Closure invocation differs from its retained realm source")
-                    _closure_entry_function(
-                        functions,
-                        fields.get("entry"),
-                        _table(controllers[retained_owner], "heap").get(fields["closureId"]),
-                    )
-                    _fail("Closure-backed call activation lacks a retained-call replay profile")
-                state = _initial_state(program, fields, functions, random_seed)
-                invocation_inputs[fields["invocationId"]] = {
-                    "graph": copy.deepcopy(fields["inputGraph"])
-                }
-            else:
+            elif fields.get("activation") != "call":
                 _fail("Unsupported invocation activation in v8 shared replay")
+            if fields.get("closureId") is not None:
+                # Resolve before importing inputs or allocating captured cells.
+                # The observed entry cannot redirect a retained closure's code.
+                _closure_entry_function(
+                    functions,
+                    fields.get("entry"),
+                    _table(base, "heap").get(fields["closureId"]) if base is not None else None,
+                )
+            state = _initial_state(
+                program,
+                fields,
+                functions,
+                random_seed,
+                retained_state=base,
+                invocation_ordinal=len(controllers),
+            )
+            invocation_inputs[fields["invocationId"]] = {
+                "graph": copy.deepcopy(fields["inputGraph"])
+            }
+            if base is not None and base["heap"]:
+                invocation_inputs[fields["invocationId"]]["retained"] = [
+                    identity for identity, _ in base["heap"]
+                ]
             active_invocation = fields["invocationId"]
             invocation_metadata[active_invocation] = copy.deepcopy(fields)
             if active_invocation.startswith("callbackinvoke"):
@@ -1165,7 +1178,7 @@ def _merge_callback_state(target, source):
     """Carry heap/cells and scheduler state between callback and owner frames."""
     if not isinstance(target, dict) or not isinstance(source, dict):
         return
-    for field in ("heap", "locals", "scheduler", "reactionSequence", "randomState"):
+    for field in ("heap", "locals", "scheduler", "randomState"):
         if field in source:
             target[field] = copy.deepcopy(source[field])
 
