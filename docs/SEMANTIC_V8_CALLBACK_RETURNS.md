@@ -157,16 +157,31 @@ or closed handlers and revoked guest callback capabilities cannot be revived.
 Reattachment does not issue a new guest request, create a dispatch or repeat the
 original registration.
 
-`scripts/generate_recovery_v8.mjs` retains five producer-generated recovery
-controls, with 18 selected records: fulfilled and rejected recovery, an explicitly
+`scripts/generate_recovery_v8.mjs` retains six producer-generated recovery
+controls, with 26 selected records: fulfilled and rejected recovery, an explicitly
 unresolved lost result, verified non-dispatch followed by attempt 2, and an
-existing subscription reattached after JSON restoration. The first three start
+existing subscription reattached after JSON restoration, plus a returning owned
+callback restored from an independently read durable input journal. The first three start
 with one actual controlled adapter call, then prove recovery does not call it
 again. The retry control imports the documented boundary before the adapter;
 only its verified second attempt makes one actual adapter call. Subscription
 recovery registers once and reattaches once, then delivers two callbacks without
 repeating registration. Every context and prediction boundary is independently
 reconstructed in Python, including its saved continuation.
+
+The returning callback control writes one real durable arrival while the parent
+is suspended, restores the queue with a new journal reader, and restores again
+between the child's return and final completion. Two arguments and the receiver
+retain the same cyclic object, the input retains its value captured before a
+later external mutation, and the closure retains its earlier captured cell.
+Restoration does not recreate a dead native adapter continuation. Completing the
+child still leaves the parent effect unresolved; only a separate external
+reconciliation receipt supplies the parent outcome. A third independent-reader
+restore checks the completed result. The adapter is called once throughout.
+
+Native replay also refuses canonical native callback event counters above the
+JavaScript safe integer limit. Oversized decimal names cannot silently avoid the
+counter check or alter the handler's seen events.
 
 The retained-handler controls now also include a nonnull lifetime owner with
 fresh event realms: eight selected episodes, 58 records in total. This guards
@@ -188,3 +203,9 @@ external recovery, handlers, retained calls, callback results and identity,
 observation transactions, cancellation, realm scheduling and mixed host/Promise
 composition. The regenerated fixtures also pass the 121-test focused subset;
 these overlapping counts are not additive. Ruff and whitespace checks pass.
+
+The durable owned-return follow-up passes **109 tests** covering recovery,
+handlers, callback results and retained invocations, including the new cyclic
+receiver/input alias checks, missing-parent-result check, unknown returned
+identity refusal and two callback event counter overflow cases. This focused
+count overlaps the earlier integrated run and does not broaden admission claims.

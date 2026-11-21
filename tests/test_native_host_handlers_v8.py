@@ -175,6 +175,19 @@ def test_event_identity_cannot_be_delivered_twice():
         validate_v8_committed_prefix(document["public"], document["contexts"])
 
 
+@pytest.mark.parametrize("suffix", ["9007199254740992", "9" * 100])
+def test_canonical_native_event_sequence_cannot_overflow(suffix):
+    document = artifact()
+    row = next(row for row in document["public"]["timeline"] if row["kind"] == "event")
+    through(document, row)
+    identity = "callbackevent" + suffix
+    row["fields"].update(eventId=identity, triggerId="event:outside:" + identity)
+    before = copy.deepcopy(document)
+    with pytest.raises(NativeV8Error, match="native callback event sequence"):
+        validate_v8_committed_prefix(document["public"], document["contexts"])
+    assert document == before
+
+
 def test_closed_host_handler_cannot_receive_more_events():
     document = artifact()
     event = copy.deepcopy(

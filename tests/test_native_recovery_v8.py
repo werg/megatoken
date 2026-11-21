@@ -75,7 +75,7 @@ def dispatch_row(attempt):
     }
 
 
-@pytest.mark.parametrize("case", range(5))
+@pytest.mark.parametrize("case", range(6))
 def test_recovery_replays_every_public_prediction_and_json_boundary(case):
     document = artifact(case)
     receipt = validate_v8_artifact(document)
@@ -112,6 +112,69 @@ def test_recovery_replays_every_public_prediction_and_json_boundary(case):
     else:
         assert document["recovery"]["adapterCalls"] == 1
         assert final["state"]["completion"]["kind"] == ("throw" if case == 1 else "return")
+
+
+def test_durable_owned_return_recovery_preserves_receiver_aliases_cycles_and_captured_cells():
+    document = artifact(5)
+    assert document["recovery"]["durableArrivals"] == 1
+    assert document["recovery"]["independentReaderRestores"] == 3
+    assert document["recovery"]["adapterCalls"] == 1
+    child_contexts = [
+        context for context in document["contexts"] if context["invocationId"] == "child"
+    ]
+    assert len(child_contexts) == 2  # Separate saved return and end boundaries.
+    for context in child_contexts:
+        value = context["state"]["receiver"]
+        assert context["input"]["graph"]["roots"] == [value, value]
+        assert dict(context["state"]["heap"])[value[1]]["properties"] == [
+            ["value", ["num", 4]],
+            ["self", value],
+        ]
+        assert dict(context["state"]["locals"])["saved"] == ["ref", "retained"]
+        assert context["state"]["captureAliases"] == [
+            ["saved", "saved"],
+            ["value", "a1b0"],
+            ["alias", "a1b1"],
+        ]
+        assert dict(context["state"]["locals"])["a1b0"] == value
+        assert dict(context["state"]["locals"])["a1b1"] == value
+        assert dict(context["obligations"]["intents"])["root/effect"]["status"] == "dispatched"
+    final = _replay_shared_state(
+        document["public"]["timeline"],
+        document["contexts"],
+        {},
+        roundtrip=True,
+        boundary_invocation="root",
+    )
+    assert final["state"]["completion"]["value"] == document["recovery"]["callbackResult"]
+    assert (
+        dict(final["state"]["heap"])["external"]["result"] == document["recovery"]["callbackResult"]
+    )
+
+
+def test_completing_the_recovered_child_does_not_supply_its_parents_missing_result():
+    state, _ = holders(5)
+    assert state[3]["intents"][0][1]["status"] == "dispatched"
+    assert state[3]["intents"][0][1]["result"] is None
+    assert state[0]["completion"] is None
+    assert dict(state[0]["heap"])["external"]["state"] == "pending"
+    assert state[1] == {"root/effect"}
+    assert state[2] == set()
+
+
+def test_reconciliation_cannot_import_an_unknown_returned_identity_after_child_recovery():
+    state, row = holders(5)
+    apply(state, row)
+    result = copy.deepcopy(
+        next(row for row in artifact(5)["public"]["timeline"] if row["kind"] == "result")
+    )
+    result["fields"]["result"] = ["ref", "missing"]
+    result["fields"]["line"] = encode_record(
+        "observe",
+        {"effect": "effect", "status": "fulfilled", "result": ["ref", "missing"]},
+        role="observed",
+    )
+    refused_without_mutation(state, result, "unknown identity")
 
 
 @pytest.mark.parametrize(

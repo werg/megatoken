@@ -2105,19 +2105,20 @@ def _apply_observation_staged(state, row, dispatched, settled, obligations, trac
                     _fail("Observed event has no active guest callback registration")
             if fields.get("eventId") in handler["seen"]:
                 _fail("Duplicate source event identity")
-            handler["seen"].append(fields["eventId"])
             suffix = fields["eventId"].removeprefix("callbackevent")
             if (
                 fields["eventId"].startswith("callbackevent")
-                and 0 < len(suffix) <= 16
+                and suffix
                 and suffix.isascii()
                 and suffix.isdecimal()
                 and suffix[0] != "0"
-                and int(suffix) <= 9007199254740991
             ):
+                if len(suffix) > 16 or int(suffix) > 9007199254740991:
+                    _fail("Invalid native callback event sequence")
                 for _, registration in obligations["callbacks"]:
                     if registration.get("subscriptionId") == fields["subscriptionId"]:
                         registration["sequence"] = max(registration.get("sequence", 0), int(suffix))
+            handler["seen"].append(fields["eventId"])
             obligations["handlers"] = [[key, value] for key, value in handlers.items()]
         return
     if row["kind"] == "handler":
