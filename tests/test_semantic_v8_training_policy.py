@@ -4,6 +4,7 @@ import base64
 import gzip
 import hashlib
 import json
+import os
 from dataclasses import replace
 from pathlib import Path
 from types import SimpleNamespace
@@ -20,6 +21,12 @@ from megatoken.training.semantic_v8 import (
     validate_semantic_training_policy_v8,
 )
 from tests.test_source_identity_v8 import direct_source_sidecar
+
+
+def pinned_tokenizer_path():
+    fallback = Path(__file__).resolve().parents[1].parent / "checkpoint" / "tokenizer.json"
+    return Path(os.environ.get("MEGATOKEN_TOKENIZER_JSON", fallback))
+
 
 POLICY = {
     "schema": "semantic-training-policy/8",
@@ -430,7 +437,7 @@ def test_readiness_loads_the_actual_pinned_tokenizer_when_available(tmp_path):
     from megatoken.generation.codec import LING_TOKENIZER_SHA256, LING_VOCAB_SIZE, ByteCodec
     from megatoken.training.readiness import check
 
-    tokenizer = Path(__file__).resolve().parents[1].parent / "checkpoint" / "tokenizer.json"
+    tokenizer = pinned_tokenizer_path()
     if not tokenizer.exists():
         pytest.skip("The separately provisioned pinned tokenizer is unavailable")
     codec = ByteCodec.from_tokenizer_json(
@@ -468,7 +475,7 @@ def test_semantic_v8_production_template_passes_real_config_validation(tmp_path)
     from megatoken.io import read_mapping
 
     root = Path(__file__).resolve().parents[1]
-    tokenizer = root.parent / "checkpoint" / "tokenizer.json"
+    tokenizer = pinned_tokenizer_path()
     if not tokenizer.exists():
         pytest.skip("The separately provisioned pinned tokenizer is unavailable")
     codec = ByteCodec.from_tokenizer_json(

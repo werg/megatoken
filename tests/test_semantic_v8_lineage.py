@@ -191,3 +191,87 @@ def test_v8_checkpoint_cannot_export_through_generic_byte_codec_relocation(tmp_p
     )
     with pytest.raises((ValueError, FileNotFoundError)):
         load_trained(checkpoint, codec_path="byte")
+
+
+def test_diloco_coordinator_retains_and_revalidates_policy_and_corpus_lineage(tmp_path):
+    from megatoken.io import write_json
+    from megatoken.loading import load_model_config
+    from megatoken.training.diloco_server import Coordinator, initialize_coordinator
+    from megatoken.training.transducer import HindsightSchedule
+
+    codec = ByteCodec.byte_fallback()
+    chunking = ChunkingConfig().with_hard_limit(8).identity(codec)
+    lineage, payload, _ = fixture(codec, chunking)
+    model_config = load_model_config("tiny")
+
+    def initialize(root, *, policy, record):
+        tensor = torch.ones(2, dtype=torch.float32)
+        return initialize_coordinator(
+            root,
+            run_id="v8-lineage",
+            model_state={"weight": tensor},
+            masters={"weight": tensor},
+            model_config=model_config.to_dict(),
+            codec_fingerprint=codec.fingerprint,
+            train_identity="objective",
+            dataset_fingerprint=lineage["preparedCorpusDigest"],
+            chunking_identity=chunking,
+            semantic_v8_policy=policy,
+            semantic_v8_lineage=record,
+            workers=1,
+            min_quorum=1,
+            grace_seconds=0,
+            token_budget=0,
+            transducer={
+                "geometry": dict(vars(model_config.transducer_geometry)),
+                "evidence_from": HindsightSchedule().evidence_steps,
+            },
+        )
+
+    with pytest.raises(ValueError, match="policy and training lineage"):
+        initialize(
+            tmp_path / "missing", policy=payload["train_config"]["semantic_v8_policy"], record=None
+        )
+    substituted = {
+        **lineage,
+        "preparedManifestFingerprints": ["8" * 64, "9" * 64],
+        "preparedCorpusDigest": content_hash(["8" * 64, "9" * 64]),
+    }
+    substituted["digest"] = stable_algorithm_hash(
+        {key: value for key, value in substituted.items() if key != "digest"}
+    )
+    with pytest.raises(ValueError, match="prepared corpus identity"):
+        initialize(
+            tmp_path / "substituted-corpus",
+            policy=payload["train_config"]["semantic_v8_policy"],
+            record=substituted,
+        )
+
+    root = tmp_path / "restored"
+    initialize(root, policy=payload["train_config"]["semantic_v8_policy"], record=lineage)
+    manifest_path = root / "manifest.json"
+    manifest = json.loads(manifest_path.read_text())
+    changed = copy.deepcopy(manifest)
+    changed["semantic_v8_policy"] = {**changed["semantic_v8_policy"], "registryDigest": "9" * 64}
+    changed["fingerprint"] = content_hash(
+        {key: value for key, value in changed.items() if key != "fingerprint"}
+    )
+    write_json(manifest_path, changed)
+    with pytest.raises(ValueError, match="V8 training lineage differs"):
+        Coordinator(root)
+    substituted_corpus = copy.deepcopy(manifest)
+    substituted_corpus["dataset_fingerprint"] = "9" * 64
+    substituted_corpus["fingerprint"] = content_hash(
+        {key: value for key, value in substituted_corpus.items() if key != "fingerprint"}
+    )
+    write_json(manifest_path, substituted_corpus)
+    with pytest.raises(ValueError, match="prepared corpus identity"):
+        Coordinator(root)
+    missing = copy.deepcopy(manifest)
+    missing["semantic_v8_lineage"] = None
+    missing["fingerprint"] = content_hash(
+        {key: value for key, value in missing.items() if key != "fingerprint"}
+    )
+    write_json(manifest_path, missing)
+    with pytest.raises(ValueError, match="policy and training lineage are incomplete"):
+        Coordinator(root)

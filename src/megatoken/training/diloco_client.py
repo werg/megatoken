@@ -185,6 +185,8 @@ class DecoupledWorker:
         token_budget: int,
         train_identity: str,
         dataset_fingerprint: str,
+        semantic_v8_lineage: dict | None = None,
+        semantic_v8_policy: dict | None = None,
     ) -> None:
         self.settings = settings
         self.worker = settings.resolved_worker_id
@@ -195,6 +197,16 @@ class DecoupledWorker:
             allow_http=settings.allow_private_http,
         )
         self.manifest = self.transport.json("GET", "/v1/manifest")
+        if (semantic_v8_policy is None) != (semantic_v8_lineage is None):
+            raise ValueError("V8 worker policy and training lineage must be retained together")
+        if semantic_v8_lineage is not None:
+            from megatoken.semantic_lineage_v8 import validate_training_lineage_v8
+
+            validate_training_lineage_v8(
+                semantic_v8_lineage,
+                policy=semantic_v8_policy,
+                tokenizer_identity=codec_fingerprint,
+            )
         if (
             self.manifest["run_id"] != settings.run_id
             or self.manifest["workers"] != settings.workers
@@ -204,6 +216,8 @@ class DecoupledWorker:
             or self.manifest["token_budget"] != token_budget
             or self.manifest["train_identity"] != train_identity
             or self.manifest["dataset_fingerprint"] != dataset_fingerprint
+            or self.manifest.get("semantic_v8_lineage") != semantic_v8_lineage
+            or self.manifest.get("semantic_v8_policy") != semantic_v8_policy
         ):
             raise ValueError("DiLoCo worker architecture/codec/topology/budget differs from syncer")
         self.fragments = tuple(Fragment.from_dict(x) for x in self.manifest["fragments"])

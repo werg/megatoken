@@ -361,19 +361,34 @@ def train(
     config: TrainConfig, *, resume: str | None = None, phase_transition: bool = False
 ) -> dict[str, Any]:
     from megatoken.data.recipes import validate_training_donors
-    from megatoken.training.semantic_budget import (
-        SemanticExperimentConfig,
-        SemanticExposure,
-        restore_semantic_training_state,
-        semantic_training_state,
-    )
 
-    experiment = (
-        SemanticExperimentConfig(**config.semantic_experiment)
-        if config.semantic_experiment
-        else None
-    )
-    cohort_digest = experiment.preflight(phase=config.phase) if experiment else None
+    if config.semantic_experiment:
+        from megatoken.training.semantic_budget import (
+            SemanticExperimentConfig,
+            SemanticExposure,
+            restore_semantic_training_state,
+            semantic_training_state,
+        )
+
+        experiment = SemanticExperimentConfig(**config.semantic_experiment)
+        cohort_digest = experiment.preflight(phase=config.phase)
+    else:
+        SemanticExposure = None
+        experiment = cohort_digest = None
+
+        def restore_semantic_training_state(payload, *, cohort_digest):
+            if cohort_digest is not None:
+                raise ValueError("A semantic cohort requires its experiment exposure state")
+            if {"semantic_exposure", "semantic_cohort_digest"}.intersection(payload):
+                raise ValueError(
+                    "A nonsemantic checkpoint cannot contain semantic experiment state"
+                )
+            return None
+
+        def semantic_training_state(exposure, *, cohort_digest):
+            if exposure is not None or cohort_digest is not None:
+                raise ValueError("A nonsemantic run cannot retain semantic experiment state")
+            return {}
 
     validate_training_donors(config)
     if phase_transition and not resume:
@@ -458,20 +473,6 @@ def train(
             for part in dataset.parts
             for receipt in part.manifest.get("sources", [])
         )
-        has_v8 = any(
-            receipt.get("schema") == "semantic-preparation/8"
-            for part in dataset.parts
-            for receipt in part.manifest.get("sources", [])
-        )
-        has_v8_rows = any(
-            json.loads(episode.supervision.annotations_json)
-            .get("semantic_execution", {})
-            .get("schema")
-            == "semantic-execution/8"
-            for episode in dataset.iter_episodes()
-        )
-        if has_v8_rows and not has_v8:
-            raise ValueError("V8 semantic rows have no matching preparation manifest")
         if has_v7 or config.semantic_v7_policy is not None:
             from .semantic_v7 import (
                 validate_prepared_semantic_v7,
@@ -491,20 +492,15 @@ def train(
                 raise ValueError(
                     "V7 prepared data differs from the explicitly frozen training registry"
                 )
-        if has_v8 or config.semantic_v8_policy is not None:
-            from .semantic_v8 import (
-                validate_prepared_semantic_v8,
-                validate_semantic_training_policy_v8,
-            )
+        from .semantic_v8 import preflight_semantic_training_v8
 
-            v8_policy = validate_semantic_training_policy_v8(config.semantic_v8_policy)
-            validate_prepared_semantic_v8(
-                config.datasets,
-                codec=codec,
-                policy=v8_policy,
-                max_history=model_config.max_history_chunks,
-                max_positions=model_config.max_capacity,
-            )
+        preflight_semantic_training_v8(
+            config.datasets,
+            codec=codec,
+            policy=config.semantic_v8_policy,
+            max_history=model_config.max_history_chunks,
+            max_positions=model_config.max_capacity,
+        )
         if experiment is not None:
             from .semantic_budget import validate_stage_supply
 
@@ -826,6 +822,11 @@ def train(
                 stream_identity=stream.fingerprint,
                 chunking=chunking_identity,
             )
+            if payload is not None and not phase_transition:
+                from megatoken.semantic_lineage_v8 import checkpoint_lineage_v8
+
+                if checkpoint_lineage_v8(payload, resumed_metadata) != semantic_training_v8:
+                    raise ValueError("V8 resume changed its admitted data or training stream")
         if config.decoupled is not None:
             diloco = DecoupledWorker(
                 config.decoupled,
@@ -836,6 +837,8 @@ def train(
                 token_budget=phase.budget,
                 train_identity=training_identity(config),
                 dataset_fingerprint=dataset.identity,
+                semantic_v8_lineage=semantic_training_v8,
+                semantic_v8_policy=config.semantic_v8_policy,
             )
             diloco.attach_transducer(TransducerSync())
             if payload is None:

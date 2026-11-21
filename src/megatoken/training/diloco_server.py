@@ -72,6 +72,8 @@ def initialize_coordinator(
     train_identity: str,
     dataset_fingerprint: str = "",
     chunking_identity: dict | None = None,
+    semantic_v8_lineage: dict | None = None,
+    semantic_v8_policy: dict | None = None,
     workers: int = 8,
     min_quorum: int = 4,
     fragment_bytes: int = 64 << 20,
@@ -106,6 +108,19 @@ def initialize_coordinator(
     if root.exists() and any(root.iterdir()):
         raise FileExistsError("Refusing to overwrite a DiLoCo coordinator run")
     root.mkdir(parents=True, exist_ok=True)
+    if (semantic_v8_policy is None) != (semantic_v8_lineage is None):
+        raise ValueError("V8 coordinator policy and training lineage must be retained together")
+    if semantic_v8_lineage is not None:
+        from megatoken.semantic_lineage_v8 import validate_training_lineage_v8
+
+        validate_training_lineage_v8(
+            semantic_v8_lineage,
+            policy=semantic_v8_policy,
+            tokenizer_identity=codec_fingerprint,
+            chunking_fingerprint=(chunking_identity or {}).get("fingerprint"),
+        )
+        if semantic_v8_lineage["preparedCorpusDigest"] != dataset_fingerprint:
+            raise ValueError("Coordinator V8 lineage differs from its prepared corpus identity")
     fragments = plan_fragments(masters, target_bytes=fragment_bytes)
     manifest = {
         "protocol": 1,
@@ -124,6 +139,8 @@ def initialize_coordinator(
         "train_identity": train_identity,
         "dataset_fingerprint": dataset_fingerprint,
         "chunking_identity": chunking_identity,
+        "semantic_v8_lineage": semantic_v8_lineage,
+        "semantic_v8_policy": semantic_v8_policy,
         "parameter_identity": parameter_identity(masters),
         "fragments": [item.to_dict() for item in fragments],
         "transducer": transducer,
@@ -173,6 +190,21 @@ class Coordinator:
         if content_hash(self.manifest) != identity:
             raise ValueError("Coordinator manifest fingerprint mismatch")
         self.manifest["fingerprint"] = identity
+        lineage = self.manifest.get("semantic_v8_lineage")
+        policy = self.manifest.get("semantic_v8_policy")
+        if (policy is None) != (lineage is None):
+            raise ValueError("Coordinator V8 policy and training lineage are incomplete")
+        if lineage is not None:
+            from megatoken.semantic_lineage_v8 import validate_training_lineage_v8
+
+            validate_training_lineage_v8(
+                lineage,
+                policy=policy,
+                tokenizer_identity=self.manifest["codec_fingerprint"],
+                chunking_fingerprint=self.manifest["chunking_identity"]["fingerprint"],
+            )
+            if lineage["preparedCorpusDigest"] != self.manifest["dataset_fingerprint"]:
+                raise ValueError("Coordinator V8 lineage differs from its prepared corpus identity")
         self.fragments = tuple(Fragment.from_dict(x) for x in self.manifest["fragments"])
         self.progress = strict_json_loads((self.root / "progress.json").read_bytes())
         # ``lock`` serializes merges and file work, which can take a long time.

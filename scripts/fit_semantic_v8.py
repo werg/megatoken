@@ -25,9 +25,8 @@ from unittest.mock import patch
 
 import torch
 
-from megatoken.data.algorithm_v7 import stable_algorithm_hash
 from megatoken.data.chunking import ChunkingConfig
-from megatoken.data.detailed_v7 import parse_record
+from megatoken.data.detailed_v8 import parse_record
 from megatoken.data.media_assets import TensorAssetStore
 from megatoken.data.native_v8 import (
     _replay_shared_state,
@@ -37,6 +36,7 @@ from megatoken.data.native_v8 import (
 from megatoken.data.prefix_v8 import validate_v8_committed_prefix
 from megatoken.data.protocol_v8 import decode_protocol_record
 from megatoken.data.semantic_contract_v8 import CONTRACT_DIGEST, DEFINITION
+from megatoken.data.semantic_json import stable_algorithm_hash
 from megatoken.generation.codec import LING_TOKENIZER_SHA256, ByteCodec
 from megatoken.io import sha256_file
 from megatoken.loading import build_model
