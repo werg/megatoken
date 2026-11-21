@@ -25,15 +25,32 @@ STREAM_PRODUCERS = {
     "cross_track_evidence": "megatoken.data.concordance:compile_task",
 }
 
+# Semantic producers are versioned explicitly. Keep STREAM_PRODUCERS as the
+# existing global/default catalog so callers that do not select a semantic
+# contract retain their established behavior.
+SEMANTIC_STREAM_PRODUCERS = {
+    "v8": {
+        "semantic_execution": "megatoken.data.semantic_corpus_v8:prepare_semantic_corpus_v8",
+    },
+}
 
-def resolve_stream_producer(stream: str):
-    """Resolve a registered stream producer to its importable callable."""
+
+def resolve_stream_producer(stream: str, *, semantic_version: str | None = None):
+    """Resolve a registered stream producer, optionally pinning semantic format."""
     try:
-        path = STREAM_PRODUCERS[stream]
+        registry = (
+            STREAM_PRODUCERS
+            if semantic_version is None
+            else SEMANTIC_STREAM_PRODUCERS[semantic_version]
+        )
+        path = registry[stream]
         module_name, attribute = path.split(":", 1)
         producer = getattr(import_module(module_name), attribute)
     except (KeyError, ImportError, AttributeError, ValueError) as error:
-        raise ValueError(f"Unknown or unavailable stream producer for {stream!r}") from error
+        selected = "default" if semantic_version is None else f"semantic {semantic_version}"
+        raise ValueError(
+            f"Unknown or unavailable {selected} stream producer for {stream!r}"
+        ) from error
     if not callable(producer):
         raise ValueError(f"Stream producer for {stream!r} is not callable")
     return producer

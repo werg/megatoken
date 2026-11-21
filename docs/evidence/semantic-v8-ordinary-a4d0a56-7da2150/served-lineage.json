@@ -1,0 +1,30 @@
+{
+  "configSha256": "58ecc08ec1d67efae07baef003b192e4fe41b1d4edbb834e9eeebc4f7ffb7b21",
+  "digest": "a965617084f480b6abed78651d439d497394bd8929b8847902f50c6bd1cc163c",
+  "modelIdentity": "fe4e067bf584aae28c13b3d49caaa1f16208ad5c410e7850d6133f813819236c",
+  "modelVersion": 2,
+  "schema": "semantic-served-lineage/8",
+  "training": {
+    "chunkingFingerprint": "09a55e6b4e1697c8eb05579ab63bed60cdcbbcf46fdfa875bfc37108d2ccb8b5",
+    "contractDigest": "54d9769c22452263005bc9e6a5818ec5a1642325f91ef8d5661a45d71b56d298",
+    "digest": "552f96aa9fb2949e5cd5a76741bc4d64a0541986110b6b94709174be3eb3a1b7",
+    "fixtureDigest": "56f7f36d3b25b3b11a208be3de337e637b9782e6759faea1e1ec107b0a90f0ce",
+    "interoperabilityDigest": "0ec1798afb729c3c877c7f2f08311730e9f0dae9bd303b500e90198633567b76",
+    "policy": {
+      "consumerRevision": "7da2150adaf5501338d73f82a41a9058a5bd1937",
+      "producerRevision": "a4d0a56ef5b5b0ab1c1768ed16b15194630a0e89",
+      "registryDigest": "d3147c3e9088004a3c9c06eef0dd6864c05c600f4920538eff7970d43d243cbf",
+      "schema": "semantic-training-policy/8"
+    },
+    "preparedCorpusDigest": "a6d84644842084c25f54dae2745b56bdd5392b37f44e19d7c0881b5aaaa28065",
+    "preparedManifestFingerprints": [
+      "56db77914a0a1032e314efc7dec3b58cad85c30f7e02316be42e96aa924561be"
+    ],
+    "schema": "semantic-training-lineage/8",
+    "streamDigest": "e0bd409f30750cc3d42583d94d85daae1e08029647b4f586b1137bb34d34f236",
+    "tokenizerIdentity": "7f52faca2fe82273a889023defd2f1a6fd6080a21096ec77e97f4798a0a370b2",
+    "tokenizerSha256": "40fb9d7d7795b8bd305aeff39ce9963f3f450915b9553f2938e009be9a1fed60"
+  },
+  "trainingCheckpointSha256": "3d1b0d1d46a9c2f4e33f7a72cdab9ba135744630c618f7dfe7267558d3b9f109",
+  "transducerSha256": "7ce35a93c7adb7837bb63b97393cb6e3f7668b0ccce2683f1b0d2833411f697b"
+}

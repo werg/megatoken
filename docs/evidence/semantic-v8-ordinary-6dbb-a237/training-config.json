@@ -1,0 +1,35 @@
+{
+  "purpose": "diagnostic",
+  "phase": "SC",
+  "model": "tiny",
+  "codec": "/workspace/scratch/5b107c47f550/checkpoint/tokenizer.json",
+  "model_overrides": {
+    "vocab_size": 157184,
+    "max_history_chunks": 128,
+    "max_capacity": 128
+  },
+  "datasets": [
+    "/workspace/scratch/5b107c47f550/checkpoint/ordinary-6dbb-a237/prepared"
+  ],
+  "output": "/workspace/scratch/5b107c47f550/checkpoint/ordinary-6dbb-a237/fit",
+  "device": "cpu",
+  "precision": "fp32",
+  "max_steps": 1,
+  "checkpoint_every": 1,
+  "keep_checkpoints": 2,
+  "microbatch_episodes": 1,
+  "accumulate_scored": 1,
+  "accumulate_ingested": 1,
+  "max_accumulation_windows": 1,
+  "generated_capacity": 128,
+  "max_window_records": 128,
+  "max_history_tokens": 16384,
+  "gradient_checkpointing": false,
+  "expert_backend": "torch",
+  "semantic_v8_policy": {
+    "schema": "semantic-training-policy/8",
+    "producerRevision": "6dbb8c0baff3fd2490a7d78f31acd6e5fda63938",
+    "consumerRevision": "a2373660a4653ca5ab485c82bf453f1755e0dc1a",
+    "registryDigest": "5c0370fe39b73dae0e76bad1fc5165cbc6ae8773090209624077177afe305b1f"
+  }
+}

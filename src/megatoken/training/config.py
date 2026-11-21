@@ -156,6 +156,7 @@ class TrainConfig:
     allow_unverified_data: bool = False
     semantic_experiment: dict[str, Any] | None = None
     semantic_v7_policy: dict[str, Any] | None = None
+    semantic_v8_policy: dict[str, Any] | None = None
     use_stage_mixture: bool | None = None
     use_effort_mixture: bool | None = None
     engram_import: str | None = None
@@ -169,6 +170,16 @@ class TrainConfig:
             if self.semantic_experiment is not None:
                 raise ValueError(
                     "V7 training cannot reuse a historical semantic experiment contract"
+                )
+        if self.semantic_v8_policy is not None:
+            from .semantic_v8 import validate_semantic_training_policy_v8
+
+            validate_semantic_training_policy_v8(self.semantic_v8_policy)
+            if self.semantic_experiment is not None or self.semantic_v7_policy is not None:
+                raise ValueError("V8 training cannot reuse an older semantic training contract")
+            if self.codec == "byte" or self.allow_byte_codec:
+                raise ValueError(
+                    "V8 training requires the pinned raw tokenizer, never the byte fallback"
                 )
         if self.semantic_experiment is not None:
             from .semantic_budget import SemanticExperimentConfig
@@ -188,7 +199,7 @@ class TrainConfig:
                 raise ValueError(
                     "Fixed-token experiments require one physical record per atomic window"
                 )
-        elif self.phase in {"SE", "SC"}:
+        elif self.phase in {"SE", "SC"} and self.semantic_v8_policy is None:
             raise ValueError(
                 "Semantic training requires a frozen experiment and engineering-completion receipt"
             )

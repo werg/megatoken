@@ -28,7 +28,7 @@ maximum selected record is 65,536 bytes, with at most 64 physical fragments.
 | `commit` | `session`, `public`, `contexts`, `invocationId`, `record`, `selection` | Independently replay the appended candidate and advance the native continuation only if the original selection matches. |
 | `reject` | `session`, `selectionId`, `reason` | Discard a candidate and permit a retry against the same public state. |
 | `complete` | `session`, `public`, `contexts`, `invocationId` | Check that this invocation's explicit terminal record was acknowledged. The native session remains available for its caller and other callbacks. An optional `completion` is accepted but is not authority. |
-| `cancel` | `session`, `reason` | Close the whole native session, including a pending candidate. The caller also uses this after a complete episode. |
+| `cancel` | `session`, `reason` | Close the whole native session, including a pending candidate. The caller also uses this after a complete episode. The session ID stays closed and cannot be selected again; repeating close is idempotent. |
 | `metrics` or `status` | none | Return measured attempt evidence and cumulative costs. |
 
 On `select`, `contexts` contains exactly the contexts for previously committed
@@ -52,6 +52,27 @@ unchanged. This profile disables native memory writes and external source
 collections. It preserves the loaded checkpoint's normal native transducer.
 Completion is per invocation: ending a child callback does not erase its
 parent's continuation or a retained handler's later callbacks.
+
+Live checkpoints keep active model sessions under `sessions` and closed-session
+records under `closedSessions`. A closed, previously opened session retains its
+verified acknowledged history and opening receipt so recovery can recheck its
+accepted selections without making it active again. Restore rebuilds closed
+sessions in opening order and closes each before opening the next, which keeps
+the configured active-session limit in force. A close before any model session
+opens saves only a tombstone and creates no opening or token cost. The whole
+adapter checkpoint preserves the shared attempt allowance and costs across both
+groups.
+
+A retained closure binds its invocation and handler registration to one
+immutable function site in the published program. Both the requested entry
+and the closure's saved code reference must resolve uniquely, and their source
+starts must match. An unambiguous declared name and `function:<start>` may name
+the same function; an ambiguous name is rejected even if the other spelling is
+unique. Handler registration also checks that the retained realm belongs to the
+selected source. These checks run before input graph import, cell allocation,
+or handler publication. They prevent public observations from redirecting saved
+captures to a different function; they do not expand the native module or host
+callback profiles.
 
 ## Framing and measurement
 

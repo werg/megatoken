@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import copy
 
-from . import algorithm_v7 as scalar
+from . import semantic_primitives as scalar
 
 SCHEMA = "semantic-number-conversion-state/1"
 FIELDS = {

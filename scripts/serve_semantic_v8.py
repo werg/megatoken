@@ -30,7 +30,16 @@ def dispatch(adapter, request):
         return adapter.metrics()
     methods = {
         name: getattr(adapter, name)
-        for name in ("initialize", "select", "commit", "reject", "complete", "cancel")
+        for name in (
+            "initialize",
+            "select",
+            "commit",
+            "reject",
+            "complete",
+            "cancel",
+            "checkpoint",
+            "restore",
+        )
     }
     if operation not in methods:
         raise ValueError("Unknown native v8 RPC operation")
@@ -67,6 +76,7 @@ def main():
     adapter = NativeSemanticInferenceV8(
         runtime,
         model_identity=bundle.manifest["model_sha256"],
+        training_identity=bundle.manifest.get("semantic_v8_lineage_digest"),
         effort=args.effort,
         max_tokens=args.max_tokens,
         max_fragments=args.max_fragments,

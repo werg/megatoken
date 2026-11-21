@@ -29,6 +29,18 @@ def export_coordinator(root: str | Path, output: str | Path, config: object) -> 
         raise ValueError("Coordinator manifest checksum mismatch")
     if manifest["train_identity"] != training_identity(config):
         raise ValueError("Export config differs from the coordinator's training objective")
+    lineage = manifest.get("semantic_v8_lineage")
+    policy = manifest.get("semantic_v8_policy")
+    if (policy is None) != (lineage is None):
+        raise ValueError("Coordinator V8 policy and training lineage are incomplete")
+    if policy != config.semantic_v8_policy:
+        raise ValueError("Export config differs from the coordinator's V8 training policy")
+    if lineage is not None:
+        from megatoken.semantic_lineage_v8 import validate_training_lineage_v8
+
+        validate_training_lineage_v8(lineage, policy=policy)
+        if lineage["preparedCorpusDigest"] != manifest.get("dataset_fingerprint"):
+            raise ValueError("Coordinator V8 lineage differs from its prepared corpus identity")
     snapshot = torch.load(root / "bootstrap.pt", weights_only=True, map_location="cpu")["model"]
     # Preserve buffers from the initialization, since this outer optimizer only
     # synchronizes trainable parameter masters (no moving batch-norm statistics).
@@ -62,14 +74,32 @@ def export_coordinator(root: str | Path, output: str | Path, config: object) -> 
     from megatoken.training.transducer_sync import TransducerHost
 
     model_config = ModelConfig.from_dict(manifest["model_config"])
-    codec = load_codec(config.codec, vocab_size=model_config.vocab_size)
-    if codec.fingerprint != manifest["codec_fingerprint"]:
-        raise ValueError("Export codec differs from the coordinator")
     if "chunking_identity" not in manifest:
         raise ValueError("Coordinator snapshot lacks its required chunking identity")
+    if (config.semantic_v8_policy is None) != (lineage is None):
+        raise ValueError("Export V8 policy and coordinator training lineage are incomplete")
+    if config.semantic_v8_policy is not None:
+        from megatoken.training.semantic_v8 import load_semantic_v8_codec
+
+        codec = load_semantic_v8_codec(config.codec, vocab_size=model_config.vocab_size)
+    else:
+        if lineage is not None:
+            raise ValueError("Coordinator V8 lineage requires its pinned training policy")
+        codec = load_codec(config.codec, vocab_size=model_config.vocab_size)
+    if codec.fingerprint != manifest["codec_fingerprint"]:
+        raise ValueError("Export codec differs from the coordinator")
     chunking_identity = ChunkingConfig.from_identity(manifest["chunking_identity"], codec).identity(
         codec
     )
+    if config.semantic_v8_policy is not None:
+        from megatoken.semantic_lineage_v8 import validate_training_lineage_v8
+
+        validate_training_lineage_v8(
+            lineage,
+            policy=config.semantic_v8_policy,
+            tokenizer_identity=manifest["codec_fingerprint"],
+            chunking_fingerprint=chunking_identity["fingerprint"],
+        )
 
     host = TransducerHost(
         root,
@@ -94,6 +124,7 @@ def export_coordinator(root: str | Path, output: str | Path, config: object) -> 
             "master_weights": params,
             "outer_fragment_versions": versions,
             "global_step": max(versions),
+            **({"semantic_training_v8": lineage} if lineage is not None else {}),
         },
         {
             "global_step": max(versions),
@@ -102,6 +133,14 @@ def export_coordinator(root: str | Path, output: str | Path, config: object) -> 
             "export_only": True,
             "run_id": manifest["run_id"],
             "outer_fragment_versions": versions,
+            **(
+                {
+                    "dataset_fingerprint": lineage["streamDigest"],
+                    "semantic_v8_lineage_digest": lineage["digest"],
+                }
+                if lineage is not None
+                else {}
+            ),
         },
         pinned=True,
         attachments=transducer_attachment(host.checkpoint_state),

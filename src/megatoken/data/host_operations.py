@@ -12,7 +12,7 @@ import math
 from decimal import Decimal
 from importlib.resources import files
 
-from .witness_v6 import graph, value
+from .semantic_records import graph, value
 
 CONTRACT_BYTES = files("megatoken.data").joinpath("contracts/host-operations-v4.json").read_bytes()
 CONTRACT_DIGEST = hashlib.sha256(CONTRACT_BYTES).hexdigest()

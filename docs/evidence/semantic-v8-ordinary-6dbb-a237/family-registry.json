@@ -1,0 +1,664 @@
+{
+  "schema": "semantic-region-family-registry/1",
+  "policy": "semantic-region-family-components/1",
+  "traceFormat": "semantic-trace/8",
+  "coreSchema": "semantic-algorithm/2",
+  "seed": 17,
+  "holdouts": {
+    "families": [],
+    "sourceDigests": [],
+    "coreDigests": []
+  },
+  "sources": [
+    {
+      "id": "builtin-iterator-mixed-arithmetic:5ddc164b692cf27936e8ec6caf227df6b587618d",
+      "family": "builtin-iterator-mixed-arithmetic",
+      "ancestors": [],
+      "source": "\"use strict\";function run(x){const before=x+2;const a=[,x];const it=a.values();const first=it.next();a[2]=x+1;const second=it.next();const third=it.next();const end=it.next();const av=second.value;const bv=third.value;const after=av+bv;return before+after+1;}",
+      "entry": "run",
+      "sourceDigest": "ef320d15a906795b5c20370f30b9678217eda7ff792af9d86728dee216330867",
+      "coreDigest": null,
+      "coreStatus": "detailed"
+    },
+    {
+      "id": "callback-owned-join-awaited:bc7ff5ae29f3736754e734d99a922018c9e53440",
+      "family": "protocol-host-callback-join-awaited",
+      "ancestors": [],
+      "source": "\"use strict\";async function run(){let seen=0;let complete;await Promise.all([Promise.resolve(1)]);await host.withCallback(\"value\",function(n){complete=Promise.all([Promise.resolve(n).then(x=>x+1),Promise.resolve(2)]).then(function(a){seen+=a[0]+a[1];host.store(\"callback\",seen);return seen;});});await complete;const b=await Promise.all([Promise.resolve(seen)]);return b[0];}",
+      "entry": "run",
+      "sourceDigest": "0eb144dfe1ea326cb2fcbec348905199b726b965486335344299b6b146305bdc",
+      "coreDigest": null,
+      "coreStatus": "detailed"
+    },
+    {
+      "id": "callback-owned-join:df9bfe9cb95d45b969ceec8e60107acbda0f1b20",
+      "family": "protocol-host-callback-join",
+      "ancestors": [],
+      "source": "\"use strict\";async function run(){let seen=0;await Promise.all([Promise.resolve(1)]);await host.withCallback(\"value\",function(n){return Promise.all([Promise.resolve(n).then(x=>x+1),Promise.resolve(2)]).then(function(a){seen+=a[0]+a[1];host.store(\"callback\",seen);return seen;});});const b=await Promise.all([Promise.resolve(seen)]);return b[0];}",
+      "entry": "run",
+      "sourceDigest": "5a81ff7be84488a33b815edd07a232a6359ae9f133260e2b1321a5d75c921b28",
+      "coreDigest": null,
+      "coreStatus": "detailed"
+    },
+    {
+      "id": "causal-counter:65eb76b81f5285d4f9cd6ed11f866f410b7bc935",
+      "family": "async-counter",
+      "ancestors": [],
+      "source": "\"use strict\";async function run(key){const current=await host.readAsync(key);const next=current+1;host.store(key,next);return next;}",
+      "entry": "run",
+      "sourceDigest": "a66d7c5931a75114127af903b09b9e6cddd8a56036ce361a6eed7ecc10162ba5",
+      "coreDigest": null,
+      "coreStatus": "detailed"
+    },
+    {
+      "id": "custom-iterator-close:56aaa7796620b4bf05b7f9d26ce983b7c30b0180",
+      "family": "v8-contract-custom-iterator",
+      "ancestors": [],
+      "source": "\"use strict\";function run(){let c=0;const it={[Symbol.iterator](){return this;},next(){return {done:false,value:1};},return(){c++;return {};}};for(const x of it){break;}return c;}",
+      "entry": "run",
+      "sourceDigest": "2048dc17e59b4a3ee46af09b6ed58e237487705f0561b86df01f105dfd11cd18",
+      "coreDigest": null,
+      "coreStatus": "detailed"
+    },
+    {
+      "id": "generator-own-symbol-alias:38f8359932630b7a49d8a7c8225c86115cfe24e5",
+      "family": "synchronous-generator-source",
+      "ancestors": [],
+      "source": "\"use strict\";function run(x){function* g(n){yield n;return n+1;}const it=g(x),alias=it,key=Symbol(\"state\"),shared={value:4};it.extra=1;it[key]=shared;it.extra+=it.next().value;shared.value=7;return alias.extra+it[key].value+it.next().value;}",
+      "entry": "run",
+      "sourceDigest": "5adeab5fd54c06e6fde772208da54efd6396b0219b285829b2b9acfb4dd6d46b",
+      "coreDigest": null,
+      "coreStatus": "detailed"
+    },
+    {
+      "id": "iterable-binding-close:c73b91b44494f2ac201ab700a0df2bed9c695aa6",
+      "family": "v8-contract-iterable-binding",
+      "ancestors": [],
+      "source": "\"use strict\";function run(){let c=0;const it={[Symbol.iterator](){return this;},next(){return {done:false,value:1};},return(){c++;return {};}};const [x]=it;return x+c;}",
+      "entry": "run",
+      "sourceDigest": "4ececc4f8f0e141a23604d09684db9fb6fb60faf6456a9720d10ea2ee9a70760",
+      "coreDigest": null,
+      "coreStatus": "detailed"
+    },
+    {
+      "id": "join-host-join:0aaa670c25fb8d7982f2a6b7f51b56e1a07611e1",
+      "family": "protocol-host-root-join",
+      "ancestors": [],
+      "source": "\"use strict\";async function run(){const a=await Promise.all([Promise.resolve(2),Promise.resolve(3)]);const n=await host.readAsync(\"counter\");const b=await Promise.all([Promise.resolve(a[0]+n),Promise.resolve(a[1])]);return b[0]+b[1];}",
+      "entry": "run",
+      "sourceDigest": "ee9fcbce92ac6478bbf8af5787690db5d187a534679093413865e4fea70026d0",
+      "coreDigest": null,
+      "coreStatus": "detailed"
+    },
+    {
+      "id": "join-retained-callback:4d9863fc61c5f1c6bc3d4b4c6b7d5576d26194dc",
+      "family": "protocol-host-retained-callback",
+      "ancestors": [],
+      "source": "\"use strict\";async function run(){let seen=0;await Promise.all([Promise.resolve(1)]);await host.withCallback(\"value\",function(n){seen+=n;host.store(\"callback\",seen);});const a=await Promise.all([Promise.resolve(seen)]);return a[0];}",
+      "entry": "run",
+      "sourceDigest": "021149d5cbe8f3314cb48f5b165b11315448fe0cb0f285f1dfd6aa46caf8aa60",
+      "coreDigest": null,
+      "coreStatus": "detailed"
+    },
+    {
+      "id": "number-callback-cleanup:6b7ca7fa9fabefba3bcf5a5e87cd7eb783f36df5",
+      "family": "v8-contract-number-cleanup",
+      "ancestors": [],
+      "source": "\"use strict\";function run(){const o={valueOf(){throw 7;}};try{return Number(o);}finally{return 9;}}",
+      "entry": "run",
+      "sourceDigest": "824791de5cce1b9f9c0d3849e9ed87fb71b5f105b8776e00fc36a71289a698e5",
+      "coreDigest": null,
+      "coreStatus": "detailed"
+    },
+    {
+      "id": "ordered-map:3bad9ff29d45780f08e510c405e596308711d637",
+      "family": "v8-contract-map",
+      "ancestors": [],
+      "source": "\"use strict\";function run(xs){return xs.map(x=>x*2);}",
+      "entry": "run",
+      "sourceDigest": "e522ffcee97c02daf8eeea7440b4e8138144a5d10fd0f24c93d495ef8383a3cc",
+      "coreDigest": "5e109014554279cb9e5f8b10fbb1d6b02204fa8a98a34ac56fba32b1acdbdd48",
+      "coreStatus": "algorithm"
+    },
+    {
+      "id": "promise-number-proxy-memory-join:7e2c3db39b4eae312a3d22adb443bc0f8feacdb5",
+      "family": "v8-contract-shared-protocol-source",
+      "ancestors": [],
+      "source": "\"use strict\";async function run(){const p=new Promise(resolve=>{const bytes=new Uint8Array(2);const proxy=new Proxy({x:3},{get:function(object,key){bytes[0]=object[key];return bytes[0]+1;}});resolve(Number({valueOf:function(){return proxy.x;}}));});const values=await Promise.all([p,Promise.resolve(2)]);return values[0]+values[1];}",
+      "entry": "run",
+      "sourceDigest": "fc5028e60c6a7fb614fbac8ec17adb14cc0319801b82495e2d87ed61485a90cc",
+      "coreDigest": null,
+      "coreStatus": "detailed"
+    },
+    {
+      "id": "shared-getter:6d0b30a8176d29aa7e6bfc8740a297cda05c1e8a",
+      "family": "v8-contract-getter",
+      "ancestors": [],
+      "source": "\"use strict\";function run(x){const a=x+1;const b=a*2;let reads=0;const o={};Object.defineProperty(o,\"v\",{get:()=>{reads++;return 20;}});const price=o.v;return b+price+reads;}",
+      "entry": "run",
+      "sourceDigest": "3f1124c158fd23ab089beda1cc96b3a6e0bab06e1c744aeca2e741d2ef6f512a",
+      "coreDigest": null,
+      "coreStatus": "detailed"
+    },
+    {
+      "id": "source-base-initializer-throw:6aeb07d9add6dc603e83d6516681c99868ebccdd",
+      "family": "source-base-initializer-throw",
+      "ancestors": [],
+      "source": "\"use strict\";function run(){function fail(){throw 7;}class C{x=fail();constructor(){throw 9;}}return new C();}",
+      "entry": "run",
+      "sourceDigest": "e0addeba39fd7f8afc52e239008a9dd7afe34aa7d686f494c0dad4dcbf494d4d",
+      "coreDigest": null,
+      "coreStatus": "detailed"
+    },
+    {
+      "id": "source-derived-initializer-throw:469486f2e20fd995aafed47701fe1f079232a44b",
+      "family": "source-derived-initializer-throw",
+      "ancestors": [],
+      "source": "\"use strict\";function run(){function fail(){throw 7;}class B{}class D extends B{x=fail();constructor(){super();throw 9;}}return new D();}",
+      "entry": "run",
+      "sourceDigest": "be26244307004e737f078d1786d66923385b81fffb378ca0551a90d18a0c79f1",
+      "coreDigest": null,
+      "coreStatus": "detailed"
+    },
+    {
+      "id": "source-derived-private-arithmetic:8aa6fb6cba39dda946fd3f1e0c5fe1d42f374066",
+      "family": "class-construction-source",
+      "ancestors": [
+        "class-state"
+      ],
+      "source": "\"use strict\";function run(x){const before=x+1;class A{value=1;constructor(n){this.value=n;this.target=new.target;}}class B extends A{#extra=2;constructor(n){super(n);}read(){return this.value+this.#extra;}}const object=new B(before);const read=object.target===B?object.read():0;return read+2;}",
+      "entry": "run",
+      "sourceDigest": "b1074b6ba4235bef3e5141b4f4addea422a08f7c158c67a0aa15f1f2e605cac0",
+      "coreDigest": null,
+      "coreStatus": "detailed"
+    },
+    {
+      "id": "source-enumeration-map-callback:d1a89bea833b8cbcc1e4300da40260cc6e21f083",
+      "family": "expansion:enumeration-own-keys",
+      "ancestors": [],
+      "source": "\"use strict\";function run(x){const object=Object.create({p:x});object.a=x;return Object.entries(object).map(pair=>pair[0]);}",
+      "entry": "run",
+      "sourceDigest": "c5d8025ad7630baad9edcae4f4aea1b6676a078440724a546ed7a5402a3e75aa",
+      "coreDigest": null,
+      "coreStatus": "detailed"
+    },
+    {
+      "id": "source-for-in-own-keys:a677acda6c936546a4ee3be63a55698a82a44369",
+      "family": "enumeration-own-keys",
+      "ancestors": [],
+      "source": "\"use strict\";function run(x){const object=Object.create({p:x});object.a=x;const keys=[];for(const key in object)if(Object.hasOwn(object,key))keys.push(key);return keys;}",
+      "entry": "run",
+      "sourceDigest": "8f4b08ec266897a60c7617389c0a609e6fe40478baaf09af66d3021fbf5b6bc3",
+      "coreDigest": null,
+      "coreStatus": "detailed"
+    },
+    {
+      "id": "source-generator-cleanup-suspension:daf403f334487c568394f852e7f0da1367730e9d",
+      "family": "generator-cleanup-suspension",
+      "ancestors": [],
+      "source": "\"use strict\";function run(){function* g(){try{yield 1;}finally{yield 2;}}const it=g();const first=it.next();const cleanup=it.return(7);const done=it.next();return [first.value,cleanup.value,cleanup.done,done.value,done.done];}",
+      "entry": "run",
+      "sourceDigest": "3ab3d163c9bf43b02c46c28f6bb7451d03e55ddb27fcf14b625b660c5ebc4f1d",
+      "coreDigest": null,
+      "coreStatus": "detailed"
+    },
+    {
+      "id": "source-generator-delegated-cleanup:cb713d64d9e3bd3105ad56027c568d203b6c2987",
+      "family": "interaction:generator-delegation-cleanup",
+      "ancestors": [],
+      "source": "\"use strict\";function run(){function* inner(){try{yield 2;}finally{yield 3;}}function* g(){return yield* inner();}const it=g();const a=it.next();const b=it.return(7);return a.value+b.value+it.next().value;}",
+      "entry": "run",
+      "sourceDigest": "7cdb2b63fd5614072161091ea45e3e767b7631f150cf054ec64343e3053dba8a",
+      "coreDigest": null,
+      "coreStatus": "detailed"
+    },
+    {
+      "id": "source-logical-left-operands:7c027c45c47cbfc4dddb12fd69b2c9db87adeca1",
+      "family": "logical-source-choices",
+      "ancestors": [],
+      "source": "\"use strict\";function run(value){const s=Symbol(\"key\"),object={};object[s]=1;let calls=0;function right(){calls++;return 7;}const a=value&&right(),b=value||right(),c=value??right(),d=null??right();const missing=null,full={key:9};const e=missing?.[right()],f=full?.key;return [a,b,c,d,e,f,calls,object[s]];}",
+      "entry": "run",
+      "sourceDigest": "323286809c0fedcfd4c57f4f5d9e935895dcc18bb87ce27093dbd2d98343628d",
+      "coreDigest": null,
+      "coreStatus": "detailed"
+    },
+    {
+      "id": "source-number-private-arithmetic:61c25567677aa00291d57fe22be53cc77b343a19",
+      "family": "interaction:class-private-coercion",
+      "ancestors": [],
+      "source": "\"use strict\";function run(){const before=2+3;class Counter{#n=2;[Symbol.toPrimitive](hint){return hint===\"number\"?++this.#n:0;}}const object=new Counter();const a=Number(object);const b=Number(object);return before+a+b;}",
+      "entry": "run",
+      "sourceDigest": "7ac0020360b66216480ff54888d08036ce3c770cde5d1fac203e8b95e489e855",
+      "coreDigest": null,
+      "coreStatus": "detailed"
+    },
+    {
+      "id": "source-ordinary-constructor-prototype:3f9117436461689dd0768c2c0559e1a0aaa00ade",
+      "family": "expansion:class-instance-state",
+      "ancestors": [],
+      "source": "\"use strict\";function run(x){function Counter(n){this.n=n;}Counter.prototype.inc=function(){return ++this.n;};const object=new Counter(x);return [object.inc(),object.n];}",
+      "entry": "run",
+      "sourceDigest": "3d850952eb2bca90725b4f0ebb886d23be5575a9de7295e4b639af3dad0cdd47",
+      "coreDigest": null,
+      "coreStatus": "detailed"
+    },
+    {
+      "id": "source-promise-all-reaction-arithmetic:305e370eaeb80af664f41e252414870a7d3cfea8",
+      "family": "protocol-source-promise-all-reaction",
+      "ancestors": [],
+      "source": "\"use strict\";async function run(x){const before=x+1;const pending=Promise.resolve(2).then(n=>n+1);const values=await Promise.all([pending,Promise.resolve(4)]);const after=before*2;return values[0]+values[1]+after;}",
+      "entry": "run",
+      "sourceDigest": "bfb4f5f0d07a939bb480e87a280b7223a72112cc3965cae5d938628fd100b355",
+      "coreDigest": null,
+      "coreStatus": "detailed"
+    },
+    {
+      "id": "source-promise-executor-abrupt:48b007223a43352345a14274225d4e03759d1ae0",
+      "family": "promise-executor-source",
+      "ancestors": [],
+      "source": "\"use strict\";async function run(){const p=new Promise((resolve,reject)=>{throw 9;});try{return await p;}catch(e){return e;}}",
+      "entry": "run",
+      "sourceDigest": "0a9b43981fef0646621b646ac9233f21b9b825482c060f8092d9a0a1ea953891",
+      "coreDigest": null,
+      "coreStatus": "detailed"
+    },
+    {
+      "id": "source-promise-executor-first-call:97c0ac390749255ba9aa940653b1786331d8b6fc",
+      "family": "promise-executor-source",
+      "ancestors": [],
+      "source": "\"use strict\";async function run(){const a=2+3;const p=new Promise((resolve,reject)=>{resolve(3);reject(9);});const values=[await p];const b=a*2;return values[0]+b;}",
+      "entry": "run",
+      "sourceDigest": "7502e0251e5d4ca5a5959b109c3bb2b98609b24d999301e75f3220724ce3cf93",
+      "coreDigest": null,
+      "coreStatus": "detailed"
+    },
+    {
+      "id": "source-promise-executor-retained-resolution:91b221bc0c833598787e35c868354e1b3288d7bb",
+      "family": "promise-executor-source",
+      "ancestors": [],
+      "source": "\"use strict\";async function run(){let done;const p=new Promise(resolve=>{done=resolve;});done(4);done(7);return await p;}",
+      "entry": "run",
+      "sourceDigest": "950a16fae1dcc34da898ac76f8f3d05894fe462f2bd2577c1492312840482d6a",
+      "coreDigest": null,
+      "coreStatus": "detailed"
+    },
+    {
+      "id": "source-promise-join-rejection-finally:107dfef4f31484a1dc51b7a64372f47121b230b3",
+      "family": "interaction:promise-join-rejection-finally",
+      "ancestors": [],
+      "source": "\"use strict\";async function run(){let cleaned=0;try{await Promise.all([Promise.resolve(1),Promise.reject(2)]);}catch(error){return [error,cleaned];}finally{cleaned++;}}",
+      "entry": "run",
+      "sourceDigest": "9c14366a137a5e20a5f56b718869c3c62e42c377d366e3d573ed08d72aab6b78",
+      "coreDigest": null,
+      "coreStatus": "detailed"
+    },
+    {
+      "id": "source-proxy-traps-arithmetic:541c0a09492333f338550c24a020856d69156bec",
+      "family": "interaction:proxy-traps-arithmetic",
+      "ancestors": [],
+      "source": "\"use strict\";function run(){const before=2+3;let calls=0;const target={x:2},handler={};let proxy=null;handler.get=function(t,k,r){calls++;return this===handler&&t===target&&r===proxy?t[k]+1:0;};handler.set=function(t,k,v,r){calls++;t[k]=v+2;return this===handler&&r===proxy;};proxy=new Proxy(target,handler);const first=proxy.x;const assigned=(proxy.x=4);handler.get=null;const second=proxy.x;const after=first+second;return before+after+assigned+calls;}",
+      "entry": "run",
+      "sourceDigest": "6d0f75903a74257273d7c9125716b77c3c65b2ba4c702e4321c3591bdd8b6ded",
+      "coreDigest": null,
+      "coreStatus": "detailed"
+    },
+    {
+      "id": "source-symbol-getter-arithmetic:2f177d38ea93e1be24956887248d70feb229126c",
+      "family": "protocol-symbol-getter",
+      "ancestors": [],
+      "source": "\"use strict\";function run(x){const before=x+2;const s=Symbol(\"key\");const o={};let calls=0;Object.defineProperty(o,s,{get:()=>{calls++;return x+3;}});const a=o[s];return before+a+calls;}",
+      "entry": "run",
+      "sourceDigest": "f8b8e859902df90b6071002b8ae2cf5a42e4ecff30d0cbba81bd5c5c9c42dffa",
+      "coreDigest": null,
+      "coreStatus": "detailed"
+    },
+    {
+      "id": "typed-views-shared-backing:d9522da82e655c6af32e32f66d7170e697fa91a0",
+      "family": "interaction:typed-views-shared-backing",
+      "ancestors": [],
+      "source": "\"use strict\";function run(x){const buffer=new ArrayBuffer(4);const a=new Uint8Array(buffer);const b=new DataView(buffer);a[0]=x;b.setUint8(1,x+1);return [a[0],a[1],b.getUint8(0)];}",
+      "entry": "run",
+      "sourceDigest": "3035467a8585f8a2c5fca10b5b349c479605b2daa1190a6441f2fe1aaf76f258",
+      "coreDigest": null,
+      "coreStatus": "detailed"
+    }
+  ],
+  "components": [
+    {
+      "id": "semantic-region-component:0234a1a96f5d2647c236247415756f802b781784239c4875e93713624e4b02f9",
+      "members": [
+        "v8-contract-shared-protocol-source"
+      ],
+      "sourceIds": [
+        "promise-number-proxy-memory-join:7e2c3db39b4eae312a3d22adb443bc0f8feacdb5"
+      ],
+      "split": "train",
+      "holdout": null
+    },
+    {
+      "id": "semantic-region-component:0838c7d5bf33a224e49cc3e48dc26e2ae6bd3a6b51b67db46bb8260dcdb50a9b",
+      "members": [
+        "interaction:generator-delegation-cleanup"
+      ],
+      "sourceIds": [
+        "source-generator-delegated-cleanup:cb713d64d9e3bd3105ad56027c568d203b6c2987"
+      ],
+      "split": "train",
+      "holdout": null
+    },
+    {
+      "id": "semantic-region-component:171839c822cceb0d9bf87563a302608567c4a6ce662fb5a097f0c7439d44cfd2",
+      "members": [
+        "synchronous-generator-source"
+      ],
+      "sourceIds": [
+        "generator-own-symbol-alias:38f8359932630b7a49d8a7c8225c86115cfe24e5"
+      ],
+      "split": "train",
+      "holdout": null
+    },
+    {
+      "id": "semantic-region-component:2a4057926d4b4ea5728771486baf8184788acab044acb4880a90631de63a6cd9",
+      "members": [
+        "v8-contract-iterable-binding"
+      ],
+      "sourceIds": [
+        "iterable-binding-close:c73b91b44494f2ac201ab700a0df2bed9c695aa6"
+      ],
+      "split": "validation",
+      "holdout": null
+    },
+    {
+      "id": "semantic-region-component:2a4eab695b9dcc70d5019a942b4b10eca2210fa6337e692a216fce8aa871c41d",
+      "members": [
+        "protocol-host-callback-join-awaited"
+      ],
+      "sourceIds": [
+        "callback-owned-join-awaited:bc7ff5ae29f3736754e734d99a922018c9e53440"
+      ],
+      "split": "train",
+      "holdout": null
+    },
+    {
+      "id": "semantic-region-component:3bf869efb595b7864f5d9910d764391499fd30a2a8e4f2e1a899dae7c40e6c36",
+      "members": [
+        "protocol-source-promise-all-reaction"
+      ],
+      "sourceIds": [
+        "source-promise-all-reaction-arithmetic:305e370eaeb80af664f41e252414870a7d3cfea8"
+      ],
+      "split": "validation",
+      "holdout": null
+    },
+    {
+      "id": "semantic-region-component:4fdc073b05c922ccfbe96668432213c750ba2424572e04e1608bc596947b69e7",
+      "members": [
+        "enumeration-own-keys"
+      ],
+      "sourceIds": [
+        "source-for-in-own-keys:a677acda6c936546a4ee3be63a55698a82a44369"
+      ],
+      "split": "train",
+      "holdout": null
+    },
+    {
+      "id": "semantic-region-component:5703aed57268c956da5405fa20afaf09043ae21674db9553ebe029a7af86ca5b",
+      "members": [
+        "source-derived-initializer-throw"
+      ],
+      "sourceIds": [
+        "source-derived-initializer-throw:469486f2e20fd995aafed47701fe1f079232a44b"
+      ],
+      "split": "train",
+      "holdout": null
+    },
+    {
+      "id": "semantic-region-component:589e66ce36fcca25d622531249bdac2eb494586fc03d21d3319fa4bb1c1a29c1",
+      "members": [
+        "protocol-host-callback-join"
+      ],
+      "sourceIds": [
+        "callback-owned-join:df9bfe9cb95d45b969ceec8e60107acbda0f1b20"
+      ],
+      "split": "test",
+      "holdout": null
+    },
+    {
+      "id": "semantic-region-component:62f9187ee494d229143e52b6d1459b3fed3e0488631399a28b0056a73a42a653",
+      "members": [
+        "protocol-host-retained-callback"
+      ],
+      "sourceIds": [
+        "join-retained-callback:4d9863fc61c5f1c6bc3d4b4c6b7d5576d26194dc"
+      ],
+      "split": "train",
+      "holdout": null
+    },
+    {
+      "id": "semantic-region-component:6997cef78ac06cf8ca3a52c1acb714c3b7fa57790bfc28e0ac47eab7032462a8",
+      "members": [
+        "v8-contract-getter"
+      ],
+      "sourceIds": [
+        "shared-getter:6d0b30a8176d29aa7e6bfc8740a297cda05c1e8a"
+      ],
+      "split": "train",
+      "holdout": null
+    },
+    {
+      "id": "semantic-region-component:712d29f5e559d0a30e18bcb722595e7e5a8ac3fbf605daa3a63f066abd666a24",
+      "members": [
+        "expansion:enumeration-own-keys"
+      ],
+      "sourceIds": [
+        "source-enumeration-map-callback:d1a89bea833b8cbcc1e4300da40260cc6e21f083"
+      ],
+      "split": "train",
+      "holdout": null
+    },
+    {
+      "id": "semantic-region-component:8ab4c1b82e8a6b5a3336d10e012876a9a74e09eb310586de2a7eb958a04fdaf6",
+      "members": [
+        "expansion:class-instance-state"
+      ],
+      "sourceIds": [
+        "source-ordinary-constructor-prototype:3f9117436461689dd0768c2c0559e1a0aaa00ade"
+      ],
+      "split": "train",
+      "holdout": null
+    },
+    {
+      "id": "semantic-region-component:8ad129a12a678b05ebd355f01218aedbd7b0094e5268e3445d6c6789cd2e875e",
+      "members": [
+        "async-counter"
+      ],
+      "sourceIds": [
+        "causal-counter:65eb76b81f5285d4f9cd6ed11f866f410b7bc935"
+      ],
+      "split": "train",
+      "holdout": null
+    },
+    {
+      "id": "semantic-region-component:8b30c5d174e44efaa3a97009ecc1ddf52e9c3e35eeb9391e6e6bbb5cb0c96c84",
+      "members": [
+        "interaction:proxy-traps-arithmetic"
+      ],
+      "sourceIds": [
+        "source-proxy-traps-arithmetic:541c0a09492333f338550c24a020856d69156bec"
+      ],
+      "split": "train",
+      "holdout": null
+    },
+    {
+      "id": "semantic-region-component:934c8846918a5d67b99716a886a49a62cbd42a7e3e2b1b1f5803d1bc5be28361",
+      "members": [
+        "generator-cleanup-suspension"
+      ],
+      "sourceIds": [
+        "source-generator-cleanup-suspension:daf403f334487c568394f852e7f0da1367730e9d"
+      ],
+      "split": "validation",
+      "holdout": null
+    },
+    {
+      "id": "semantic-region-component:b071b97de64c76c4db35bb2df286512e4e41ef8b9f76d58eeb1cb6f52a4f1849",
+      "members": [
+        "interaction:promise-join-rejection-finally"
+      ],
+      "sourceIds": [
+        "source-promise-join-rejection-finally:107dfef4f31484a1dc51b7a64372f47121b230b3"
+      ],
+      "split": "test",
+      "holdout": null
+    },
+    {
+      "id": "semantic-region-component:b16a6bf5e8cce2eed96696a9035e9c53d02e6cf7ee47bc8d64c6e819ef4feb5c",
+      "members": [
+        "builtin-iterator-mixed-arithmetic"
+      ],
+      "sourceIds": [
+        "builtin-iterator-mixed-arithmetic:5ddc164b692cf27936e8ec6caf227df6b587618d"
+      ],
+      "split": "train",
+      "holdout": null
+    },
+    {
+      "id": "semantic-region-component:b51e97ebfc3212bcce4638469bf2c8d5c7f2edca9a7df5e3062b16ed54e10853",
+      "members": [
+        "protocol-host-root-join"
+      ],
+      "sourceIds": [
+        "join-host-join:0aaa670c25fb8d7982f2a6b7f51b56e1a07611e1"
+      ],
+      "split": "train",
+      "holdout": null
+    },
+    {
+      "id": "semantic-region-component:beb07d6e6b390c1f36ebb6a44b913503f5227ed48cd3fd7a58a3c4f3832274cf",
+      "members": [
+        "interaction:typed-views-shared-backing"
+      ],
+      "sourceIds": [
+        "typed-views-shared-backing:d9522da82e655c6af32e32f66d7170e697fa91a0"
+      ],
+      "split": "train",
+      "holdout": null
+    },
+    {
+      "id": "semantic-region-component:c24d03511a8fa29a11aaec00e0b13c86abe742b81db85cb6f4594fe4f1e7944a",
+      "members": [
+        "promise-executor-source"
+      ],
+      "sourceIds": [
+        "source-promise-executor-abrupt:48b007223a43352345a14274225d4e03759d1ae0",
+        "source-promise-executor-first-call:97c0ac390749255ba9aa940653b1786331d8b6fc",
+        "source-promise-executor-retained-resolution:91b221bc0c833598787e35c868354e1b3288d7bb"
+      ],
+      "split": "train",
+      "holdout": null
+    },
+    {
+      "id": "semantic-region-component:c328e16c02d4555cfaec7eacf59fa71649eb2e8c0691a1254acc73ba239f4c20",
+      "members": [
+        "logical-source-choices"
+      ],
+      "sourceIds": [
+        "source-logical-left-operands:7c027c45c47cbfc4dddb12fd69b2c9db87adeca1"
+      ],
+      "split": "train",
+      "holdout": null
+    },
+    {
+      "id": "semantic-region-component:cb26f7a3423bb6e875d5b5caf929b0c2bd1aa8b2fbdfd24ba90e848ab2d2041a",
+      "members": [
+        "v8-contract-custom-iterator"
+      ],
+      "sourceIds": [
+        "custom-iterator-close:56aaa7796620b4bf05b7f9d26ce983b7c30b0180"
+      ],
+      "split": "train",
+      "holdout": null
+    },
+    {
+      "id": "semantic-region-component:cfc2660f8fa23fb21cfd382c1c99b15b72ce6a911996e9ea77b31b70b9f538c6",
+      "members": [
+        "class-construction-source",
+        "class-state"
+      ],
+      "sourceIds": [
+        "source-derived-private-arithmetic:8aa6fb6cba39dda946fd3f1e0c5fe1d42f374066"
+      ],
+      "split": "test",
+      "holdout": null
+    },
+    {
+      "id": "semantic-region-component:d3bf0d62807047d8eedd176c9beda41aa2f25e7ce0ea93da8b28e2b3e3bb7833",
+      "members": [
+        "v8-contract-number-cleanup"
+      ],
+      "sourceIds": [
+        "number-callback-cleanup:6b7ca7fa9fabefba3bcf5a5e87cd7eb783f36df5"
+      ],
+      "split": "test",
+      "holdout": null
+    },
+    {
+      "id": "semantic-region-component:e12164de9c2e840b9dd72c0a77e854a5927ba1aed633e730dce64d8fc2b60565",
+      "members": [
+        "protocol-symbol-getter"
+      ],
+      "sourceIds": [
+        "source-symbol-getter-arithmetic:2f177d38ea93e1be24956887248d70feb229126c"
+      ],
+      "split": "test",
+      "holdout": null
+    },
+    {
+      "id": "semantic-region-component:e4d81e6e8029ddba9b35df63737100845f7da480f8fa6988d9a3162f45bc044f",
+      "members": [
+        "source-base-initializer-throw"
+      ],
+      "sourceIds": [
+        "source-base-initializer-throw:6aeb07d9add6dc603e83d6516681c99868ebccdd"
+      ],
+      "split": "train",
+      "holdout": null
+    },
+    {
+      "id": "semantic-region-component:f155748662201e5a8456e1ca54a2ea99b3b35a5fd04617733140eee6109ea416",
+      "members": [
+        "v8-contract-map"
+      ],
+      "sourceIds": [
+        "ordered-map:3bad9ff29d45780f08e510c405e596308711d637"
+      ],
+      "split": "train",
+      "holdout": null
+    },
+    {
+      "id": "semantic-region-component:f567c9c554f5507bfd571ced7c2473046a60998abc24a4dda85dd974693a9bed",
+      "members": [
+        "interaction:class-private-coercion"
+      ],
+      "sourceIds": [
+        "source-number-private-arithmetic:61c25567677aa00291d57fe22be53cc77b343a19"
+      ],
+      "split": "train",
+      "holdout": null
+    }
+  ],
+  "diagnostics": {
+    "sourceMembers": 31,
+    "exactSourceVariants": 31,
+    "declaredFamilies": 29,
+    "normalizedCores": 1,
+    "withoutNormalizedCore": 30,
+    "connectedComponents": 29,
+    "splitComponents": {
+      "train": 21,
+      "validation": 3,
+      "test": 5
+    }
+  },
+  "digest": "5c0370fe39b73dae0e76bad1fc5165cbc6ae8773090209624077177afe305b1f"
+}

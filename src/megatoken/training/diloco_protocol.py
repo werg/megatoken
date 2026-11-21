@@ -85,6 +85,7 @@ def training_identity(config: Any) -> str:
         "navigation_weight",
         "navigation_examples",
         "navigation_negatives",
+        "semantic_v8_policy",
     )
     identity: dict[str, Any] = {name: getattr(config, name) for name in fields}
     import json

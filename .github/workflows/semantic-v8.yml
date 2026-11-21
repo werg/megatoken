@@ -44,7 +44,7 @@ jobs:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           repository: werg/tracing-js-self
-          ref: 012c9fe49a082319bf98ac0c571596da925741a4
+          ref: 19eba4f4ef273e15c126d6a35cb38db05156e2d1 # current source authority includes canonical invocation binding order
           path: tracing-js-self
           persist-credentials: false
       - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
@@ -96,7 +96,7 @@ jobs:
       - name: Check independent replay and malformed restoration boundaries
         working-directory: megatoken
         run: |
-          python -m pytest -q tests/test_*v8.py tests/test_algorithm_v7.py tests/test_protocol_properties.py \
+          python -m pytest -q tests/test_*v8*.py tests/test_algorithm_v7.py tests/test_protocol_properties.py \
             --junitxml="$RUNNER_TEMP/semantic-v8-tests.xml" 2>&1 | tee "$RUNNER_TEMP/semantic-v8-tests.log"
           python - <<'PY'
           import os, xml.etree.ElementTree as ET
@@ -137,6 +137,14 @@ jobs:
             costs.summary.flat.tokenMeasurement!=='passed'||costs.summary.nativePacking.measuredEpisodes!==declared)
             throw new Error('Every declared CI case requires complete production-tokenizer and native-packing measurements');
           JS
+      - name: Qualify ordinary V8 training resume export and real service restoration
+        if: ${{ matrix.population == 'interoperability' }}
+        working-directory: tracing-js-self
+        run: |
+          node tools/qualify-ordinary-v8-lifecycle.mjs --out "$RUNNER_TEMP/v8-ordinary-lifecycle" \
+            --megatoken "$MEGATOKEN_ROOT" --python "$MEGATOKEN_PYTHON" \
+            --tokenizer "$MEGATOKEN_TOKENIZER_JSON" --native-policy "$SEMANTIC_V8_NATIVE_POLICY" \
+            2>&1 | tee "$RUNNER_TEMP/semantic-v8-ordinary-lifecycle.log"
       - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         if: always()
         with:
@@ -153,3 +161,5 @@ jobs:
             ${{ runner.temp }}/semantic-v8-costs.log
             ${{ runner.temp }}/v8-admitted/
             ${{ runner.temp }}/v8-costs/
+            ${{ runner.temp }}/semantic-v8-ordinary-lifecycle.log
+            ${{ runner.temp }}/v8-ordinary-lifecycle/

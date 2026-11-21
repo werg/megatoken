@@ -29,7 +29,9 @@ concurrency:
 jobs:
   cpu:
     runs-on: ubuntu-24.04
-    timeout-minutes: 25
+    # The complete 3.12 suite reached 88% before the former 25-minute limit.
+    # Keep the full test selection and allow the same bound as semantic CI.
+    timeout-minutes: 45
     strategy:
       fail-fast: false
       matrix:
@@ -49,13 +51,17 @@ jobs:
           python -m pip install -e '.[train,data,cache,storage,dev]'
       - name: Lint and validate shell entrypoints
         run: |
-          python -m ruff check src tests scripts
-          python -m ruff format --check src tests scripts
-          bash -n src/megatoken/cloud_bootstrap.sh
+          semantic_lint_status=0
+          python -m ruff check src tests scripts || semantic_lint_status=1
+          python -m ruff format --diff src tests scripts || semantic_lint_status=1
+          bash -n src/megatoken/cloud_bootstrap.sh || semantic_lint_status=1
+          test "$semantic_lint_status" -eq 0
       - name: Build and install the distribution under test
         run: |
           python -m build
           python -m pip install --no-deps --force-reinstall dist/megatoken-0.1.0-py3-none-any.whl
+      - name: Verify installed V8 imports without legacy wire modules
+        run: MEGATOKEN_REQUIRE_INSTALLED_WHEEL=1 python -m pytest -q tests/test_v8_entrypoints_without_legacy.py
       - name: Run the complete CPU suite
         run: python -m pytest -q --junitxml=validation/cpu-tests.xml
       - name: Inspect the installed CLI

@@ -61,7 +61,7 @@ def validate_record(record):
     p = _protocol()
     p._exact(record, fields, "generator record")
     for name in ("object", "child", "name", "prototype", "bind"):
-        if name in record:
+        if name in record and not (name == "name" and kind == "generator.function"):
             _id(record[name], nullable=True)
     for name in ("callee", "receiver", "argument", "result", "value", "iterator"):
         if name in record:
@@ -71,7 +71,7 @@ def validate_record(record):
     if kind == "generator.function":
         if (
             not isinstance(record["name"], str)
-            or len(record["name"]) > BOUND
+            or len(record["name"].encode("utf-16-le", errors="surrogatepass")) // 2 > BOUND
             or type(record["length"]) is not int
             or not 0 <= record["length"] <= BOUND
         ):

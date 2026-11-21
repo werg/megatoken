@@ -246,6 +246,7 @@ def adapt_selected_harness_v6(
             "handler",
             "event",
             "handler-close",
+            "realm-close",
             "source-evict",
             "source-read",
             "cancel",
@@ -367,6 +368,29 @@ def adapt_selected_harness_v6(
             reconciliations[key] = item["disposition"]
             if item["disposition"] == "not-dispatched":
                 dispatched.discard(key)
+        elif kind == "realm-close":
+            realm_id = item.get("realmId")
+            realm = realms.get(realm_id)
+            if (
+                track != "host"
+                or not realm
+                or realm.get("closed")
+                or realm["active"] is not None
+                or not isinstance(item.get("reason"), str)
+                or not item["reason"]
+                or any(
+                    not activation.get("cancelled")
+                    for activation in activations.values()
+                    if activation["realm"] == realm_id
+                )
+                or any(
+                    handler["state"] != "closed"
+                    for handler in handlers.values()
+                    if handler["realm"] == realm_id
+                )
+            ):
+                _fail("Realm close requires cancellation and handler retirement before closure")
+            realm["closed"] = True
         elif kind == "callback-reattach":
             handler = handlers.get(item.get("subscriptionId"))
             if (
@@ -374,6 +398,7 @@ def adapt_selected_harness_v6(
                 or handler["state"] != "active"
                 or handler["realm"] != item.get("realmId")
                 or handler["track"] != track
+                or realms.get(handler["realm"], {}).get("closed")
             ):
                 _fail("Callback reattachment needs its existing live subscription")
         elif kind == "program":
@@ -415,6 +440,7 @@ def adapt_selected_harness_v6(
                 or subscription in handlers
                 or program_id not in programs
                 or not _ident(item.get("realmId"))
+                or realms.get(item.get("realmId"), {}).get("closed")
                 or not _ident(item.get("trackId"))
                 or item.get("entry") not in _entries(programs[program_id])
                 or item.get("realmPolicy") not in ("fresh", "retained")
@@ -495,7 +521,8 @@ def adapt_selected_harness_v6(
             realm_id = item["realmId"]
             existing = realms.get(realm_id)
             if existing and (
-                existing["active"]
+                existing.get("closed")
+                or existing["active"]
                 or existing["digest"] != item["sourceDigest"]
                 or existing["randomSeed"] != programs[program_id].get("randomSeed")
                 or policy != "retained"

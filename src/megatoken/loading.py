@@ -122,7 +122,15 @@ def load_trained(
     payload, metadata = load_checkpoint(checkpoint)
     config = ModelConfig.from_dict(payload["model_config"])
     train_config = payload["train_config"]
-    codec = load_codec(
+    from megatoken.semantic_lineage_v8 import checkpoint_lineage_v8
+
+    lineage = checkpoint_lineage_v8(payload, metadata)
+    codec_loader = load_codec
+    if lineage is not None:
+        from megatoken.training.semantic_v8 import load_semantic_v8_codec
+
+        codec_loader = load_semantic_v8_codec
+    codec = codec_loader(
         codec_path or train_config.get("codec", "byte"), vocab_size=config.vocab_size
     )
     if codec.fingerprint != payload["codec_fingerprint"]:

@@ -139,6 +139,15 @@ def prepare_batches(
             .get("semantic_execution", {})
             .get("schema")
         )
+        if episode.stream == "semantic_execution":
+            if semantic_version not in {
+                "semantic-execution/6",
+                "semantic-execution/7",
+                "semantic-execution/8",
+            }:
+                raise ValueError("Semantic training rejects a missing or unknown execution schema")
+            if semantic_version == "semantic-execution/6" and config.semantic_experiment is None:
+                raise ValueError("V6 semantic training requires its explicit admission policy")
         if semantic_version == "semantic-execution/7":
             from .semantic_v7 import validate_semantic_episode_v7
 
@@ -151,6 +160,35 @@ def prepare_batches(
                 max_history=model.config.max_history_chunks,
                 max_positions=model.config.max_capacity,
             )
+        elif semantic_version == "semantic-execution/8":
+            from .semantic_v8 import validate_semantic_episode_v8
+
+            if config.semantic_experiment is not None or config.semantic_v7_policy is not None:
+                raise ValueError("V8 data cannot use an older semantic training contract")
+            registry_path = next(
+                (
+                    Path(root) / "semantic-v8-families.json"
+                    for root in config.datasets
+                    if (Path(root) / "semantic-v8-families.json").is_file()
+                ),
+                None,
+            )
+            if registry_path is None:
+                raise ValueError("V8 training root lost its frozen source-family registry")
+            registry = json.loads(registry_path.read_text())
+            validate_semantic_episode_v8(
+                episode,
+                codec=model.codec,
+                policy=config.semantic_v8_policy,
+                registry=registry,
+                max_history=model.config.max_history_chunks,
+                max_positions=model.config.max_capacity,
+                expected_split=episode.lineage.frozen_split,
+            )
+        elif episode.stream == "semantic_execution" and (
+            config.semantic_v8_policy is not None or config.semantic_v7_policy is not None
+        ):
+            raise ValueError("Selected semantic policy does not accept this execution schema")
         elif config.semantic_experiment is not None:
             from .semantic_budget import validate_semantic_episode, validate_semantic_geometry
 
@@ -177,6 +215,7 @@ def prepare_batches(
             not config.allow_unverified_data
             and episode.stream in verified_streams
             and not episode.supervision.verified_success
+            and semantic_version != "semantic-execution/8"
         ):
             raise ValueError("Training stream requires independent verified success")
         if episode.stream == "long_verified_dependencies" and not episode.dependencies:
@@ -308,6 +347,8 @@ def _resume_compatible(old: dict[str, Any], config: TrainConfig, phase_transitio
             "semantic_experiment",
             "semantic_v7_policy",
         )
+    # Keep the active V8 policy and registry binding fixed across resume.
+    critical += ("semantic_v8_policy",)
     for key in critical:
         if key not in old or old[key] != current[key]:
             raise ValueError(
@@ -320,19 +361,34 @@ def train(
     config: TrainConfig, *, resume: str | None = None, phase_transition: bool = False
 ) -> dict[str, Any]:
     from megatoken.data.recipes import validate_training_donors
-    from megatoken.training.semantic_budget import (
-        SemanticExperimentConfig,
-        SemanticExposure,
-        restore_semantic_training_state,
-        semantic_training_state,
-    )
 
-    experiment = (
-        SemanticExperimentConfig(**config.semantic_experiment)
-        if config.semantic_experiment
-        else None
-    )
-    cohort_digest = experiment.preflight(phase=config.phase) if experiment else None
+    if config.semantic_experiment:
+        from megatoken.training.semantic_budget import (
+            SemanticExperimentConfig,
+            SemanticExposure,
+            restore_semantic_training_state,
+            semantic_training_state,
+        )
+
+        experiment = SemanticExperimentConfig(**config.semantic_experiment)
+        cohort_digest = experiment.preflight(phase=config.phase)
+    else:
+        SemanticExposure = None
+        experiment = cohort_digest = None
+
+        def restore_semantic_training_state(payload, *, cohort_digest):
+            if cohort_digest is not None:
+                raise ValueError("A semantic cohort requires its experiment exposure state")
+            if {"semantic_exposure", "semantic_cohort_digest"}.intersection(payload):
+                raise ValueError(
+                    "A nonsemantic checkpoint cannot contain semantic experiment state"
+                )
+            return None
+
+        def semantic_training_state(exposure, *, cohort_digest):
+            if exposure is not None or cohort_digest is not None:
+                raise ValueError("A nonsemantic run cannot retain semantic experiment state")
+            return {}
 
     validate_training_donors(config)
     if phase_transition and not resume:
@@ -400,7 +456,12 @@ def train(
         model_config = load_model_config(config.model, **overrides)
         if config.generated_capacity > model_config.max_capacity:
             raise ValueError("generated_capacity exceeds the model's maximum output positions")
-        codec = load_codec(config.codec, vocab_size=model_config.vocab_size)
+        if config.semantic_v8_policy is not None:
+            from .semantic_v8 import load_semantic_v8_codec
+
+            codec = load_semantic_v8_codec(config.codec, vocab_size=model_config.vocab_size)
+        else:
+            codec = load_codec(config.codec, vocab_size=model_config.vocab_size)
         # Reject absent or causally unverified curriculum supply before loading
         # model weights, donor pipelines, optimizer masters or checkpoint tensors.
         windows_config = window_config(config)
@@ -431,6 +492,15 @@ def train(
                 raise ValueError(
                     "V7 prepared data differs from the explicitly frozen training registry"
                 )
+        from .semantic_v8 import preflight_semantic_training_v8
+
+        preflight_semantic_training_v8(
+            config.datasets,
+            codec=codec,
+            policy=config.semantic_v8_policy,
+            max_history=model_config.max_history_chunks,
+            max_positions=model_config.max_capacity,
+        )
         if experiment is not None:
             from .semantic_budget import validate_stage_supply
 
@@ -527,7 +597,10 @@ def train(
         packs_fingerprint = sha256_file(config.packs) if config.packs else None
         payload = None
         if resume:
-            payload, _ = load_checkpoint(resume, map_location="cpu")
+            payload, resumed_metadata = load_checkpoint(resume, map_location="cpu")
+            from megatoken.semantic_lineage_v8 import checkpoint_lineage_v8
+
+            checkpoint_lineage_v8(payload, resumed_metadata)
             _resume_compatible(payload["train_config"], config, phase_transition)
             if payload["codec_fingerprint"] != codec.fingerprint:
                 raise ValueError("Checkpoint codec identity differs")
@@ -734,6 +807,26 @@ def train(
             )
         if config.eval_every:
             heldout = HeldOutEvaluator(config, codec, windows_config, require=True)
+        semantic_training_v8 = None
+        if config.semantic_v8_policy is not None:
+            from megatoken.semantic_lineage_v8 import build_training_lineage_v8
+
+            semantic_training_v8 = build_training_lineage_v8(
+                policy=config.semantic_v8_policy,
+                tokenizer_identity=codec.fingerprint,
+                prepared_manifests=[
+                    json.loads((root / "manifest.json").read_text())["fingerprint"]
+                    for root in dataset.all_roots
+                ],
+                corpus_identity=dataset.identity,
+                stream_identity=stream.fingerprint,
+                chunking=chunking_identity,
+            )
+            if payload is not None and not phase_transition:
+                from megatoken.semantic_lineage_v8 import checkpoint_lineage_v8
+
+                if checkpoint_lineage_v8(payload, resumed_metadata) != semantic_training_v8:
+                    raise ValueError("V8 resume changed its admitted data or training stream")
         if config.decoupled is not None:
             diloco = DecoupledWorker(
                 config.decoupled,
@@ -744,6 +837,8 @@ def train(
                 token_budget=phase.budget,
                 train_identity=training_identity(config),
                 dataset_fingerprint=dataset.identity,
+                semantic_v8_lineage=semantic_training_v8,
+                semantic_v8_policy=config.semantic_v8_policy,
             )
             diloco.attach_transducer(TransducerSync())
             if payload is None:
@@ -852,6 +947,11 @@ def train(
                             "global_step": global_step,
                             "phase_consumed": consumed,
                             "counters": asdict(counters),
+                            **(
+                                {"semantic_training_v8": semantic_training_v8}
+                                if semantic_training_v8 is not None
+                                else {}
+                            ),
                             **semantic_training_state(exposure, cohort_digest=cohort_digest),
                         }
                     )
@@ -865,6 +965,11 @@ def train(
                         "chunking_fingerprint": chunking_identity["fingerprint"],
                         "routing_version": model_config.routing_version,
                         "config_fingerprint": content_hash(asdict(config)),
+                        **(
+                            {"semantic_v8_lineage_digest": semantic_training_v8["digest"]}
+                            if semantic_training_v8 is not None
+                            else {}
+                        ),
                     }
                     from .stream import source_sampling_report
 

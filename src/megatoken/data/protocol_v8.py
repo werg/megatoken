@@ -10,8 +10,7 @@ import copy
 import json
 import math
 
-from . import algorithm_v7 as v7
-from .algorithm_v7 import stable_algorithm_json
+from . import semantic_primitives as primitives
 from .construction_v8 import FIELDS as CONSTRUCTION_FIELDS
 from .construction_v8 import apply_record as apply_construction_record
 from .construction_v8 import assert_next as assert_construction_next
@@ -53,6 +52,7 @@ from .proxy_v8 import apply_record as apply_proxy_record
 from .proxy_v8 import assert_next as assert_proxy_next
 from .proxy_v8 import validate_record as validate_proxy_record
 from .proxy_v8 import validate_state as validate_proxy_state
+from .semantic_json import stable_algorithm_json
 
 PREFIX = "protocol "
 SCHEMA = "semantic-protocol-record/1"
@@ -143,7 +143,7 @@ def validate_protocol_value(value):
             _fail("symbol value")
         _identity(value[1])
         return True
-    v7._validate_value(value)
+    primitives._validate_value(value)
     return True
 
 
@@ -655,7 +655,7 @@ def _array_length(value):
     # ArraySetLength applies ToNumber/ToUint32 before comparing the values.
     # Abrupt conversions need an explicit throw record, not a false success flag.
     try:
-        number = v7._to_number(value)
+        number = primitives._to_number(value)
     except TypeError:
         _fail("array length coercion requires an explicit abrupt boundary")
     if not math.isfinite(number) or not 0 <= number <= 4294967295 or int(number) != number:
@@ -767,7 +767,7 @@ def _eval(machine, expr):
     op = expr["op"]
     if op == "logical-test":
         left = _eval(machine, expr["arg"])
-        truthy = left[0] == "symbol" or v7._truthy(left)
+        truthy = left[0] == "symbol" or primitives._truthy(left)
         skip_right = (
             not truthy
             if expr["operator"] == "&&"
@@ -803,7 +803,7 @@ def _eval(machine, expr):
             "typeof": "type_of",
             "void": "void",
         }
-        return _normalize_number(v7._operation(opmap[expr["operator"]], [a]))
+        return _normalize_number(primitives._operation(opmap[expr["operator"]], [a]))
     left = _eval(machine, expr["left"])
     right = _eval(machine, expr["right"])
     operator = expr["operator"]
@@ -838,7 +838,7 @@ def _eval(machine, expr):
         ">>": "shift_right",
         ">>>": "unsigned_shift_right",
     }
-    return _normalize_number(v7._operation(opmap[operator], [left, right]))
+    return _normalize_number(primitives._operation(opmap[operator], [left, right]))
 
 
 def _normalize_number(value):
@@ -1023,7 +1023,7 @@ def _apply(machine, record):
         if kind == "choose":
             if record["path"] not in ("then", "else", "use-left", "evaluate-right"):
                 _fail("unsupported short-circuit path")
-            truthy = result[0] == "symbol" or v7._truthy(result)
+            truthy = result[0] == "symbol" or primitives._truthy(result)
             if record["path"] == "then" and not truthy or record["path"] == "else" and truthy:
                 _fail("false branch path")
             if record["path"] in ("use-left", "evaluate-right"):

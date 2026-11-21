@@ -1,0 +1,251 @@
+{
+  "bundle": "../checkpoint/ordinary-6dbb-a237/served",
+  "checkpoint_sha256": "da897b82c18b919149094e68dfeb189d2529bf7e3a606d45082bdf35791f09fa",
+  "chunking": {
+    "codec_fingerprint": "7f52faca2fe82273a889023defd2f1a6fd6080a21096ec77e97f4798a0a370b2",
+    "config": {
+      "chat_template": "auto",
+      "code_tree_scale": 1.5,
+      "hard_max_tokens": 128,
+      "limits": {
+        "isolate_native": true,
+        "max_depth": 12,
+        "max_injections": 2048,
+        "max_nodes": 100000,
+        "max_parse_bytes": 1048576,
+        "max_parse_milliseconds": 0,
+        "max_regions": 20000,
+        "max_tree_depth": 128,
+        "worker_timeout_ms": 5000
+      },
+      "max_bytes": 16384,
+      "parser_backend": "tree_sitter",
+      "planner_max_edges": 64,
+      "soft_max_tokens": 128,
+      "target_tokens": 128,
+      "tree_distance_budget": 4.0,
+      "tree_distance_weight": 0.15,
+      "use_icu": false,
+      "version": "recursive-parser-v2"
+    },
+    "config_fingerprint": "b98231237a9ccd74a2bc4bd40384cbca0d027af3f1be145ed26423fc14afd9ae",
+    "fingerprint": "09a55e6b4e1697c8eb05579ab63bed60cdcbbcf46fdfa875bfc37108d2ccb8b5",
+    "parsers": {
+      "chat": {
+        "templates": {
+          "chatml": {
+            "aliases": [
+              "qwen"
+            ],
+            "allow_named_tools": false,
+            "body_newlines": 0,
+            "channel_markers": [],
+            "ends": [
+              "3c7c696d5f656e647c3e"
+            ],
+            "format_markers": [],
+            "mode": "delimited",
+            "name": "chatml",
+            "prefixes": [],
+            "separator": "0a",
+            "start": "3c7c696d5f73746172747c3e"
+          },
+          "deepseek": {
+            "aliases": [
+              "deepseek-v3",
+              "deepseek-r1"
+            ],
+            "allow_named_tools": false,
+            "body_newlines": 0,
+            "channel_markers": [],
+            "ends": [
+              "3cefbd9c656e64e296816f66e2968173656e74656e6365efbd9c3e"
+            ],
+            "format_markers": [],
+            "mode": "deepseek",
+            "name": "deepseek",
+            "prefixes": [
+              "3cefbd9c626567696ee296816f66e2968173656e74656e6365efbd9c3e"
+            ],
+            "separator": "3cefbd9c417373697374616e74efbd9c3e",
+            "start": "3cefbd9c55736572efbd9c3e"
+          },
+          "gemma": {
+            "aliases": [
+              "gemma2",
+              "gemma3"
+            ],
+            "allow_named_tools": false,
+            "body_newlines": 0,
+            "channel_markers": [],
+            "ends": [
+              "3c656e645f6f665f7475726e3e"
+            ],
+            "format_markers": [],
+            "mode": "delimited",
+            "name": "gemma",
+            "prefixes": [
+              "3c626f733e"
+            ],
+            "separator": "0a",
+            "start": "3c73746172745f6f665f7475726e3e"
+          },
+          "harmony": {
+            "aliases": [],
+            "allow_named_tools": true,
+            "body_newlines": 0,
+            "channel_markers": [
+              "3c7c6368616e6e656c7c3e"
+            ],
+            "ends": [
+              "3c7c656e647c3e",
+              "3c7c72657475726e7c3e",
+              "3c7c63616c6c7c3e"
+            ],
+            "format_markers": [
+              "3c7c636f6e73747261696e7c3e"
+            ],
+            "mode": "delimited",
+            "name": "harmony",
+            "prefixes": [],
+            "separator": "3c7c6d6573736167657c3e",
+            "start": "3c7c73746172747c3e"
+          },
+          "harmony_legacy": {
+            "aliases": [],
+            "allow_named_tools": true,
+            "body_newlines": 0,
+            "channel_markers": [
+              "3c7c6d6574615f7365707c3e"
+            ],
+            "ends": [
+              "3c7c696d5f656e647c3e",
+              "3c7c66696d5f7375666669787c3e",
+              "3c7c676869737375657c3e"
+            ],
+            "format_markers": [
+              "3c7c6d6574615f73746172747c3e"
+            ],
+            "mode": "delimited",
+            "name": "harmony_legacy",
+            "prefixes": [
+              "3c7c656e646f66746578747c3e"
+            ],
+            "separator": "3c7c696d5f7365707c3e",
+            "start": "3c7c696d5f73746172747c3e"
+          },
+          "inst": {
+            "aliases": [
+              "llama2",
+              "llama-2",
+              "mistral"
+            ],
+            "allow_named_tools": false,
+            "body_newlines": 0,
+            "channel_markers": [],
+            "ends": [
+              "3c2f733e"
+            ],
+            "format_markers": [],
+            "mode": "inst",
+            "name": "inst",
+            "prefixes": [
+              "3c733e"
+            ],
+            "separator": "5b2f494e53545d",
+            "start": "5b494e53545d"
+          },
+          "llama3": {
+            "aliases": [
+              "llama-3",
+              "llama3.1",
+              "llama3.2",
+              "llama3.3"
+            ],
+            "allow_named_tools": true,
+            "body_newlines": 2,
+            "channel_markers": [],
+            "ends": [
+              "3c7c656f745f69647c3e",
+              "3c7c656f6d5f69647c3e",
+              "3c7c656e645f6f665f746578747c3e"
+            ],
+            "format_markers": [],
+            "mode": "delimited",
+            "name": "llama3",
+            "prefixes": [
+              "3c7c626567696e5f6f665f746578747c3e"
+            ],
+            "separator": "3c7c656e645f6865616465725f69647c3e",
+            "start": "3c7c73746172745f6865616465725f69647c3e"
+          },
+          "phi3": {
+            "aliases": [
+              "phi-3",
+              "phi4"
+            ],
+            "allow_named_tools": false,
+            "body_newlines": 1,
+            "channel_markers": [],
+            "ends": [
+              "3c7c656e647c3e",
+              "3c7c656e646f66746578747c3e"
+            ],
+            "format_markers": [],
+            "mode": "delimited",
+            "name": "phi3",
+            "prefixes": [],
+            "separator": "7c3e",
+            "start": "3c7c"
+          }
+        },
+        "version": "chat-framing-v1"
+      },
+      "implementation": "bfd48445630387eb441499ae13aafc3315c12e75ffc4795cc6a88bd7c8f993d9",
+      "prose": {
+        "icu": null,
+        "rules": "unicode-prose-v1",
+        "unicode": "16.0.0",
+        "uniseg": "0.10.1"
+      },
+      "syntax": {
+        "backend": "tree_sitter",
+        "grammar_dependencies": {
+          "tree-sitter-c-sharp": "0.23.5",
+          "tree-sitter-embedded-template": "0.25.0",
+          "tree-sitter-yaml": "0.7.2"
+        },
+        "markdown_it_py": "4.0.0",
+        "network": "disabled",
+        "providers": [],
+        "registry": "offline-grammar-registry-v1",
+        "tree_sitter": "0.25.2",
+        "tree_sitter_language_pack": "0.13.0"
+      }
+    }
+  },
+  "codec_file": "tokenizer.json",
+  "codec_fingerprint": "7f52faca2fe82273a889023defd2f1a6fd6080a21096ec77e97f4798a0a370b2",
+  "config_sha256": "58ecc08ec1d67efae07baef003b192e4fe41b1d4edbb834e9eeebc4f7ffb7b21",
+  "control_schema_version": 3,
+  "event_addressing": "independent_peer_events",
+  "format_version": 19,
+  "lifecycle_version": 2,
+  "model_sha256": "2edc594f86fb0f9e23406e1d220c215fd967ca98236257c85b6ce2dce4ab1695",
+  "model_version": 2,
+  "output_modalities": [
+    "text"
+  ],
+  "packs_fingerprint": null,
+  "parameters": 4039640,
+  "policy_likelihood": "modality_categorical_plus_canonical_facet_gaussian_density",
+  "precision": "fp32",
+  "retrospective_writes": true,
+  "routing_version": 4,
+  "semantic_v8_lineage_digest": "0703f56c74a7984c34b60a85c9128ecd76681b31488fd8ef04a7448e8c4bb64a",
+  "semantic_v8_lineage_sha256": "e94e3d4a3e8a4c5e403699b916225aff54b99b65850810808fd6c9b7b473e728",
+  "tape_version": "fmt-multitrack-facets-v20",
+  "tokenizer_sha256": "40fb9d7d7795b8bd305aeff39ce9963f3f450915b9553f2938e009be9a1fed60",
+  "training_heads": false,
+  "transducer_sha256": "4360c5313347724d451b097ba468c01a02dd3b0f183cc318e7f4799f433ee42d"
+}
