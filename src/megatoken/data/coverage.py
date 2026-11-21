@@ -11,7 +11,13 @@ from fractions import Fraction
 def behaviors(episode) -> set[str]:
     result = set()
     if episode.stream == "semantic_execution":
-        from .semantic_corpus import semantic_behaviors
+        semantic = json.loads(episode.supervision.annotations_json).get("semantic_execution", {})
+        if semantic.get("schema") == "semantic-execution/8":
+            # Ordinary shard export must not import historical wire validators
+            # before choosing the V8 census from the episode's actual schema.
+            from .semantic_corpus_v8 import semantic_behaviors_v8 as semantic_behaviors
+        else:
+            from .semantic_corpus import semantic_behaviors
 
         # Semantic-execution coverage is derived from actual canonical records,
         # never from a claimed representation label.
