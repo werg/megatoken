@@ -270,9 +270,7 @@ class NativeV8AdmissionTests(unittest.TestCase):
         ]
         document = self.source_document(protocol=True)
         sidecar = document["sidecar"]
-        sidecar.update(
-            protocolProfile="composed-protocol-source/1", protocolExtensions=extensions
-        )
+        sidecar.update(protocolProfile="composed-protocol-source/1", protocolExtensions=extensions)
         sidecar["sourceArtifact"]["sidecar"]["compiler"]["extensions"] = extensions
         sidecar["sourceArtifactDigest"] = stable_algorithm_hash(sidecar["sourceArtifact"])
 
@@ -293,9 +291,7 @@ class NativeV8AdmissionTests(unittest.TestCase):
             with self.subTest(extensions=invalid):
                 changed = copy.deepcopy(document)
                 changed["sidecar"]["protocolExtensions"] = invalid
-                changed["sidecar"]["sourceArtifact"]["sidecar"]["compiler"][
-                    "extensions"
-                ] = invalid
+                changed["sidecar"]["sourceArtifact"]["sidecar"]["compiler"]["extensions"] = invalid
                 changed["sidecar"]["sourceArtifactDigest"] = stable_algorithm_hash(
                     changed["sidecar"]["sourceArtifact"]
                 )
@@ -308,9 +304,7 @@ class NativeV8AdmissionTests(unittest.TestCase):
             self.run_cli(changed)
 
         changed = copy.deepcopy(document)
-        changed["sidecar"]["sourceArtifact"]["sidecar"]["compiler"][
-            "extensions"
-        ] = extensions[:-1]
+        changed["sidecar"]["sourceArtifact"]["sidecar"]["compiler"]["extensions"] = extensions[:-1]
         changed["sidecar"]["sourceArtifactDigest"] = stable_algorithm_hash(
             changed["sidecar"]["sourceArtifact"]
         )
