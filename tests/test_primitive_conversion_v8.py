@@ -465,6 +465,68 @@ class PrimitiveConversionTests(unittest.TestCase):
                 "getter|join override|dense own scalar",
             )
 
+    def test_function_prototype_fallback_cannot_invent_object_stringification(self):
+        for goal in ("Number", "PropertyKey"):
+            state = machine()
+            apply(
+                state,
+                allocate("prototype", kind="closure"),
+                allocate("input"),
+                {
+                    "kind": "property.prototype",
+                    "object": "input",
+                    "prototype": ["ref", "prototype"],
+                    "success": True,
+                },
+            )
+            self.ordinary(state, "convert", goal)
+            if goal == "Number":
+                apply(
+                    state,
+                    lookup("convert", ["str", "valueOf"], "builtin", builtin="Object.valueOf"),
+                    {"kind": "conversion.builtin", "id": "convert", "result": ["ref", "input"]},
+                )
+            self.refuse(
+                state,
+                lookup("convert", ["str", "toString"], "builtin", builtin="Object.toString"),
+                "function intrinsic prototype",
+            )
+        if shutil.which("node"):
+            native = subprocess.check_output(
+                [
+                    shutil.which("node"),
+                    "-e",
+                    "const input=Object.create(function(){});for(const f of [x=>Number(x),x=>({[x]:1})]){"
+                    "try{f(input);console.log('accepted')}catch(e){console.log(e.name)}}",
+                ],
+                text=True,
+                timeout=10,
+            )
+            self.assertEqual(native.splitlines(), ["TypeError", "TypeError"])
+
+    def test_function_prototype_owned_method_can_still_supply_the_key(self):
+        state = machine()
+        apply(
+            state,
+            allocate("method", kind="closure"),
+            allocate("prototype", [(["str", "toString"], ["ref", "method"])], kind="closure"),
+            allocate("input"),
+            {
+                "kind": "property.prototype",
+                "object": "input",
+                "prototype": ["ref", "prototype"],
+                "success": True,
+            },
+        )
+        self.ordinary(state)
+        apply(
+            state,
+            lookup("key", ["str", "toString"], "data", ["ref", "method"]),
+            {"kind": "conversion.call", "id": "key", "child": "child"},
+        )
+        returned(state, "key", "child", ["str", "x"])
+        apply(state, finish("key", ["str", "x"]))
+
     def test_detail_cannot_skip_pending_conversion_and_cleanup_is_narrow(self):
         state = machine()
         apply(state, begin("number", "Number", ["num", 7]))

@@ -138,6 +138,11 @@ def _lookup(machine, value, key):
         if prototype is None:
             return {"descriptor": "missing", "value": ["undefined"], "builtin": None}
         if prototype == "ordinary":
+            _require(
+                node["kind"] != "closure"
+                or key not in (["str", "toString"], ["symbol", "well-known:toStringTag"]),
+                "function intrinsic prototype requires its own conversion profile",
+            )
             builtin = None
             if key == ["str", "valueOf"]:
                 builtin = "Object.valueOf"
