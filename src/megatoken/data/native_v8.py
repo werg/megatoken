@@ -881,6 +881,7 @@ def _replay_shared_state(
                         fields.get("entry"),
                         _table(controllers[retained_owner], "heap").get(fields["closureId"]),
                     )
+                    _fail("Closure-backed call activation lacks a retained-call replay profile")
                 state = _initial_state(program, fields, functions, random_seed)
                 invocation_inputs[fields["invocationId"]] = {
                     "graph": copy.deepcopy(fields["inputGraph"])
@@ -1096,6 +1097,16 @@ def _replay_shared_state(
             target = controllers.get(fields.get("ownerInvocationId"), state)
             if kind == "handler" and fields.get("closureId") is not None:
                 owner = fields.get("ownerInvocationId")
+                if owner is None:
+                    owner = next(
+                        (
+                            identity
+                            for identity in reversed(controllers)
+                            if invocation_metadata[identity]["realmId"] == fields["realmId"]
+                        ),
+                        None,
+                    )
+                    target = controllers.get(owner)
                 handler_program = published.get(fields.get("programId"))
                 if (
                     owner not in controllers
@@ -1110,6 +1121,8 @@ def _replay_shared_state(
                     fields.get("entry"),
                     _table(target, "heap").get(fields["closureId"]),
                 )
+                if fields.get("ownerInvocationId") is None:
+                    _fail("Host-owned closure handler lacks a native lifecycle replay profile")
             _apply_observation(target, row, dispatched, settled, obligations, owner_sequences)
         if active_invocation is not None:
             controllers[active_invocation] = state
@@ -1441,6 +1454,53 @@ def _apply_algorithm(state, core, graph, line):
     state["stack"] = []
 
 
+def _host_graph_heap(state, arguments):
+    """Expose only independently selected plain data to the host codec checker."""
+    owned = _table(state, "heap")
+    heap = {}
+
+    def visit(value, depth=0):
+        if value[0] != "ref" or value[1] in heap:
+            return
+        if depth > 64:
+            _fail("Owned host graph exceeds its depth limit")
+        identity = value[1]
+        node = owned.get(identity)
+        if node is None:
+            _fail("Owned host graph references an unknown selected identity")
+        if node["kind"] == "closure":
+            heap[identity] = {"id": identity, "kind": "closure", "properties": []}
+            return
+        if node["kind"] not in ("object", "array"):
+            _fail("Owned host graph requires plain data or declared callbacks")
+        allowed_prototypes = (
+            ("ordinary", "Array.prototype")
+            if node["kind"] == "array"
+            else (None, "ordinary", "Object.prototype")
+        )
+        if node.get("prototype", "ordinary") not in allowed_prototypes or any(
+            descriptor.get("kind") != "data" for _, descriptor in node.get("descriptors", [])
+        ):
+            _fail("Owned host graph cannot materialize custom prototypes or accessors")
+        properties = node["properties"]
+        if any(not isinstance(key, str) for key, _ in properties):
+            _fail("Owned host graph cannot materialize symbol properties")
+        snapshot = {
+            "id": identity,
+            "kind": node["kind"],
+            "properties": [{"key": key, "value": copy.deepcopy(tag)} for key, tag in properties],
+        }
+        if node.get("prototype", "ordinary") is None:
+            snapshot["prototype"] = None
+        heap[identity] = snapshot
+        for _, tag in properties:
+            visit(tag, depth + 1)
+
+    for argument in arguments:
+        visit(argument)
+    return heap
+
+
 def _apply_detail(
     state,
     kind,
@@ -1654,34 +1714,45 @@ def _apply_detail(
         promise = fields.get("promise")
         args = fields["arguments"]
         from . import semantic_primitives as primitives
+        from .host_operations import HOST_OPERATIONS, materialize_request
 
         callback_slots = {"demo.withCallback": {1}, "demo.listen": {1}}
-        decoded = []
-        for index, value in enumerate(args):
-            if index in callback_slots.get(fields["operation"], set()):
-                if value[0] != "ref":
-                    _fail("Host callback argument must be an owned closure")
-                callback = _table(state, "heap").get(value[1])
-                if callback is None or callback.get("kind") != "closure":
-                    _fail("Host callback identity is not a guest function")
-                decoded.append({"$ownedCallback": value[1]})
-            else:
-                item = primitives._decode_scalar(value)
-                if isinstance(item, tuple) and item and item[0] == "__algorithm_ref__":
-                    _fail("Object request argument requires owned graph codec")
-                if item is primitives.UNDEFINED:
-                    _fail("Undefined host JSON value is not admitted")
-                if type(item) is float and item.is_integer():
-                    item = int(item)
-                if type(item) is int and value[0] == "bigint":
-                    _fail("BigInt host JSON value is not admitted")
-                decoded.append(item)
-        try:
-            delivered = json.loads(fields["payload"])
-        except (TypeError, json.JSONDecodeError) as e:
-            raise NativeV8Error("Malformed host request payload") from e
-        if delivered != decoded:
-            _fail("Host request payload differs from its tagged arguments")
+        descriptor = HOST_OPERATIONS.get(fields["operation"], {})
+        argument_codec = descriptor.get("codec", "canonical-json/1")
+        if argument_codec == "owned-graph/1":
+            try:
+                decoded, _ = materialize_request(
+                    fields, heap=_host_graph_heap(state, args), require_promise=True
+                )
+            except ValueError as error:
+                raise NativeV8Error("Invalid owned host graph request: " + str(error)) from error
+        else:
+            decoded = []
+            for index, value in enumerate(args):
+                if index in callback_slots.get(fields["operation"], set()):
+                    if value[0] != "ref":
+                        _fail("Host callback argument must be an owned closure")
+                    callback = _table(state, "heap").get(value[1])
+                    if callback is None or callback.get("kind") != "closure":
+                        _fail("Host callback identity is not a guest function")
+                    decoded.append({"$ownedCallback": value[1]})
+                else:
+                    item = primitives._decode_scalar(value)
+                    if isinstance(item, tuple) and item and item[0] == "__algorithm_ref__":
+                        _fail("Object request argument requires owned graph codec")
+                    if item is primitives.UNDEFINED:
+                        _fail("Undefined host JSON value is not admitted")
+                    if type(item) is float and item.is_integer():
+                        item = int(item)
+                    if type(item) is int and value[0] == "bigint":
+                        _fail("BigInt host JSON value is not admitted")
+                    decoded.append(item)
+            try:
+                delivered = json.loads(fields["payload"])
+            except (TypeError, json.JSONDecodeError) as e:
+                raise NativeV8Error("Malformed host request payload") from e
+            if delivered != decoded:
+                _fail("Host request payload differs from its tagged arguments")
         if promise:
             _assert_fresh_allocation(state, promise)
         row_effect = {
@@ -1690,7 +1761,7 @@ def _apply_detail(
             "site": fields["site"],
             "payload": fields["payload"],
             "arguments": decoded,
-            "argumentCodec": "canonical-json/1",
+            "argumentCodec": argument_codec,
             "status": "requested",
             "fixture": None,
             "promise": promise,

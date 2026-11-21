@@ -152,9 +152,12 @@ def validate_observation_v8(row):
             raise ValueError("Invalid invocation lifecycle contract")
         value(fields["receiver"])
     elif kind == "result":
-        if fields["errorOrigin"] not in {None, "adapter-throw", "adapter-rejection"} or fields[
-            "status"
-        ] not in {"fulfilled", "rejected"}:
+        if fields["errorOrigin"] not in {
+            None,
+            "adapter-throw",
+            "adapter-rejection",
+            "guest-callback-throw",
+        } or fields["status"] not in {"fulfilled", "rejected"}:
             raise ValueError("Observed result must preserve declared completion/error origin")
         if fields["status"] == "fulfilled" and fields["errorOrigin"] is not None:
             raise ValueError("Fulfilled result cannot carry native error provenance")

@@ -27,6 +27,7 @@ def test_full_native_fixture_replay_and_recovery_without_legacy_wire_imports():
             "megatoken.data.semantic_harness_v6",
             "megatoken.data.semantic_contract",
             "megatoken.data.semantic_contract_v7",
+            "megatoken.data.witness_v6",
         }
         class NoLegacyWire(importlib.abc.MetaPathFinder):
             def find_spec(self, fullname, path=None, target=None):
@@ -47,6 +48,7 @@ def test_full_native_fixture_replay_and_recovery_without_legacy_wire_imports():
             "semantic-regions-v8.json.gz.b64",
             "semantic-protocol-region-v8.json.gz.b64",
             "semantic-callback-regions-v8.json.gz.b64",
+            "semantic-callback-return-v8.json.gz.b64",
             "semantic-host-protocol-v8.json.gz.b64",
             "semantic-host-recovery-v8.json.gz.b64",
         ):

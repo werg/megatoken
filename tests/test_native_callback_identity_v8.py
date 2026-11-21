@@ -62,6 +62,26 @@ def test_changing_activation_does_not_bypass_closure_binding():
         validate_v8_committed_prefix(document["public"], document["contexts"])
 
 
+def test_matching_closure_backed_call_does_not_discard_its_retained_cells():
+    document, row = callback_prefix("invocation")
+    row["fields"]["activation"] = "call"
+    before = copy.deepcopy(document)
+    with pytest.raises(NativeV8Error, match="retained-call replay profile"):
+        validate_v8_committed_prefix(document["public"], document["contexts"])
+    assert document == before
+
+
+@pytest.mark.parametrize("entry", ["function:77", "run"])
+def test_host_owned_handler_resolves_realm_identity_before_explicit_profile_refusal(entry):
+    document, row = callback_prefix("handler")
+    row["fields"].update(ownerInvocationId=None, entry=entry)
+    message = (
+        "native lifecycle replay profile" if entry == "function:77" else "immutable function site"
+    )
+    with pytest.raises(NativeV8Error, match=message):
+        validate_v8_committed_prefix(document["public"], document["contexts"])
+
+
 @pytest.mark.parametrize("field,value", [("realmId", "other-realm"), ("programId", "unknown")])
 def test_handler_requires_the_retained_realm_and_published_program(field, value):
     document, row = callback_prefix("handler")
