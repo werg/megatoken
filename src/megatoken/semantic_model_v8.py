@@ -94,6 +94,7 @@ class _Session:
     completed: set = field(default_factory=set)
     opening_random: dict | None = None
     replay: list = field(default_factory=list)
+    orchestration: dict | None = None
 
 
 class NativeSemanticInferenceV8:
@@ -110,6 +111,7 @@ class NativeSemanticInferenceV8:
         max_fragments=64,
         max_sessions=16,
         max_attempts=10000,
+        allow_controlled_lifecycle=False,
     ):
         if not re.fullmatch("[0-9a-f]{64}", model_identity or ""):
             raise ValueError("V8 serving requires an immutable loaded model identity")
@@ -146,6 +148,9 @@ class NativeSemanticInferenceV8:
         self.max_fragments = max_fragments
         self.max_sessions = max_sessions
         self.max_attempts = max_attempts
+        if type(allow_controlled_lifecycle) is not bool:
+            raise ValueError("Controlled V8 lifecycle authority must be explicit")
+        self.allow_controlled_lifecycle = allow_controlled_lifecycle
         self.sessions = {}
         self.attempts = []
         self.openings = []
@@ -235,10 +240,12 @@ class NativeSemanticInferenceV8:
         )
         return current
 
-    def _observe(self, session, payload, role, logical_id):
+    def _observe(self, session, payload, role, logical_id, *, track=None):
         """Use the exact physical splitter used by v8 training preparation."""
         from megatoken.contracts import MAIN_TRACK, ROLE_TO_ID
         from megatoken.model.multitrack import ObservedEvent
+
+        track = MAIN_TRACK if track is None else track
 
         chunks = make_records(
             payload,
@@ -255,7 +262,7 @@ class NativeSemanticInferenceV8:
                 session,
                 (
                     ObservedEvent(
-                        MAIN_TRACK,
+                        track,
                         "text",
                         chunk.payload,
                         ROLE_TO_ID[role],
@@ -273,7 +280,6 @@ class NativeSemanticInferenceV8:
         }
 
     def select(self, *, session, public, contexts, context):
-        from megatoken.contracts import MAIN_TRACK
         from megatoken.generation.structure import ActionSpec
 
         with self.lock:
@@ -308,6 +314,9 @@ class NativeSemanticInferenceV8:
                 )
             if work is None:
                 work = self._opened(session)
+            from megatoken.semantic_orchestration_v8 import semantic_track
+
+            model_track = semantic_track(work, context["invocationId"], public)
             random_before = capture_random_state()
             branch = _fork_session(work.runtime)
             attempt = {
@@ -349,6 +358,7 @@ class NativeSemanticInferenceV8:
                         canonical_semantic_observation(row),
                         "user" if row["kind"] in {"program", "invocation"} else "environment",
                         f"semantic:v8:observation:{row['sequence']}",
+                        track=model_track,
                     )
                     attempt["observedTokens"] += measured["tokens"]
                     attempt["observedBytes"] += measured["bytes"]
@@ -358,12 +368,13 @@ class NativeSemanticInferenceV8:
                     canonical_semantic_observation(context),
                     "system",
                     f"semantic:v8:context:{len(rows) + 1}",
+                    track=model_track,
                 )
                 attempt["contextTokens"] = measured["tokens"]
                 attempt["contextBytes"] = measured["bytes"]
                 attempt["contextPhysicalRecords"] = measured["physicalRecords"]
                 required_events = set(measured["events"])
-                visibility = self.runtime.context_status(branch, track=MAIN_TRACK)
+                visibility = self.runtime.context_status(branch, track=model_track)
                 if not required_events <= set(visibility["visible_events"]):
                     raise NativeSelectionV8Error(
                         "The complete v8 current context does not fit native visible history"
@@ -373,7 +384,7 @@ class NativeSemanticInferenceV8:
                 generation_started = time.perf_counter()
                 for index in range(self.max_fragments):
                     if index:
-                        visibility = self.runtime.context_status(branch, track=MAIN_TRACK)
+                        visibility = self.runtime.context_status(branch, track=model_track)
                         if not required_events <= set(visibility["visible_events"]):
                             raise NativeSelectionV8Error(
                                 "The complete v8 context and earlier record fragments "
@@ -386,7 +397,7 @@ class NativeSemanticInferenceV8:
                     attempt["instructionBytes"] += len(control)
                     generated = self.runtime.generate(
                         branch,
-                        tracks=(MAIN_TRACK,),
+                        tracks=(model_track,),
                         event_ids=(f"{attempt['selectionId']}:fragment:{index}",),
                         specs=(
                             ActionSpec(
@@ -406,7 +417,7 @@ class NativeSemanticInferenceV8:
                     fragment = {
                         "selectedEventId": tape.event_ids[0] if len(tape.event_ids) == 1 else None,
                         "meridian": tape.meridian_id,
-                        "modelTrack": MAIN_TRACK,
+                        "modelTrack": model_track,
                         "payloadHex": payload.hex() if isinstance(payload, bytes) else None,
                         "emittedTokenIds": list(ids),
                         "tokenIds": list(ids),
@@ -419,7 +430,7 @@ class NativeSemanticInferenceV8:
                         len(tape.payloads) != 1
                         or tape.valid != (True,)
                         or tape.modalities != ("text",)
-                        or tape.tracks != (MAIN_TRACK,)
+                        or tape.tracks != (model_track,)
                         or not isinstance(payload, bytes)
                         or not ids
                         or any(type(value) is not int or value < 0 for value in ids)
@@ -445,7 +456,7 @@ class NativeSemanticInferenceV8:
                         "Native v8 record exhausted its fragment budget without termination"
                     )
                 record = original.decode("utf-8", errors="strict")
-                attempt["contextAfter"] = self.runtime.context_status(branch, track=MAIN_TRACK)
+                attempt["contextAfter"] = self.runtime.context_status(branch, track=model_track)
                 attempt["status"] = "awaiting-commit"
                 attempt["totalSeconds"] = time.perf_counter() - started
                 work.pending = {
@@ -472,7 +483,7 @@ class NativeSemanticInferenceV8:
         with self.lock:
             work = self.sessions.get(session)
             pending = work.pending if work is not None else None
-            if pending is None:
+            if pending is None or pending.get("family") == "orchestration":
                 raise NativeSelectionV8Error("No native v8 candidate awaits acknowledgement")
             attempt, checked = pending["attempt"], pending["checked"]
             if (
@@ -517,6 +528,10 @@ class NativeSemanticInferenceV8:
                     "randomBefore": pending["randomBefore"],
                 }
             )
+            if work.orchestration is not None:
+                work.orchestration["operations"].append(
+                    {"kind": "semantic", "replay": len(work.replay) - 1}
+                )
             work.pending = None
             attempt["status"] = "committed"
             return {
@@ -547,6 +562,34 @@ class NativeSemanticInferenceV8:
     def complete(self, *, session, public, contexts, invocationId, completion=None):
         with self.lock:
             work = self.sessions.get(session)
+            closed = self.closed_sessions.get(session)
+            orchestration = (
+                work.orchestration
+                if work is not None
+                else closed.get("orchestration")
+                if isinstance(closed, dict)
+                else None
+            )
+            if orchestration is not None:
+                from megatoken.semantic_orchestration_v8 import recorded_completion
+
+                historical = recorded_completion(
+                    orchestration,
+                    public=public,
+                    contexts=contexts,
+                    invocationId=invocationId,
+                    completion=completion,
+                )
+                if historical is not None:
+                    return {
+                        "schema": "semantic-native-completion/8",
+                        "session": session,
+                        "invocationId": invocationId,
+                        "completed": True,
+                        "sessionRetained": work is not None,
+                        "publicDigest": historical["publicDigest"],
+                        "childCompletion": historical,
+                    }
             if work is None or work.pending is not None or work.public is None:
                 raise NativeSelectionV8Error("V8 completion needs acknowledged native selections")
             previous = work.public["timeline"]
@@ -578,6 +621,19 @@ class NativeSemanticInferenceV8:
                 ended = False
             if not ended:
                 raise NativeSelectionV8Error("V8 completion precedes its checked terminal record")
+            child_completion = None
+            if work.orchestration is not None:
+                from megatoken.semantic_orchestration_v8 import deliver_completion
+
+                child_completion = deliver_completion(
+                    self,
+                    work,
+                    session=session,
+                    public=public,
+                    contexts=contexts,
+                    invocationId=invocationId,
+                    completion=completion,
+                )
             work.public = copy.deepcopy(public)
             work.completed.add(invocationId)
             # A callback may end while its caller is suspended or a retained
@@ -589,7 +645,38 @@ class NativeSemanticInferenceV8:
                 "completed": True,
                 "sessionRetained": True,
                 "publicDigest": stable_algorithm_hash(public),
+                **({"childCompletion": child_completion} if child_completion is not None else {}),
             }
+
+    def open_orchestration(self, **request):
+        from megatoken.semantic_orchestration_v8 import open_orchestration
+
+        return open_orchestration(self, **request)
+
+    def select_orchestration(self, **request):
+        from megatoken.semantic_orchestration_v8 import select_orchestration
+
+        return select_orchestration(self, **request)
+
+    def commit_orchestration(self, **request):
+        from megatoken.semantic_orchestration_v8 import commit_orchestration
+
+        return commit_orchestration(self, **request)
+
+    def bootstrap_orchestration_child(self, **request):
+        from megatoken.semantic_orchestration_v8 import bootstrap_orchestration_child
+
+        return bootstrap_orchestration_child(self, **request)
+
+    def status_orchestration(self, **request):
+        from megatoken.semantic_orchestration_v8 import status_orchestration
+
+        return status_orchestration(self, **request)
+
+    def cancel_orchestration(self, **request):
+        from megatoken.semantic_orchestration_v8 import cancel_orchestration
+
+        return cancel_orchestration(self, **request)
 
     def _checkpoint_settings(self):
         return {
@@ -598,6 +685,7 @@ class NativeSemanticInferenceV8:
             "maxFragments": self.max_fragments,
             "maxSessions": self.max_sessions,
             "maxAttempts": self.max_attempts,
+            "allowControlledLifecycle": self.allow_controlled_lifecycle,
             "runtimeIdentity": runtime_identity(self.runtime),
         }
 
@@ -617,6 +705,11 @@ class NativeSemanticInferenceV8:
             "unacknowledgedSelection": work.pending["attempt"]["selectionId"]
             if work.pending is not None
             else None,
+            **(
+                {"orchestration": copy.deepcopy(work.orchestration)}
+                if work.orchestration is not None
+                else {}
+            ),
         }
 
     def checkpoint(self):
@@ -755,7 +848,17 @@ class NativeSemanticInferenceV8:
             opening_sessions = [
                 row.get("session") if type(row) is dict else None for row in packet["openings"]
             ]
-            if opening_sessions != opened_by_attempt:
+            orchestrated_ids = {
+                session
+                for group in (packet["sessions"], packet["closedSessions"])
+                for session, saved in group.items()
+                if type(saved) is dict and "orchestration" in saved
+            }
+            if any(type(session) is not str or not session for session in opening_sessions):
+                raise NativeSelectionV8Error("V8 session opening identity differs")
+            if len(opening_sessions) != len(set(opening_sessions)) or [
+                session for session in opening_sessions if session not in orchestrated_ids
+            ] != [session for session in opened_by_attempt if session not in orchestrated_ids]:
                 raise NativeSelectionV8Error("V8 session opening order differs from attempts")
             if any(
                 type(row) is not dict
@@ -785,6 +888,7 @@ class NativeSemanticInferenceV8:
                 max_fragments=self.max_fragments,
                 max_sessions=self.max_sessions,
                 max_attempts=self.max_attempts,
+                allow_controlled_lifecycle=self.allow_controlled_lifecycle,
             )
             restored = False
             replay_count = 0
@@ -819,6 +923,7 @@ class NativeSemanticInferenceV8:
                             "continuationDigest",
                             "unacknowledgedSelection",
                         }
+                        | ({"orchestration"} if "orchestration" in saved else set())
                         or type(saved["contexts"]) is not list
                         or type(saved["replay"]) is not list
                         or type(saved["completed"]) is not list
@@ -835,11 +940,14 @@ class NativeSemanticInferenceV8:
                     elif saved["contexts"] or saved["completed"] or saved["ingestedThrough"]:
                         raise NativeSelectionV8Error("Empty V8 session contains accepted work")
                     restore_random_state(saved["openingRandom"])
-                    staged._opened(session)
+                    if "orchestration" not in saved:
+                        staged._opened(session)
                     expected = [
                         index
                         for index, attempt in enumerate(attempts)
-                        if attempt["session"] == session and attempt["status"] == "committed"
+                        if attempt["session"] == session
+                        and attempt["status"] == "committed"
+                        and attempt.get("family") != "orchestration"
                     ]
                     actual = []
                     for context_index, entry in enumerate(saved["replay"]):
@@ -876,8 +984,17 @@ class NativeSemanticInferenceV8:
                         )
                     if session in closed_ids and saved["unacknowledgedSelection"] is not None:
                         raise NativeSelectionV8Error("Closed v8 session has unacknowledged work")
+                    if "orchestration" in saved:
+                        from megatoken.semantic_orchestration_v8 import restore_orchestration
+
+                        replay_count += restore_orchestration(
+                            staged, session=session, saved=saved, attempts=attempts
+                        )
+                        replay_entries = ()
+                    else:
+                        replay_entries = zip(actual, saved["replay"], strict=True)
                     work = staged.sessions[session]
-                    for index, entry in zip(actual, saved["replay"], strict=True):
+                    for index, entry in replay_entries:
                         context_index = entry["contextIndex"]
                         context = saved["contexts"][context_index]
                         rows = saved["public"]["timeline"]
@@ -940,7 +1057,7 @@ class NativeSemanticInferenceV8:
                             selection=actual_selection,
                         )
                         replay_count += 1
-                    for invocation in saved["completed"]:
+                    for invocation in () if "orchestration" in saved else saved["completed"]:
                         staged.complete(
                             session=session,
                             public=saved["public"],
@@ -1042,6 +1159,15 @@ class NativeSemanticInferenceV8:
                 ):
                     raise NativeSelectionV8Error("V8 closed-session history capacity exhausted")
                 failure = str(reason)
+                if (
+                    work.orchestration is not None
+                    and work.orchestration["cancelled"] is None
+                    and work.runtime.tracks.tracks[work.orchestration["track"]].status
+                    != "completed"
+                ):
+                    self.cancel_orchestration(
+                        session=session, track=work.orchestration["track"], reason=failure
+                    )
                 saved = self._session_checkpoint(session, work)
                 # The closed cut excludes a speculative candidate. Build and
                 # validate the durable summary before consuming its outcome.

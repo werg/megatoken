@@ -14,7 +14,6 @@ without disturbing the committed session.
 
 from __future__ import annotations
 
-import hashlib
 import json
 import time
 from collections.abc import Callable, Mapping, Sequence
@@ -1164,30 +1163,11 @@ class MultiTrackRuntime:
     @_commit_owner
     def register_execution_context(self, session: TrackSession, *, program: dict, invocation: dict):
         """Register immutable host context without executing code or exposing future state."""
-        if (
-            not isinstance(program, dict)
-            or not isinstance(invocation, dict)
-            or program.get("schema") != "semantic-execution/6"
-            or program.get("kind") != "program"
-            or program.get("mode") != "observed"
-            or invocation.get("schema") != "semantic-execution/6"
-            or invocation.get("kind") != "invocation"
-            or invocation.get("mode") != "observed"
-            or not isinstance(program.get("source"), str)
-            or hashlib.sha256(program["source"].encode()).hexdigest() != program.get("digest")
-            or invocation.get("sourceDigest") != program["digest"]
-            or invocation.get("programId") != program.get("programId")
-        ):
-            raise ValueError("Execution context requires exact observed program and invocation")
+        from megatoken.execution_context import execution_fields, validate_execution_context
 
-        def canonical(item):
-            return json.dumps(item, sort_keys=True, separators=(",", ":"), allow_nan=False)
-
-        program = json.loads(canonical(program))
-        invocation = json.loads(canonical(invocation))
-        program_id = program["programId"]
-        input_ref = hashlib.sha256(canonical(invocation["inputGraph"]).encode()).hexdigest()
-        key = invocation["invocationId"] + ":" + input_ref
+        program, invocation, input_ref = validate_execution_context(program, invocation)
+        program_id = execution_fields(program)["programId"]
+        key = execution_fields(invocation)["invocationId"] + ":" + input_ref
         if (
             program_id in session.execution_programs
             and session.execution_programs[program_id] != program
@@ -1211,12 +1191,15 @@ class MultiTrackRuntime:
         try:
             program = session.execution_programs[binding.program_id]
             invocation = session.execution_inputs[binding.invocation_id + ":" + binding.input_ref]
+            from megatoken.execution_context import execution_fields
+
+            source, incoming = execution_fields(program), execution_fields(invocation)
             if (
-                program["digest"] != binding.source_digest
-                or invocation["realmId"] != binding.realm_id
-                or invocation["entry"] != binding.entry
-                or invocation["completionPolicy"] != binding.completion_mode
-                or not set(binding.capability_grants) <= set(program["capabilities"])
+                source["digest"] != binding.source_digest
+                or incoming["realmId"] != binding.realm_id
+                or incoming["entry"] != binding.entry
+                or incoming["completionPolicy"] != binding.completion_mode
+                or not set(binding.capability_grants) <= set(source["capabilities"])
             ):
                 raise ValueError("Execution bootstrap context differs from its typed binding")
             progress = session.execution_publication.get(address, 0)

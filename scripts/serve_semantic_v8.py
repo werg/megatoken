@@ -39,8 +39,15 @@ def dispatch(adapter, request):
             "cancel",
             "checkpoint",
             "restore",
+            "open_orchestration",
+            "select_orchestration",
+            "commit_orchestration",
+            "bootstrap_orchestration_child",
+            "status_orchestration",
+            "cancel_orchestration",
         )
     }
+    operation = operation.replace("-", "_") if isinstance(operation, str) else operation
     if operation not in methods:
         raise ValueError("Unknown native v8 RPC operation")
     return methods[operation](

@@ -1,0 +1,39 @@
+{
+  "cases": {
+    "afterCoordinatorCancel": {
+      "accepted": false,
+      "authorityUnchanged": true,
+      "error": "Terminal V8 coordinator cannot admit or execute further work",
+      "errorType": "NativeSelectionV8Error"
+    },
+    "afterCoordinatorComplete": {
+      "accepted": false,
+      "authorityUnchanged": true,
+      "error": "Terminal V8 coordinator cannot admit or execute further work",
+      "errorType": "NativeSelectionV8Error"
+    },
+    "afterNewObservedProgram": {
+      "accepted": false,
+      "authorityUnchanged": true,
+      "error": "V8 completion rewrites acknowledged model history",
+      "errorType": "NativeSelectionV8Error"
+    },
+    "duringLaterPendingSelection": {
+      "accepted": false,
+      "authorityUnchanged": true,
+      "error": "V8 completion needs acknowledged native selections",
+      "errorType": "NativeSelectionV8Error"
+    },
+    "liveExactRetry": {
+      "accepted": true,
+      "authorityUnchanged": true,
+      "exactOriginalReceipt": true
+    }
+  },
+  "hashes": {
+    "src/megatoken/semantic_model_v8.py": "63725ddc886e409b1cdafd6384f14005c5fc81b6dcf9eaaa7755d985388c1235",
+    "src/megatoken/semantic_orchestration_v8.py": "21fa806c5a5fe203c2930989bb8789ecfcd1f4dd29e0fc7c927e0d6e066eba64",
+    "tests/fixtures/semantic-regions-v8.json.gz.b64": "52bd69ff0f87d7d0f02e7b899e18e56969917170b87fc1110017aee54f8576c5"
+  },
+  "scope": "model-free historical completion retry; no actual-model or dispatch claim"
+}
