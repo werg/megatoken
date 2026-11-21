@@ -521,6 +521,17 @@ class PrimitiveConversionTests(unittest.TestCase):
         with self.assertRaises(ProtocolV8Error):
             conversion.validate_state(state)
 
+    def test_snapshot_cannot_omit_shared_authority_or_substitute_an_unchecked_snapshot(self):
+        state = machine()
+        apply(state, begin("number", "Number", ["num", 7]))
+        public = _external_machine(state)
+        with self.assertRaisesRegex(ProtocolV8Error, "complete shared state"):
+            validate_protocol_state(public["protocol"], public["heap"])
+        malformed = copy.deepcopy(public["protocol"])
+        malformed["primitiveConversions"]["operations"][0]["candidate"] = ["num", 9]
+        with self.assertRaisesRegex(ProtocolV8Error, "entry state"):
+            validate_protocol_state(malformed, public["heap"], public)
+
     @unittest.skipUnless(shutil.which("node"), "Node is the independent scalar oracle")
     def test_scalar_conversion_matches_native_javascript(self):
         values = [UNDEFINED, ["null"], ["bool", False], ["bool", True]]

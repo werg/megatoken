@@ -1566,6 +1566,12 @@ def validate_protocol_state(snapshot, heap_ids=(), shared_state=None):
             else {"heap": heap_nodes, "protocol": snapshot}
         )
         validate_construction_record_state(snapshot["construction"], construction_machine)
+    if snapshot["primitiveConversions"] is not None:
+        if shared_state is None:
+            _fail("primitive conversion validation requires complete shared state")
+        conversion_machine = _internal_machine(shared_state)
+        conversion_machine["protocol"] = snapshot
+        validate_primitive_conversion_state(conversion_machine)
     if shared_state is not None:
         active_machine = _internal_machine(shared_state)
         for binding, cell in active_machine.get("captureAliases", {}).items():
@@ -1626,7 +1632,6 @@ def validate_protocol_state(snapshot, heap_ids=(), shared_state=None):
 
         validate_promise_executor_state(memory_machine)
         validate_number_state(memory_machine)
-        validate_primitive_conversion_state(memory_machine)
         validate_generator_state(memory_machine)
         validate_proxy_state(memory_machine)
     return True
