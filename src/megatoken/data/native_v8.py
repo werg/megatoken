@@ -51,7 +51,7 @@ from .semantic_contract_v8 import (
     SemanticContractV8Error,
     validate_public,
 )
-from .semantic_json import stable_algorithm_hash
+from .semantic_json import stable_algorithm_hash, stable_algorithm_json
 from .semantic_physical import physical_semantic_episode
 from .semantic_primitives import _truthy as _detail_truthy
 
@@ -1036,11 +1036,14 @@ def _replay_shared_state(
             context = snapshots.get(row["sequence"])
             if context is None or context["visibleThrough"] != row["sequence"] - 1:
                 _fail("Generated prefix cutoff is not immediately causal")
-            if state != context["state"]:
+            # Python container equality conflates booleans and numbers. Public
+            # JSON authority instead follows ECMAScript values, including 1 == 1.0.
+            if stable_algorithm_json(state) != stable_algorithm_json(context["state"]):
                 differing = [
                     name
                     for name in context["state"]
-                    if state.get(name) != context["state"].get(name)
+                    if stable_algorithm_json(state.get(name))
+                    != stable_algorithm_json(context["state"].get(name))
                 ]
                 _fail(
                     "Public continuation differs from independently replayed shared state at "
@@ -1049,9 +1052,11 @@ def _replay_shared_state(
                     + repr(differing)
                 )
             expected_cursor = {"active": None, "consumed": consumed}
-            if context["regionCursor"] != expected_cursor:
+            if stable_algorithm_json(context["regionCursor"]) != stable_algorithm_json(
+                expected_cursor
+            ):
                 _fail("Region cursor differs from independently replayed region history")
-            if context["obligations"] != obligations:
+            if stable_algorithm_json(context["obligations"]) != stable_algorithm_json(obligations):
                 _fail("Obligations differ from independently replayed request history")
             if roundtrip:
                 state = _restore_native_checkpoint(
@@ -1446,11 +1451,17 @@ def _restore_native_checkpoint(
         checkpoint["prefix"]
     ):
         _fail("Native v8 checkpoint cutoff")
-    if checkpoint["prefix"] != expected_prefix or checkpoint["state"] != expected_state:
+    if stable_algorithm_json(checkpoint["prefix"]) != stable_algorithm_json(
+        expected_prefix
+    ) or stable_algorithm_json(checkpoint["state"]) != stable_algorithm_json(expected_state):
         _fail("Native v8 checkpoint differs from verified replay boundary")
-    if expected_cursor is not None and checkpoint["regionCursor"] != expected_cursor:
+    if expected_cursor is not None and stable_algorithm_json(
+        checkpoint["regionCursor"]
+    ) != stable_algorithm_json(expected_cursor):
         _fail("Native v8 checkpoint region cursor differs from verified replay")
-    if expected_obligations is not None and checkpoint["obligations"] != expected_obligations:
+    if expected_obligations is not None and stable_algorithm_json(
+        checkpoint["obligations"]
+    ) != stable_algorithm_json(expected_obligations):
         _fail("Native v8 checkpoint obligations differ from verified replay")
     expected = set(
         __import__("megatoken.data.semantic_contract_v8", fromlist=["DEFINITION"]).DEFINITION[

@@ -5,8 +5,14 @@ import hashlib
 
 import pytest
 
-from megatoken.data.native_v8 import NativeV8Error, validate_v8_artifact
-from megatoken.data.prefix_v8 import validate_v8_committed_prefix
+from megatoken.data.native_v8 import (
+    NativeV8Error,
+    _native_checkpoint,
+    _restore_native_checkpoint,
+    validate_v8_artifact,
+)
+from megatoken.data.prefix_v8 import validate_v8_committed_prefix, validate_v8_prediction_prefix
+from megatoken.data.semantic_json import stable_algorithm_hash, stable_algorithm_json
 from tests.test_native_recovery_v8 import (
     apply,
     artifact,
@@ -14,6 +20,7 @@ from tests.test_native_recovery_v8 import (
     refused_without_mutation,
     through,
 )
+from tests.test_prediction_prefix_v8 import prefix
 
 
 def test_native_action_receipt_is_bound_preserved_and_keeps_authentication_unclaimed():
@@ -148,3 +155,90 @@ def test_unbound_extra_receipt_data_is_retained_without_becoming_authentication(
     apply(state, row)
     assert state[3]["intents"][0][1]["nativeAction"] == native
     assert state[3]["intents"][0][1]["status"] == "dispatched"
+
+
+def receipt_document_with_flag(value):
+    """Publish the same metadata everywhere and repair only public-prefix hashes."""
+    document = artifact(11)
+    timeline = document["public"]["timeline"]
+    dispatch = next(row for row in timeline if row["kind"] == "dispatch")
+    dispatch["fields"]["nativeAction"]["authority"]["flag"] = value
+    for context in document["contexts"]:
+        for _, intent in context["obligations"]["intents"]:
+            if "nativeAction" in intent:
+                intent["nativeAction"]["authority"]["flag"] = value
+        context["prefixDigest"] = stable_algorithm_hash(timeline[: context["visibleThrough"]])
+    assert validate_v8_artifact(document)["checks"]["contexts"] == "passed"
+    return document
+
+
+def changed_metadata_boundary(document, boundary, value):
+    index = next(
+        index
+        for index, context in enumerate(document["contexts"])
+        if any("nativeAction" in intent for _, intent in context["obligations"]["intents"])
+    )
+    if boundary == "committed-context":
+        document["contexts"][index]["obligations"]["intents"][0][1]["nativeAction"]["authority"][
+            "flag"
+        ] = value
+        return document, lambda: validate_v8_artifact(document), "Obligations differ"
+    public, contexts, context = prefix(document, index)
+    if boundary == "prediction-context":
+        context["obligations"]["intents"][0][1]["nativeAction"]["authority"]["flag"] = value
+        return (
+            context,
+            lambda: validate_v8_prediction_prefix(public, contexts, context),
+            "context differs from independent replay",
+        )
+    checkpoint = _native_checkpoint(public["timeline"], context)
+    if boundary == "checkpoint-obligations":
+        checkpoint["obligations"]["intents"][0][1]["nativeAction"]["authority"]["flag"] = value
+        message = "checkpoint obligations differ"
+    else:
+        assert boundary == "checkpoint-prefix"
+        dispatch = next(row for row in checkpoint["prefix"] if row["kind"] == "dispatch")
+        dispatch["fields"]["nativeAction"]["authority"]["flag"] = value
+        message = "checkpoint differs from verified replay boundary"
+    # A self-consistent checksum is not independent authority for saved metadata.
+    checkpoint["integrity"] = stable_algorithm_hash(
+        {key: item for key, item in checkpoint.items() if key != "integrity"}
+    )
+    return (
+        checkpoint,
+        lambda: _restore_native_checkpoint(
+            checkpoint,
+            expected_prefix=public["timeline"],
+            expected_state=context["state"],
+            expected_cursor=context["regionCursor"],
+            expected_obligations=context["obligations"],
+        ),
+        message,
+    )
+
+
+@pytest.mark.parametrize(
+    "boundary",
+    ["committed-context", "prediction-context", "checkpoint-obligations", "checkpoint-prefix"],
+)
+@pytest.mark.parametrize("observed,changed", [(True, 1), (False, 0), (1, True), (0, False)])
+def test_native_action_metadata_cannot_substitute_booleans_and_numbers(boundary, observed, changed):
+    document = receipt_document_with_flag(observed)
+    submitted, validate, message = changed_metadata_boundary(document, boundary, changed)
+    before = stable_algorithm_json(submitted)
+    with pytest.raises(NativeV8Error, match=message):
+        validate()
+    assert stable_algorithm_json(submitted) == before
+
+
+@pytest.mark.parametrize(
+    "boundary",
+    ["committed-context", "prediction-context", "checkpoint-obligations", "checkpoint-prefix"],
+)
+@pytest.mark.parametrize("observed,changed", [(1, 1.0), (1.0, 1)])
+def test_native_action_metadata_keeps_ecmascript_number_equivalence(boundary, observed, changed):
+    document = receipt_document_with_flag(observed)
+    submitted, validate, _ = changed_metadata_boundary(document, boundary, changed)
+    before = stable_algorithm_json(submitted)
+    validate()
+    assert stable_algorithm_json(submitted) == before

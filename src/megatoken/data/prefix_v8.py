@@ -9,7 +9,7 @@ from megatoken.controls import canonical_semantic_observation
 from .native_v8 import NativeV8Error, _replay_shared_state, validate_v8_artifact
 from .observations_v8 import OBSERVATIONS, validate_observation_v8
 from .semantic_contract_v8 import DEFINITION, validate_public
-from .semantic_json import stable_algorithm_hash
+from .semantic_json import stable_algorithm_hash, stable_algorithm_json
 
 MAX_PREFIX_BYTES = 32 << 20
 MAX_PREFIX_RECORDS = 16384
@@ -100,8 +100,12 @@ def validate_v8_prediction_prefix(public, contexts, context):
         "visibleThrough": len(timeline),
         "prefixDigest": stable_algorithm_hash(timeline),
     }
-    if context != expected:
-        differences = sorted(key for key in expected if context[key] != expected[key])
+    if stable_algorithm_json(context) != stable_algorithm_json(expected):
+        differences = sorted(
+            key
+            for key in expected
+            if stable_algorithm_json(context[key]) != stable_algorithm_json(expected[key])
+        )
         raise NativeV8Error(
             "V8 prediction context differs from independent replay: " + repr(differences)
         )

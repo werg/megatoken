@@ -277,3 +277,37 @@ Validation of the native action increment: **128 focused tests pass**, including
 whitespace checks pass. The full hosted test selection is run separately against
 the exact published producer/consumer pair with the pinned training dependencies
 and tokenizer.
+
+## JSON value types remain exact across replay and saved checkpoints
+
+Authority comparisons now use the existing ECMAScript-compatible canonical JSON
+representation. Python considers `true` equal to `1` and `false` equal to `0`
+inside dictionaries, which previously let a context or rehashed checkpoint
+replace observed native action metadata without detection. Committed contexts,
+prediction contexts and restored checkpoints now distinguish those JSON types.
+The same checks cover their saved state, region cursor and obligations; a
+checkpoint's own integrity hash does not replace independent prefix authority.
+
+The controls first publish a valid dispatch with matching metadata and recompute
+its context prefix hashes, then change only the submitted context or checkpoint.
+All 16 boolean/number substitutions across the four receipt boundaries were
+incorrectly accepted before the fix. They now refuse without changing the
+submitted data. Eight positive controls preserve ECMAScript number equivalence:
+Python representations `1` and `1.0` describe the same JSON number and remain
+interchangeable. These checks continue to preserve metadata, without claiming
+that its signature or external authority is authentic.
+
+Validation of this runtime increment: **170 focused tests pass** across native
+action receipts, external recovery, replay and checkpoints, prediction prefixes,
+and mixed host/Promise composition. Ruff and whitespace checks pass. The full
+CI selection now collects 579 tests, including the 24 new type-boundary controls.
+
+The first full installed-dependency test run remains recorded at producer
+`9fc193538c4e5c2e512f9fef767d30ed9e437c5a` and consumer
+`f25fa325def722c5ec7d6ed7f9300ac235cf6e1a`: 553 of 555 tests passed, two stale
+test setups failed, and none were skipped. The separate test-only correction
+`a2734bba6f23f2af29f3bc698d538e75d0d52223` makes the callback counter's safe-integer
+boundary explicit and reconstructs a pending guest callback before its handler
+receipt. Its two affected test modules pass all 22 controls. That historical run
+is not relabeled as evidence for the later runtime change; the complete test
+selection must run again on its published revision.
