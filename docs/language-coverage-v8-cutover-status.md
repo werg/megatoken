@@ -5,6 +5,30 @@ Its description and checked-in ledger retain all 17 requested work packages,
 their remaining acceptance conditions, and the two original plans. This branch
 starts at `24f4a7c16edf4603cbf5ea6863db1f6a8cc67e37`.
 
+## Continuation: durable input and complete recovery evidence
+
+Consumer `4918b3d1c65b8113f9334a8afdc1daf9f129a80d` reconstructs and compares
+all deterministic acknowledged selection fields and session-opening metadata.
+Rehashed token accounting, visible-context and opening-metadata substitutions
+refuse. Only wall-clock timings and the expected replay acknowledgement-state
+transition are excluded. Fifteen focused CPU recovery/serving/identity/lineage
+tests pass, including an actual fresh JSONL service.
+
+The paired producer `52ea51c92500288535d9845ec31392fb6ce8cc51` introduces
+per-arrival durable registered host input and later-tail recovery. The consumer
+mirrors contract digest
+`a3ef5979c34f7151495b78bef19315baf6342fd659bb06a597fffba0817242e0`;
+public fixture and interoperability digests remain unchanged. The compressed
+region fixture expands byte-for-byte to the producer's original bytes. Twenty-six
+focused native/region/recovery tests and fifteen subtests pass. Producer host and
+driver validation occurs before model state opens; the journal is private input
+evidence and does not enter model context.
+
+These increments do not qualify accepted semantic records from an ordinarily
+trained model, arbitrary callback return continuations, complete edition
+coverage, distributed/deployment recovery, learned quality or default cutover.
+All seventeen acceptance packages remain open in the main producer ledger.
+
 ## Delivered increments
 
 - Extracted canonical ECMAScript JSON and typed value/operation validation into
