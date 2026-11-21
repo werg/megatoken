@@ -27,6 +27,13 @@ These tests do not replace a command-level run with the pinned tokenizer and
 fresh producer/native source admission. Generalization, full source completion,
 production training and default routing remain separate gates.
 
+Capture is bounded to the ordinary training windows that contain the selected
+physical prefix. It keeps the complete verified episode and its provenance; it
+does not build an unregistered replacement episode. A full-state regression
+compares the first captured boundary, including every tensor, cached event and
+request control, against capture of the full episode. This avoids replaying all
+later teacher records before a one-record diagnostic can save its first bundle.
+
 ## Actual accepted-state recovery
 
 When the reloaded fitted model produces an acknowledged prefix, the diagnostic

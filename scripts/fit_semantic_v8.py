@@ -110,12 +110,19 @@ def verified_train_example(roots, *, codec, policy, source_id=None):
     return episode, artifact, revision, supply, annotation
 
 
-def capture_boundaries(model, episode, config, output):
+def capture_boundaries(model, episode, config, output, *, max_boundaries=None):
     """Read the real grouped trainer's pre-target states without changing its output."""
+    if max_boundaries is not None and (type(max_boundaries) is not int or max_boundaries < 1):
+        raise ValueError("Diagnostic capture requires a positive physical boundary limit")
     plan = _WindowPlan(episode, model.codec, window_config(config))
-    windows = [
-        EpisodeWindow(episode, plan[index], TensorAssetStore(output)) for index in range(len(plan))
-    ]
+    windows = []
+    planned_boundaries = 0
+    for index in range(len(plan)):
+        window = plan[index]
+        windows.append(EpisodeWindow(episode, window, TensorAssetStore(output)))
+        planned_boundaries += sum(entry.record.policy_mask for entry in window.records)
+        if max_boundaries is not None and planned_boundaries >= max_boundaries:
+            break
     batches = prepare_batches(model, windows, config)
     transducer = TransducerTrainer(
         model.transducer, bank_trainable=False, teacher_weight=0.0, navigation_weight=0.0
@@ -124,7 +131,8 @@ def capture_boundaries(model, episode, config, output):
     original = MultiTrackGenerator.supervised_meridian
 
     def observe_boundary(multi, state, **kwargs):
-        captured.append((state.detach(), dict(kwargs)))
+        if max_boundaries is None or len(captured) < max_boundaries:
+            captured.append((state.detach(), dict(kwargs)))
         return original(multi, state, **kwargs)
 
     with (
@@ -593,6 +601,10 @@ def main():
     episode, artifact, revision, supply, semantic = verified_train_example(
         args.prepared, codec=codec, policy=policy, source_id=args.source_id
     )
+    print(
+        json.dumps({"phase": "verified-prepared-training-row", "sourceId": semantic["sourceId"]}),
+        flush=True,
+    )
     document = {"public": artifact["public"], "contexts": artifact["contexts"]}
     targets_with_parts = complete_targets(episode)[: args.records]
     if len(targets_with_parts) != args.records or any(
@@ -638,8 +650,13 @@ def main():
     initial_state = {
         name: value.detach().cpu().clone() for name, value in model.state_dict().items()
     }
-    all_boundaries, transducer = capture_boundaries(model, episode, config, args.output)
-    boundaries = all_boundaries[: args.records]
+    boundaries, transducer = capture_boundaries(
+        model, episode, config, args.output, max_boundaries=args.records
+    )
+    print(
+        json.dumps({"phase": "captured-causal-boundaries", "boundaries": len(boundaries)}),
+        flush=True,
+    )
     if len(boundaries) != len(targets):
         raise ValueError("Diagnostic target boundaries were unexpectedly split or duplicated")
     optimizer = MasterAdamW(model, lr=args.learning_rate, weight_decay=0.0)

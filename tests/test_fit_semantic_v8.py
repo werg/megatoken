@@ -252,6 +252,8 @@ def test_fitter_requires_policy_to_pin_current_consumer(tmp_path, monkeypatch):
 
 
 def test_fitter_captures_actual_prepared_episode_through_grouped_trainer(tmp_path, monkeypatch):
+    import torch
+
     _, codec, policy, prepared = prepared_v8_fixture(tmp_path)
     monkeypatch.setattr(
         subprocess,
@@ -262,6 +264,7 @@ def test_fitter_captures_actual_prepared_episode_through_grouped_trainer(tmp_pat
     from megatoken.loading import build_model
     from megatoken.model import ModelConfig
     from megatoken.training.config import TrainConfig
+    from tests.test_semantic_v8_continuation_parity import assert_same_state
 
     with PreparedCorpus([prepared], split="train", stream="semantic_execution") as corpus:
         episode = next(corpus.iter_episodes())
@@ -280,6 +283,20 @@ def test_fitter_captures_actual_prepared_episode_through_grouped_trainer(tmp_pat
     )
 
     model = build_model(ModelConfig.tiny(vocab_size=codec.vocab_size), codec).eval()
+    windows_seen = []
+    prepare_batches = _MODULE.prepare_batches
+
+    def count_windows(model, windows, config):
+        windows_seen.append(len(windows))
+        return prepare_batches(model, windows, config)
+
+    monkeypatch.setattr(_MODULE, "prepare_batches", count_windows)
+    before_random = torch.get_rng_state()
     boundaries, _ = capture_boundaries(model, episode, config, tmp_path / "capture")
 
     assert len(boundaries) == sum(record.policy_mask for record in episode.records)
+    torch.set_rng_state(before_random)
+    first, _ = capture_boundaries(model, episode, config, tmp_path / "capture", max_boundaries=1)
+    assert len(first) == 1 and windows_seen[1] < windows_seen[0]
+    assert_same_state(boundaries[0][0], first[0][0], {})
+    assert boundaries[0][1]["control_payloads"] == first[0][1]["control_payloads"]
