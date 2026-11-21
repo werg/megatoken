@@ -2243,8 +2243,20 @@
         "integrity"
       ],
       "optionalFields": [
-        "ingress"
+        "ingress",
+        "ingressLog"
       ],
+      "ingressLogReceipt": {
+        "schema": "semantic-host-ingress-log-receipt/8",
+        "fields": [
+          "schema",
+          "streamId",
+          "position",
+          "id",
+          "bytes"
+        ],
+        "meaning": "Private write-ahead arrival chain head. Each registered arrival is captured before yielding, persisted and read back before queue mutation or delivery. Checkpoints refuse unresolved/failed writes and retain their acknowledged head. Restore requires an independently retained equal or later head; validates every source, public prefix, graph and arrival order before applying absent inputs. Delivered/discarded inputs are reconciled without redispatch; a later public boundary than the checkpoint refuses."
+      },
       "ingressReceipt": {
         "schema": "semantic-host-ingress-receipt/8",
         "fields": [
@@ -2308,7 +2320,7 @@
       "default": "not promoted by engineering receipts alone"
     }
   },
-  "digest": "1be6863d4c4fd4d67698be2d92023db55ea624f6cf8ff9139117d5f48df2cbac",
+  "digest": "a3ef5979c34f7151495b78bef19315baf6342fd659bb06a597fffba0817242e0",
   "fixtureDigest": "56f7f36d3b25b3b11a208be3de337e637b9782e6759faea1e1ec107b0a90f0ce",
   "fixtures": [
     {
