@@ -2032,6 +2032,26 @@ def _require_callback_handlers(obligations, effect_identity):
             _fail("Effect result requires its observed callback handler registration")
 
 
+def _native_action_binding(native, intent, fields):
+    from .observations_v8 import validate_native_action_v8
+
+    try:
+        validate_native_action_v8(native)
+    except ValueError as error:
+        raise NativeV8Error(str(error)) from error
+    expected = {
+        "invocationId": fields["invocationId"],
+        "effectId": fields["effectId"],
+        "operation": intent["operation"],
+        "payload": intent["payload"],
+        "ownerTrack": fields["track"],
+        "recordDigest": hashlib.sha256(intent["witness"].encode("utf-8")).hexdigest(),
+    }
+    if any(native.get(key) != value for key, value in expected.items()):
+        _fail("Native selected-action receipt differs from its committed request binding")
+    return copy.deepcopy(native)
+
+
 def _apply_observation_staged(state, row, dispatched, settled, obligations, track_counts):
     fields = row["fields"]
     if row["kind"] == "reconcile":
@@ -2238,9 +2258,15 @@ def _apply_observation_staged(state, row, dispatched, settled, obligations, trac
                 or fields["attempt"] != intent["attempts"] + 1
             ):
                 _fail("Dispatch without one requested intent")
+            if "nativeAction" in fields:
+                intent["nativeAction"] = _native_action_binding(
+                    fields["nativeAction"], intent, fields
+                )
             intent["status"] = "dispatched"
             intent["attempts"] = fields["attempt"]
             obligations["intents"] = [[key, value] for key, value in intents.items()]
+        elif "nativeAction" in fields:
+            _fail("Native selected-action receipt requires its committed request obligation")
         elif fields["attempt"] != 1:
             _fail("A repeated dispatch requires its reconciled obligation history")
     else:

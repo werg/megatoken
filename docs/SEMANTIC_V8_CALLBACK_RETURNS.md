@@ -157,8 +157,8 @@ or closed handlers and revoked guest callback capabilities cannot be revived.
 Reattachment does not issue a new guest request, create a dispatch or repeat the
 original registration.
 
-`scripts/generate_recovery_v8.mjs` retains eleven producer-generated recovery
-and callback-registration controls, with 51 selected records. These include
+`scripts/generate_recovery_v8.mjs` retains twelve producer-generated recovery
+and callback-registration controls, with 54 selected records. These include
 fulfilled and rejected recovery, an explicitly
 unresolved lost result, verified non-dispatch followed by attempt 2, and an
 existing subscription reattached after JSON restoration, plus a returning owned
@@ -250,3 +250,30 @@ handler ownership, retained calls, callback results and callback identity.
 The shared contract comparison, Ruff and whitespace checks pass. These counts
 overlap earlier runs and remain engineering evidence rather than source or
 model-quality admission.
+
+## Native action receipts preserve their exact selected request
+
+An optional native action receipt on a dispatch now binds its invocation,
+effect, operation, payload, owner track and selected-record digest to the
+independently reconstructed request. Its action key must be a nonempty string.
+An explicit null receipt, missing binding, nonfinite value, negative zero,
+cyclic object or excessive nesting refuses before dispatch or state mutation.
+
+Replay stores the complete plain JSON receipt on the intent, including extension
+fields such as a signature, model track or external authority metadata. Those
+fields are retained as observed data: replay does not authenticate a signature
+or establish that a model produced the request. The embedding remains
+responsible for that evidence. This fixes continuation contexts that previously
+lost a real dispatch's native action metadata.
+
+The added producer-pinned control obtains its receipt through the actual
+before-dispatch hook, verifies that the adapter receives its action key, and
+checks public replay and JSON restoration. Independent tests cover altered or
+missing bindings, malformed receipts, extension preservation and context
+substitution. The receipt and artifact remain explicitly source-uncertified.
+
+Validation of the native action increment: **128 focused tests pass**, including
+34 action-receipt controls, recovery and handler ownership tests. Ruff and
+whitespace checks pass. The full hosted test selection is run separately against
+the exact published producer/consumer pair with the pinned training dependencies
+and tokenizer.

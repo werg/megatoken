@@ -79,7 +79,7 @@ def dispatch_row(attempt):
     }
 
 
-@pytest.mark.parametrize("case", range(11))
+@pytest.mark.parametrize("case", range(12))
 def test_recovery_replays_every_public_prediction_and_json_boundary(case):
     document = artifact(case)
     receipt = validate_v8_artifact(document)

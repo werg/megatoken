@@ -82,6 +82,51 @@ OBSERVATIONS = {
 }
 
 
+def validate_native_action_v8(native):
+    """Check plain receipt data; the embedding authenticates its actual origin."""
+
+    def plain_data(value, ancestors, depth=0):
+        if value is None or type(value) in (str, bool):
+            return True
+        if type(value) in (int, float):
+            try:
+                return math.isfinite(value) and not (value == 0 and math.copysign(1, value) < 0)
+            except OverflowError:
+                return False
+        if type(value) not in (dict, list) or depth > 64 or id(value) in ancestors:
+            return False
+        if type(value) is dict and any(type(key) is not str for key in value):
+            return False
+        ancestors.add(id(value))
+        result = all(
+            plain_data(child, ancestors, depth + 1)
+            for child in (value.values() if type(value) is dict else value)
+        )
+        ancestors.remove(id(value))
+        return result
+
+    required = {
+        "schema",
+        "actionKey",
+        "invocationId",
+        "effectId",
+        "operation",
+        "payload",
+        "ownerTrack",
+        "recordDigest",
+    }
+    if (
+        type(native) is not dict
+        or not required <= set(native)
+        or native["schema"] != "semantic-native-action/4"
+        or type(native["actionKey"]) is not str
+        or not native["actionKey"]
+        or not plain_data(native, set())
+    ):
+        raise ValueError("Native selected-action receipt requires its plain request binding")
+    return True
+
+
 def validate_observation_v8(row):
     if type(row) is not dict or set(row) != {"sequence", "mode", "kind", "fields"}:
         raise ValueError("V8 observation requires its exact public envelope")
@@ -225,12 +270,11 @@ def validate_observation_v8(row):
             or len(set(fields["uncertain"])) != len(fields["uncertain"])
         ):
             raise ValueError("Cancellation requires distinct uncertain effect identities")
-    elif kind == "dispatch" and fields.get("nativeAction") is not None:
+    elif kind == "dispatch" and "nativeAction" in fields:
         native = fields["nativeAction"]
+        validate_native_action_v8(native)
         if (
-            type(native) is not dict
-            or native.get("schema") != "semantic-native-action/4"
-            or native.get("invocationId") != fields["invocationId"]
+            native["invocationId"] != fields["invocationId"]
             or native.get("effectId") != fields["effectId"]
         ):
             raise ValueError("Native dispatch descriptor must preserve selected action ownership")

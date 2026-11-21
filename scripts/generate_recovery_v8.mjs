@@ -1,6 +1,7 @@
 // Selected public replay controls: these records do not certify source execution.
 import assert from 'node:assert/strict';
 import {execFileSync} from 'node:child_process';
+import {createHash} from 'node:crypto';
 import {mkdtempSync, rmSync, writeFileSync} from 'node:fs';
 import {join, resolve} from 'node:path';
 import {pathToFileURL} from 'node:url';
@@ -283,6 +284,27 @@ finish(shared, 'root', ['undefined']);
 shared.h.closeEventHandler('callback1'); shared.h.closeEventHandler('callback2');
 retain('concurrent-registrations-share-one-closure', shared, {adapterCalls: sharedCalls,
   registrations: 2, sharedClosure: 'fn', outcome: 'completed'});
+
+let actionCalls = 0;
+const action = machine('bound-native-action', numberSource, ['demo.readNumber'], {
+  'demo.readNumber': (_args, meta) => {
+    actionCalls++; assert.equal(meta.idempotencyKey, 'selected-action/1'); return 7;
+  },
+});
+action.request('effect', 'demo.readNumber', [['str', 'key']], '["key"]');
+const actionIntent = action.h.inner.intents.get('root/effect');
+const nativeAction = {schema: 'semantic-native-action/4', actionKey: 'selected-action/1',
+  invocationId: 'root', effectId: 'effect', operation: actionIntent.operation,
+  payload: actionIntent.payload, ownerTrack: 'worker',
+  recordDigest: createHash('sha256').update(actionIntent.witness).digest('hex'),
+  modelTrack: 'controlled-model-track', authority: {issuer: 'selected-test', scopes: ['dispatch'], evidence: null},
+  signature: {algorithm: 'fixture-only', value: 'not-authenticated'}};
+await action.h.dispatch('root', 'effect', {beforeDispatch: async () => structuredClone(nativeAction)});
+assert.equal(actionCalls, 1);
+assert.deepEqual(actionIntent.nativeAction, nativeAction);
+finish(action, 'root', ['num', 7]);
+retain('native-action-binds-the-exact-selected-request', action, {adapterCalls: actionCalls,
+  nativeAction, nativeActionAuthentication: 'not-claimed', outcome: 'completed'});
 
 writeFileSync(output, gzipSync(JSON.stringify({schema: 'semantic-recovery-controls/1', producerRevision,
   evidenceScope: 'selected-public-replay-controls', examples})).toString('base64') + '\n');
