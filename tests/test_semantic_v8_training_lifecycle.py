@@ -187,6 +187,8 @@ def test_v8_diloco_initialize_handshake_export_and_served_reload(tmp_path, monke
 
     torch.set_num_threads(1)
     tokenizer = pinned_tokenizer_path()
+    if not tokenizer.exists():
+        pytest.skip("The separately provisioned pinned tokenizer is unavailable")
     codec = load_semantic_v8_codec(tokenizer, vocab_size=LING_VOCAB_SIZE)
     _, _, policy, prepared = prepared_v8_fixture(tmp_path, codec=codec)
     with socket.socket() as sock:
