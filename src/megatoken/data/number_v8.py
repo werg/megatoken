@@ -108,6 +108,7 @@ def _lookup(machine, value, key):
         _require(current not in seen, "cyclic prototype")
         seen.add(current)
         node = p._node(machine, current)
+        _require(node["kind"] in ("object", "array", "closure"), "ordinary conversion prototype")
         descriptor = p._descriptor(node, p._key(key))
         if descriptor is not None:
             _require(descriptor["kind"] == "data", "accessor requires its getter continuation")
@@ -116,6 +117,11 @@ def _lookup(machine, value, key):
         if prototype is None:
             return ["undefined"], None
         if prototype == "ordinary":
+            _require(
+                node["kind"] != "closure"
+                or key not in (["str", "toString"], ["symbol", "well-known:toStringTag"]),
+                "function intrinsic prototype requires its own conversion profile",
+            )
             if key == ["str", "valueOf"]:
                 return ["undefined"], "Object.valueOf"
             if key == ["str", "toString"]:
