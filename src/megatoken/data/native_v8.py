@@ -630,7 +630,11 @@ def _invocation_bindings(function, invocation):
             or not 0 <= index < len(roots)
         ):
             _fail("Invocation binding has no observed argument")
-        bindings[name] = copy.deepcopy(roots[index])
+    # Published parameter order owns the first cells. Extra explicit names
+    # use JavaScript UTF-16 lexical order so canonical JSON cannot change
+    # capture identities; replacing a parameter value keeps its original slot.
+    for name in sorted(declared, key=lambda key: key.encode("utf-16-be", "surrogatepass")):
+        bindings[name] = copy.deepcopy(roots[declared[name]])
     return bindings
 
 
