@@ -12,6 +12,7 @@ from megatoken.data.protocol_v8 import (
     apply_protocol_record,
     assert_detailed_record_compatible,
     decode_protocol_record,
+    encode_protocol_record,
     validate_protocol_state,
 )
 
@@ -30,6 +31,41 @@ class GeneratorBoundaryTests(unittest.TestCase):
         for record in records[:count]:
             apply_protocol_record(state, record)
         return state, records
+
+    def test_function_name_metadata_is_distinct_from_heap_identity(self):
+        record = {
+            "kind": "generator.function",
+            "object": "fn",
+            "prototype": "proto",
+            "name": "",
+            "length": 1,
+        }
+        for name in ("", "g" * 257, "g" * 4096, "\U00010400" * 2048):
+            with self.subTest(name_length=len(name)):
+                selected = {**record, "name": name}
+                self.assertEqual(decode_protocol_record(encode_protocol_record(selected)), selected)
+        for changed in (
+            {"name": None},
+            {"name": "g" * 4097},
+            {"name": "\U00010400" * 2049},
+            {"object": ""},
+            {"prototype": ""},
+        ):
+            with self.subTest(changed=changed), self.assertRaises(ProtocolV8Error):
+                encode_protocol_record({**record, **changed})
+        # The same field spells an identity in generator creation, so empty
+        # function metadata must not weaken the generator-instance boundary.
+        with self.assertRaisesRegex(ProtocolV8Error, "identity"):
+            encode_protocol_record(
+                {
+                    "kind": "generator.create",
+                    "name": "",
+                    "child": "guest",
+                    "callee": ["ref", "fn"],
+                    "receiver": ["undefined"],
+                    "arguments": [],
+                }
+            )
 
     def test_creation_rejects_existing_heap_symbol_and_private_identities_atomically(self):
         state, records = self.prefix("return-before-body-start", 2)

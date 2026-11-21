@@ -44,7 +44,7 @@ jobs:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           repository: werg/tracing-js-self
-          ref: 52ea51c92500288535d9845ec31392fb6ce8cc51 # paired durable-ingress contract and source authority
+          ref: f04f1beb09e94824a15994625e6e43ec326c53e9 # exact source authority with 34 recurring composition cases
           path: tracing-js-self
           persist-credentials: false
       - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0

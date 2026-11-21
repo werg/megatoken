@@ -1,5 +1,24 @@
 # Native V8 cutover implementation status
 
+## Anonymous generator admission — 21 November 2026
+
+The 34-source producer qualification at `aa07a2b0960e24dfa312494dc949b9fc5b98942b`
+with consumer `8772c0d9d3be16c848365594d0fe49273e328090` passed all source checks
+but admitted only 33 sources. An anonymous generator callback has an empty
+function name, which the native validator incorrectly treated as a nonempty
+heap identity. The validator now separates function-name metadata from instance
+identities and applies the producer's 4096 UTF-16 code-unit metadata bound.
+Empty object/instance identities and over-limit metadata still refuse.
+Thirty-three focused generator/protocol/native-close tests and 68 subtests pass;
+the affected Ruff lint and format checks also pass.
+
+Recurring V8 CI now pins producer `f04f1beb09e94824a15994625e6e43ec326c53e9`,
+including both new map/finally and mapped-generator cases. The original failed
+admission remains failed; the corrected exact pair requires its own receipt.
+The previous pair's ordinary two-update/resume/export/service-restoration run
+passed with zero acknowledged records. Actual-model accepted-record recovery,
+full module semantics, learned quality and all 17 acceptance packages remain open.
+
 The coordinated implementation is tracked in the [main producer PR 47](https://github.com/werg/tracing-js-self/pull/47).
 Its description and checked-in ledger retain all 17 requested work packages,
 their remaining acceptance conditions, and the two original plans. This branch
