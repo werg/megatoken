@@ -22,7 +22,7 @@ import torch
 
 from megatoken.contracts import ROLE_TO_ID
 from megatoken.controls import build_control_payload
-from megatoken.data import PreparedCorpus, WindowConfig, stage_recipe
+from megatoken.data import PreparedCorpus, stage_recipe
 from megatoken.data.chunking import ChunkingConfig
 from megatoken.data.media_assets import MediaRecord
 from megatoken.io import content_hash, sha256_file, write_json
@@ -91,6 +91,7 @@ from megatoken.training.transducer_sync import (
     install_published,
     resume_transducer,
 )
+from megatoken.training.windows import window_config
 
 
 def ingest_records(
@@ -222,17 +223,6 @@ def prepare_batches(
             raise ValueError("Long dependency stream requires causal source relationships")
         result.append(prepare_meridian_batch(model, item, NativeHistory.of(episode, model), config))
     return result
-
-
-def window_config(config: TrainConfig) -> WindowConfig:
-    """Optimizer window boundaries shared by training and held-out evaluation."""
-    return WindowConfig(
-        max_window_tokens=config.max_history_tokens,
-        max_decisions=config.scored_decisions,
-        max_records=config.max_window_records,
-        respect_dependencies=config.phase == "LC",
-        max_dependency_tokens=config.max_history_tokens,
-    )
 
 
 def batch_counters(batches: list[MeridianPreparedBatch]) -> Counters:

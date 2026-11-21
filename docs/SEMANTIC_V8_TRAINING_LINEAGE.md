@@ -73,6 +73,65 @@ periodic checkpoints, both curriculum donors and distributed workers together.
 Its paths and V8 pins remain explicit placeholders until the matching prepared
 corpus, producer/consumer revisions, registry digest and assets are selected.
 
+## Read-only production launch qualification
+
+`scripts/qualify_semantic_launch.py` accepts that V8 production policy directly,
+in JSON or YAML. It does not require the incompatible older semantic experiment
+configuration. Duplicate keys are rejected in either input format. The command
+retains the existing production recipe, donor, hindsight, repository, checkpoint,
+hardware and authenticated coordinator gates; selecting V8 does not relax them.
+
+```bash
+python scripts/qualify_semantic_launch.py \
+  --config /work/bound-semantic-v8-production.yaml \
+  --repositories-root /work/repos \
+  --resume /work/checkpoints/exact-committed-worker-checkpoint \
+  --probe-coordinator \
+  --output /work/reports/semantic-v8-launch.json
+```
+
+Provide distinct clean producer, consumer and Natlang checkouts under the
+repository root. The V8 producer/consumer revisions must equal the training
+policy pins, and the running Megatoken package must come from the supplied
+consumer checkout. Another clean directory cannot stand in for the executing
+code. Every prepared root, including a valid empty shard, contributes to exactly
+the same corpus identity used by the ordinary trainer.
+For a new coordinator initialized from the previous curriculum stage, replace
+`--resume` with `--bootstrap-checkpoint` and supply `--bootstrap-receipt` from that
+actual initialization. The qualifier performs authenticated reads only; it does
+not initialize the coordinator, take a lease or start a learner.
+
+The V8 corpus gate reconstructs every admitted episode using the native checker,
+checks the exact source/native/tokenizer preparation identities, and requires
+both training and validation splits to satisfy their unchanged production
+coverage rules. It constructs the ordinary independent training stream without
+sampling or allocating a model, retaining its exact fingerprint, prepared
+manifests, tokenizer and chunking identity. Inadequate episodes for the configured
+worker count are refused by the same stream constructor as training. A common
+support corpus cannot claim effectful-stage child execution, repeated invocation
+or source reread merely by attaching labels.
+
+Worker resume must match this freshly derived V8 lineage. A previous-stage
+bootstrap contributes weights, not an invented V8 continuation; any retained
+source checkpoint lineage is still validated, and the destination coordinator
+must bind the actual new corpus and stream. The coordinator check uses the
+checkpoint and bootstrap-provenance gate results directly and compares its V8
+policy, lineage and chunking against the independently derived destination.
+
+Eleven model-independent launch controls pass locally, including real prepared
+rows, both split gates, missing validation, insufficient worker supply, stream
+rebinding, runtime/checkouts, empty-shard identity and explicit legacy-import
+absence. Their source/tokenizer audit boundaries are injected; the gate-wiring
+control also injects repository identities, heavyweight assets and the coordinator
+provider. The additional real-tensor checkpoint control and
+the existing checkpoint/coordinator suite require the hosted PyTorch environment.
+These tests are implementation checks, not a production readiness report.
+
+Actual bound production assets, complete required supply, model/checkpoint bytes,
+coordinator state and hardware must all pass in a real invocation. A successful
+preflight still records zero optimizer steps and leaves learned quality, memory
+fit and recovery under load unmeasured.
+
 Remaining: final combined-pair qualification after contract changes; complete
 binary-bundle publication; broader varied control/history populations;
 accepted-record recovery with trained weights; learned-quality studies. No default

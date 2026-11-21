@@ -1,0 +1,137 @@
+{
+  "schema": "semantic-launch-implementation-evidence/1",
+  "date": "2026-11-22",
+  "baseConsumerRevision": "0f572ebb76c67df28195aa46c5e8558f5b0a09ae",
+  "sourceHashes": {
+    "src/megatoken/training/semantic_launch.py": "5dcac38c122cc82ac60cff7e4537826a6f76e6c9fe09e8ed327c4346f73f7884",
+    "src/megatoken/training/semantic_launch_v8.py": "5d107b77371ac2777684632cf13f882ee456dbfeaf1bba2ad3a39f9b5fac54fc",
+    "src/megatoken/training/windows.py": "474df1ecfc245d4ffad14a11ecc2b3559581385f3626947c77ef68a922e5ca15",
+    "src/megatoken/training/engine.py": "7c2432aed8f29fa948ecce13977316afb80c21a59968cf78936dc324b0b8f3aa",
+    "tests/test_semantic_launch_v8.py": "f2bb8d5f08d4bcbda7bdc66c0c70c72eb37f86ecc84d691e09e9586f4f2c4bba"
+  },
+  "localSuite": {
+    "tests": 12,
+    "passed": 11,
+    "failed": 1,
+    "skipped": 0,
+    "seconds": 17.6,
+    "failure": "Actual model checkpoint control cannot import the absent local torch dependency; mandatory hosted execution pending"
+  },
+  "sourceTokenizerBoundary": "Explicit audit injection in preparation fixtures; no fresh production source or tokenizer receipt claimed",
+  "gateWiringBoundary": "Repository/model/donor/checkpoint/coordinator providers injected; real V8 prepared corpus and stream are used",
+  "positiveLegacyAbsence": {
+    "blockedModules": 9,
+    "actualNativeReplayAndPreparation": true,
+    "bothSplits": true,
+    "emptyRootParity": true
+  },
+  "independentReview": {
+    "reproducedAndFixed": [
+      "PreparedCorpus all_roots versus nonempty parts identity mismatch",
+      "Supplied clean checkout identities did not bind the running consumer import origin"
+    ],
+    "beforeAfterPreserved": true
+  },
+  "optimizerSteps": 0,
+  "productionLaunchReadiness": "unmeasured; real assets, actual checkpoint/coordinator and hardware not supplied",
+  "files": [
+    {
+      "path": "launch-v8-initial.log.xz",
+      "bytes": 22593,
+      "sha256": "563fa0d3b9ae36e2d8cfa9234ddcb1743f1e3e7f49f1402aec1af8f26cb48ad9",
+      "storedBytes": 5148,
+      "storedSha256": "42ad215b6fe2706b254e8455697f124e5f7a7535bbb844489f0f26f4cbf6b3f4"
+    },
+    {
+      "path": "launch-v8-initial.xml.xz",
+      "bytes": 23797,
+      "sha256": "6aca1820e513959256e5b30e9b201751e893c572d49518da5d13fa27073d6121",
+      "storedBytes": 5412,
+      "storedSha256": "5f48351c97cc67a744bf9b3a40baef4cb2332221a08c4a94d401850fa55b74b3"
+    },
+    {
+      "path": "launch-v8-second.log.xz",
+      "bytes": 180,
+      "sha256": "e8a9c7d43ab396bad16538cead0bd028130341e564cf12441676c28a18133176",
+      "storedBytes": 172,
+      "storedSha256": "10174f27c18c3b1cbe841facc56cbac66510ffefd00c75ca84f01f4559ab0ab5"
+    },
+    {
+      "path": "launch-v8-third.log.xz",
+      "bytes": 1084,
+      "sha256": "e990a561aa221d1a0338ff7a0e533b16fcf753148f885382bbe2d85015a5df94",
+      "storedBytes": 548,
+      "storedSha256": "eb6d9f9a83664747768394023b6d5b3ba42df98c7ae687456120f4796301d5b0"
+    },
+    {
+      "path": "launch-v8-final-local.log.xz",
+      "bytes": 1801,
+      "sha256": "40dd881c55bc40123ac4113c7a46dd34c460e42a02d5c96ed6017d1cc8ff8fec",
+      "storedBytes": 812,
+      "storedSha256": "bb3d0c2f37ac0dcdd031212decd173130015607031dacc5a24288d0f0c882a61"
+    },
+    {
+      "path": "launch-v8-reviewed-local.log.xz",
+      "bytes": 1804,
+      "sha256": "ee38e971b6e55b11cfe2b9acb57af3334c572b644cb607442dc7934251c0fa42",
+      "storedBytes": 816,
+      "storedSha256": "1a883e15570b4b4a990e75e59b692fa802658b06ace8dfecb26444b7e2af866f"
+    },
+    {
+      "path": "launch-v8-reviewed-local.xml.xz",
+      "bytes": 3370,
+      "sha256": "9947dfbfd25b639b098b157af89f3b3d720d32c57f423f5b731e4b0dc5775b4f",
+      "storedBytes": 1284,
+      "storedSha256": "fc35698e31bb3cac078cbe747017a07b953650292d246a53ae71ff0aa95ac388"
+    },
+    {
+      "path": "probe-v8-launch-corpus-review.py.xz",
+      "bytes": 4235,
+      "sha256": "56b4cd78b249e50ddc9b0b6b895279ea366ade38cc00dbb75fb4ca253d8562e9",
+      "storedBytes": 1776,
+      "storedSha256": "c81277a1a976719fa44c05f987588652a2899f0d4f5dfbd3dd7bcf4317372611"
+    },
+    {
+      "path": "probe-v8-launch-corpus-review.json.xz",
+      "bytes": 1087,
+      "sha256": "319a20922903e0c47d6be1b138fd520e289d6714cb99d0b9202cee3a3c9ba46e",
+      "storedBytes": 588,
+      "storedSha256": "b93f6c2ec4e2aad2f26ed19bc9ad4224d6521d05f20d676354b8177a2d03311d"
+    },
+    {
+      "path": "probe-v8-launch-corpus-review-after.json.xz",
+      "bytes": 2423,
+      "sha256": "b7156cdcb8c16036d2a52e0f7bbfd17b91dab24aa2c28201b19edf1082b7ac15",
+      "storedBytes": 1196,
+      "storedSha256": "663e373d19026f565ae2c14a6183a6174fedd1932deb8d8592ce9b8742a4a711"
+    },
+    {
+      "path": "probe-v8-launch-code-identity.py.xz",
+      "bytes": 1800,
+      "sha256": "845d0ed451c21d5b4e4e1dd383ac03fdff6ac4f89054a8cbde1f766aa19fe825",
+      "storedBytes": 920,
+      "storedSha256": "bff9bd63eca55e43b1679db2bf58832d380ce7214ef5dd5a913dccbae1777f3c"
+    },
+    {
+      "path": "probe-v8-launch-code-identity.json.xz",
+      "bytes": 2503,
+      "sha256": "ce8bdbe375b33d5b187e5c8974e57156011848d3116e86e3e0b673d982303dee",
+      "storedBytes": 936,
+      "storedSha256": "c747df10ccde042480ce41dd165e64521130c0406b36076346c1c7b373ce5d05"
+    },
+    {
+      "path": "probe-v8-launch-code-identity-after.json.xz",
+      "bytes": 1000,
+      "sha256": "c751e66ce7cbe5fc2a5ee781e65c7c0eeda46f467c7effa502b6bddae020badf",
+      "storedBytes": 588,
+      "storedSha256": "39dcc165d70cf66eda1b4722b14c6ea79cd4dcf71d47623e0c26eca4667f9920"
+    },
+    {
+      "path": "v8-launch-independent-review.md.xz",
+      "bytes": 5540,
+      "sha256": "8d22d2ca3b1489676b03a168911b231cdeaedef6690762b136ee287271d87e6d",
+      "storedBytes": 2480,
+      "storedSha256": "c7397dea5f3ab7b1e07e54eb07515bed6022eca9c890f7b5365cf3dd4dddcaa2"
+    }
+  ]
+}
