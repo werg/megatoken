@@ -38,6 +38,11 @@ from .number_v8 import apply_record as apply_number_record
 from .number_v8 import assert_next as assert_number_next
 from .number_v8 import validate_record as validate_number_record
 from .number_v8 import validate_state as validate_number_state
+from .primitive_conversion_v8 import FIELDS as PRIMITIVE_CONVERSION_FIELDS
+from .primitive_conversion_v8 import apply_record as apply_primitive_conversion_record
+from .primitive_conversion_v8 import assert_next as assert_primitive_conversion_next
+from .primitive_conversion_v8 import validate_record as validate_primitive_conversion_record
+from .primitive_conversion_v8 import validate_state as validate_primitive_conversion_state
 from .promise_executor_v8 import FIELDS as PROMISE_EXECUTOR_FIELDS
 from .promise_executor_v8 import apply_record as apply_promise_executor_record
 from .promise_executor_v8 import assert_callable as assert_promise_executor_callable
@@ -119,6 +124,7 @@ FIELDS.update(ENUMERATION_FIELDS)
 FIELDS.update(PROMISE_JOIN_FIELDS)
 FIELDS.update(PROMISE_EXECUTOR_FIELDS)
 FIELDS.update(NUMBER_FIELDS)
+FIELDS.update(PRIMITIVE_CONVERSION_FIELDS)
 FIELDS.update(GENERATOR_FIELDS)
 FIELDS.update(PROXY_FIELDS)
 
@@ -247,6 +253,8 @@ def validate_protocol_record(record):
         return validate_proxy_record(record)
     if type(record) is dict and record.get("kind") in NUMBER_FIELDS:
         return validate_number_record(record)
+    if record["kind"] in PRIMITIVE_CONVERSION_FIELDS:
+        return validate_primitive_conversion_record(record)
     if type(record) is dict and record.get("kind") in GENERATOR_FIELDS:
         return validate_generator_record(record)
     if type(record) is dict and record.get("kind") in PROMISE_JOIN_FIELDS:
@@ -426,6 +434,7 @@ def create_protocol_state():
         "sequence": 0,
         "construction": None,
         "numberConversions": None,
+        "primitiveConversions": None,
         "proxyCalls": None,
         "promiseExecutors": None,
     }
@@ -865,6 +874,7 @@ def _apply(machine, record):
     kind = record["kind"]
     if not machine.get("_internalProtocolTransition"):
         assert_number_next(machine, record)
+        assert_primitive_conversion_next(machine, record)
         assert_generator_next(machine, record)
         assert_proxy_next(machine, record)
         assert_promise_executor_next(machine, record)
@@ -894,6 +904,10 @@ def _apply(machine, record):
     if kind in NUMBER_FIELDS:
         if not apply_number_record(machine, record):
             _fail("unsupported Number transition")
+        return
+    if kind in PRIMITIVE_CONVERSION_FIELDS:
+        if not apply_primitive_conversion_record(machine, record):
+            _fail("unsupported primitive conversion transition")
         return
     if kind in GENERATOR_FIELDS:
         if not apply_generator_record(machine, record):
@@ -1406,6 +1420,7 @@ def validate_protocol_state(snapshot, heap_ids=(), shared_state=None):
         "callFrames",
         "sequence",
         "numberConversions",
+        "primitiveConversions",
         "proxyCalls",
         "promiseExecutors",
     }
@@ -1611,6 +1626,7 @@ def validate_protocol_state(snapshot, heap_ids=(), shared_state=None):
 
         validate_promise_executor_state(memory_machine)
         validate_number_state(memory_machine)
+        validate_primitive_conversion_state(memory_machine)
         validate_generator_state(memory_machine)
         validate_proxy_state(memory_machine)
     return True
@@ -1741,6 +1757,7 @@ def assert_detailed_record_compatible(shared_state, kind, fields):
         _fail("pending property completion requires protocol finish")
     assert_construction_next(machine, {"kind": kind, **fields})
     assert_number_next(machine, {"kind": kind, "fields": fields})
+    assert_primitive_conversion_next(machine, {"kind": kind, "fields": fields})
     assert_generator_next(machine, {"kind": kind, **fields})
     assert_proxy_next(machine, {"kind": kind, **fields})
     assert_promise_executor_next(machine, {"kind": kind, **fields})
