@@ -18,6 +18,7 @@ const examples = [];
 
 function machine(id, source, capabilities, services = {}, {harness = {}, invocation = {}} = {}) {
   const m = {h: new RegionExecutionHarness({sessionId: id, services, ...harness}), contexts: []};
+  const root = invocation.invocationId ?? 'root';
   m.h.publishProgram({programId: 'program', source, entry: 'run', capabilities});
   m.h.admitInvocation({programId: 'program', invocationId: 'root', realmId: 'realm',
     trackId: 'worker', triggerId: 'outside', realmPolicy: 'retained', ...invocation});
@@ -27,7 +28,7 @@ function machine(id, source, capabilities, services = {}, {harness = {}, invocat
   };
   m.request = (effect, operation, args, payload, extra = {}) => {
     const {start, end} = analyzeSemanticProgram(source).sites.find(site => site.operation === operation);
-    m.select('root', 'request', {effect, operation, invocation: 'root',
+    m.select(root, 'request', {effect, operation, invocation: root,
       site: {start, end}, arguments: args, payload, ...extra});
   };
   return m;
@@ -185,6 +186,103 @@ try {
 } finally {
   rmSync(directory, {recursive: true, force: true});
 }
+
+for (const invocationId of ['callbackinvoke9', 'callbackinvokezero']) {
+  let calls = 0;
+  const named = machine('ordinary-' + invocationId, listenerSource, ['demo.listen'], {
+    'demo.listen': (_, meta) => {calls++; return meta.subscriptionId(1);},
+  }, {invocation: {invocationId}});
+  named.select(invocationId, 'allocate', {name: 'fn', kind: 'closure', code: 'handler', captures: [], properties: []});
+  named.request('registration', 'demo.listen', [['str', 'tick'], ['ref', 'fn']],
+    '["tick",{"$ownedCallback":"fn"}]', {promise: 'registration'});
+  await named.h.dispatch(invocationId, 'registration');
+  assert.equal(named.h.inner.callbacks.get(invocationId + '/registration/1').subscriptionId, 'callback1');
+  finish(named, invocationId, ['undefined']);
+  named.h.closeEventHandler('callback1');
+  retain('notification-after-ordinary-' + invocationId, named, {invocationId, adapterCalls: calls,
+    subscriptionId: 'callback1', outcome: 'completed'});
+}
+
+let lateCalls = 0, releaseRegistration;
+const retired = machine('late-retired-registration', listenerSource, ['demo.listen'], {
+  'demo.listen': (_, meta) => {lateCalls++; return new Promise(resolve => {
+    releaseRegistration = () => resolve(meta.subscriptionId(1));
+  });},
+});
+retired.select('root', 'allocate', {name: 'fn', kind: 'closure', code: 'handler', captures: [], properties: []});
+retired.request('registration', 'demo.listen', [['str', 'tick'], ['ref', 'fn']],
+  '["tick",{"$ownedCallback":"fn"}]', {promise: 'registration'});
+const lateResult = retired.h.dispatch('root', 'registration');
+for (let turn = 0; turn < 20 && !releaseRegistration; turn++) await Promise.resolve();
+assert.equal(lateCalls, 1);
+retired.h.closeEventHandler('callback1');
+releaseRegistration(); await lateResult;
+assert.equal(retired.h.inner.handlers.get('callback1').state, 'closed');
+assert.equal(retired.h.inner.callbacks.get('root/registration/1').state, 'revoked');
+finish(retired, 'root', ['undefined']);
+retain('late-result-keeps-registration-retired', retired, {adapterCalls: lateCalls,
+  registrationRetiredBeforeResult: true, outcome: 'completed'});
+
+const mixedSource = '"use strict";function run(){return host.natlangCall("x",null,handler);}function handler(value){return host.listen("tick",listener);}function listener(value){return value;}';
+let returningCalls = 0, notificationCalls = 0;
+const mixed = machine('returning-then-notification-callback', mixedSource, ['natlang.call', 'demo.listen'], {
+  'natlang.call': (_args, meta) => {returningCalls++; return meta.invokeClosure('fn', [4]);},
+  'demo.listen': (_, meta) => {notificationCalls++; return meta.subscriptionId(1);},
+}, {harness: {automaticDelivery: false}, invocation: {completionPolicy: 'await-returned-promise'}});
+mixed.select('root', 'allocate', {name: 'fn', kind: 'closure', code: 'handler', captures: [], properties: []});
+mixed.request('effect', 'natlang.call', [['str', 'x'], ['null'], ['ref', 'fn']],
+  JSON.stringify({schema: 'owned-graph/1', roots: [['str', 'x'], ['null'], ['callback', 'fn']], objects: []}),
+  {promise: 'external'});
+const returningResult = mixed.h.dispatch('root', 'effect');
+for (let turn = 0; turn < 20 && !mixed.h.inner.closureQueue.length; turn++) await Promise.resolve();
+assert.equal(returningCalls, 1);
+mixed.select('root', 'return', {value: ['ref', 'external']});
+mixed.h.inner.activateQueuedClosures('realm'); mixed.h.sync();
+const childId = 'callbackinvoke1';
+assert(mixed.h.invocations.has(childId));
+mixed.select(childId, 'allocate', {name: 'notification', kind: 'closure', code: 'listener', captures: [], properties: []});
+const notificationSite = analyzeSemanticProgram(mixedSource).sites.find(site => site.operation === 'demo.listen');
+mixed.select(childId, 'request', {effect: 'registration', operation: 'demo.listen', invocation: childId,
+  site: {start: notificationSite.start, end: notificationSite.end},
+  arguments: [['str', 'tick'], ['ref', 'notification']], payload: '["tick",{"$ownedCallback":"notification"}]',
+  promise: 'registered'});
+await mixed.h.dispatch(childId, 'registration');
+assert.equal(notificationCalls, 1);
+assert.equal(mixed.h.inner.callbacks.get(childId + '/registration/1').subscriptionId, 'callback1');
+finish(mixed, childId, ['ref', 'registered']);
+await returningResult;
+mixed.select('root', 'end', {kind: 'return'});
+mixed.h.closeEventHandler('callback1');
+retain('returning-callback-does-not-allocate-notification-identities', mixed, {
+  adapterCalls: returningCalls + notificationCalls, returningAdapterCalls: returningCalls,
+  registrationCalls: notificationCalls, returningInvocation: childId, subscriptionId: 'callback1', outcome: 'completed',
+});
+
+const sharedSource = '"use strict";function run(){host.listen("first",handler);return host.listen("second",handler);}function handler(value){return value;}';
+const completions = [];
+let sharedCalls = 0;
+const shared = machine('two-registrations-one-closure', sharedSource, ['demo.listen'], {
+  'demo.listen': (_, meta) => {sharedCalls++; return new Promise(resolve => {
+    completions.push(() => resolve(meta.subscriptionId(1)));
+  });},
+});
+shared.select('root', 'allocate', {name: 'fn', kind: 'closure', code: 'handler', captures: [], properties: []});
+const sharedSites = analyzeSemanticProgram(sharedSource).sites.filter(site => site.operation === 'demo.listen');
+const pendingRegistrations = [];
+for (const [index, effect] of ['first', 'second'].entries()) {
+  shared.request(effect, 'demo.listen', [['str', effect], ['ref', 'fn']],
+    JSON.stringify([effect, {$ownedCallback: 'fn'}]), {promise: effect,
+      site: {start: sharedSites[index].start, end: sharedSites[index].end}});
+  pendingRegistrations.push(shared.h.dispatch('root', effect));
+  for (let turn = 0; turn < 20 && completions.length <= index; turn++) await Promise.resolve();
+}
+assert.equal(sharedCalls, 2);
+assert.deepEqual([...shared.h.inner.callbacks.values()].map(callback => callback.subscriptionId), ['callback1', 'callback2']);
+for (const [index, complete] of completions.entries()) {complete(); await pendingRegistrations[index];}
+finish(shared, 'root', ['undefined']);
+shared.h.closeEventHandler('callback1'); shared.h.closeEventHandler('callback2');
+retain('concurrent-registrations-share-one-closure', shared, {adapterCalls: sharedCalls,
+  registrations: 2, sharedClosure: 'fn', outcome: 'completed'});
 
 writeFileSync(output, gzipSync(JSON.stringify({schema: 'semantic-recovery-controls/1', producerRevision,
   evidenceScope: 'selected-public-replay-controls', examples})).toString('base64') + '\n');

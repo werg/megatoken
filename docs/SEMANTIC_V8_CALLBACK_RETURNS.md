@@ -109,8 +109,8 @@ the discarded event identities. Native replay adds each unique, previously
 unseen discarded identity to the closed handler and never executes those
 inputs. Existing delivered identities cannot be reused as discarded inputs.
 
-The regenerated fixture pins producer
-`4bff56f65f452fa659e4fdccc451269b71c0114d`. It contains **seven selected-control
+The first host-handler increment pinned producer
+`4bff56f65f452fa659e4fdccc451269b71c0114d`. It contained **seven selected-control
 episodes and 52 generated records**, including four new host-handler episodes:
 retained closure delivery, static fresh/retained delivery, and actual buffered
 inputs retired before a later ordinary call. The generator checks producer
@@ -157,8 +157,9 @@ or closed handlers and revoked guest callback capabilities cannot be revived.
 Reattachment does not issue a new guest request, create a dispatch or repeat the
 original registration.
 
-`scripts/generate_recovery_v8.mjs` retains six producer-generated recovery
-controls, with 26 selected records: fulfilled and rejected recovery, an explicitly
+`scripts/generate_recovery_v8.mjs` retains eleven producer-generated recovery
+and callback-registration controls, with 51 selected records. These include
+fulfilled and rejected recovery, an explicitly
 unresolved lost result, verified non-dispatch followed by attempt 2, and an
 existing subscription reattached after JSON restoration, plus a returning owned
 callback restored from an independently read durable input journal. The first three start
@@ -187,7 +188,7 @@ The retained-handler controls now also include a nonnull lifetime owner with
 fresh event realms: eight selected episodes, 58 records in total. This guards
 against confusing lifetime ownership with a guest registration effect. The
 two current fixtures were regenerated from clean producer
-`9c7d6b6424acfeec0c3e4b3cd90ba19f8aaba453`, with checked producer replay and
+`9fc193538c4e5c2e512f9fef767d30ed9e437c5a`, with checked producer replay and
 JSON restoration before export. The
 recovery and retained controls remain selected public replay evidence;
 `admitted:false`, untested source binding, masks and tokenizer are preserved.
@@ -209,3 +210,43 @@ handlers, callback results and retained invocations, including the new cyclic
 receiver/input alias checks, missing-parent-result check, unknown returned
 identity refusal and two callback event counter overflow cases. This focused
 count overlaps the earlier integrated run and does not broaden admission claims.
+
+## Exact callback registration and retirement after a late result
+
+Results and fulfilled/rejected reconciliation now require the selected callback
+registration's observed handler. A durable dispatch receipt alone cannot invent
+that registration. Resultless `not-dispatched` or `lost` evidence may still apply
+before registration, so a verified pre-adapter failure can remain eligible for
+an authorized retry. Malformed result authority refuses before state changes.
+
+Registration binds the exact subscription identity, selected entry, owner,
+realm, track, closure, lifetime and queue limit. Two simultaneous requests may
+register the same closure under separate subscription identities. A separate
+host handler using that closure does not satisfy either guest registration. This
+also avoids treating an unrelated host registration as a pending guest request
+merely because they share an owner and closure.
+
+Notification subscription numbering comes only from selected notification
+requests. Ordinary invocation names and returning callbacks do not advance it.
+The fixture includes two ordinary calls whose names resemble automatically
+assigned callback names, and a returning callback that performs its own listener
+registration. Both adapters in the latter case run once, and producer replay,
+restoration and native replay agree on the separate identities.
+
+A late result can settle its effect without reviving a revoked subscription or
+reopening a closed handler. Fulfilled subscription results preserve lost private
+handles until explicit reattachment. Failed registration and call-lifetime
+completion retire their capabilities; closing and closed remain distinct. A
+real controlled adapter result arriving after explicit retirement is included,
+along with refusal and atomicity tests for missing registration evidence.
+
+The consumer's hosted workflow now pins the same producer revision as these
+fixtures. The shared contract compares byte-for-byte at that exact pair; earlier
+hosted failures against the stale producer pin do not establish a semantic
+failure of the updated pair.
+
+Validation for this increment: **172 focused tests pass** across recovery,
+handler ownership, retained calls, callback results and callback identity.
+The shared contract comparison, Ruff and whitespace checks pass. These counts
+overlap earlier runs and remain engineering evidence rather than source or
+model-quality admission.

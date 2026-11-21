@@ -35,9 +35,13 @@ def recovery_row(document):
     )
 
 
-def holders(case=0):
+def holders(case=0, *, before_kind=None):
     document = artifact(case)
-    row = copy.deepcopy(recovery_row(document))
+    row = copy.deepcopy(
+        next(row for row in document["public"]["timeline"] if row["kind"] == before_kind)
+        if before_kind is not None
+        else recovery_row(document)
+    )
     through(document, row["sequence"] - 1)
     boundary = _replay_shared_state(
         document["public"]["timeline"],
@@ -75,7 +79,7 @@ def dispatch_row(attempt):
     }
 
 
-@pytest.mark.parametrize("case", range(6))
+@pytest.mark.parametrize("case", range(11))
 def test_recovery_replays_every_public_prediction_and_json_boundary(case):
     document = artifact(case)
     receipt = validate_v8_artifact(document)
@@ -92,7 +96,9 @@ def test_recovery_replays_every_public_prediction_and_json_boundary(case):
         document["contexts"],
         {},
         roundtrip=True,
-        boundary_invocation="event2" if case == 4 else "root",
+        boundary_invocation="event2"
+        if case == 4
+        else document["recovery"].get("invocationId", "root"),
     )
     intent = final["obligations"]["intents"][0][1]
     assert intent["status"] == ("lost" if case == 2 else "settled")
@@ -110,8 +116,66 @@ def test_recovery_replays_every_public_prediction_and_json_boundary(case):
         assert final["obligations"]["callbacks"][0][1]["state"] == "revoked"
         assert sum(row["kind"] == "handler" for row in document["public"]["timeline"]) == 1
     else:
-        assert document["recovery"]["adapterCalls"] == 1
+        assert document["recovery"]["adapterCalls"] == (2 if case in (9, 10) else 1)
         assert final["state"]["completion"]["kind"] == ("throw" if case == 1 else "return")
+
+
+@pytest.mark.parametrize("case", [6, 7, 9])
+def test_only_notification_requests_allocate_notification_subscription_identities(case):
+    document = artifact(case)
+    final = _replay_shared_state(
+        document["public"]["timeline"],
+        document["contexts"],
+        {},
+        roundtrip=True,
+        boundary_invocation=document["recovery"].get("invocationId", "root"),
+    )
+    callbacks = final["obligations"]["callbacks"]
+    assert len(callbacks) == 1
+    assert callbacks[0][1]["subscriptionId"] == "callback1"
+    assert callbacks[0][1]["state"] == "revoked"
+    if case == 9:
+        assert document["recovery"]["returningAdapterCalls"] == 1
+        assert document["recovery"]["registrationCalls"] == 1
+        assert callbacks[0][0] == "callbackinvoke1/registration/1"
+        assert len(final["obligations"]["intents"]) == 2
+    else:
+        assert callbacks[0][1]["ownerInvocationId"] == document["recovery"]["invocationId"]
+
+
+def test_real_late_registration_result_keeps_earlier_retirement_visible():
+    document = artifact(8)
+    close = next(row for row in document["public"]["timeline"] if row["kind"] == "handler-close")
+    result = next(row for row in document["public"]["timeline"] if row["kind"] == "result")
+    assert close["sequence"] < result["sequence"]
+    assert document["recovery"]["adapterCalls"] == 1
+    assert document["recovery"]["registrationRetiredBeforeResult"]
+    for context in document["contexts"]:
+        if context["visibleThrough"] >= result["sequence"]:
+            assert context["obligations"]["handlers"][0][1]["state"] == "closed"
+            assert context["obligations"]["callbacks"][0][1]["state"] == "revoked"
+
+
+def test_concurrent_effects_can_register_the_same_closure_under_distinct_subscription_ids():
+    document = artifact(10)
+    final = _replay_shared_state(
+        document["public"]["timeline"],
+        document["contexts"],
+        {},
+        roundtrip=True,
+        boundary_invocation="root",
+    )
+    assert document["recovery"]["adapterCalls"] == 2
+    assert document["recovery"]["registrations"] == 2
+    callbacks = dict(final["obligations"]["callbacks"])
+    assert list(callbacks) == ["root/first/1", "root/second/1"]
+    assert [callback["subscriptionId"] for callback in callbacks.values()] == [
+        "callback1",
+        "callback2",
+    ]
+    assert all(callback["closureId"] == "fn" for callback in callbacks.values())
+    assert all(callback["state"] == "revoked" for callback in callbacks.values())
+    assert all(handler["state"] == "closed" for _, handler in final["obligations"]["handlers"])
 
 
 def test_durable_owned_return_recovery_preserves_receiver_aliases_cycles_and_captured_cells():
@@ -289,6 +353,127 @@ def test_lost_effect_cannot_later_accept_a_result_or_another_reconciliation():
     refused_without_mutation(state, result, "dispatched obligation")
     row["fields"]["disposition"] = "not-dispatched"
     refused_without_mutation(state, row, "outstanding dispatched effect")
+
+
+def test_result_cannot_skip_the_observed_handler_registration_in_public_history():
+    document = artifact(4)
+    result = next(row for row in document["public"]["timeline"] if row["kind"] == "result")
+    through(document, result["sequence"])
+    handler = next(row for row in document["public"]["timeline"] if row["kind"] == "handler")
+    document["public"]["timeline"].remove(handler)
+    for index, row in enumerate(document["public"]["timeline"], 1):
+        row["sequence"] = index
+    before = copy.deepcopy(document)
+    with pytest.raises(NativeV8Error, match="observed callback handler registration"):
+        validate_v8_committed_prefix(document["public"], document["contexts"])
+    assert document == before
+
+
+def test_a_differently_named_host_handler_cannot_replace_the_required_guest_registration():
+    document = artifact(4)
+    result = next(row for row in document["public"]["timeline"] if row["kind"] == "result")
+    through(document, result["sequence"])
+    handler = next(row for row in document["public"]["timeline"] if row["kind"] == "handler")
+    handler["fields"]["subscriptionId"] = "outside"
+    with pytest.raises(NativeV8Error, match="observed callback handler registration"):
+        validate_v8_committed_prefix(document["public"], document["contexts"])
+
+
+def test_guest_registration_preserves_its_exact_selected_function_entry_spelling():
+    document = artifact(4)
+    handler = next(row for row in document["public"]["timeline"] if row["kind"] == "handler")
+    through(document, handler["sequence"])
+    function = next(
+        row
+        for row in document["public"]["timeline"][0]["fields"]["functions"]
+        if row["name"] == "handler"
+    )
+    handler["fields"]["entry"] = "function:" + str(function["start"])
+    with pytest.raises(NativeV8Error, match="pending callback capability"):
+        validate_v8_committed_prefix(document["public"], document["contexts"])
+
+
+@pytest.mark.parametrize("mode", ["result", "fulfilled", "rejected"])
+@pytest.mark.parametrize("missing", ["handler", "pending-registration"])
+def test_callback_result_authority_refuses_before_mutation_without_registration(mode, missing):
+    state, result = holders(4, before_kind="result")
+    if missing == "handler":
+        state[3]["handlers"] = []
+    else:
+        state[3]["callbacks"][0][1]["state"] = "pending"
+    row = result
+    if mode != "result":
+        row = {
+            "kind": "reconcile",
+            "fields": {
+                "invocationId": "root",
+                "effectId": "registration",
+                "disposition": mode,
+                "evidenceId": "adapter-result",
+            },
+        }
+    refused_without_mutation(state, row, "observed callback handler registration")
+
+
+@pytest.mark.parametrize("disposition", ["not-dispatched", "lost"])
+def test_nonresult_reconciliation_can_preserve_a_still_pending_registration(disposition):
+    state, _ = holders(4, before_kind="result")
+    state[3]["handlers"] = []
+    state[3]["callbacks"][0][1]["state"] = "pending"
+    row = {
+        "kind": "reconcile",
+        "fields": {
+            "invocationId": "root",
+            "effectId": "registration",
+            "disposition": disposition,
+            "evidenceId": "independent-attempt-status",
+        },
+    }
+    apply(state, row)
+    assert state[3]["callbacks"][0][1]["state"] == "pending"
+    assert state[3]["handlers"] == []
+    assert state[3]["intents"][0][1]["status"] == (
+        "committed" if disposition == "not-dispatched" else "lost"
+    )
+
+
+@pytest.mark.parametrize("lifetime", ["call", "subscription"])
+@pytest.mark.parametrize("status", ["fulfilled", "rejected"])
+def test_late_result_cannot_revive_a_retired_callback_or_reopen_a_closed_handler(lifetime, status):
+    state, result = holders(4, before_kind="result")
+    state[3]["callbacks"][0][1]["lifetime"] = lifetime
+    state[3]["handlers"][0][1]["lifetime"] = lifetime
+    apply(
+        state, {"kind": "handler-close", "fields": {"subscriptionId": "callback1", "discarded": []}}
+    )
+    result["fields"]["status"] = status
+    result["fields"]["line"] = encode_record(
+        "observe",
+        {"effect": "registration", "status": status, "result": result["fields"]["result"]},
+        role="observed",
+    )
+    apply(state, result)
+    assert state[3]["intents"][0][1]["status"] == "settled"
+    assert state[3]["callbacks"][0][1]["state"] == "revoked"
+    assert state[3]["handlers"][0][1]["state"] == "closed"
+
+
+@pytest.mark.parametrize("lifetime", ["call", "subscription"])
+@pytest.mark.parametrize("status", ["fulfilled", "rejected"])
+def test_settling_a_lost_registration_never_implicitly_reattaches_it(lifetime, status):
+    state, result = holders(4, before_kind="result")
+    state[3]["callbacks"][0][1].update(lifetime=lifetime, state="lost")
+    state[3]["handlers"][0][1].update(lifetime=lifetime, state="lost")
+    result["fields"]["status"] = status
+    result["fields"]["line"] = encode_record(
+        "observe",
+        {"effect": "registration", "status": status, "result": result["fields"]["result"]},
+        role="observed",
+    )
+    apply(state, result)
+    retained = lifetime == "subscription" and status == "fulfilled"
+    assert state[3]["callbacks"][0][1]["state"] == ("lost" if retained else "revoked")
+    assert state[3]["handlers"][0][1]["state"] == ("lost" if retained else "closing")
 
 
 @pytest.mark.parametrize(

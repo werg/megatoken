@@ -55,9 +55,9 @@ def test_pending_callback_capability_is_reconstructed_before_dispatch():
 
 @pytest.mark.parametrize(
     ("field", "value"),
-    [("subscriptionId", "renamed"), ("realmId", "foreign-realm"), ("lifetime", "subscription")],
+    [("realmId", "foreign-realm"), ("lifetime", "subscription"), ("queueLimit", 1)],
 )
-def test_handler_cannot_rename_a_pending_callback_capability(field, value):
+def test_handler_cannot_change_a_pending_callback_capability(field, value):
     example = callback_example()
     handler = next(row for row in example["public"]["timeline"] if row["kind"] == "handler")
     cut = copy.deepcopy(through(example, handler["sequence"]))
@@ -66,6 +66,24 @@ def test_handler_cannot_rename_a_pending_callback_capability(field, value):
         NativeV8Error, match="pending callback capability|retained realm source or owner"
     ):
         validate_v8_artifact(cut)
+
+
+def test_separate_host_registration_may_use_the_same_pending_guest_closure():
+    example = callback_example()
+    handler = next(row for row in example["public"]["timeline"] if row["kind"] == "handler")
+    cut = copy.deepcopy(through(example, handler["sequence"]))
+    cut["public"]["timeline"][-1]["fields"]["subscriptionId"] = "outside"
+    boundary = _replay_shared_state(
+        cut["public"]["timeline"],
+        cut["contexts"],
+        {},
+        roundtrip=True,
+        boundary_invocation="invocation1",
+    )
+    assert list(dict(boundary["obligations"]["handlers"])) == ["outside"]
+    callback = boundary["obligations"]["callbacks"][0][1]
+    assert callback["subscriptionId"] == "callback1"
+    assert callback["state"] == "pending"
 
 
 def test_observed_duplicate_cannot_replace_a_retained_controller():

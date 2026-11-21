@@ -963,11 +963,6 @@ def _replay_shared_state(
             active_invocation = fields["invocationId"]
             invocation_metadata[active_invocation] = copy.deepcopy(fields)
             ingress_keys.add(fields["ingressKey"])
-            if active_invocation.startswith("callbackinvoke"):
-                ordinal = active_invocation.removeprefix("callbackinvoke")
-                if not ordinal.isdecimal() or int(ordinal) <= callback_allocator[0]:
-                    _fail("Invalid callback invocation allocation")
-                callback_allocator[0] = int(ordinal)
             controllers[active_invocation] = state
             completion_policy = fields.get("completionPolicy", "call-return")
             completion_policies[active_invocation] = completion_policy
@@ -2028,6 +2023,15 @@ def _source_handler(fields):
     }
 
 
+def _require_callback_handlers(obligations, effect_identity):
+    handlers = dict((obligations or {}).get("handlers", []))
+    for key, callback in (obligations or {}).get("callbacks", []):
+        if key.startswith(effect_identity + "/") and (
+            callback["state"] == "pending" or callback["subscriptionId"] not in handlers
+        ):
+            _fail("Effect result requires its observed callback handler registration")
+
+
 def _apply_observation_staged(state, row, dispatched, settled, obligations, track_counts):
     fields = row["fields"]
     if row["kind"] == "reconcile":
@@ -2049,6 +2053,8 @@ def _apply_observation_staged(state, row, dispatched, settled, obligations, trac
             or not fields["evidenceId"]
         ):
             _fail("Reconciliation requires explicit independent evidence")
+        if disposition in ("fulfilled", "rejected"):
+            _require_callback_handlers(obligations, identity)
         intent["status"] = (
             "committed"
             if disposition == "not-dispatched"
@@ -2127,12 +2133,9 @@ def _apply_observation_staged(state, row, dispatched, settled, obligations, trac
             if fields["subscriptionId"] in handlers:
                 _fail("Duplicate source handler")
             registrations = [
-                callback
-                for _, callback in obligations["callbacks"]
+                (key, callback)
+                for key, callback in obligations["callbacks"]
                 if callback.get("subscriptionId") == fields["subscriptionId"]
-                or callback.get("state") == "pending"
-                and callback.get("ownerInvocationId") == fields["ownerInvocationId"]
-                and callback.get("closureId") == fields["closureId"]
             ]
             if not registrations:
                 # Host registration is already observed authority. It creates
@@ -2143,59 +2146,34 @@ def _apply_observation_staged(state, row, dispatched, settled, obligations, trac
                 return
             if len(registrations) != 1:
                 _fail("Handler must identify one pending callback capability")
-            callback_args = []
-            for identity, intent in obligations["intents"]:
-                if intent.get("status") != "dispatched" or intent.get("operation") not in (
-                    "demo.withCallback",
-                    "demo.listen",
-                ):
-                    continue
-                effect = next(
-                    (item for item in state["effects"] if item[0] == intent["effectId"]), None
-                )
-                if effect is None:
-                    continue
-                for slot, value in enumerate(effect[1]["arguments"]):
-                    if isinstance(value, dict) and set(value) == {"$ownedCallback"}:
-                        if value["$ownedCallback"] == fields.get("closureId"):
-                            callback_args.append((identity, slot, value["$ownedCallback"], intent))
-            matches = [
-                entry
-                for entry in callback_args
-                if entry[2] == fields.get("closureId")
-                and entry[3]["invocationId"] == fields.get("ownerInvocationId")
-            ]
-            if len(matches) != 1:
+            callback_key, callback = registrations[0]
+            identity = callback_key.rsplit("/", 1)[0]
+            intent = dict(obligations["intents"]).get(identity)
+            if (
+                intent is None
+                or intent["status"] not in ("dispatched", "uncertain")
+                or intent["invocationId"] != fields["ownerInvocationId"]
+            ):
                 _fail("Handler does not identify exactly one dispatched callback capability")
-            identity, slot, closure_id, intent = matches[0]
-            callbacks = {key: value for key, value in obligations["callbacks"]}
-            closure = _table(state, "heap").get(closure_id)
-            callback_key = identity + "/" + str(slot)
-            callback = {
-                "state": "active",
-                "slot": slot,
-                "closureId": closure_id,
-                "entry": closure.get("code"),
-                "realmId": fields["realmId"],
-                "programId": fields["programId"],
-                "trackId": fields["trackId"],
-                "subscriptionId": fields["subscriptionId"],
-                "lifetime": fields["lifetime"],
-                "sequence": 0,
-                "queued": [],
-                "ownerInvocationId": fields["ownerInvocationId"],
-            }
-            pending = callbacks.get(callback_key)
-            if pending is not None and pending != {**callback, "state": "pending"}:
+            if (
+                callback["state"] != "pending"
+                or fields["realmPolicy"] != "retained"
+                or fields["queueLimit"] != 64
+                or any(
+                    callback[key] != fields[key]
+                    for key in (
+                        "programId",
+                        "realmId",
+                        "trackId",
+                        "entry",
+                        "closureId",
+                        "lifetime",
+                        "ownerInvocationId",
+                    )
+                )
+            ):
                 _fail("Handler differs from its pending callback capability")
-            if fields.get("subscriptionId") in {
-                value.get("subscriptionId")
-                for key, value in callbacks.items()
-                if key != callback_key
-            }:
-                _fail("Duplicate callback registration")
-            callbacks[callback_key] = callback
-            obligations["callbacks"] = [[key, value] for key, value in callbacks.items()]
+            callback["state"] = "active"
             handlers[fields["subscriptionId"]] = _source_handler(fields)
             obligations["handlers"] = [[key, value] for key, value in handlers.items()]
         return
@@ -2283,6 +2261,7 @@ def _apply_observation_staged(state, row, dispatched, settled, obligations, trac
         identity = fields["invocationId"] + "/" + obs["effect"]
         if identity not in dispatched or identity in settled:
             _fail("Result without one outstanding dispatch")
+        _require_callback_handlers(obligations, identity)
         if "graph" in obs or obs["result"][0] == "ref":
             from .host_operations import HOST_OPERATIONS
 
@@ -2337,12 +2316,10 @@ def _apply_observation_staged(state, row, dispatched, settled, obligations, trac
             for key, callback in obligations["callbacks"]:
                 if not key.startswith(identity + "/"):
                     continue
-                if obs["status"] == "fulfilled" and callback["lifetime"] == "subscription":
-                    callback["state"] = "active"
-                else:
+                if obs["status"] != "fulfilled" or callback["lifetime"] != "subscription":
                     callback["state"] = "revoked"
                     handler = handlers.get(callback["subscriptionId"])
-                    if handler is not None:
+                    if handler is not None and handler["state"] != "closed":
                         handler["state"] = "closing"
         promise = effect[1]["promise"]
         if promise:
