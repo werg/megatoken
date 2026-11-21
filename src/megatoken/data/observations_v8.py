@@ -171,8 +171,34 @@ def validate_observation_v8(row):
         ):
             raise ValueError("V8 result envelope differs from its observation")
     elif kind == "handler":
-        if fields["lifetime"] not in {"subscription", "call"}:
-            raise ValueError("Handler requires an explicit callback lifetime")
+        if (
+            fields["lifetime"] not in {"subscription", "call"}
+            or fields["realmPolicy"] not in {"retained", "fresh"}
+            or type(fields["queueLimit"]) is not int
+            or not 1 <= fields["queueLimit"] <= 4096
+            or fields["track"] != "host"
+        ):
+            raise ValueError("Handler requires host authority and its bounded lifecycle policy")
+        if fields["closureId"] is not None:
+            value(["ref", fields["closureId"]])
+        if fields["ownerInvocationId"] is not None and (
+            type(fields["ownerInvocationId"]) is not str
+            or not ROUTING.fullmatch(fields["ownerInvocationId"])
+        ):
+            raise ValueError(
+                "Handler requires a valid owning invocation or explicit host ownership"
+            )
+    elif kind == "handler-close":
+        if (
+            fields["track"] != "host"
+            or type(fields["discarded"]) is not list
+            or any(
+                type(identity) is not str or not ROUTING.fullmatch(identity)
+                for identity in fields["discarded"]
+            )
+            or len(set(fields["discarded"])) != len(fields["discarded"])
+        ):
+            raise ValueError("Handler close requires host authority and distinct discarded events")
     elif kind in {"cancel", "realm-close"}:
         if type(fields["reason"]) is not str:
             raise ValueError("Lifecycle closure requires an explicit reason")

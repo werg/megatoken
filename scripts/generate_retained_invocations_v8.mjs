@@ -43,6 +43,9 @@ function initialize(m) {
 }
 function increment(m, invocation, amount, total, options = {}) {
   enter(m.h, invocation, {closureId: 'fn', entry: 'add', args: [amount], ...options});
+  advance(m, invocation, total);
+}
+function advance(m, invocation, total) {
   m.select(invocation, 'compute', {expr: {op: 'binary', operator: '+',
     left: {op: 'local', name: 'count'}, right: {op: 'local', name: 'value'}}, result: ['num', total]});
   m.select(invocation, 'bind', {name: 'count', value: ['num', total]});
@@ -74,6 +77,40 @@ finish(separate, 'first', ['num', 2]);
 enter(separate.h, 'second', {realmId: 'two', realmPolicy: 'fresh', args: [8]});
 finish(separate, 'second', ['num', 8]);
 retain('fresh-realms-use-global-invocation-order', separate);
+
+const host = machine('host-retained-handler');
+initialize(host);
+host.h.registerEventHandler({subscriptionId: 'outside', programId: 'program', realmId: 'realm',
+  trackId: 'worker', closureId: 'fn', queueLimit: 4});
+host.h.postEvent({subscriptionId: 'outside', eventId: 'first', args: [2]});
+advance(host, 'event1', 7);
+host.h.postEvent({subscriptionId: 'outside', eventId: 'second', args: [4]});
+advance(host, 'event2', 11);
+host.h.closeEventHandler('outside');
+retain('host-retained-closure-handler', host);
+
+for (const realmPolicy of ['fresh', 'retained']) {
+  const host = machine('host-' + realmPolicy + '-handler');
+  host.h.registerEventHandler({subscriptionId: 'outside', programId: 'program', realmId: 'realm',
+    trackId: 'worker', realmPolicy, entry: 'run', queueLimit: 2});
+  host.h.postEvent({subscriptionId: 'outside', eventId: 'first', args: [2]});
+  finish(host, 'event1', ['num', 2]);
+  host.h.postEvent({subscriptionId: 'outside', eventId: 'second', args: [8]});
+  finish(host, 'event2', ['num', 8]);
+  host.h.closeEventHandler('outside');
+  retain('host-' + realmPolicy + '-static-handler', host);
+}
+
+const discarded = machine('host-discarded-arrivals');
+initialize(discarded);
+discarded.h.registerEventHandler({subscriptionId: 'outside', programId: 'program', realmId: 'realm',
+  trackId: 'worker', closureId: 'fn', queueLimit: 2});
+discarded.h.postEvent({subscriptionId: 'outside', eventId: 'queued-first', args: [2], deliver: false});
+discarded.h.postEvent({subscriptionId: 'outside', eventId: 'queued-second', args: [4], deliver: false});
+discarded.h.closeEventHandler('outside');
+enter(discarded.h, 'after', {entry: 'run', args: [9]});
+finish(discarded, 'after', ['num', 9]);
+retain('host-discards-private-arrivals', discarded);
 
 writeFileSync(output, gzipSync(JSON.stringify({schema: 'semantic-retained-invocation-controls/1',
   producerRevision, evidenceScope: 'selected-public-replay-controls', examples})).toString('base64') + '\n');

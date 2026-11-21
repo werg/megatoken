@@ -39,12 +39,11 @@ still cannot carry an error origin.
 
 ## Explicit remaining boundaries
 
-Host-owned closure handlers without a guest owner resolve and validate their
-retained function before an explicit unsupported-profile refusal. Their full
-registration, event delivery, parentless callback, and close lifecycle is
-separate work; the ordinary returning callback examples above do not depend on
-that profile. Module initialization, original-source certification of arbitrary
-retained sessions, and model execution remain separate gates.
+Module initialization, original-source certification of arbitrary retained
+sessions, full external effect reconciliation and model execution remain
+separate gates. A parentless callback requires an independently observed handler
+event. The controls below do not promote selected records to original-source
+or training admission.
 
 ## Retained call and callback initialization
 
@@ -63,10 +62,10 @@ Input graphs cannot overwrite a retained object or introduce unknown references,
 and receivers must refer to a retained or newly imported object. A missing
 captured cell refuses instead of inventing a binding.
 
-The retained fixture contains three selected-control episodes, 26 generated
-records in total: repeated closure calls followed by an ordinary retained call,
-a callback whose identity contains no digits, and two independent fresh realms.
-They are generated and replayed by clean producer
+The first retained fixture contained three selected-control episodes, 26
+generated records in total: repeated closure calls followed by an ordinary
+retained call, a callback whose identity contains no digits, and two independent
+fresh realms. They were generated and replayed by clean producer
 `1965c3767cfb4ff1719c90ecf3a0d71ff3142e39`, including JSON checkpoint restoration.
 Native tests check every earlier prediction boundary and six malformed admission
 variants. These controls are **selected public replay engineering evidence**, not
@@ -83,3 +82,47 @@ Validation for this increment: 11 retained-invocation controls pass, together
 with 65 existing callback identity/return, detailed-state, mixed host/Promise
 and realm-scheduler controls. These are separate selected test sets; neither
 count establishes a complete language or release gate.
+
+## Host-owned event handlers and exact delivery authority
+
+Native replay now supports host-owned handlers independently of guest host
+requests. Registration creates a handler obligation without fabricating a guest
+dispatch or callback capability. A static handler may be registered before any
+invocation; its arrivals may use fresh or retained realms. A retained closure
+handler preserves the closure's code and captured cells. Guest-owned handlers
+still require the corresponding unique dispatched callback capability.
+
+Every event is checked against the registered program, track, derived realm,
+trigger and next available event invocation identity before it marks delivery.
+The next public observation must activate that exact callback, preserving its
+entry, closure, parent, task revision, receiver, bindings and ingress key. It
+cannot substitute an ordinary call or inject extra argument aliases. Host
+delivery never interrupts a running realm turn; closed subscriptions and
+duplicate event identities refuse.
+
+Closing a host-owned handler needs no guest callback to revoke. Queued inputs
+stay private until delivery or retirement, so the close receipt first publishes
+the discarded event identities. Native replay adds each unique, previously
+unseen discarded identity to the closed handler and never executes those
+inputs. Existing delivered identities cannot be reused as discarded inputs.
+
+The regenerated fixture pins producer
+`4bff56f65f452fa659e4fdccc451269b71c0114d`. It contains **seven selected-control
+episodes and 52 generated records**, including four new host-handler episodes:
+retained closure delivery, static fresh/retained delivery, and actual buffered
+inputs retired before a later ordinary call. The generator checks producer
+public replay and JSON checkpoint restoration for every episode. All prediction
+boundaries are then reconstructed independently by Python native replay. These
+remain selected-public controls, with source and tokenizer admission untested.
+
+Earlier malformed controls assumed that a handler close could be observed on a
+worker track, or that an event activation could add argument aliases. The
+producer always emits host-owned close receipts and exact event activations.
+The positive controls now follow those real routes; separate negative controls
+retain the previous mutations as refusals.
+
+Validation of the integrated host-handler increment: **103 tests pass** across
+host handlers, retained invocations, callback identity/returns/boundaries,
+observation transactions, recovery and realm scheduling. Ruff and whitespace
+checks pass. No external adapter, optimizer or model decoder runs in these
+selected-control tests.

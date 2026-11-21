@@ -784,7 +784,10 @@ def _replay_shared_state(
     functions = []
     invocation_inputs = {}
     invocation_metadata = {}
+    ingress_keys = set()
     callback_allocator = [0]
+    event_allocator = 0
+    pending_event = None
     cancelled_invocations = set()
     closed_realms = set()
 
@@ -808,6 +811,17 @@ def _replay_shared_state(
     for row in timeline:
         kind = row["kind"]
         fields = row["fields"]
+        if row["mode"] == "observed":
+            from .observations_v8 import validate_observation_v8
+
+            try:
+                validate_observation_v8(row)
+            except ValueError as error:
+                raise NativeV8Error(str(error)) from error
+        if pending_event is not None and (
+            kind != "invocation" or fields.get("invocationId") != pending_event["invocationId"]
+        ):
+            _fail("Event delivery must be followed by its exact callback invocation")
         previous_readiness = {
             invocation_metadata[identity]["realmId"]: saved["scheduler"]["ready"]
             for identity, saved in controllers.items()
@@ -832,6 +846,8 @@ def _replay_shared_state(
                 _fail("Closed realm cannot be resurrected")
             if fields["invocationId"] in controllers:
                 _fail("Duplicate invocation controller")
+            if fields["ingressKey"] in ingress_keys:
+                _fail("Ingress key already owns another invocation")
             published_row = published.get(fields["programId"])
             if published_row is None:
                 _fail("Invocation has no preceding program")
@@ -868,16 +884,6 @@ def _replay_shared_state(
             owner = fields.get("parentInvocationId")
             if owner is not None and (owner not in controllers or owner in cancelled_invocations):
                 _fail("Child has no live owning invocation")
-            if fields.get("activation") == "callback":
-                if owner is None or base is None:
-                    _fail("Callback has no independently replayed owner")
-                if any(
-                    fields[key] != invocation_metadata[owner][key]
-                    for key in ("realmId", "programId", "track")
-                ):
-                    _fail("Callback differs from its retained owner's realm or program")
-            elif fields.get("activation") != "call":
-                _fail("Unsupported invocation activation in v8 shared replay")
             if fields.get("closureId") is not None:
                 # Resolve before importing inputs or allocating captured cells.
                 # The observed entry cannot redirect a retained closure's code.
@@ -886,6 +892,48 @@ def _replay_shared_state(
                     fields.get("entry"),
                     _table(base, "heap").get(fields["closureId"]) if base is not None else None,
                 )
+            event = pending_event
+            if event is not None:
+                handler = dict(obligations["handlers"])[event["subscriptionId"]]
+                realm_owner = next(
+                    (
+                        identity
+                        for identity in reversed(controllers)
+                        if invocation_metadata[identity]["realmId"] == handler["realmId"]
+                    ),
+                    None,
+                )
+                expected = {
+                    "activation": "callback",
+                    "programId": event["programId"],
+                    "realmId": event["realmId"],
+                    "track": event["track"],
+                    "triggerId": event["triggerId"],
+                    "realmPolicy": handler["realmPolicy"],
+                    "entry": handler["entry"],
+                    "closureId": handler["closureId"],
+                    "parentInvocationId": handler["ownerInvocationId"],
+                    "taskRevision": invocation_metadata[realm_owner]["taskRevision"]
+                    if realm_owner is not None
+                    else 1,
+                    "receiver": ["undefined"],
+                    "bindings": {},
+                    "deadline": None,
+                    "ingressKey": event["triggerId"],
+                }
+                if any(fields.get(key) != value for key, value in expected.items()):
+                    _fail("Callback invocation differs from its observed event delivery")
+                pending_event = None
+            if fields.get("activation") == "callback":
+                if event is None and (owner is None or base is None):
+                    _fail("Callback has no independently replayed owner")
+                if owner is not None and any(
+                    fields[key] != invocation_metadata[owner][key]
+                    for key in ("realmId", "programId", "track")
+                ):
+                    _fail("Callback differs from its retained owner's realm or program")
+            elif fields.get("activation") != "call":
+                _fail("Unsupported invocation activation in v8 shared replay")
             state = _initial_state(
                 program,
                 fields,
@@ -903,6 +951,7 @@ def _replay_shared_state(
                 ]
             active_invocation = fields["invocationId"]
             invocation_metadata[active_invocation] = copy.deepcopy(fields)
+            ingress_keys.add(fields["ingressKey"])
             if active_invocation.startswith("callbackinvoke"):
                 ordinal = active_invocation.removeprefix("callbackinvoke")
                 if not ordinal.isdecimal() or int(ordinal) <= callback_allocator[0]:
@@ -934,12 +983,6 @@ def _replay_shared_state(
                 _fail("Generated record follows invocation completion")
             completion_policy = completion_policies[invocation]
         if kind in {"cancel", "realm-close"}:
-            from .observations_v8 import validate_observation_v8
-
-            try:
-                validate_observation_v8(row)
-            except ValueError as error:
-                raise NativeV8Error(str(error)) from error
             if kind == "cancel":
                 owner = fields["invocationId"]
                 if owner not in controllers or owner in cancelled_invocations:
@@ -983,7 +1026,7 @@ def _replay_shared_state(
                     _fail("Realm closure precedes handler closure")
                 closed_realms.add(realm)
             continue
-        if state is None:
+        if state is None and kind not in ("handler", "handler-close", "event"):
             continue
         if row["mode"] == "generated":
             context = snapshots.get(row["sequence"])
@@ -1108,6 +1151,35 @@ def _replay_shared_state(
             if fields.get("realmId") in closed_realms:
                 _fail("Callback observation targets a closed realm")
             target = controllers.get(fields.get("ownerInvocationId"), state)
+            if kind == "handler":
+                handler_program = published.get(fields.get("programId"))
+                if handler_program is None or not (
+                    fields["entry"] == handler_program[0].get("entry")
+                    or any(
+                        function.get("name") == fields["entry"]
+                        or "function:" + str(function.get("start")) == fields["entry"]
+                        for function in handler_program[1]
+                    )
+                ):
+                    _fail(
+                        "Handler differs from its retained realm source or immutable function site"
+                    )
+                owner = fields.get("ownerInvocationId")
+                if owner is not None and (
+                    owner not in controllers
+                    or owner in cancelled_invocations
+                    or any(
+                        invocation_metadata[owner][key] != fields[target_key]
+                        for key, target_key in (
+                            ("programId", "programId"),
+                            ("realmId", "realmId"),
+                            ("track", "trackId"),
+                        )
+                    )
+                ):
+                    _fail("Handler differs from its retained realm source or owner")
+                if fields.get("closureId") is not None and fields.get("realmPolicy") != "retained":
+                    _fail("Closure handler requires its retained realm")
             if kind == "handler" and fields.get("closureId") is not None:
                 owner = fields.get("ownerInvocationId")
                 if owner is None:
@@ -1134,9 +1206,43 @@ def _replay_shared_state(
                     fields.get("entry"),
                     _table(target, "heap").get(fields["closureId"]),
                 )
-                if fields.get("ownerInvocationId") is None:
-                    _fail("Host-owned closure handler lacks a native lifecycle replay profile")
+            if kind == "event":
+                handler = dict(obligations["handlers"]).get(fields["subscriptionId"])
+                if handler is None:
+                    _fail("Event has no active source handler")
+                if handler["ownerInvocationId"] in cancelled_invocations:
+                    _fail("Event belongs to a cancelled owning invocation")
+                expected_realm = (
+                    handler["realmId"]
+                    if handler["realmPolicy"] == "retained"
+                    else handler["realmId"] + fields["invocationId"]
+                )
+                if (
+                    fields["programId"] != handler["programId"]
+                    or fields["track"] != handler["trackId"]
+                    or fields["realmId"] != expected_realm
+                    or fields["triggerId"]
+                    != "event:" + fields["subscriptionId"] + ":" + fields["eventId"]
+                ):
+                    _fail("Observed event differs from its registered handler routing")
+                if any(
+                    saved["stack"]
+                    for identity, saved in controllers.items()
+                    if invocation_metadata[identity]["realmId"] == expected_realm
+                    and identity not in cancelled_invocations
+                ):
+                    _fail("Event cannot interrupt a running JavaScript stack")
+                next_event = event_allocator + 1
+                while "event" + str(next_event) in controllers:
+                    next_event += 1
+                if next_event > 9007199254740991 or fields["invocationId"] != "event" + str(
+                    next_event
+                ):
+                    _fail("Invalid event invocation allocation")
             _apply_observation(target, row, dispatched, settled, obligations, owner_sequences)
+            if kind == "event":
+                event_allocator = next_event
+                pending_event = copy.deepcopy(fields)
         if active_invocation is not None:
             controllers[active_invocation] = state
             share_realm(active_invocation, state)
@@ -1151,6 +1257,8 @@ def _replay_shared_state(
             )
     if boundary_invocation is None:
         return state
+    if pending_event is not None:
+        _fail("Prediction boundary precedes the delivered event's callback invocation")
     if boundary_invocation in cancelled_invocations:
         _fail("Prediction boundary belongs to a cancelled invocation")
     boundary_state = controllers.get(boundary_invocation)
@@ -1874,6 +1982,28 @@ def _apply_observation(state, row, dispatched, settled, obligations=None, track_
             target.update(staged)
 
 
+def _source_handler(fields):
+    return {
+        **{
+            key: copy.deepcopy(fields[key])
+            for key in (
+                "programId",
+                "realmId",
+                "trackId",
+                "realmPolicy",
+                "entry",
+                "queueLimit",
+                "closureId",
+                "lifetime",
+                "ownerInvocationId",
+            )
+        },
+        "seen": [],
+        "queue": [],
+        "state": "active",
+    }
+
+
 def _apply_observation_staged(state, row, dispatched, settled, obligations, track_counts):
     fields = row["fields"]
     if row["kind"] == "event":
@@ -1888,16 +2018,18 @@ def _apply_observation_staged(state, row, dispatched, settled, obligations, trac
                 ),
                 None,
             )
-            if (
-                callback is None
-                or callback.get("state") not in ("active", "revoked")
-                or callback.get("closureId") != fields.get("closureId", callback.get("closureId"))
-                or callback.get("state") == "revoked"
-                and (handler is None or handler.get("state") != "closing")
-            ):
-                _fail("Observed event has no active guest callback registration")
             if handler is None or handler["state"] not in ("active", "closing"):
                 _fail("Event has no active source handler")
+            if handler.get("ownerInvocationId") is not None or callback is not None:
+                if (
+                    callback is None
+                    or callback.get("state") not in ("active", "revoked")
+                    or callback.get("closureId")
+                    != fields.get("closureId", callback.get("closureId"))
+                    or callback.get("state") == "revoked"
+                    and handler.get("state") != "closing"
+                ):
+                    _fail("Observed event has no active guest callback registration")
             if fields.get("eventId") in handler["seen"]:
                 _fail("Duplicate source event identity")
             handler["seen"].append(fields["eventId"])
@@ -1917,6 +2049,15 @@ def _apply_observation_staged(state, row, dispatched, settled, obligations, trac
         return
     if row["kind"] == "handler":
         if obligations is not None:
+            handlers = dict(obligations["handlers"])
+            if fields["subscriptionId"] in handlers:
+                _fail("Duplicate source handler")
+            if fields["ownerInvocationId"] is None:
+                # Host registration is already observed authority. It creates
+                # no guest request, dispatch, or native callback capability.
+                handlers[fields["subscriptionId"]] = _source_handler(fields)
+                obligations["handlers"] = [[key, value] for key, value in handlers.items()]
+                return
             callback_args = []
             for identity, intent in obligations["intents"]:
                 if intent.get("status") != "dispatched" or intent.get("operation") not in (
@@ -1970,45 +2111,45 @@ def _apply_observation_staged(state, row, dispatched, settled, obligations, trac
                 _fail("Duplicate callback registration")
             callbacks[callback_key] = callback
             obligations["callbacks"] = [[key, value] for key, value in callbacks.items()]
-            handlers = {key: value for key, value in obligations["handlers"]}
-            if fields["subscriptionId"] in handlers:
-                _fail("Duplicate source handler")
-            handlers[fields["subscriptionId"]] = {
-                "programId": fields["programId"],
-                "realmId": fields["realmId"],
-                "trackId": fields["trackId"],
-                "realmPolicy": fields["realmPolicy"],
-                "entry": fields["entry"],
-                "queueLimit": fields["queueLimit"],
-                "seen": [],
-                "queue": [],
-                "state": "active",
-                "closureId": fields["closureId"],
-                "lifetime": fields["lifetime"],
-                "ownerInvocationId": fields["ownerInvocationId"],
-            }
+            handlers[fields["subscriptionId"]] = _source_handler(fields)
             obligations["handlers"] = [[key, value] for key, value in handlers.items()]
         return
     if row["kind"] == "handler-close":
         if obligations is not None:
+            handlers = dict(obligations["handlers"])
+            handler = handlers.get(fields["subscriptionId"])
+            discarded = fields.get("discarded")
+            if (
+                handler is None
+                or handler.get("state") not in ("active", "closing")
+                or type(discarded) is not list
+                or any(type(identity) is not str for identity in discarded)
+                or len(set(discarded)) != len(discarded)
+                or handler.get("queue")
+                and discarded != handler["queue"]
+                or any(identity in handler.get("seen", []) for identity in discarded)
+            ):
+                _fail("Handler close does not match its queued events")
             callbacks = {key: value for key, value in obligations["callbacks"]}
             matches = [
                 value
                 for value in callbacks.values()
                 if value.get("subscriptionId") == fields.get("subscriptionId")
             ]
-            if len(matches) != 1 or matches[0].get("state") not in ("active", "revoked"):
-                _fail("Handler close must revoke one active callback")
-            matches[0]["state"] = "revoked"
-            obligations["callbacks"] = [[key, value] for key, value in callbacks.items()]
-            handlers = {key: value for key, value in obligations["handlers"]}
-            handler = handlers.get(fields["subscriptionId"])
             if (
-                handler is None
-                or handler.get("state") not in ("active", "closing")
-                or fields.get("discarded") != handler.get("queue")
+                len(matches) > 1
+                or handler.get("ownerInvocationId") is not None
+                and len(matches) != 1
+                or any(callback.get("state") not in ("active", "revoked") for callback in matches)
             ):
-                _fail("Handler close does not match its queued events")
+                _fail("Handler close must revoke one active callback")
+            for callback in matches:
+                callback["state"] = "revoked"
+            obligations["callbacks"] = [[key, value] for key, value in callbacks.items()]
+            # Queued arrivals stay private until delivery or retirement. The
+            # observed discard receipt first publishes their identities.
+            handler.setdefault("seen", []).extend(discarded)
+            handler["queue"] = []
             handler["state"] = "closed"
             obligations["handlers"] = [[key, value] for key, value in handlers.items()]
         return

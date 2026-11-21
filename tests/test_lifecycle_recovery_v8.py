@@ -20,7 +20,7 @@ def observation(example, kind, **fields):
         "kind": kind,
         "fields": {
             "session": first["session"],
-            "track": "host" if kind == "realm-close" else first["track"],
+            "track": "host" if kind in {"realm-close", "handler-close"} else first["track"],
             **fields,
         },
     }
