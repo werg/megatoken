@@ -10,9 +10,9 @@ import os
 import subprocess
 from pathlib import Path
 
-from megatoken.data.algorithm_v7 import stable_algorithm_hash
 from megatoken.data.native_v8 import prepare_native_v8_training, validate_v8_artifact
 from megatoken.data.semantic_contract_v8 import CONTRACT, CONTRACT_DIGEST, INTEROPERABILITY_DIGEST
+from megatoken.data.semantic_json import stable_algorithm_hash
 from megatoken.data.source_identity_v8 import (
     DIRECT_SOURCE_SCHEMA,
     direct_source_identity_v8,

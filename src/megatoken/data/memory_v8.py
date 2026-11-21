@@ -6,7 +6,7 @@ import copy
 import math
 import struct
 
-from . import algorithm_v7
+from . import semantic_primitives as primitives
 
 PROFILE = "owned-binary-memory/1"
 TYPE_INFO = {
@@ -119,7 +119,7 @@ def validate_record(record):
 def _number(value):
     validate_protocol_value(value)
     try:
-        return algorithm_v7._to_number(value)
+        return primitives._to_number(value)
     except TypeError:
         _fail("cannot convert value to Number")
 
@@ -148,7 +148,7 @@ def _element(value, spec):
         if value[0] == "bool":
             return int(value[1])
         if value[0] == "str":
-            converted = algorithm_v7._bigint_string(value[1])
+            converted = primitives._bigint_string(value[1])
             if converted is None:
                 _fail("invalid BigInt conversion")
             return converted
@@ -176,7 +176,7 @@ def _integer_element(value, spec):
 def _tag_number(value):
     if type(value) is int:
         value = float(value)
-    return algorithm_v7._encode_scalar(value)
+    return primitives._encode_scalar(value)
 
 
 def _node(machine, identity):
@@ -471,7 +471,7 @@ def _set_property(machine, identity, key, value):
 
 
 def _truth(value):
-    return value[0] == "symbol" or algorithm_v7._truthy(value)
+    return value[0] == "symbol" or primitives._truthy(value)
 
 
 def _call(machine, record):

@@ -19,8 +19,7 @@ from megatoken.controls import (
     semantic_selection_instruction_v8,
 )
 
-from . import algorithm_v7 as v7
-from .algorithm_v7 import _truthy as _detail_truthy
+from . import semantic_primitives as primitives
 from .algorithm_v8 import replay_algorithm_line
 from .detailed_v8 import encode_record, parse_record
 from .detailed_v8 import value as validate_value
@@ -54,13 +53,14 @@ from .semantic_contract_v8 import (
 )
 from .semantic_json import stable_algorithm_hash
 from .semantic_physical import physical_semantic_episode
+from .semantic_primitives import _truthy as _detail_truthy
 
 _UNARY_OPERATORS = {
-    operator: name for name, (arity, operator) in v7.OPERATIONS.items() if arity == 1
+    operator: name for name, (arity, operator) in primitives.OPERATIONS.items() if arity == 1
 }
 _BINARY_OPERATORS = {
     operator: name
-    for name, (arity, operator) in v7.OPERATIONS.items()
+    for name, (arity, operator) in primitives.OPERATIONS.items()
     if arity == 2 and name not in {"and", "or", "coalesce"}
 }
 
@@ -577,12 +577,12 @@ def _replay_region(program, context, line, entry):
             operation = mappings.get(operator)
             if operation is None:
                 _fail("Unsupported local primitive operator")
-            from . import algorithm_v7 as v7
+            from . import semantic_primitives as primitives
 
             args = (
                 [term(node["arg"])] if op == "unary" else [term(node["left"]), term(node["right"])]
             )
-            return v7._operation(operation, args)
+            return primitives._operation(operation, args)
         _fail("Unsupported local term")
 
     for op in definition["operations"]:
@@ -1282,7 +1282,7 @@ def _next_random_state(state):
 
 
 def _eval_detail_expression(expr, state):
-    from . import algorithm_v7 as v7
+    from . import semantic_primitives as primitives
 
     op = expr.get("op")
     if op == "literal":
@@ -1306,14 +1306,14 @@ def _eval_detail_expression(expr, state):
         mapping = _UNARY_OPERATORS
         if expr["operator"] not in mapping:
             _fail("Unsupported unary operator")
-        return v7._operation(mapping[expr["operator"]], [arg])
+        return primitives._operation(mapping[expr["operator"]], [arg])
     if op == "binary":
         left = _eval_detail_expression(expr["left"], state)
         right = _eval_detail_expression(expr["right"], state)
         mapping = _BINARY_OPERATORS
         if expr["operator"] not in mapping:
             _fail("Unsupported binary operator")
-        return v7._operation(mapping[expr["operator"]], [left, right])
+        return primitives._operation(mapping[expr["operator"]], [left, right])
     if op in ("select", "and", "or", "coalesce"):
         args = expr.get("args", [])
         if not args:
@@ -1606,7 +1606,7 @@ def _apply_detail(
         effect = fields["effect"]
         promise = fields.get("promise")
         args = fields["arguments"]
-        from . import algorithm_v7 as v7
+        from . import semantic_primitives as primitives
 
         callback_slots = {"demo.withCallback": {1}, "demo.listen": {1}}
         decoded = []
@@ -1619,10 +1619,10 @@ def _apply_detail(
                     _fail("Host callback identity is not a guest function")
                 decoded.append({"$ownedCallback": value[1]})
             else:
-                item = v7._decode_scalar(value)
+                item = primitives._decode_scalar(value)
                 if isinstance(item, tuple) and item and item[0] == "__algorithm_ref__":
                     _fail("Object request argument requires owned graph codec")
-                if item is v7.UNDEFINED:
+                if item is primitives.UNDEFINED:
                     _fail("Undefined host JSON value is not admitted")
                 if type(item) is float and item.is_integer():
                     item = int(item)
