@@ -2238,9 +2238,46 @@
         "profile",
         "public",
         "regionCursor",
+        "ingressCursor",
         "selected",
         "integrity"
       ],
+      "optionalFields": [
+        "ingress"
+      ],
+      "ingressReceipt": {
+        "schema": "semantic-host-ingress-receipt/8",
+        "fields": [
+          "schema",
+          "id",
+          "bytes"
+        ],
+        "meaning": "Private reference to immutable canonical pending-ingress snapshot bytes. Its SHA-256 content digest checks integrity against an independently retained expected receipt; it is not broker authentication."
+      },
+      "ingressSnapshot": {
+        "schema": "semantic-pending-host-ingress/8",
+        "fields": [
+          "schema",
+          "sessionId",
+          "visibleThrough",
+          "prefixDigest",
+          "nextIngressSequence",
+          "queues"
+        ],
+        "queueFields": [
+          "subscriptionId",
+          "binding",
+          "events"
+        ],
+        "eventFields": [
+          "eventId",
+          "arrivalSequence",
+          "completionPolicy",
+          "inputGraph"
+        ],
+        "meaning": "Private, bounded registered-event inputs bound to one exact public prefix and source-owned handler. Monotonic arrival sequences preserve eligible callback order within a retained realm; different realms remain independent. The sequence cursor and event graphs never enter model context."
+      },
+      "ingressCursor": "Private next host-event arrival sequence, persisted in generic selected-state and region checkpoints even when no pending snapshot is present.",
       "protocolSelected": {
         "schema": "semantic-protocol-continuation/1",
         "fields": [
@@ -2253,7 +2290,7 @@
           "maxOutstanding",
           "automaticDelivery"
         ],
-        "meaning": "Exact shared states, activation statuses and host policy are independently reconstructed from the complete public V8 history. Pending unjournaled native ingress refuses checkpoint creation. Restore marks acknowledged outstanding work uncertain and existing subscriptions lost; only explicitly supplied services and reattachment may recover them."
+        "meaning": "Exact shared states, activation statuses and host policy are independently reconstructed from the complete public V8 history. Pending registered events require the separately retained private ingress receipt and snapshot. Pending unjournaled native ingress refuses checkpoint creation. Restore marks acknowledged outstanding work uncertain and existing subscriptions lost; only explicitly supplied services and reattachment may recover them."
       },
       "restore": "Validate public mixed replay and exact shared state. Restore existing intent/handler lifecycle without invoking adapters."
     },
@@ -2271,7 +2308,7 @@
       "default": "not promoted by engineering receipts alone"
     }
   },
-  "digest": "15f330f8bc5038d9bccd65f6b9594e9a97b1e621a4920c042b0db403b3d244b0",
+  "digest": "1be6863d4c4fd4d67698be2d92023db55ea624f6cf8ff9139117d5f48df2cbac",
   "fixtureDigest": "56f7f36d3b25b3b11a208be3de337e637b9782e6759faea1e1ec107b0a90f0ce",
   "fixtures": [
     {
