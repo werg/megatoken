@@ -29,7 +29,9 @@ concurrency:
 jobs:
   cpu:
     runs-on: ubuntu-24.04
-    timeout-minutes: 25
+    # The complete 3.12 suite reached 88% before the former 25-minute limit.
+    # Keep the full test selection and allow the same bound as semantic CI.
+    timeout-minutes: 45
     strategy:
       fail-fast: false
       matrix:

@@ -1,0 +1,45 @@
+{
+  "consumer": "1ddcc6110d70703f6b08244d53ec461047677bec",
+  "testedPullRequestMerge": "a19c6afa4875ad4274d346338b4b970bc5ec8349",
+  "runId": 44936714352,
+  "cpu311": {
+    "jobId": 136944918289,
+    "status": "success",
+    "passed": 3567,
+    "skipped": 82,
+    "warnings": 20,
+    "seconds": 1033.62
+  },
+  "cpu312": {
+    "jobId": 136944918187,
+    "status": "cancelled",
+    "completeSuite": false,
+    "lastProgressPercent": 88,
+    "configuredTimeoutMinutes": 25,
+    "runnerStart": "2026-11-21T18:39:50.2002912Z",
+    "cancellation": "2026-11-21T19:05:02.0690977Z"
+  },
+  "files": [
+    {
+      "path": "hosted-consumer-1ddcc61-cpu311.log.gz",
+      "bytes": 17276,
+      "sha256": "1282874d8b148b1f0fd229609e16ed4dd3f60396ecd153ab6017952c011dba9c",
+      "decodedBytes": 81350,
+      "decodedSha256": "296a2f2eb122f7a7eb225970ae064275707fd9a2272cd047c5f543786a5a6ab3"
+    },
+    {
+      "path": "hosted-consumer-1ddcc61-cpu312-cancelled.log.gz",
+      "bytes": 13456,
+      "sha256": "19fffd1d372f6237d38b52f6c8e4fca16a30a62ad5eae7b098564b9dd5aa158e",
+      "decodedBytes": 66004,
+      "decodedSha256": "2a4fe653bf023dc8d4ef5bc21f58ff1b00d0ea69d0fd39a2a03d8cb6eddd325f"
+    },
+    {
+      "path": "hosted-consumer-1ddcc61-jobs.json.gz",
+      "bytes": 742,
+      "sha256": "f45c6b32fd1869bf38e149df03f0382fb9d70bee60ea0472e0bc590d1d540e36",
+      "decodedBytes": 7037,
+      "decodedSha256": "76f4a68fa4bf97c18f00174138fbf8b9ad7e8e6b8c3597a2e6c230cb985b9152"
+    }
+  ]
+}
