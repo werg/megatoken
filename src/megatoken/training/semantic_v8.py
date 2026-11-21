@@ -331,3 +331,42 @@ def validate_prepared_semantic_v8(roots, *, codec, policy, max_history=None, max
             "episodes": counts,
             "optimizerSteps": 0,
         }
+
+
+def preflight_semantic_training_v8(roots, *, codec, policy, max_history=None, max_positions=None):
+    """Detect V8 rows and fail closed on missing, stale, or mismatched admission."""
+    from megatoken.data import PreparedCorpus
+
+    with PreparedCorpus(roots, split=None) as corpus:
+        receipts = [
+            receipt for part in corpus.parts for receipt in part.manifest.get("sources", [])
+        ]
+        has_v8_receipt = any(
+            receipt.get("schema") == "semantic-preparation/8" for receipt in receipts
+        )
+        semantic_schemas = set()
+        for episode in corpus.iter_episodes():
+            semantic = json.loads(episode.supervision.annotations_json).get("semantic_execution")
+            if semantic is not None:
+                semantic_schemas.add(semantic.get("schema"))
+        corpus_codec_fingerprint = corpus.codec_fingerprint
+
+    if policy is None:
+        if has_v8_receipt or "semantic-execution/8" in semantic_schemas:
+            raise ValueError("V8 semantic rows require an explicit pinned training policy")
+        return None
+
+    policy = validate_semantic_training_policy_v8(policy)
+    if semantic_schemas - {"semantic-execution/8"}:
+        raise ValueError("V8 training cannot include semantic rows with an older or unknown schema")
+    if not has_v8_receipt or "semantic-execution/8" not in semantic_schemas:
+        raise ValueError("V8 training policy requires matching V8 prepared semantic rows")
+    if corpus_codec_fingerprint != codec.fingerprint:
+        raise ValueError("Corpus and training codec differ")
+    return validate_prepared_semantic_v8(
+        roots,
+        codec=codec,
+        policy=policy,
+        max_history=max_history,
+        max_positions=max_positions,
+    )

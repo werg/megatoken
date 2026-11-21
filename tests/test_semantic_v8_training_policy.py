@@ -4,6 +4,7 @@ import base64
 import gzip
 import hashlib
 import json
+from dataclasses import replace
 from pathlib import Path
 from types import SimpleNamespace
 
@@ -95,7 +96,7 @@ def test_unverified_data_flag_cannot_admit_unqualified_v8_targets(tmp_path):
 
 
 def prepared_v8_fixture(
-    tmp_path, *, max_positions=128, max_history=8, direct_source=False, document=None
+    tmp_path, *, max_positions=128, max_history=8, direct_source=False, document=None, codec=None
 ):
     """Real native rows with explicitly injected source/tokenizer audit boundaries."""
     if document is None:
@@ -196,7 +197,7 @@ def prepared_v8_fixture(
         producer_receipt.update(
             sourceIdentityDigest=binding["sourceIdentityDigest"], identityValidated=True
         )
-    codec = ByteCodec.byte_fallback()
+    codec = codec or ByteCodec.byte_fallback()
     # Test an explicit injected tokenizer-verification boundary. Production
     # preparation obtains this evidence only after checking the pinned file.
     tokenizer_evidence = {
@@ -314,3 +315,246 @@ def test_v8_codec_rejects_byte_fallback_and_unpinned_file(tmp_path):
     invalid.write_text("{}")
     with pytest.raises(ValueError, match="SHA256 mismatch"):
         load_semantic_v8_codec(invalid, vocab_size=256)
+
+
+def test_readiness_uses_v8_policy_and_strict_codec_preflight(tmp_path, monkeypatch):
+    from megatoken.training.readiness import check
+
+    _, codec, policy, output = prepared_v8_fixture(tmp_path)
+    monkeypatch.setattr(
+        "megatoken.training.semantic_v8.load_semantic_v8_codec",
+        lambda path, *, vocab_size: codec,
+    )
+    config = TrainConfig(
+        purpose="diagnostic",
+        phase="SC",
+        model="tiny",
+        codec="injected-tokenizer",
+        datasets=[str(output)],
+        output=str(tmp_path / "ready"),
+        model_overrides={
+            "vocab_size": codec.vocab_size,
+            "max_history_chunks": 8,
+            "max_capacity": 128,
+        },
+        generated_capacity=128,
+        max_steps=1,
+        semantic_v8_policy=policy,
+    )
+
+    report = check(config)
+
+    assert report["ready"], report["errors"]
+    assert report["checks"]["semantic_v8"]["episodes"]["train"] == 1
+
+
+def test_readiness_refuses_missing_and_mismatched_v8_admission(tmp_path, monkeypatch):
+    from megatoken.training.readiness import check
+
+    _, codec, policy, output = prepared_v8_fixture(tmp_path)
+    monkeypatch.setattr(
+        "megatoken.training.semantic_v8.load_semantic_v8_codec",
+        lambda path, *, vocab_size: codec,
+    )
+    config = TrainConfig(
+        purpose="diagnostic",
+        phase="SC",
+        model="tiny",
+        codec="injected-tokenizer",
+        datasets=[str(output)],
+        output=str(tmp_path / "ready"),
+        model_overrides={
+            "vocab_size": codec.vocab_size,
+            "max_history_chunks": 8,
+            "max_capacity": 128,
+        },
+        generated_capacity=128,
+        max_steps=1,
+        semantic_v8_policy=policy,
+    )
+
+    missing_policy = check(replace(config, phase="B0", codec="byte", semantic_v8_policy=None))
+    assert not missing_policy["ready"]
+    assert any("explicit pinned training policy" in error for error in missing_policy["errors"])
+
+    mismatched = check(replace(config, semantic_v8_policy={**policy, "registryDigest": "0" * 64}))
+    assert not mismatched["ready"]
+    assert any("preparation manifest differs" in error for error in mismatched["errors"])
+
+
+def test_readiness_refuses_v8_rows_without_preparation_manifest(tmp_path, monkeypatch):
+    from megatoken.training.readiness import check
+
+    _, codec, policy, output = prepared_v8_fixture(tmp_path)
+    manifest_path = output / "manifest.json"
+    manifest = json.loads(manifest_path.read_text())
+    manifest["sources"] = [
+        receipt
+        for receipt in manifest["sources"]
+        if receipt.get("schema") != "semantic-preparation/8"
+    ]
+    unsigned = {key: value for key, value in manifest.items() if key != "fingerprint"}
+    from megatoken.io import content_hash
+
+    manifest["fingerprint"] = content_hash(unsigned)
+    manifest_path.write_text(json.dumps(manifest, sort_keys=True, separators=(",", ":")))
+    monkeypatch.setattr(
+        "megatoken.training.semantic_v8.load_semantic_v8_codec",
+        lambda path, *, vocab_size: codec,
+    )
+    config = TrainConfig(
+        purpose="diagnostic",
+        phase="SC",
+        model="tiny",
+        codec="injected-tokenizer",
+        datasets=[str(output)],
+        output=str(tmp_path / "ready"),
+        model_overrides={
+            "vocab_size": codec.vocab_size,
+            "max_history_chunks": 8,
+            "max_capacity": 128,
+        },
+        generated_capacity=128,
+        max_steps=1,
+        semantic_v8_policy=policy,
+        allow_unverified_data=True,
+    )
+
+    report = check(config)
+
+    assert not report["ready"]
+    assert any("matching V8 prepared semantic rows" in error for error in report["errors"])
+
+
+def test_readiness_loads_the_actual_pinned_tokenizer_when_available(tmp_path):
+    from megatoken.generation.codec import LING_TOKENIZER_SHA256, LING_VOCAB_SIZE, ByteCodec
+    from megatoken.training.readiness import check
+
+    tokenizer = Path(__file__).resolve().parents[1].parent / "checkpoint" / "tokenizer.json"
+    if not tokenizer.exists():
+        pytest.skip("The separately provisioned pinned tokenizer is unavailable")
+    codec = ByteCodec.from_tokenizer_json(
+        tokenizer, expected_sha256=LING_TOKENIZER_SHA256, expected_vocab_size=LING_VOCAB_SIZE
+    )
+    _, _, policy, output = prepared_v8_fixture(tmp_path, codec=codec)
+    config = TrainConfig(
+        purpose="diagnostic",
+        phase="SC",
+        model="tiny",
+        codec=str(tokenizer),
+        datasets=[str(output)],
+        output=str(tmp_path / "ready"),
+        model_overrides={
+            "vocab_size": codec.vocab_size,
+            "max_history_chunks": 8,
+            "max_capacity": 128,
+        },
+        generated_capacity=128,
+        max_steps=1,
+        semantic_v8_policy=policy,
+    )
+
+    report = check(config)
+
+    assert report["ready"], report["errors"]
+    assert report["checks"]["semantic_v8"]["episodes"]["train"] == 1
+    mismatch = check(replace(config, semantic_v8_policy={**policy, "registryDigest": "0" * 64}))
+    assert not mismatch["ready"]
+    assert any("preparation manifest differs" in error for error in mismatch["errors"])
+
+
+def test_semantic_v8_production_template_passes_real_config_validation(tmp_path):
+    from megatoken.generation.codec import LING_TOKENIZER_SHA256, LING_VOCAB_SIZE, ByteCodec
+    from megatoken.io import read_mapping
+
+    root = Path(__file__).resolve().parents[1]
+    tokenizer = root.parent / "checkpoint" / "tokenizer.json"
+    if not tokenizer.exists():
+        pytest.skip("The separately provisioned pinned tokenizer is unavailable")
+    codec = ByteCodec.from_tokenizer_json(
+        tokenizer, expected_sha256=LING_TOKENIZER_SHA256, expected_vocab_size=LING_VOCAB_SIZE
+    )
+    _, _, policy, prepared = prepared_v8_fixture(tmp_path, codec=codec)
+    donors = [tmp_path / "deepseek-donor", tmp_path / "qwen-donor"]
+    for donor in donors:
+        donor.mkdir()
+    hindsight = tmp_path / "hindsight-sc"
+    hindsight.mkdir()
+    mapping = read_mapping(root / "configs/train/semantic-v8-production.example.yaml")
+    mapping.update(
+        datasets=[str(prepared)],
+        codec=str(tokenizer),
+        hindsight_targets=str(hindsight),
+        engram_imports=[str(path) for path in donors],
+        semantic_v8_policy=policy,
+        decoupled={**mapping["decoupled"], "coordinator_url": "https://coordinator.test"},
+    )
+
+    config = TrainConfig.from_dict(mapping, expand_data=False)
+
+    assert config.purpose == "production" and config.phase == "SC"
+    assert config.semantic_v8_policy == policy
+    assert config.codec == str(tokenizer)
+    assert config.hindsight_targets == str(hindsight)
+    assert config.decoupled.workers == 8
+
+
+@pytest.mark.parametrize("schema", ["semantic-execution/7", "semantic-execution/999"])
+def test_readiness_refuses_old_or_unknown_semantic_schema_even_when_unverified(
+    tmp_path, monkeypatch, schema
+):
+    from megatoken.training.readiness import check
+
+    _, codec, policy, output = prepared_v8_fixture(tmp_path)
+    monkeypatch.setattr(
+        "megatoken.training.semantic_v8.load_semantic_v8_codec",
+        lambda path, *, vocab_size: codec,
+    )
+
+    class FakeCorpus:
+        codec_fingerprint = codec.fingerprint
+        parts = [SimpleNamespace(manifest={"sources": [{"schema": "semantic-preparation/8"}]})]
+
+        def __init__(self, roots, split=None):
+            del roots, split
+
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *args):
+            return None
+
+        def iter_episodes(self):
+            return iter(
+                [
+                    SimpleNamespace(
+                        supervision=SimpleNamespace(
+                            annotations_json=json.dumps({"semantic_execution": {"schema": schema}})
+                        )
+                    )
+                ]
+            )
+
+    monkeypatch.setattr("megatoken.data.PreparedCorpus", FakeCorpus)
+    config = TrainConfig(
+        purpose="diagnostic",
+        phase="SC",
+        model="tiny",
+        codec="injected-tokenizer",
+        datasets=[str(output)],
+        output=str(tmp_path / "ready"),
+        model_overrides={
+            "vocab_size": codec.vocab_size,
+            "max_history_chunks": 8,
+            "max_capacity": 128,
+        },
+        generated_capacity=128,
+        max_steps=1,
+        semantic_v8_policy=policy,
+        allow_unverified_data=True,
+    )
+
+    report = check(config)
+
+    assert not report["ready"]
+    assert any("older or unknown schema" in error for error in report["errors"])

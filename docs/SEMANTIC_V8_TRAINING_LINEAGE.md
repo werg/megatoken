@@ -66,6 +66,13 @@ acknowledged-state reconstruction, host results, retained callbacks, eviction an
 multiple training windows. The lexical decoder is explicitly controlled for
 these engineering checks, so they do not establish learned execution success.
 
+The complete SC launch binding is documented in
+[`configs/train/semantic-v8-production.example.yaml`](../configs/train/semantic-v8-production.example.yaml).
+It keeps the production teacher targets, navigation teaching, held-out evaluation,
+periodic checkpoints, both curriculum donors and distributed workers together.
+Its paths and V8 pins remain explicit placeholders until the matching prepared
+corpus, producer/consumer revisions, registry digest and assets are selected.
+
 Remaining: final combined-pair qualification after contract changes; complete
 binary-bundle publication; broader varied control/history populations;
 accepted-record recovery with trained weights; learned-quality studies. No default

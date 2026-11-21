@@ -1,0 +1,42 @@
+# Full SC launch binding. Replace paths and policy pins with the reviewed,
+# matching producer/consumer pair and frozen V8 registry before launch.
+purpose: production
+phase: SC
+model: 32x512
+datasets:
+- PIN_PREPARED_V8_TRAIN_AND_HELD_OUT_ROOT
+codec: PIN_APPROVED_RAW_CODEC_DIRECTORY
+output: /work/runs/semantic-v8-sc
+device: auto
+precision: bf16
+require_blackwell: true
+expert_backend: auto
+microbatch_episodes: 1
+max_accumulation_windows: 64
+max_history_tokens: 16384
+max_window_records: 128
+generated_capacity: 512
+checkpoint_every: 100
+keep_checkpoints: 3
+eval_every: 100
+eval_windows: 16
+hindsight_targets: /work/data/hindsight-sc
+navigation_examples: 8
+navigation_negatives: 32
+engram_imports:
+- PIN_DEEPSEEK_DONOR_ASSET
+- PIN_QWEN_DONOR_ASSET
+decoupled:
+  run_id: PIN_RUN_ID
+  coordinator_url: https://PIN_COORDINATOR
+  workers: 8
+  local_steps: 256
+  io_workers: 4
+  timeout_seconds: 120
+  max_offline_steps: 2048
+  wire_dtype: bf16
+semantic_v8_policy:
+  schema: semantic-training-policy/8
+  producerRevision: PIN_40_CHARACTER_PRODUCER_REVISION
+  consumerRevision: PIN_40_CHARACTER_CONSUMER_REVISION
+  registryDigest: PIN_64_CHARACTER_FROZEN_REGISTRY_DIGEST

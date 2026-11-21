@@ -90,6 +90,21 @@ def test_streams_cover_the_stage_plan():
     assert set(stage_recipe("MB").mixture) <= mb_text | STREAMS | set(STREAM_PRODUCERS)
 
 
+def test_semantic_v8_producer_is_explicit_and_does_not_change_default():
+    from megatoken.data.recipes import SEMANTIC_STREAM_PRODUCERS
+    from megatoken.data.semantic_corpus import prepare_semantic_corpus
+    from megatoken.data.semantic_corpus_v8 import prepare_semantic_corpus_v8
+
+    assert SEMANTIC_STREAM_PRODUCERS["v8"]["semantic_execution"].endswith(
+        "semantic_corpus_v8:prepare_semantic_corpus_v8"
+    )
+    assert resolve_stream_producer("semantic_execution") is prepare_semantic_corpus
+    assert (
+        resolve_stream_producer("semantic_execution", semantic_version="v8")
+        is prepare_semantic_corpus_v8
+    )
+
+
 def test_procedural_streams_resolve_to_real_local_producers():
     for stream, path in STREAM_PRODUCERS.items():
         producer = resolve_stream_producer(stream)
