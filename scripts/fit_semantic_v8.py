@@ -30,7 +30,6 @@ from megatoken.data.detailed_v8 import parse_record
 from megatoken.data.media_assets import TensorAssetStore
 from megatoken.data.native_v8 import (
     _replay_shared_state,
-    prepare_native_v8_training,
     region_entry_v8,
 )
 from megatoken.data.prefix_v8 import validate_v8_committed_prefix
@@ -39,11 +38,12 @@ from megatoken.data.semantic_contract_v8 import DEFINITION
 from megatoken.data.semantic_json import stable_algorithm_hash
 from megatoken.data.storage import PreparedCorpus
 from megatoken.generation.codec import LING_TOKENIZER_SHA256, ByteCodec
-from megatoken.io import sha256_file
+from megatoken.io import content_hash, sha256_file
 from megatoken.loading import build_model
 from megatoken.model import ModelConfig
 from megatoken.model.multitrack import MultiTrackGenerator
 from megatoken.multitrack_runtime import MultiTrackRuntime
+from megatoken.semantic_lineage_v8 import build_training_lineage_v8
 from megatoken.semantic_model_v8 import NativeSemanticInferenceV8
 from megatoken.served import ServedBundle, export_served
 from megatoken.training.checkpoint import save_checkpoint, transducer_attachment
@@ -178,23 +178,93 @@ def complete_targets(episode):
     return targets
 
 
+def diagnostic_training_identity(roots, episode, *, codec, config, records):
+    """Bind the actual selected prefix without claiming an ordinary optimizer stream."""
+    targets = complete_targets(episode)
+    if type(records) is not int or not 1 <= records <= len(targets):
+        raise ValueError("Diagnostic selection must be a nonempty prepared target prefix")
+    semantic = json.loads(episode.supervision.annotations_json)["semantic_execution"]
+    with PreparedCorpus(roots, split="train", stream="semantic_execution") as corpus:
+        chunking = ChunkingConfig.from_identity(corpus.chunking, codec)
+        selection = {
+            "schema": "semantic-v8-diagnostic-training-selection/1",
+            "kind": "bounded-grouped-decoder-prefix",
+            "preparedCorpusDigest": corpus.identity,
+            "preparedEpisodeId": episode.episode_id,
+            "sourceId": semantic["sourceId"],
+            "componentId": semantic["componentId"],
+            "frozenSplit": semantic["split"],
+            "window": asdict(window_config(config)),
+            "selectedTargetSha256": [
+                hashlib.sha256(target.encode()).hexdigest() for target, _ in targets[:records]
+            ],
+            "selectedLogicalRecords": records,
+            "selectedPhysicalRecords": sum(parts for _, parts in targets[:records]),
+            "generatedTrainingTokensPerStep": sum(
+                len(codec.encode(target.encode())) for target, _ in targets[:records]
+            ),
+            "admittedEpisodeLogicalRecords": len(targets),
+            "admittedEpisodeGeneratedTokens": sum(
+                len(codec.encode(target.encode())) for target, _ in targets
+            ),
+            "ordinaryTrainerResumeClaim": False,
+        }
+        lineage = build_training_lineage_v8(
+            policy=config.semantic_v8_policy,
+            tokenizer_identity=codec.fingerprint,
+            prepared_manifests=[
+                json.loads((root / "manifest.json").read_text())["fingerprint"]
+                for root in corpus.all_roots
+            ],
+            corpus_identity=corpus.identity,
+            stream_identity=content_hash(selection),
+            chunking=chunking.identity(codec),
+        )
+    return chunking, lineage, selection
+
+
+def exact_selected_prefix(outcome, targets):
+    return (
+        outcome["status"] in {"completed", "accepted-nonterminal"}
+        and outcome["acknowledged"] == len(targets)
+        and outcome["records"] == targets
+    )
+
+
 @torch.inference_mode()
-def actual_inference(model, identity, public, *, seed, max_tokens, max_records=4):
+def actual_inference(
+    model,
+    identity,
+    public,
+    *,
+    seed,
+    max_tokens,
+    max_records=4,
+    chunking=None,
+    training_identity=None,
+):
     """Predict and independently replay actual records; no teacher target is accepted."""
     public = copy.deepcopy(public)
     contexts = []
     invocation = next(row["fields"] for row in public["timeline"] if row["kind"] == "invocation")
     session, invocation_id = invocation["session"], invocation["invocationId"]
-    runtime = MultiTrackRuntime(MultiTrackGenerator.of(model.eval()))
+    runtime = MultiTrackRuntime(MultiTrackGenerator.of(model.eval()), chunking=chunking)
     adapter = NativeSemanticInferenceV8(
-        runtime, model_identity=identity, max_tokens=max_tokens, max_fragments=1
+        runtime,
+        model_identity=identity,
+        training_identity=training_identity,
+        max_tokens=max_tokens,
+        max_fragments=1,
     )
     records = []
     outcome = {"status": "failed", "completed": False, "acknowledged": 0}
     started = time.perf_counter()
     try:
         adapter.initialize(
-            seed=seed, checkpointIdentity=identity, tokenizerIdentity=model.codec.fingerprint
+            seed=seed,
+            checkpointIdentity=identity,
+            tokenizerIdentity=model.codec.fingerprint,
+            trainingIdentity=training_identity,
         )
         for _ in range(max_records):
             boundary = _replay_shared_state(
@@ -299,7 +369,11 @@ def actual_inference(model, identity, public, *, seed, max_tokens, max_records=4
     }
 
 
-def save_bundle(model, optimizer, transducer, config, output, name, *, steps):
+def save_bundle(
+    model, optimizer, transducer, config, output, name, *, steps, chunking, lineage, selection
+):
+    if content_hash(selection) != lineage["streamDigest"]:
+        raise ValueError("Diagnostic training selection differs from its retained lineage")
     checkpoint = save_checkpoint(
         output / "checkpoints",
         name,
@@ -307,20 +381,22 @@ def save_bundle(model, optimizer, transducer, config, output, name, *, steps):
             "model": model.state_dict(),
             "model_config": model.config.to_dict(),
             "codec_fingerprint": model.codec.fingerprint,
-            "chunking": ChunkingConfig()
-            .with_hard_limit(model.config.max_capacity)
-            .identity(model.codec),
+            "chunking": chunking.identity(model.codec),
             "global_step": 0,
             "diagnostic_optimizer_steps": steps,
             "train_config": asdict(config),
             "optimizer": optimizer.state_dict(),
             "packs_fingerprint": None,
+            "semantic_training_v8": lineage,
+            "diagnostic_training_selection": selection,
         },
         {
             "global_step": 0,
             "diagnosticOptimizerSteps": steps,
             "scope": "bounded-v8-decoder-fit",
             "ordinaryTrainerResumeClaim": False,
+            "dataset_fingerprint": lineage["streamDigest"],
+            "semantic_v8_lineage_digest": lineage["digest"],
         },
         pinned=True,
         keep=2,
@@ -371,9 +447,6 @@ def main():
         args.prepared, codec=codec, policy=policy, source_id=args.source_id
     )
     document = {"public": artifact["public"], "contexts": artifact["contexts"]}
-    _, preparation = prepare_native_v8_training(
-        document, codec=codec, max_positions=512, max_history=128
-    )
     targets_with_parts = complete_targets(episode)[: args.records]
     if len(targets_with_parts) != args.records or any(
         parts != 1 for _, parts in targets_with_parts
@@ -406,6 +479,11 @@ def main():
         use_stage_mixture=False,
         use_effort_mixture=False,
     )
+    chunking, lineage, training_selection = diagnostic_training_identity(
+        args.prepared, episode, codec=codec, config=config, records=args.records
+    )
+    if any(len(codec.encode(target.encode())) > chunking.hard_max_tokens for target in targets):
+        raise ValueError("Selected targets exceed the admitted physical generation budget")
     model = build_model(
         ModelConfig.tiny(max_capacity=512, max_history_chunks=128, vocab_size=codec.vocab_size),
         codec,
@@ -423,7 +501,16 @@ def main():
         raise ValueError("The native optimizer has no decoder parameter owners")
     optimizer.freeze([name for name in optimizer.model_parameters if name not in decoder_owners])
     baseline, baseline_manifest = save_bundle(
-        model, optimizer, transducer, config, args.output, "baseline", steps=0
+        model,
+        optimizer,
+        transducer,
+        config,
+        args.output,
+        "baseline",
+        steps=0,
+        chunking=chunking,
+        lineage=lineage,
+        selection=training_selection,
     )
     inference_inputs = [initial_public(document)]
     evaluations = [
@@ -436,6 +523,8 @@ def main():
                 seed=args.seed,
                 max_tokens=args.max_tokens,
                 max_records=args.records,
+                chunking=baseline.chunking,
+                training_identity=baseline_manifest["semantic_v8_lineage_digest"],
             ),
             "heldout": [],
         }
@@ -482,6 +571,8 @@ def main():
                 seed=args.seed,
                 max_tokens=args.max_tokens,
                 max_records=args.records,
+                chunking=chunking,
+                training_identity=lineage["digest"],
             )
             evaluations.append(
                 {"optimizerSteps": step, "identityKind": "in-memory-tensor-sha256", "train": result}
@@ -500,12 +591,12 @@ def main():
                         "step": step,
                         "loss": history[-1]["loss"],
                         "actualCompleted": result["completed"],
-                        "exactInSampleRecords": result["records"] == targets,
+                        "exactInSampleRecords": exact_selected_prefix(result, targets),
                     }
                 ),
                 flush=True,
             )
-            if result["completed"] and result["records"] == targets:
+            if exact_selected_prefix(result, targets):
                 break
     changed = [
         name
@@ -515,7 +606,16 @@ def main():
     if not changed or any(not name.startswith("decoder.") for name in changed):
         raise ValueError("Bounded decoder fit changed an undeclared model owner")
     fitted, fitted_manifest = save_bundle(
-        model, optimizer, transducer, config, args.output, "fitted", steps=step
+        model,
+        optimizer,
+        transducer,
+        config,
+        args.output,
+        "fitted",
+        steps=step,
+        chunking=chunking,
+        lineage=lineage,
+        selection=training_selection,
     )
     final = {
         "optimizerSteps": step,
@@ -526,6 +626,8 @@ def main():
             seed=args.seed,
             max_tokens=args.max_tokens,
             max_records=args.records,
+            chunking=fitted.chunking,
+            training_identity=fitted_manifest["semantic_v8_lineage_digest"],
         ),
         "heldout": [
             actual_inference(
@@ -534,6 +636,8 @@ def main():
                 value,
                 seed=args.seed,
                 max_tokens=args.max_tokens,
+                chunking=fitted.chunking,
+                training_identity=fitted_manifest["semantic_v8_lineage_digest"],
             )
             for value in inference_inputs[1:]
         ],
@@ -541,7 +645,7 @@ def main():
     optimizer.close()
     report = {
         "schema": "semantic-native-bounded-fit/8",
-        "scope": "Actual native grouped decoder optimization and reloaded serving on 2..3 in-sample records. No generalization, external-comprehension, or production-training claim.",
+        "scope": "Actual native grouped decoder optimization and reloaded serving on the declared in-sample prefix. Accepted-prefix success and complete source execution are separate. No generalization, external-comprehension, or production-training claim.",
         "consumerRevision": revision,
         "scriptSha256": sha256_file(Path(__file__)),
         "trainingPolicy": policy,
@@ -560,13 +664,15 @@ def main():
         "baselineManifest": baseline_manifest,
         "fittedManifest": fitted_manifest,
         "changedModelOwners": changed,
-        "generatedTrainingTokensPerStep": preparation["generatedTokens"],
-        "preparation": preparation,
+        "generatedTrainingTokensPerStep": training_selection["generatedTrainingTokensPerStep"],
+        "trainingSelection": training_selection,
+        "trainingLineage": lineage,
         "history": history,
         "evaluations": evaluations,
         "final": final,
         "inSampleExactSuccess": final["train"]["completed"]
         and final["train"]["records"] == targets,
+        "inSampleExactPrefixSuccess": exact_selected_prefix(final["train"], targets),
         "heldoutCompleted": [],
         "generalizationEstablished": False,
         "externalComprehensionEstablished": False,
@@ -588,6 +694,7 @@ def main():
                 "served": str(args.output / "fitted"),
                 "optimizerSteps": step,
                 "inSampleExactSuccess": report["inSampleExactSuccess"],
+                "inSampleExactPrefixSuccess": report["inSampleExactPrefixSuccess"],
             }
         ),
         flush=True,
