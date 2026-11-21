@@ -190,7 +190,15 @@ class NativeV8Tests(unittest.TestCase):
             obligations,
             {"source": "host.withCallback()"},
             {"invocation1": 1},
+            invocation_metadata={
+                "programId": "program1",
+                "realmId": "realm1",
+                "track": "worker1",
+            },
+            callback_allocator=[0],
         )
+        self.assertEqual(obligations["callbacks"][0][1]["state"], "pending")
+        self.assertEqual(obligations["callbacks"][0][1]["ownerInvocationId"], "invocation1")
         dispatch = {
             "sequence": 7,
             "kind": "dispatch",
@@ -201,7 +209,8 @@ class NativeV8Tests(unittest.TestCase):
                 "attempt": 1,
             },
         }
-        _apply_observation(state, dispatch, set(), set(), obligations, {})
+        dispatched, settled = set(), set()
+        _apply_observation(state, dispatch, dispatched, settled, obligations, {})
         handler = {
             "sequence": 8,
             "kind": "handler",
@@ -218,23 +227,25 @@ class NativeV8Tests(unittest.TestCase):
                 "ownerInvocationId": "invocation1",
             },
         }
-        _apply_observation(state, handler, set(), set(), obligations, {})
+        _apply_observation(state, handler, dispatched, settled, obligations, {})
         self.assertEqual(obligations["callbacks"][0][1]["state"], "active")
         event = {
             "sequence": 9,
             "kind": "event",
             "fields": {"subscriptionId": "callback1", "eventId": "event1"},
         }
-        _apply_observation(state, event, set(), set(), obligations, {})
+        _apply_observation(state, event, dispatched, settled, obligations, {})
         self.assertEqual(obligations["handlers"][0][1]["seen"], ["event1"])
         close = {
             "sequence": 10,
             "kind": "handler-close",
             "fields": {"subscriptionId": "callback1", "discarded": []},
         }
-        _apply_observation(state, close, set(), set(), obligations, {})
+        _apply_observation(state, close, dispatched, settled, obligations, {})
         self.assertEqual(obligations["callbacks"][0][1]["state"], "revoked")
         self.assertEqual(obligations["handlers"][0][1]["state"], "closed")
+        self.assertEqual(dispatched, {"invocation1/e1"})
+        self.assertEqual(settled, set())
 
     def test_native_checkpoint_roundtrip_and_tamper_detection(self):
         context = self.document["examples"][2]["contexts"][4]

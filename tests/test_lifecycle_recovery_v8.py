@@ -133,7 +133,7 @@ def test_callback_allocator_advances_only_from_delivered_canonical_event_ids():
         ("callbackevent2", 3),
         ("teacherevent9", 3),
         ("callbackevent01", 3),
-        ("callbackevent9007199254740992", 3),
+        ("callbackevent9007199254740991", 9007199254740991),
     ):
         _apply_observation(
             state,
@@ -150,22 +150,26 @@ def test_callback_allocator_advances_only_from_delivered_canonical_event_ids():
         )
         assert obligations["callbacks"][0][1]["sequence"] == sequence
         assert obligations["callbacks"][0][1]["queued"] == []
-    before = copy.deepcopy((state, dispatched, settled, obligations))
-    with pytest.raises(NativeV8Error, match="Duplicate source event"):
-        _apply_observation(
-            state,
-            {
-                "kind": "event",
-                "fields": {
-                    "subscriptionId": "callback1",
-                    "eventId": "callbackevent3",
+    for event_id, message in (
+        ("callbackevent3", "Duplicate source event"),
+        ("callbackevent9007199254740992", "Invalid native callback event sequence"),
+    ):
+        before = copy.deepcopy((state, dispatched, settled, obligations))
+        with pytest.raises(NativeV8Error, match=message):
+            _apply_observation(
+                state,
+                {
+                    "kind": "event",
+                    "fields": {
+                        "subscriptionId": "callback1",
+                        "eventId": event_id,
+                    },
                 },
-            },
-            dispatched,
-            settled,
-            obligations,
-        )
-    assert (state, dispatched, settled, obligations) == before
+                dispatched,
+                settled,
+                obligations,
+            )
+        assert (state, dispatched, settled, obligations) == before
 
 
 def test_actual_native_callback_recovery_fixture_matches_independent_public_replay():
