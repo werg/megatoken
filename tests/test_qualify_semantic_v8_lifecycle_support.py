@@ -18,12 +18,16 @@ SPEC.loader.exec_module(MODULE)
 
 class Corpus:
     rows = []
+
     def __init__(self, roots, split=None):
         assert split is None
+
     def __enter__(self):
         return self
+
     def __exit__(self, *_):
         return None
+
     def iter_episodes(self):
         return iter(self.rows)
 
@@ -55,57 +59,93 @@ def _fixture(tmp_path, monkeypatch):
     components_by_id = {}
     for i in range(64):
         source_id, split = ids[i], splits[i]
-        member = {"id": source_id, "family": f"family-{i:02d}",
-                  "sourceDigest": f"{i + 1:064x}", "coreDigest": f"{i + 65:064x}"}
-        component = {"id": f"component-{i:02d}", "split": split,
-                     "sourceIds": [source_id], "members": [source_id]}
+        member = {
+            "id": source_id,
+            "family": f"family-{i:02d}",
+            "sourceDigest": f"{i + 1:064x}",
+            "coreDigest": f"{i + 65:064x}",
+        }
+        component = {
+            "id": f"component-{i:02d}",
+            "split": split,
+            "sourceIds": [source_id],
+            "members": [source_id],
+        }
         sources.append(member)
         components.append(component)
         members_by_id[source_id], components_by_id[source_id] = member, component
-    registry = {"schema": "semantic-region-family-registry/1",
-                "sources": sources, "components": components}
+    registry = {
+        "schema": "semantic-region-family-registry/1",
+        "sources": sources,
+        "components": components,
+    }
     registry["digest"] = stable_algorithm_hash(registry)
     root = tmp_path / "prepared"
     root.mkdir()
     (root / "semantic-v8-families.json").write_text(json.dumps(registry))
     inventory = tmp_path / "inventory.json"
-    inventory.write_text(json.dumps({"schema": "semantic-v8-source-population/1",
-        "registryDigest": registry["digest"], "sourceIds": ids}))
+    inventory.write_text(
+        json.dumps(
+            {
+                "schema": "semantic-v8-source-population/1",
+                "registryDigest": registry["digest"],
+                "sourceIds": ids,
+            }
+        )
+    )
     sample_path = tmp_path / "sample.json"
     source_id = ids[0]
     member, component = members_by_id[source_id], components_by_id[source_id]
     identity = {
-        "schema": "semantic-region-split-identity/1", "sourceId": source_id,
-        "registryDigest": registry["digest"], "registry": registry,
-        "componentId": component["id"], "members": component["members"],
-        "split": component["split"], "sourceDigest": member["sourceDigest"],
+        "schema": "semantic-region-split-identity/1",
+        "sourceId": source_id,
+        "registryDigest": registry["digest"],
+        "registry": registry,
+        "componentId": component["id"],
+        "members": component["members"],
+        "split": component["split"],
+        "sourceDigest": member["sourceDigest"],
         "coreDigest": member["coreDigest"],
     }
     document = {
-        "public": {"schema": "semantic-execution/8", "traceFormat": "semantic-trace/8",
-                   "timeline": [{"event": "sample"}]},
+        "public": {
+            "schema": "semantic-execution/8",
+            "traceFormat": "semantic-trace/8",
+            "timeline": [{"event": "sample"}],
+        },
         "contexts": [{"visibleThrough": 0, "records": []}],
-        "sidecar": {"sourceArtifact": {"reference": {"source": "const x=1", "entry": "x"}},
-                    "splitIdentity": identity, "split": component["split"],
-                    "sourceComponent": component["id"],
-                    "familyRegistryDigest": registry["digest"]},
+        "sidecar": {
+            "sourceArtifact": {"reference": {"source": "const x=1", "entry": "x"}},
+            "splitIdentity": identity,
+            "split": component["split"],
+            "sourceComponent": component["id"],
+            "familyRegistryDigest": registry["digest"],
+        },
     }
     document["sidecar"]["datasetBinding"] = _binding(document, identity, member, component)
     sample_path.write_text(json.dumps(document))
     public_artifact = {"public": document["public"], "contexts": document["contexts"]}
     rows = []
-    for i, (row_id, split) in enumerate(zip(ids, splits, strict=True)):
-        semantic = {"sourceId": row_id, "datasetBinding": {"sourceId": row_id},
-                    "publicArtifact": {"public": {}, "contexts": []}}
+    for row_id, split in zip(ids, splits, strict=True):
+        semantic = {
+            "sourceId": row_id,
+            "datasetBinding": {"sourceId": row_id},
+            "publicArtifact": {"public": {}, "contexts": []},
+        }
         if row_id == source_id:
             semantic["datasetBinding"] = document["sidecar"]["datasetBinding"]
             semantic["publicArtifact"] = public_artifact
-        rows.append(SimpleNamespace(
-            supervision=SimpleNamespace(annotations_json=json.dumps({"semantic_execution": semantic})),
-            lineage=SimpleNamespace(frozen_split=split),
-        ))
+        rows.append(
+            SimpleNamespace(
+                supervision=SimpleNamespace(
+                    annotations_json=json.dumps({"semantic_execution": semantic})
+                ),
+                lineage=SimpleNamespace(frozen_split=split),
+            )
+        )
     Corpus.rows = rows
     import megatoken.data
+
     monkeypatch.setattr(megatoken.data, "PreparedCorpus", Corpus)
     return root, inventory, sample_path, ids, registry, document, identity, member, component
 

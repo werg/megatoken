@@ -367,7 +367,9 @@ def validate_support_population(prepared_root, source_path, inventory_path):
     require(
         isinstance(registry, dict)
         and registry.get("schema") == "semantic-region-family-registry/1"
-        and stable_algorithm_hash({key: value for key, value in registry.items() if key != "digest"})
+        and stable_algorithm_hash(
+            {key: value for key, value in registry.items() if key != "digest"}
+        )
         == registry_digest,
         "Prepared support registry digest is invalid",
     )
@@ -413,7 +415,8 @@ def validate_support_population(prepared_root, source_path, inventory_path):
                 raise ValueError("Prepared support episode has no source identity") from error
             source_id, split = semantic.get("sourceId"), episode.lineage.frozen_split
             require(
-                source_id in split_by_id and source_id not in observed
+                source_id in split_by_id
+                and source_id not in observed
                 and split_by_id[source_id] == split,
                 "Prepared support episode differs from its frozen inventory or split",
             )
@@ -431,13 +434,19 @@ def validate_support_population(prepared_root, source_path, inventory_path):
         and sample_semantic.get("publicArtifact") == public_artifact,
         "Lifecycle sample public/context/source bytes differ from the prepared training episode",
     )
-    require(counts == {"train": 48, "validation": 12, "test": 4},
-            "Prepared support corpus differs from its frozen 48/12/4 source split")
-    return {"registryDigest": registry_digest, "sourceCount": len(expected),
-            "sourceInventory": list(expected), "splitCounts": counts,
-            "sampleSourceId": sample_source_id,
-            "sampleDatasetBinding": sample_binding,
-            "sampleMember": sample_member}
+    require(
+        counts == {"train": 48, "validation": 12, "test": 4},
+        "Prepared support corpus differs from its frozen 48/12/4 source split",
+    )
+    return {
+        "registryDigest": registry_digest,
+        "sourceCount": len(expected),
+        "sourceInventory": list(expected),
+        "splitCounts": counts,
+        "sampleSourceId": sample_source_id,
+        "sampleDatasetBinding": sample_binding,
+        "sampleMember": sample_member,
+    }
 
 
 def main():
@@ -510,9 +519,15 @@ def main():
         "driver": driver,
         "preparation": report,
         "preparedManifestFingerprint": prepared["fingerprint"],
-        **({"supportPopulation": support, "fullLaunchQualified": False,
-             "supportSourceInventory": file_identity(options.expected_source_ids)}
-            if support is not None else {}),
+        **(
+            {
+                "supportPopulation": support,
+                "fullLaunchQualified": False,
+                "supportSourceInventory": file_identity(options.expected_source_ids),
+            }
+            if support is not None
+            else {}
+        ),
         "optimizerResumeExport": checkpoint,
         "serving": serving,
         **({"orchestrationPreparation": orchestration} if orchestration is not None else {}),
@@ -520,7 +535,13 @@ def main():
         "learnedSuccess": None,
         "limits": [
             "Two optimizer steps do not qualify learned execution quality or prove exposure of every source target.",
-            *([] if support is not None else ["One source family and two optimizer steps do not qualify learned execution quality."]),
+            *(
+                []
+                if support is not None
+                else [
+                    "One source family and two optimizer steps do not qualify learned execution quality."
+                ]
+            ),
             "Fresh-process recovery retained original failed/unacknowledged selections; accepted-record recovery was not exercised.",
             "Artifact hashes identify local complete bundles. Durable external bundle publication is a separate recorded step.",
         ],
