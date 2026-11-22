@@ -60,6 +60,14 @@ source membership. Every bundle member, including hidden journal files, is
 hashed before and after verification; the verifier never creates a missing
 journal lock or repairs evidence.
 
+The checkpoint role must contain the concrete committed `state.pt`,
+`metadata.json` and checked transducer attachment. Latest-pointer roots and
+pending `.superseded-*` repair entries are refused before the ordinary loader
+can run. This guard is necessary because ordinary resume resolution may repair
+an interrupted checkpoint replacement; inspecting a release must never trigger
+that mutation. Checkpoint metadata and served manifest/configuration/lineage
+JSON are parsed strictly, rejecting duplicate keys and nonfinite values.
+
 This first profile requires exactly one prepared root, a named native model
 preset with inline overrides, a text-only corpus, and one ordinary training
 rank. It refuses external packs, teacher features, text anchors, hindsight
@@ -110,6 +118,11 @@ snapshot exactly; the loaded served bank must then equal that snapshot with
 exactly the prescribed additional increment. The field is checked rather than
 discarded. A changed model or bank with recomputed self-consistent hashes still
 fails comparison with the actual checkpoint.
+
+Configuration and metadata comparisons preserve native canonical JSON scalar
+types. A resealed integer `0` cannot substitute for boolean `false`, nor can a
+boolean model version substitute for an integer update count. These checks are
+separate from self-consistent hashes and from the loader's structural checks.
 
 ## Evidence boundary
 

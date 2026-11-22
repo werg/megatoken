@@ -45,6 +45,11 @@ def read_json(path):
     return strict_json_loads(path.read_bytes())
 
 
+def same_json(left, right):
+    """Native canonical JSON equality preserves booleans and numeric types."""
+    return content_hash(left) == content_hash(right)
+
+
 def canonical_relative(value):
     require(
         isinstance(value, str)
@@ -104,6 +109,29 @@ def bundle_inventory(root):
                     {"path": relative, "bytes": path.stat().st_size, "sha256": sha256_file(path)}
                 )
     return sorted(rows, key=lambda row: row["path"])
+
+
+def immutable_checkpoint_metadata(directory):
+    """Refuse resolver repair/pointers before calling any ordinary checkpoint loader."""
+    root = checked_root(directory)
+    require(
+        root.name != "latest.json"
+        and not (root / "latest.json").exists()
+        and not any(root.glob(".superseded-*")),
+        "Release checkpoint requires a direct committed directory without pointers or repair state",
+    )
+    bound_path(root, "state.pt")
+    metadata = read_json(bound_path(root, "metadata.json"))
+    require(isinstance(metadata, dict), "Release checkpoint metadata must be an object")
+    attachment = metadata.get("transducer_checkpoint")
+    require(
+        isinstance(attachment, dict)
+        and isinstance(attachment.get("file"), str)
+        and len(canonical_relative(attachment["file"]).parts) == 1,
+        "Release checkpoint must bind a local transducer attachment",
+    )
+    bound_path(root, attachment["file"])
+    return metadata
 
 
 def validate_descriptor(document, root):
@@ -372,7 +400,7 @@ def prepared_semantics(root):
 
 def compare_prepared_semantics(bundled, regenerated, sources):
     require(
-        content_hash(bundled) == content_hash(regenerated),
+        same_json(bundled, regenerated),
         "Bundled prepared episodes, tokens, masks, splits or index semantics differ from fresh sources",
     )
     membership = bundled["membership"]
@@ -499,15 +527,20 @@ def checkpoint_consistency(config, model_config, codec, paths, sources):
     from megatoken.training.target_inventory_v8 import training_config_identity_v8
     from megatoken.training.windows import window_config
 
+    strict_metadata = immutable_checkpoint_metadata(paths["checkpoint"])
     payload, metadata = load_checkpoint(paths["checkpoint"], map_location="cpu")
+    require(same_json(metadata, strict_metadata), "Checkpoint metadata changed during loading")
     stored = TrainConfig.from_dict(payload["train_config"])
     actual_recipe, saved_recipe = asdict(config), asdict(stored)
     for name in ("codec", "datasets", "output"):
         actual_recipe.pop(name)
         saved_recipe.pop(name)
-    require(actual_recipe == saved_recipe, "Release recipe changed checkpoint training settings")
     require(
-        payload["model_config"] == model_config.to_dict()
+        same_json(actual_recipe, saved_recipe),
+        "Release recipe changed checkpoint training settings",
+    )
+    require(
+        same_json(payload["model_config"], model_config.to_dict())
         and payload["codec_fingerprint"] == codec.fingerprint
         and payload["packs_fingerprint"] is None
         and "diloco" not in payload
@@ -515,21 +548,26 @@ def checkpoint_consistency(config, model_config, codec, paths, sources):
         and payload["global_step"] > 0,
         "Release checkpoint geometry, codec, route or committed update count differs",
     )
+    expected_metadata = {
+        "config_fingerprint": content_hash(payload["train_config"]),
+        "global_step": payload["global_step"],
+        "phase": config.phase,
+        "phase_consumed": payload["phase_consumed"],
+        "codec_fingerprint": codec.fingerprint,
+        "packs_fingerprint": None,
+        "routing_version": model_config.routing_version,
+    }
     require(
-        metadata["config_fingerprint"] == content_hash(payload["train_config"])
-        and metadata["global_step"] == payload["global_step"]
-        and metadata["phase"] == config.phase
-        and metadata["phase_consumed"] == payload["phase_consumed"]
-        and metadata["codec_fingerprint"] == codec.fingerprint
-        and metadata["packs_fingerprint"] is None
-        and metadata["routing_version"] == model_config.routing_version,
+        same_json({name: metadata.get(name) for name in expected_metadata}, expected_metadata),
         "Release checkpoint metadata differs from its actual payload",
     )
     manifest = read_json(paths["prepared"] / "manifest.json")
     fingerprint = manifest["fingerprint"]
     with PreparedCorpus(config.datasets, split="train") as corpus:
         chunking = ChunkingConfig.from_identity(corpus.chunking, codec).identity(codec)
-        require(payload["chunking"] == chunking, "Release checkpoint changed prepared chunking")
+        require(
+            same_json(payload["chunking"], chunking), "Release checkpoint changed prepared chunking"
+        )
         stream = WindowStream(corpus, codec, window_config(config), seed=config.seed)
         ranks = payload["rank_state"]
         require(
@@ -538,7 +576,7 @@ def checkpoint_consistency(config, model_config, codec, paths, sources):
         )
         stream.load_state_dict(ranks[0]["cursor"])
         require(
-            metadata["source_sampling"] == source_sampling_report([ranks[0]["cursor"]]),
+            same_json(metadata["source_sampling"], source_sampling_report([ranks[0]["cursor"]])),
             "Release checkpoint sampling receipt differs from its actual cursor",
         )
         lineage = build_training_lineage_v8(
@@ -550,7 +588,7 @@ def checkpoint_consistency(config, model_config, codec, paths, sources):
             chunking=chunking,
         )
         require(
-            checkpoint_lineage_v8(payload, metadata) == lineage,
+            same_json(checkpoint_lineage_v8(payload, metadata), lineage),
             "Release checkpoint does not bind these prepared inputs and training stream",
         )
         # The runtime's fixed modality order starts with text (0). Packs are
@@ -618,21 +656,35 @@ def served_consistency(paths, payload, metadata):
     from megatoken.loading import load_trained
     from megatoken.served import ServedBundle
 
-    trained = load_trained(paths["checkpoint"], device="cpu", codec_path=paths["tokenizer"])
-    bundle = ServedBundle(paths["served"], device="cpu", compile=False)
+    require(
+        same_json(immutable_checkpoint_metadata(paths["checkpoint"]), metadata),
+        "Checkpoint metadata changed before served comparison",
+    )
+    raw_manifest = read_json(bound_path(paths["served"], "manifest.json"))
+    raw_config = read_json(bound_path(paths["served"], "model_config.json"))
+    raw_lineage = read_json(bound_path(paths["served"], "semantic-v8-lineage.json"))
     expected_config = dict(payload["model_config"])
     expected_config["checkpoint_stages"] = False
+    require(
+        same_json(raw_config, expected_config),
+        "Served configuration differs from the exact typed checkpoint configuration",
+    )
+    trained = load_trained(paths["checkpoint"], device="cpu", codec_path=paths["tokenizer"])
+    bundle = ServedBundle(paths["served"], device="cpu", compile=False)
     manifest = bundle.manifest
     require(
-        bundle.config.to_dict() == expected_config
+        same_json(bundle.config.to_dict(), expected_config)
+        and same_json(manifest, raw_manifest)
+        and same_json(bundle.semantic_v8_lineage, raw_lineage)
         and manifest["checkpoint_sha256"] == metadata["state_sha256"]
+        and type(manifest["model_version"]) is int
         and manifest["model_version"] == payload["global_step"]
         and manifest["precision"] == payload["train_config"]["precision"]
         and manifest["codec_file"] == "tokenizer.json"
         and manifest["output_modalities"] == ["text"]
         and manifest["tokenizer_sha256"] == sha256_file(paths["tokenizer"])
         and bundle.semantic_v8_lineage is not None
-        and bundle.semantic_v8_lineage["training"] == payload["semantic_training_v8"],
+        and same_json(bundle.semantic_v8_lineage["training"], payload["semantic_training_v8"]),
         "Served configuration, tokenizer or lineage differs from the actual checkpoint",
     )
     expected_chunking = (
@@ -640,7 +692,9 @@ def served_consistency(paths, payload, metadata):
         .with_hard_limit(bundle.config.max_capacity)
         .identity(trained.codec)
     )
-    require(manifest["chunking"] == expected_chunking, "Served chunking changed the checkpoint")
+    require(
+        same_json(manifest["chunking"], expected_chunking), "Served chunking changed the checkpoint"
+    )
     expected = trained.model.served_state_dict()
     actual = bundle.model.state_dict()
     assert_same_state(expected, actual, "model")

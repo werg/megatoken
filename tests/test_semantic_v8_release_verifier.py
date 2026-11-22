@@ -205,6 +205,76 @@ def test_release_strict_json_refuses_duplicate_keys_and_nonfinite_numbers(tmp_pa
             release.read_json(path)
 
 
+@pytest.mark.parametrize(("left", "right"), [(False, 0), (True, 1), (1, 1.0), ([False], [0])])
+def test_native_json_comparison_preserves_scalar_types(left, right):
+    assert release.same_json({"value": left}, {"value": copy.deepcopy(left)})
+    assert not release.same_json({"value": left}, {"value": right})
+
+
+def checkpoint_metadata_fixture(directory):
+    directory.mkdir()
+    (directory / "state.pt").write_bytes(b"not loaded by metadata-only controls\n")
+    (directory / "bank.pt").write_bytes(b"not loaded by metadata-only controls\n")
+    metadata = {"transducer_checkpoint": {"file": "bank.pt"}}
+    (directory / "metadata.json").write_text(json.dumps(metadata))
+    return metadata
+
+
+@pytest.mark.parametrize(
+    "mutation", ["duplicate", "nonfinite", "latest-root", "latest-marker", "symlink-attachment"]
+)
+def test_checkpoint_companion_metadata_is_strict_and_never_resolves_pointers(tmp_path, mutation):
+    directory = tmp_path / ("latest.json" if mutation == "latest-root" else "checkpoint")
+    checkpoint_metadata_fixture(directory)
+    if mutation == "duplicate":
+        (directory / "metadata.json").write_text(
+            '{"transducer_checkpoint":{"file":"bank.pt"},"transducer_checkpoint":{"file":"bank.pt"}}'
+        )
+    elif mutation == "nonfinite":
+        (directory / "metadata.json").write_text(
+            '{"transducer_checkpoint":{"file":"bank.pt"},"value":NaN}'
+        )
+    elif mutation == "latest-marker":
+        (directory / "latest.json").write_text("{}")
+    elif mutation == "symlink-attachment":
+        (directory / "bank.pt").unlink()
+        (directory / "bank.pt").symlink_to(directory / "state.pt")
+    before = {
+        path.name: path.read_bytes()
+        for path in directory.iterdir()
+        if path.is_file() and not path.is_symlink()
+    }
+    with pytest.raises(ValueError):
+        release.immutable_checkpoint_metadata(directory)
+    assert {
+        path.name: path.read_bytes()
+        for path in directory.iterdir()
+        if path.is_file() and not path.is_symlink()
+    } == before
+
+
+@pytest.mark.parametrize("name", ["manifest.json", "model_config.json", "semantic-v8-lineage.json"])
+def test_served_companion_json_refuses_duplicate_fields_before_loading(tmp_path, monkeypatch, name):
+    import megatoken.loading
+    import megatoken.served  # Import before patching its captured load_trained dependency.
+
+    checkpoint = tmp_path / "checkpoint"
+    metadata = checkpoint_metadata_fixture(checkpoint)
+    served = tmp_path / "served"
+    served.mkdir()
+    for file in ("manifest.json", "model_config.json", "semantic-v8-lineage.json"):
+        (served / file).write_text('{"key":1,"key":1}' if file == name else "{}")
+
+    def forbidden_load(*args, **kwargs):
+        raise AssertionError("Ambiguous JSON must fail before model or checkpoint loading")
+
+    monkeypatch.setattr(megatoken.loading, "load_trained", forbidden_load)
+    with pytest.raises(ValueError, match="duplicate JSON object key"):
+        release.served_consistency(
+            {"checkpoint": checkpoint, "served": served}, {"model_config": {}}, metadata
+        )
+
+
 def test_reprepared_semantics_compare_every_physical_field_and_index_scope(tmp_path):
     first = tmp_path / "first"
     second = tmp_path / "second"
@@ -397,6 +467,25 @@ def test_real_controlled_checkpoint_export_and_resealed_weight_refusal(tmp_path,
     reseal_served(config_forgery, "config_sha256", "model_config.json", "configSha256")
     with pytest.raises(ValueError, match="Served configuration"):
         release.served_consistency({**paths, "served": config_forgery}, payload, metadata)
+
+    duplicate_config = tmp_path / "served-duplicate-config"
+    shutil.copytree(served, duplicate_config)
+    config_path = duplicate_config / "model_config.json"
+    raw = config_path.read_text().rstrip()
+    config_path.write_text(raw[:-1] + ',"checkpoint_stages":false}')
+    reseal_served(duplicate_config, "config_sha256", "model_config.json", "configSha256")
+    with pytest.raises(ValueError, match="duplicate JSON object key"):
+        release.served_consistency({**paths, "served": duplicate_config}, payload, metadata)
+
+    version_forgery = tmp_path / "served-version-forgery"
+    shutil.copytree(served, version_forgery)
+    manifest_path = version_forgery / "manifest.json"
+    forged_manifest = json.loads(manifest_path.read_text())
+    assert forged_manifest["model_version"] == 1
+    forged_manifest["model_version"] = True
+    manifest_path.write_text(json.dumps(forged_manifest))
+    with pytest.raises(ValueError, match="Served configuration"):
+        release.served_consistency({**paths, "served": version_forgery}, payload, metadata)
 
     bank_forgery = tmp_path / "served-bank-forgery"
     shutil.copytree(served, bank_forgery)
