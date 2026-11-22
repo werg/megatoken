@@ -8,6 +8,8 @@ model output or source-admission evidence.
 from __future__ import annotations
 
 import base64
+import copy
+import hashlib
 import json
 import subprocess
 import sys
@@ -15,10 +17,11 @@ from pathlib import Path
 
 import pytest
 
-from megatoken.semantic_commit_recovery_v8 import DurableNativeCommitBridge
+from megatoken.semantic_commit_recovery_v8 import DurableNativeCommitBridge, _reply_bytes
 from megatoken.semantic_request_journal_v8 import (
     DurableNativeRequestJournal,
     NativeRequestConflict,
+    NativeRequestJournalError,
     NativeRequestOutcomeUnknown,
     _canonical,
 )
@@ -93,6 +96,24 @@ def bootstrap_case(tmp_path, lease, open_adapter, journal=None):
         "preCheckpointDigest": adapter.checkpoint()["digest"],
     }
     return adapter, opened, bridge, bootstrap_args, committed
+
+
+def tamper_bootstrap_outcome(journal, tamper):
+    path = next(journal.root.glob("*/00000000000000000002.outcome.json"))
+    outer = json.loads(path.read_text(encoding="utf-8"))
+    stored = base64.b64decode(outer["result_b64"])
+    outcome = json.loads(stored.decode("utf-8"))
+    tamper(outcome)
+    stored = _canonical(outcome)
+    outer["result_b64"] = base64.b64encode(stored).decode("ascii")
+    outer["result_sha256"] = hashlib.sha256(stored).hexdigest()
+    path.write_bytes(_canonical(outer))
+
+
+def rewrite_response(outcome, mutate):
+    response = json.loads(base64.b64decode(outcome["responseBase64"]).decode("utf-8"))
+    mutate(response["result"]["track"])
+    outcome["responseBase64"] = base64.b64encode(_reply_bytes(response)).decode("ascii")
 
 
 def test_bootstrap_outcome_recovers_in_a_fresh_process(tmp_path):
@@ -229,4 +250,129 @@ def test_later_native_mutation_supersedes_bootstrap_recovery(tmp_path):
                 fresh_bridge.recover_bootstrap(**args)
             assert not fresh.sessions and not fresh.attempts
             assert not fresh.runtime.memory.sessions
+
+
+@pytest.mark.parametrize(
+    ("mutation", "message"),
+    [
+        ("generation", "generation differs"),
+        ("model", "model, tokenizer or training identity differs"),
+        ("operation", "only exact child bootstrap operations"),
+        ("child", "exact bytes differ"),
+    ],
+)
+def test_bootstrap_recovery_rejects_identity_and_child_substitutions(
+    tmp_path, mutation, message
+):
+    with real_runtime() as (open_adapter, _decoder):
+        with execution_lease(tmp_path / "owner", session="teacher1") as lease:
+            adapter, _opened, bridge, args, _created = bootstrap_case(
+                tmp_path, lease, open_adapter
+            )
+            bridge.durable_bootstrap(**args)
+            changed = copy.deepcopy(args)
+            if mutation == "generation":
+                changed["identity"]["session_generation"] = 2
+            elif mutation == "model":
+                changed["identity"]["model_identity"]["checkpoint"] = "b" * 64
+            elif mutation == "operation":
+                changed["identity"]["operation"] = "commit"
+            else:
+                request = json.loads(base64.b64decode(changed["requestBase64"]))
+                request["childTrack"] += ":foreign"
+                changed["requestBase64"] = base64.b64encode(
+                    _canonical(request) + b"\n"
+                ).decode("ascii")
+            fresh = open_adapter()
+            fresh_bridge = DurableNativeCommitBridge(fresh, bridge.journal, lease)
+            with pytest.raises(NativeRequestJournalError, match=message):
+                fresh_bridge.recover_bootstrap(**changed)
+            assert not fresh.sessions and not fresh.attempts
+            assert not fresh.runtime.memory.sessions
+
+
+@pytest.mark.parametrize(
+    "mutate",
+    [
+        lambda track: track.update(parent="foreign-parent"),
+        lambda track: track.update(budget=track["budget"] + 1),
+    ],
+    ids=["wrong-parent", "wrong-budget"],
+)
+def test_rehashed_bootstrap_response_must_match_restored_track(tmp_path, mutate):
+    with real_runtime() as (open_adapter, _decoder):
+        with execution_lease(tmp_path / "owner", session="teacher1") as lease:
+            adapter, _opened, bridge, args, _created = bootstrap_case(
+                tmp_path, lease, open_adapter
+            )
+            completed = bridge.durable_bootstrap(**args)
+            tamper_bootstrap_outcome(
+                bridge.journal,
+                lambda outcome: rewrite_response(outcome, mutate),
+            )
+            fresh = open_adapter()
+            fresh_bridge = DurableNativeCommitBridge(fresh, bridge.journal, lease)
+            with pytest.raises(NativeRequestJournalError, match="restored child differs"):
+                fresh_bridge.recover_bootstrap(**args)
+            assert fresh_bridge.fenced
+            assert fresh.checkpoint() == completed["postCheckpoint"]
+
+
+@pytest.mark.parametrize("field", ["operations", "attempts"])
+def test_rehashed_bootstrap_poststate_rejects_mutated_history(tmp_path, field):
+    with real_runtime() as (open_adapter, _decoder):
+        with execution_lease(tmp_path / "owner", session="teacher1") as lease:
+            adapter, _opened, bridge, args, _created = bootstrap_case(
+                tmp_path, lease, open_adapter
+            )
+            bridge.durable_bootstrap(**args)
+
+            def change(outcome):
+                post = outcome["postCheckpoint"]
+                if field == "operations":
+                    operations = post["sessions"]["teacher1"]["orchestration"]["operations"]
+                    operations.pop()
+                else:
+                    post["attempts"].append({"id": "forged-attempt"})
+                post["digest"] = _checkpoint_digest(post)
+
+            tamper_bootstrap_outcome(bridge.journal, change)
+            fresh = open_adapter()
+            fresh_bridge = DurableNativeCommitBridge(fresh, bridge.journal, lease)
+            with pytest.raises(NativeRequestJournalError):
+                fresh_bridge.recover_bootstrap(**args)
+            assert not fresh.sessions and not fresh.attempts
+            assert not fresh.runtime.memory.sessions
+
+
+def _checkpoint_digest(checkpoint):
+    from megatoken.data.semantic_json import stable_algorithm_hash
+
+    return stable_algorithm_hash(
+        {key: value for key, value in checkpoint.items() if key != "digest"}
+    )
+
+
+def test_duplicate_durable_bootstrap_returns_the_retained_result_without_dispatch(tmp_path):
+    with real_runtime() as (open_adapter, _decoder):
+        with execution_lease(tmp_path / "owner", session="teacher1") as lease:
+            adapter, _opened, bridge, args, _created = bootstrap_case(
+                tmp_path, lease, open_adapter
+            )
+            first = bridge.durable_bootstrap(**args)
+            calls = []
+            original = adapter.bootstrap_orchestration_child
+
+            def observed_bootstrap(**request):
+                calls.append(request)
+                return original(**request)
+
+            adapter.bootstrap_orchestration_child = observed_bootstrap
+            duplicate = dispatch(
+                adapter,
+                {"id": "duplicate-bootstrap", "op": "durable-bootstrap", **args},
+                commit_bridge=bridge,
+            )
+            assert duplicate == first
+            assert calls == []
 

@@ -157,7 +157,7 @@ class NativeExecutionLease:
 
 
 class DurableNativeCommitBridge:
-    """Commit-only journal and full-adapter restoration under execution ownership."""
+    """Durable native operations and full-adapter restoration under execution ownership."""
 
     def __init__(self, adapter, journal, execution_lease, *, session_generation=1):
         if not isinstance(journal, DurableNativeRequestJournal):
