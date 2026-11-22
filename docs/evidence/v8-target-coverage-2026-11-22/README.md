@@ -102,3 +102,10 @@ with the `native2479-` prefix. Artifact `14749855083` has archive SHA-256
 `207684c20d80b64c07d941126e583949993c7956ef56936d65d22d856c47a8a9`.
 The concurrent complete optimizer campaign remains on the earlier exact native
 `a1d7f83`; this control result does not retroactively change that run's executable pin.
+
+`PRODUCTION_READINESS.md` and its raw input-audit JSON make the remaining production
+dependencies explicit: the bound full recipe, two pinned donor assets, corpus-bound
+hindsight targets, predecessor/same-stage checkpoint, three clean code checkouts,
+initialized coordinator provenance and suitable CUDA hardware. The verified support
+supply and bounded target fit resolve narrower gates. This read-only input audit
+starts no learner, probes no coordinator and grants no production-launch credit.
