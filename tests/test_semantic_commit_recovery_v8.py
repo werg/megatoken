@@ -682,6 +682,269 @@ def test_invalid_child_bootstrap_is_rejected_before_admission(tmp_path):
             assert len(list((tmp_path / "journal").glob("*/*.intent.json"))) == 1
 
 
+def test_guarded_session_cannot_raw_dispatch_child_bootstrap(tmp_path):
+    from tests.test_semantic_v8_orchestration import (
+        chosen,
+        create_arguments,
+        open_coordinator,
+        real_runtime,
+    )
+
+    with real_runtime() as (open_adapter, _decoder):
+        adapter = open_adapter()
+        opened = open_coordinator(adapter)
+        selected = chosen(adapter, opened, "track_create", create_arguments(opened))
+        with execution_lease(tmp_path / "owner", session=opened["session"]) as lease:
+            journal = DurableNativeRequestJournal(tmp_path / "journal")
+            bridge = DurableNativeCommitBridge(adapter, journal, lease)
+            created, create_request, create_args = _durable_child_create(
+                adapter, opened, selected, bridge
+            )
+            child = json.loads(base64.b64decode(created["responseBase64"]))["result"]["track"][
+                "address"
+            ]
+            before = adapter.checkpoint()
+            with pytest.raises(NativeRequestJournalError, match="require durable-bootstrap-child"):
+                dispatch(
+                    adapter,
+                    {
+                        "id": "raw-bootstrap",
+                        "op": "bootstrap-orchestration-child",
+                        "session": opened["session"],
+                        "track": opened["track"],
+                        "childTrack": child,
+                    },
+                    commit_bridge=bridge,
+                )
+            assert adapter.checkpoint() == before
+            assert len(list((tmp_path / "journal").glob("*/*.intent.json"))) == 1
+            assert not list((tmp_path / "journal").glob("*/*.superseded.json"))
+            # The supported journaled path remains available after the refused bypass.
+            args = _bootstrap_args(adapter, opened, child, create_request, create_args)
+            result = bridge.durable_bootstrap_child(**args)
+            assert result["postCheckpoint"]["digest"] == adapter.checkpoint()["digest"]
+
+
+def test_previously_superseded_create_is_not_bootstrap_authority(tmp_path):
+    from tests.test_semantic_v8_orchestration import (
+        chosen,
+        create_arguments,
+        open_coordinator,
+        real_runtime,
+    )
+
+    with real_runtime() as (open_adapter, _decoder):
+        adapter = open_adapter()
+        opened = open_coordinator(adapter)
+        selected = chosen(adapter, opened, "track_create", create_arguments(opened))
+        with execution_lease(tmp_path / "owner", session=opened["session"]) as lease:
+            journal = DurableNativeRequestJournal(tmp_path / "journal")
+            bridge = DurableNativeCommitBridge(adapter, journal, lease)
+            created, create_request, create_args = _durable_child_create(
+                adapter, opened, selected, bridge
+            )
+            child = json.loads(base64.b64decode(created["responseBase64"]))["result"]["track"][
+                "address"
+            ]
+            args = _bootstrap_args(adapter, opened, child, create_request, create_args)
+            other_mutation = {
+                "id": "other-later-mutation",
+                "op": "cancel-orchestration",
+                "session": opened["session"],
+                "track": opened["track"],
+                "reason": "Different superseding action",
+            }
+            bridge.assert_operation("cancel-orchestration", other_mutation)
+            with pytest.raises(NativeRequestConflict, match="already superseded"):
+                bridge.durable_bootstrap_child(**args)
+            assert len(list((tmp_path / "journal").glob("*/*.intent.json"))) == 1
+            assert list((tmp_path / "journal").glob("*/*.superseded.json"))
+
+
+def test_bootstrap_rejects_wrong_owner_model_generation_ordinal_and_create_frame(tmp_path):
+    from tests.test_semantic_v8_orchestration import (
+        chosen,
+        create_arguments,
+        open_coordinator,
+        real_runtime,
+    )
+
+    with real_runtime() as (open_adapter, _decoder):
+        adapter = open_adapter()
+        opened = open_coordinator(adapter)
+        selected = chosen(adapter, opened, "track_create", create_arguments(opened))
+        with execution_lease(tmp_path / "owner", session=opened["session"]) as lease:
+            journal = DurableNativeRequestJournal(tmp_path / "journal")
+            bridge = DurableNativeCommitBridge(adapter, journal, lease)
+            created, create_request, create_args = _durable_child_create(
+                adapter, opened, selected, bridge
+            )
+            child = json.loads(base64.b64decode(created["responseBase64"]))["result"]["track"][
+                "address"
+            ]
+            base = _bootstrap_args(adapter, opened, child, create_request, create_args)
+            attempts = []
+            owner = copy.deepcopy(base)
+            owner["identity"]["stream_id"] = "different-stream"
+            attempts.append(owner)
+            model = copy.deepcopy(base)
+            model["identity"]["model_identity"]["checkpoint"] = "b" * 64
+            attempts.append(model)
+            generation = copy.deepcopy(base)
+            generation["identity"]["session_generation"] = 2
+            attempts.append(generation)
+            ordinal = copy.deepcopy(base)
+            ordinal["identity"]["ordinal"] = 3
+            attempts.append(ordinal)
+            create_frame = copy.deepcopy(base)
+            changed_create = json.loads(
+                create_args["requestBase64"] and base64.b64decode(create_args["requestBase64"])
+            )
+            changed_create["id"] = "different-create-request"
+            create_frame["createRequestBase64"] = base64.b64encode(
+                _canonical(changed_create) + b"\n"
+            ).decode()
+            attempts.append(create_frame)
+            for invalid in attempts:
+                with pytest.raises(NativeRequestJournalError):
+                    bridge.durable_bootstrap_child(**invalid)
+            assert len(list((tmp_path / "journal").glob("*/*.intent.json"))) == 1
+            assert not list((tmp_path / "journal").glob("*/*.superseded.json"))
+
+
+def test_completed_bootstrap_replay_is_blocked_after_later_mutation(tmp_path):
+    from tests.test_semantic_v8_orchestration import (
+        chosen,
+        create_arguments,
+        open_coordinator,
+        real_runtime,
+    )
+
+    with real_runtime() as (open_adapter, _decoder):
+        adapter = open_adapter()
+        opened = open_coordinator(adapter)
+        selected = chosen(adapter, opened, "track_create", create_arguments(opened))
+        with execution_lease(tmp_path / "owner", session=opened["session"]) as lease:
+            journal = DurableNativeRequestJournal(tmp_path / "journal")
+            bridge = DurableNativeCommitBridge(adapter, journal, lease)
+            created, create_request, create_args = _durable_child_create(
+                adapter, opened, selected, bridge
+            )
+            child = json.loads(base64.b64decode(created["responseBase64"]))["result"]["track"][
+                "address"
+            ]
+            args = _bootstrap_args(adapter, opened, child, create_request, create_args)
+            completed = bridge.durable_bootstrap_child(**args)
+            dispatch(
+                adapter,
+                {
+                    "id": "cancel-after-bootstrap",
+                    "op": "cancel-orchestration",
+                    "session": opened["session"],
+                    "track": opened["track"],
+                    "reason": "Explicit later mutation",
+                },
+                commit_bridge=bridge,
+            )
+            with pytest.raises(NativeRequestConflict, match="superseded"):
+                bridge.durable_bootstrap_child(**args)
+            assert completed["postCheckpointDigest"] != adapter.checkpoint()["digest"]
+
+
+def test_bootstrap_recovery_refuses_independent_reexecution_mismatch(tmp_path):
+    from tests.test_semantic_v8_orchestration import (
+        chosen,
+        create_arguments,
+        open_coordinator,
+        real_runtime,
+    )
+
+    class LoseBootstrapReply(DurableNativeRequestJournal):
+        def _after_published(self, target_name, path):
+            if target_name == "00000000000000000002.outcome.json":
+                raise OSError("bootstrap reply lost after durable outcome")
+
+    with real_runtime() as (open_adapter, _decoder):
+        adapter = open_adapter()
+        opened = open_coordinator(adapter)
+        selected = chosen(adapter, opened, "track_create", create_arguments(opened))
+        with execution_lease(tmp_path / "owner", session=opened["session"]) as lease:
+            journal = LoseBootstrapReply(tmp_path / "journal")
+            bridge = DurableNativeCommitBridge(adapter, journal, lease)
+            created, create_request, create_args = _durable_child_create(
+                adapter, opened, selected, bridge
+            )
+            child = json.loads(base64.b64decode(created["responseBase64"]))["result"]["track"][
+                "address"
+            ]
+            args = _bootstrap_args(adapter, opened, child, create_request, create_args)
+            with pytest.raises(OSError, match="reply lost"):
+                bridge.durable_bootstrap_child(**args)
+            fresh = open_adapter()
+            original = fresh.bootstrap_orchestration_child
+
+            def altered_bootstrap(**kwargs):
+                result = original(**kwargs)
+                result["track"]["status"] = "completed"
+                return result
+
+            fresh.bootstrap_orchestration_child = altered_bootstrap
+            recovery = DurableNativeCommitBridge(fresh, journal, lease)
+            with pytest.raises(NativeRequestJournalError, match="reexecution differs"):
+                recovery.recover_bootstrap_child(**args)
+            assert recovery.fenced
+
+
+def test_bootstrap_refuses_mutating_an_unrelated_session(tmp_path):
+    from tests.test_semantic_v8_orchestration import (
+        chosen,
+        create_arguments,
+        open_coordinator,
+        real_runtime,
+    )
+    from tests.test_semantic_v8_orchestration_authority import ingress
+
+    with real_runtime() as (open_adapter, _decoder):
+        adapter = open_adapter()
+        opened = open_coordinator(adapter)
+        sibling_public = ingress()
+        for row in sibling_public["timeline"]:
+            row["fields"]["session"] = "sibling-session"
+        adapter.open_orchestration(
+            session="sibling-session",
+            public=sibling_public,
+            origin="controlled",
+            childBudget=64,
+        )
+        sibling_before = adapter.checkpoint()["sessions"]["sibling-session"]
+        selected = chosen(adapter, opened, "track_create", create_arguments(opened))
+        with execution_lease(tmp_path / "owner", session=opened["session"]) as lease:
+            journal = DurableNativeRequestJournal(tmp_path / "journal")
+            bridge = DurableNativeCommitBridge(adapter, journal, lease)
+            created, create_request, create_args = _durable_child_create(
+                adapter, opened, selected, bridge
+            )
+            child = json.loads(base64.b64decode(created["responseBase64"]))["result"]["track"][
+                "address"
+            ]
+            args = _bootstrap_args(adapter, opened, child, create_request, create_args)
+            original = adapter.bootstrap_orchestration_child
+
+            def mutating_bootstrap(**kwargs):
+                result = original(**kwargs)
+                adapter.sessions["sibling-session"].orchestration["childBudget"] += 1
+                return result
+
+            adapter.bootstrap_orchestration_child = mutating_bootstrap
+            with pytest.raises(NativeRequestJournalError, match="sibling session"):
+                bridge.durable_bootstrap_child(**args)
+            assert bridge.fenced
+            assert adapter.checkpoint()["sessions"]["sibling-session"] != sibling_before
+            intent = next((tmp_path / "journal").glob("*/*00000000000000000002.intent.json"))
+            assert intent.exists()
+            assert not list((tmp_path / "journal").glob("*/*00000000000000000002.outcome.json"))
+
+
 @pytest.mark.parametrize("operation", ["select", "cancel"])
 def test_later_native_mutation_durably_supersedes_commit_before_dispatch(tmp_path, operation):
     with execution_lease(tmp_path / "owner") as lease:

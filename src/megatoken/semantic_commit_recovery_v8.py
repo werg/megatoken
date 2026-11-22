@@ -189,7 +189,7 @@ class DurableNativeCommitBridge:
             "model_identity": model,
         }
 
-    def assert_operation(self, operation, request=None):
+    def assert_operation(self, operation, request=None, *, _durable_bootstrap=False):
         try:
             self.execution_lease.assert_held()
         except BaseException:
@@ -201,6 +201,11 @@ class DurableNativeCommitBridge:
             _fail("this process is fenced after an uncertain durable operation")
         if operation in {"commit", "commit_orchestration", "commit-orchestration"}:
             _fail("configured durable sessions require durable-commit")
+        if (
+            operation in {"bootstrap_orchestration_child", "bootstrap-orchestration-child"}
+            and not _durable_bootstrap
+        ):
+            _fail("configured durable sessions require durable-bootstrap-child")
         if operation == "restore":
             _fail(
                 "configured durable sessions require explicit recover-commit, not ordinary restore"
@@ -772,6 +777,10 @@ class DurableNativeCommitBridge:
                 createPreCheckpointDigest,
             )
             existing = self.journal.inspect(identity, frame, require_latest=True)
+            if existing["status"] == "never-admitted":
+                self.journal.assert_not_superseded(create_identity, create_frame)
+            else:
+                self.journal.assert_superseded_by(create_identity, create_frame, request)
             if existing["status"] == "unknown":
                 self.fenced = True
                 raise NativeRequestOutcomeUnknown(
@@ -816,7 +825,7 @@ class DurableNativeCommitBridge:
             self._check_bootstrap_pre(
                 request, create_value, create_response, before, preCheckpointDigest
             )
-            self.assert_operation("bootstrap-orchestration-child", request)
+            self.assert_operation("bootstrap-orchestration-child", request, _durable_bootstrap=True)
 
             def execute(_frame):
                 before = self.adapter.checkpoint()
@@ -943,6 +952,7 @@ class DurableNativeCommitBridge:
                 raise NativeRequestConflict(
                     "Bootstrap was never admitted; recovery cannot execute it"
                 )
+            self.journal.assert_superseded_by(create_identity, create_frame, request)
             if readback["status"] != "completed":
                 raise NativeRequestOutcomeUnknown(
                     "Bootstrap outcome is unknown; recovery cannot retry it"
