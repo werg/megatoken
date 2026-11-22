@@ -14,6 +14,8 @@ import subprocess
 import sys
 from pathlib import Path
 
+import pytest
+
 from megatoken.data import PreparedDataset, WindowConfig, iter_windows
 from megatoken.data.protocol_v8 import ProtocolV8Error, decode_protocol_record
 from megatoken.data.semantic_json import stable_algorithm_hash
@@ -37,6 +39,12 @@ def _revision(root: Path) -> str:
 
 
 def test_actual_namespace_artifact_is_source_rechecked_and_packed(tmp_path):
+    required = ("TRACING_JS_SELF_ROOT", "MEGATOKEN_ROOT", "MEGATOKEN_TOKENIZER_JSON")
+    available = {name: os.environ.get(name) for name in required}
+    if not any(available.values()):
+        pytest.skip("Paired namespace artifact gate requires exact source and tokenizer assets")
+    missing = [name for name, value in available.items() if not value]
+    assert not missing, f"Partially configured namespace artifact gate: {missing!r}"
     producer = Path(os.environ["TRACING_JS_SELF_ROOT"]).resolve()
     consumer = Path(os.environ["MEGATOKEN_ROOT"]).resolve()
     tokenizer = Path(os.environ["MEGATOKEN_TOKENIZER_JSON"]).resolve()
