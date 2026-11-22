@@ -357,7 +357,14 @@ def test_protocol_namespace_descriptor_validates_before_shared_heap_allocation()
 
 def test_object_keys_reads_every_export_and_refuses_tdz():
     source_plan = plan()
-    state = {"heap": [], "locals": [], "captureAliases": [], "stack": [], "protocol": None}
+    state = {
+        "heap": [],
+        "locals": [],
+        "captureAliases": [],
+        "frameFunctions": [],
+        "stack": [],
+        "protocol": None,
+    }
     state["stack"] = ["invocation-1"]
     state = apply_protocol_to_shared_state(
         state,
