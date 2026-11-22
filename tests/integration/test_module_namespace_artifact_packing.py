@@ -162,9 +162,7 @@ def test_actual_namespace_artifact_is_source_rechecked_and_packed(tmp_path):
             "tokenIds": sum(len(row.token_ids) for row in encoded_rows),
             "scoredPositions": sum(row.P for row in encoded_rows),
             "tokenAndMaskDigest": hashlib.sha256(
-                json.dumps(encoded_identity, sort_keys=True, separators=(",", ":")).encode(
-                    "utf-8"
-                )
+                json.dumps(encoded_identity, sort_keys=True, separators=(",", ":")).encode("utf-8")
             ).hexdigest(),
         }
 
