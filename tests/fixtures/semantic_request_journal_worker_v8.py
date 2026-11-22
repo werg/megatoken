@@ -41,17 +41,19 @@ elif MODE == "after-outcome":
 elif MODE == "before-admission":
     journal.execute(IDENTITY, REQUEST, lambda _: b"must-not-run")
 elif MODE == "hold":
+
     def wait_for_release(_):
         print("ADMITTED", flush=True)
         sys.stdin.readline()
         return b"response"
+
     result = journal.execute(IDENTITY, REQUEST, wait_for_release)
     print("RESULT:" + result.decode("ascii"), flush=True)
 elif MODE == "contend":
     try:
         journal.execute(IDENTITY, REQUEST, lambda _: b"wrong")
     except NativeRequestBusy:
-        raise SystemExit(73)
+        raise SystemExit(73) from None
     raise SystemExit(74)
 else:
     raise SystemExit("unknown test mode")

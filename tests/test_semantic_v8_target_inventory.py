@@ -41,6 +41,10 @@ def _inventory():
         "scoredSourceIds": ["source-a"],
         "trainEpisodeCount": 48,
         "windowCount": 120,
+        "optimizerWindowCount": 100,
+        "phaseMeter": "P",
+        "phaseBudget": 200000000,
+        "onePassMeterCount": 5000,
         "preparedManifestFingerprint": MANIFEST,
         "codecFingerprint": CODEC,
         "trainingConfigDigest": TRAINING,
@@ -201,5 +205,5 @@ def test_duplicate_window_ids_in_inventory_are_refused():
     record["windowIndices"] = [0, 0]
     body = {key: child for key, child in value.items() if key != "digest"}
     value["digest"] = stable_algorithm_hash(body)
-    with pytest.raises(ValueError, match="identity, count"):
+    with pytest.raises(ValueError, match="duplicate or invalid window indices"):
         validate_target_inventory(value, rederived_inventory=value, **_identities())

@@ -16,7 +16,7 @@ from megatoken.data import PreparedCorpus, iter_windows
 from megatoken.data.semantic_json import stable_algorithm_hash
 from megatoken.loading import build_model, load_model_config
 from megatoken.training.config import TrainConfig
-from megatoken.training.engine import prepare_batches, window_config
+from megatoken.training.engine import batch_counters, prepare_batches, window_config
 from megatoken.training.semantic_v8 import (
     load_semantic_v8_codec,
     merge_semantic_v8_target_exposures,
@@ -142,6 +142,8 @@ def target_inventory(config_source, expected_source_ids_source=None):
     exposures = []
     observed_sources = set()
     observed_windows = set()
+    update_window_count = 0
+    one_pass_meter_count = 0
     available_records = set()
     available_denominators = {}
     train_episode_count = 0
@@ -180,6 +182,10 @@ def target_inventory(config_source, expected_source_ids_source=None):
                 observed_windows.add(window_key)
                 item = EpisodeWindow(episode=episode, window=window, assets=assets)
                 batches = prepare_batches(model, [item], config)
+                update_window_count += int(any(any(batch.counts.values()) for batch in batches))
+                one_pass_meter_count += sum(
+                    getattr(batch_counters([batch]), config.schedule.meter) for batch in batches
+                )
                 for batch in batches:
                     for step in batch.steps:
                         for encoded, plan in zip(step.records, step.plans, strict=True):
@@ -206,6 +212,11 @@ def target_inventory(config_source, expected_source_ids_source=None):
         "Prepared support omitted or substituted a frozen training source",
     )
     require(observed_windows, "Prepared support has no train windows")
+    phase_meter, phase_budget = config.schedule.meter, config.schedule.budget
+    require(
+        phase_meter == "P" and one_pass_meter_count <= phase_budget,
+        "Measured one-pass window meter exceeds or differs from the exact phase budget",
+    )
 
     merged = merge_semantic_v8_target_exposures(exposures, registry_digest=registry_digest)
     scored_sources = merged["sources"]
@@ -217,6 +228,10 @@ def target_inventory(config_source, expected_source_ids_source=None):
         "scoredSourceIds": sorted(scored_sources),
         "trainEpisodeCount": train_episode_count,
         "windowCount": len(observed_windows),
+        "optimizerWindowCount": update_window_count,
+        "phaseMeter": phase_meter,
+        "phaseBudget": phase_budget,
+        "onePassMeterCount": one_pass_meter_count,
         "preparedManifestFingerprint": manifest["fingerprint"],
         "codecFingerprint": codec.fingerprint,
         "trainingConfigDigest": stable_algorithm_hash(config_identity),
@@ -261,6 +276,10 @@ def main() -> int:
                 "registryDigest": result["registryDigest"],
                 "sourceCount": result["positiveWeight"]["sourceCount"],
                 "windowCount": result["windowCount"],
+                "optimizerWindowCount": result["optimizerWindowCount"],
+                "phaseMeter": result["phaseMeter"],
+                "phaseBudget": result["phaseBudget"],
+                "onePassMeterCount": result["onePassMeterCount"],
                 "logicalTargetCount": result["positiveWeight"]["logicalTargetCount"],
                 "physicalTargetRecordCount": result["positiveWeight"][
                     "physicalTargetRecordCount"

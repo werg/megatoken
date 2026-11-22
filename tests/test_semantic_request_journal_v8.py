@@ -9,10 +9,9 @@ import pytest
 
 from megatoken.semantic_request_journal_v8 import (
     DurableNativeRequestJournal,
-    NativeRequestBusy,
     NativeRequestConflict,
-    NativeRequestOutcomeUnknown,
     NativeRequestJournalError,
+    NativeRequestOutcomeUnknown,
 )
 
 FIXTURE = Path(__file__).parent / "fixtures" / "semantic_request_journal_worker_v8.py"
@@ -33,24 +32,34 @@ def identity(ordinal=1, **changes):
 
 
 def run_worker(root, mode, **env):
-    child_env = dict(os.environ, PYTHONPATH=str(Path(__file__).resolve().parents[1] / "src"),
-                     JOURNAL_ROOT=str(root), JOURNAL_MODE=mode, **env)
-    return subprocess.run([sys.executable, str(FIXTURE)], env=child_env,
-                          capture_output=True, text=True, timeout=15)
+    child_env = dict(
+        os.environ,
+        PYTHONPATH=str(Path(__file__).resolve().parents[1] / "src"),
+        JOURNAL_ROOT=str(root),
+        JOURNAL_MODE=mode,
+        **env,
+    )
+    return subprocess.run(
+        [sys.executable, str(FIXTURE)], env=child_env, capture_output=True, text=True, timeout=15
+    )
 
 
 def test_exact_result_persisted_and_same_slot_is_idempotent(tmp_path):
     journal = DurableNativeRequestJournal(tmp_path / "journal")
     calls = []
     request = b'{"op":"generate","prompt":"x"}'
-    result = journal.execute(identity(), request, lambda data: calls.append(data) or b'{"tokens":[1]}')
+    result = journal.execute(
+        identity(), request, lambda data: calls.append(data) or b'{"tokens":[1]}'
+    )
     assert result == b'{"tokens":[1]}'
     inspected = journal.inspect(identity(), request)
     assert inspected["status"] == "completed"
     assert inspected["result_bytes"] == result
     assert len(inspected["request_id"]) == 64
     assert len(inspected["outcome_sha256"]) == 64
-    assert journal.execute(identity(), request, lambda _: pytest.fail("callback repeated")) == result
+    assert (
+        journal.execute(identity(), request, lambda _: pytest.fail("callback repeated")) == result
+    )
     assert calls == [request]
 
 
@@ -63,7 +72,11 @@ def test_payload_operation_and_model_substitution_conflict(tmp_path):
     with pytest.raises(NativeRequestConflict):
         journal.execute(identity(operation="score"), request, lambda _: b"bad")
     with pytest.raises(NativeRequestConflict):
-        journal.execute(identity(model_identity={"checkpoint": "c" * 64, "tokenizer": "b" * 64}), request, lambda _: b"bad")
+        journal.execute(
+            identity(model_identity={"checkpoint": "c" * 64, "tokenizer": "b" * 64}),
+            request,
+            lambda _: b"bad",
+        )
 
 
 def test_ordinals_are_contiguous_and_scopes_are_separate(tmp_path):
@@ -106,15 +119,27 @@ def test_crash_after_outcome_publication_is_readable_without_callback(tmp_path):
     result = journal.inspect(identity(), request)
     assert result["status"] == "completed"
     assert result["result_bytes"] == b"response"
-    assert journal.execute(identity(), request, lambda _: pytest.fail("completed request redispatched")) == b"response"
+    assert (
+        journal.execute(
+            identity(), request, lambda _: pytest.fail("completed request redispatched")
+        )
+        == b"response"
+    )
 
 
 def test_live_second_process_cannot_enter_same_scope(tmp_path):
     first = subprocess.Popen(
         [sys.executable, str(FIXTURE)],
-        env=dict(os.environ, PYTHONPATH=str(Path(__file__).resolve().parents[1] / "src"),
-                 JOURNAL_ROOT=str(tmp_path / "journal"), JOURNAL_MODE="hold"),
-        stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True,
+        env=dict(
+            os.environ,
+            PYTHONPATH=str(Path(__file__).resolve().parents[1] / "src"),
+            JOURNAL_ROOT=str(tmp_path / "journal"),
+            JOURNAL_MODE="hold",
+        ),
+        stdin=subprocess.PIPE,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.PIPE,
+        text=True,
     )
     try:
         assert first.stdout.readline().strip() == "ADMITTED"
@@ -134,8 +159,11 @@ def test_model_identity_is_frozen_for_session_generation(tmp_path):
     journal = DurableNativeRequestJournal(tmp_path / "journal")
     journal.execute(identity(), b"one", lambda _: b"one-result")
     with pytest.raises(NativeRequestConflict):
-        journal.execute(identity(2, model_identity={"checkpoint": "c" * 64, "tokenizer": "b" * 64}),
-                        b"two", lambda _: b"wrong")
+        journal.execute(
+            identity(2, model_identity={"checkpoint": "c" * 64, "tokenizer": "b" * 64}),
+            b"two",
+            lambda _: b"wrong",
+        )
 
 
 def test_scope_creation_sync_failure_prevents_callback(tmp_path):
@@ -154,6 +182,7 @@ def test_scope_creation_sync_failure_prevents_callback(tmp_path):
 def test_lost_outcome_publication_ack_is_recovered_only_after_fresh_sync(tmp_path):
     class LoseOutcomeAck(DurableNativeRequestJournal):
         publications = 0
+
         def _after_directory_fsync(self, path, reason):
             if reason == "record-publish":
                 self.publications += 1

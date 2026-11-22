@@ -55,10 +55,10 @@ def main() -> int:
     )
     if state["startingGlobalStep"] != 0 or state["optimizerUpdates"] != checkpoint["global_step"]:
         raise ValueError("Coverage checkpoint does not retain a fresh complete optimizer census")
-    if checkpoint["global_step"] != derived["windowCount"]:
+    if checkpoint["global_step"] != derived["optimizerWindowCount"]:
         raise ValueError(
             "Coverage training stopped before the one-pass optimizer-update bound: "
-            f"expected {derived['windowCount']}, got {checkpoint['global_step']}"
+            f"expected {derived['optimizerWindowCount']}, got {checkpoint['global_step']}"
         )
     if not comparison["allPositiveWeightTargetsExposed"]:
         raise ValueError(
@@ -68,7 +68,7 @@ def main() -> int:
         )
     body = {
         "schema": "semantic-v8-ordinary-target-coverage/1",
-        "consumerRevision": metadata.get("consumer_revision"),
+        "consumerRevision": policy["consumerRevision"],
         "checkpointStateSha256": metadata["state_sha256"],
         "globalStep": checkpoint["global_step"],
         "trainingLineage": lineage,
@@ -76,6 +76,10 @@ def main() -> int:
         "inventory": {
             "digest": derived["digest"],
             "windowCount": derived["windowCount"],
+            "optimizerWindowCount": derived["optimizerWindowCount"],
+            "phaseMeter": derived["phaseMeter"],
+            "phaseBudget": derived["phaseBudget"],
+            "onePassMeterCount": derived["onePassMeterCount"],
             "sourceIds": derived["sourceIds"],
             "available": derived["available"],
             "positiveWeight": derived["positiveWeight"],

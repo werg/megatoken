@@ -9,12 +9,31 @@ def validate_target_inventory(inventory, *, rederived_inventory, registry_digest
                               codec_fingerprint, training_config_digest, model_config_digest):
     required = {
         "schema", "registryDigest", "sourceIds", "scoredSourceIds", "trainEpisodeCount",
-        "windowCount", "preparedManifestFingerprint", "codecFingerprint",
+        "windowCount", "optimizerWindowCount", "phaseMeter", "phaseBudget", "onePassMeterCount", "preparedManifestFingerprint", "codecFingerprint",
         "trainingConfigDigest", "modelConfigDigest", "windowConfig", "effectiveLossWeights",
         "available", "positiveWeight", "sources", "optimizerUpdates", "learnedSuccess", "digest",
     }
     if not isinstance(inventory, dict) or set(inventory) != required:
         raise ValueError("V8 target inventory has an invalid field set")
+    sources = inventory.get("sources")
+    if not isinstance(sources, dict):
+        raise ValueError("V8 target inventory sources must be an object")
+    for source in sources.values():
+        if not isinstance(source, dict) or not isinstance(source.get("logicalTargets"), dict):
+            raise ValueError("V8 target inventory has malformed source target rows")
+        for target in source["logicalTargets"].values():
+            if not isinstance(target, dict) or not isinstance(target.get("records"), dict):
+                raise ValueError("V8 target inventory has malformed logical target rows")
+            for record in target["records"].values():
+                if not isinstance(record, dict):
+                    raise ValueError("V8 target inventory has malformed physical target rows")
+                indices = record.get("windowIndices")
+                if (
+                    not isinstance(indices, list)
+                    or any(type(index) is not int or index < 0 for index in indices)
+                    or indices != sorted(set(indices))
+                ):
+                    raise ValueError("V8 target inventory has duplicate or invalid window indices")
     if not isinstance(rederived_inventory, dict) or inventory != rederived_inventory:
         raise ValueError("V8 target inventory differs from exact native planner re-derivation")
     body = {key: value for key, value in inventory.items() if key != "digest"}
@@ -30,6 +49,13 @@ def validate_target_inventory(inventory, *, rederived_inventory, registry_digest
         or inventory["learnedSuccess"] is not None
         or type(inventory["windowCount"]) is not int
         or inventory["windowCount"] < 1
+        or type(inventory["optimizerWindowCount"]) is not int
+        or not 1 <= inventory["optimizerWindowCount"] <= inventory["windowCount"]
+        or inventory["phaseMeter"] != "P"
+        or type(inventory["phaseBudget"]) is not int
+        or inventory["phaseBudget"] < 1
+        or type(inventory["onePassMeterCount"]) is not int
+        or not 0 <= inventory["onePassMeterCount"] <= inventory["phaseBudget"]
         or type(inventory["trainEpisodeCount"]) is not int
         or inventory["trainEpisodeCount"] != len(inventory["sourceIds"])
         or len(inventory["sourceIds"]) != 48
