@@ -173,8 +173,12 @@ def apply_detail(machine, kind, fields, *, root, functions=()):
         node = machine["heap"].get(identity)
         if not node or node.get("kind") != "closure":
             _fail("callback requires an owned closure")
-        if node.get("generatorFunction") or node.get("promiseResolver"):
-            _fail("generator and resolving callbacks require their explicit call protocol")
+        if (
+            node.get("generatorFunction")
+            or node.get("promiseResolver")
+            or node.get("asyncFunction")
+        ):
+            _fail("generator, async and resolving callbacks require their explicit call protocol")
         if any(capture["cell"] not in machine["locals"] for capture in node.get("captures", [])):
             _fail("callback capture is not initialized")
         return node

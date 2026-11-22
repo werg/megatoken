@@ -383,6 +383,39 @@
             "id",
             "completion"
           ],
+          "async.function": [
+            "kind",
+            "object"
+          ],
+          "async.call": [
+            "kind",
+            "promise",
+            "child",
+            "callee",
+            "receiver",
+            "arguments"
+          ],
+          "async.await": [
+            "kind",
+            "promise",
+            "invocation",
+            "awaited",
+            "continuation"
+          ],
+          "async.resume": [
+            "kind",
+            "promise",
+            "invocation",
+            "continuation",
+            "status",
+            "value"
+          ],
+          "async.complete": [
+            "kind",
+            "promise",
+            "invocation",
+            "completion"
+          ],
           "cell.initialize": [
             "kind",
             "cell",
@@ -924,6 +957,7 @@
         },
         "profile": "symbols-ordinary-properties/1",
         "extensions": [
+          "async-scoped-call/1",
           "module-namespace-live-cells/1",
           "owned-binary-memory/1",
           "class-construction/1",
@@ -1971,6 +2005,27 @@
       ],
       "initial": null,
       "heap": "Existing heap nodes with property, descriptor and private-element Maps serialized as entry arrays; Symbol keys remain tagged pairs.",
+      "asyncCalls": {
+        "profile": "async-scoped-call/1",
+        "schema": "semantic-async-call-state/1",
+        "fields": [
+          "schema",
+          "owner",
+          "invocation",
+          "callee",
+          "receiver",
+          "arguments",
+          "parent",
+          "phase",
+          "attached",
+          "continuations",
+          "resumeScope",
+          "completion"
+        ],
+        "storage": "Retained asyncCall metadata belongs to its internal execution Promise; asyncFunction marks its callable closure.",
+        "capabilities": "First await detaches the child and restores its caller scope. Later continuations resume in the realm FIFO with the same receiver, live capture cells, and execution Promise. Child completion settles that Promise without completing its parent invocation.",
+        "boundaries": "Async Promise callbacks, Promise adoption, thenable assimilation and implicit scheduler completion require separate profiles."
+      },
       "construction": {
         "schema": "semantic-construction-state/1",
         "fields": [
@@ -2495,7 +2550,7 @@
       "default": "not promoted by engineering receipts alone"
     }
   },
-  "digest": "0df031301d75122edad5f0efbbbe041ddbe90ebaac3cf2d6e6705540acd71a47",
+  "digest": "f92c2b99bcd373eadaadf2fa425af6b866c4312a18c6ff62b74743c40ab19f3c",
   "fixtureDigest": "56f7f36d3b25b3b11a208be3de337e637b9782e6759faea1e1ec107b0a90f0ce",
   "fixtures": [
     {
