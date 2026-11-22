@@ -464,16 +464,38 @@ def test_future_settlement_identity_is_reserved_and_throwing_a_promise_is_not_ad
         },
     )
 
-    jobs = dict(machine["jobs"])
-    jobs["j2"]["reaction"] = "unrelated"
-    machine["jobs"] = [[identity, row] for identity, row in jobs.items()]
-    corrupted = copy.deepcopy(machine)
-    with pytest.raises(ProtocolV8Error, match="subscription requires its exact FIFO enqueue job"):
-        subscribe_resolution(machine)
-    assert machine == corrupted
-    external = _external_machine(machine)
-    with pytest.raises(ProtocolV8Error, match="queued async assimilation"):
-        validate_protocol_state(external["protocol"], external["heap"], external)
+    reserved = copy.deepcopy(dict(machine["jobs"])["j2"])
+    for field, value in [
+        ("owner", "other"),
+        ("target", "second"),
+        ("asyncResolution", {"promise": "first", "target": "target", "phase": "wrong"}),
+    ]:
+        jobs = dict(machine["jobs"])
+        jobs["j2"][field] = value
+        machine["jobs"] = [[identity, row] for identity, row in jobs.items()]
+        corrupted = copy.deepcopy(machine)
+        with pytest.raises(ProtocolV8Error):
+            subscribe_resolution(machine)
+        assert machine == corrupted
+        external = _external_machine(machine)
+        with pytest.raises(ProtocolV8Error, match="queued async assimilation"):
+            validate_protocol_state(external["protocol"], external["heap"], external)
+        jobs["j2"] = copy.deepcopy(reserved)
+        machine["jobs"] = [[identity, row] for identity, row in jobs.items()]
+
+    for field, value in [("readySequence", 1), ("foreignMetadata", True)]:
+        jobs = dict(machine["jobs"])
+        jobs["j2"][field] = value
+        machine["jobs"] = [[identity, row] for identity, row in jobs.items()]
+        corrupted = copy.deepcopy(machine)
+        with pytest.raises(ProtocolV8Error):
+            subscribe_resolution(machine)
+        assert machine == corrupted
+        external = _external_machine(machine)
+        with pytest.raises(ProtocolV8Error, match="queued async settlement reservation fields"):
+            validate_protocol_state(external["protocol"], external["heap"], external)
+        jobs["j2"] = copy.deepcopy(reserved)
+        machine["jobs"] = [[identity, row] for identity, row in jobs.items()]
 
     machine = fixture()
     call(machine)

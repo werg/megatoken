@@ -42,6 +42,17 @@ FIELDS = {
     "async.resolve.settle": {"kind", "promise", "invocation", "target", "job", "status", "value"},
 }
 RESOLUTION_SCHEMA = "semantic-async-promise-resolution/1"
+RESERVED_RESOLUTION_JOB_FIELDS = {
+    "status",
+    "owner",
+    "promise",
+    "reaction",
+    "closure",
+    "rejectionClosure",
+    "target",
+    "sequence",
+    "asyncResolution",
+}
 
 
 def _fail(message):
@@ -387,6 +398,10 @@ def apply_record(machine, record):
         reserved = jobs.get(record["settlementJob"])
         target = machine["heap"].get(record["target"])
         _require(
+            isinstance(reserved, dict) and set(reserved) == RESERVED_RESOLUTION_JOB_FIELDS,
+            "reserved async settlement job fields differ",
+        )
+        _require(
             call["phase"] == "completed"
             and resolution is not None
             and resolution.get("schema") == RESOLUTION_SCHEMA
@@ -406,7 +421,12 @@ def apply_record(machine, record):
             and reserved is not None
             and reserved.get("owner") == call["owner"]
             and reserved.get("status") == "reserved"
+            and reserved.get("promise") is None
             and reserved.get("reaction") == "async-resolution-reserved"
+            and reserved.get("closure") is None
+            and reserved.get("rejectionClosure") is None
+            and reserved.get("target") == record["promise"]
+            and reserved.get("sequence") is None
             and reserved.get("asyncResolution")
             == {"promise": record["promise"], "target": record["target"], "phase": "reserved"}
             and machine["ready"][:1] == [record["job"]]
@@ -867,13 +887,21 @@ def _validate_resolution_state(machine, identity, node, call):
     if resolution["phase"] == "queued":
         settlement = jobs.get(settlement_id)
         _require(
+            isinstance(settlement, dict) and set(settlement) == RESERVED_RESOLUTION_JOB_FIELDS,
+            "queued async settlement reservation fields differ",
+        )
+        _require(
             assimilation.get("status") == "queued"
             and assimilation_id in ready
             and settlement is not None
             and settlement.get("owner") == call["owner"]
             and settlement.get("status") == "reserved"
+            and settlement.get("promise") is None
             and settlement.get("reaction") == "async-resolution-reserved"
+            and settlement.get("closure") is None
+            and settlement.get("rejectionClosure") is None
             and settlement.get("target") == identity
+            and settlement.get("sequence") is None
             and settlement.get("asyncResolution")
             == {"promise": identity, "target": target_id, "phase": "reserved"}
             and settlement_id not in ready
