@@ -166,13 +166,16 @@ def main():
                             "Journaled commit identity differs from inherited execution-lock namespace"
                         )
 
-                    def commit_reply(_exact_request):
-                        result = dispatch(adapter, request)
+                    def commit_reply(exact_request, started_at=request_started):
+                        committed_request = strict_json_loads(
+                            exact_request.decode("utf-8", errors="strict")
+                        )
+                        result = dispatch(adapter, committed_request)
                         synchronize()
-                        reply = {"id": request["id"], "ok": True, "result": result}
+                        reply = {"id": committed_request["id"], "ok": True, "result": result}
                         reply["runtimeMetrics"] = {
                             "schema": "semantic-inference-metrics/8",
-                            "computeSeconds": time.perf_counter() - request_started,
+                            "computeSeconds": time.perf_counter() - started_at,
                             "peakMemoryBytes": resource.getrusage(resource.RUSAGE_SELF).ru_maxrss
                             * (1 if sys.platform == "darwin" else 1024),
                         }
