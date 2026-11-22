@@ -414,6 +414,33 @@ class NativeSemanticInferenceV8:
                     tape = generated.tape
                     payload = tape.payloads[0] if len(tape.payloads) == 1 else None
                     ids = tape.emitted_ids[0] if len(tape.emitted_ids) == 1 else ()
+                    ids_valid = bool(ids) and all(
+                        type(value) is int and value >= 0 for value in ids
+                    )
+                    token_bytes_match = False
+                    decode_error = None
+                    if ids_valid and isinstance(payload, bytes):
+                        try:
+                            token_bytes_match = self.codec.decode(ids) == payload
+                        except (ValueError, TypeError, IndexError) as error:
+                            decode_error = str(error)
+                    utf8_valid = None
+                    if isinstance(payload, bytes):
+                        try:
+                            payload.decode("utf-8", errors="strict")
+                            utf8_valid = True
+                        except UnicodeDecodeError:
+                            utf8_valid = False
+                    shape_valid = (
+                        len(tape.payloads)
+                        == len(tape.emitted_ids)
+                        == len(tape.event_ids)
+                        == len(tape.terminal)
+                        == 1
+                        and type(tape.terminal[0]) is bool
+                        and tape.modalities == ("text",)
+                        and tape.tracks == (model_track,)
+                    )
                     fragment = {
                         "selectedEventId": tape.event_ids[0] if len(tape.event_ids) == 1 else None,
                         "meridian": tape.meridian_id,
@@ -422,28 +449,61 @@ class NativeSemanticInferenceV8:
                         "emittedTokenIds": list(ids),
                         "tokenIds": list(ids),
                         "terminal": tape.terminal[0] if len(tape.terminal) == 1 else None,
+                        "validation": {
+                            "shapeValid": shape_valid,
+                            "runtimeValid": tape.valid == (True,),
+                            "tokenIdsValid": ids_valid,
+                            "tokenBytesMatch": token_bytes_match,
+                            "tokenDecodeError": decode_error,
+                            "utf8Valid": utf8_valid,
+                        },
                     }
                     attempt["fragments"].append(fragment)
-                    attempt["generatedTokens"] += len(ids)
+                    attempt["generatedTokens"] += sum(len(values) for values in tape.emitted_ids)
                     attempt["generationSeconds"] = time.perf_counter() - generation_started
+                    # Record every byte before a runtime-invalid fragment can throw.
+                    # A rejected UTF-8 sequence is still exact model output when its
+                    # original IDs reproduce its bytes. Malformed cardinality or
+                    # token/byte disagreement must not gain aggregate provenance.
+                    original = None
+                    if all(isinstance(part["payloadHex"], str) for part in attempt["fragments"]):
+                        original = b"".join(
+                            bytes.fromhex(part["payloadHex"]) for part in attempt["fragments"]
+                        )
+                    attempt["rawPayloadHex"] = None if original is None else original.hex()
+                    attempt["payloadHex"] = (
+                        original.hex()
+                        if original is not None
+                        and all(
+                            part["validation"]["shapeValid"]
+                            and part["validation"]["tokenBytesMatch"]
+                            for part in attempt["fragments"]
+                        )
+                        else None
+                    )
                     if (
-                        len(tape.payloads) != 1
+                        not shape_valid
                         or tape.valid != (True,)
-                        or tape.modalities != ("text",)
-                        or tape.tracks != (model_track,)
                         or not isinstance(payload, bytes)
-                        or not ids
-                        or any(type(value) is not int or value < 0 for value in ids)
-                        or self.codec.decode(ids) != payload
+                        or not token_bytes_match
                     ):
+                        fragment["rejectedNativeOutputs"] = {
+                            "payloadsHex": [
+                                value.hex() if isinstance(value, bytes) else None
+                                for value in tape.payloads
+                            ],
+                            "payloadTypes": [type(value).__name__ for value in tape.payloads],
+                            "emittedTokenIds": [list(values) for values in tape.emitted_ids],
+                            "valid": list(tape.valid),
+                            "modalities": list(tape.modalities),
+                            "tracks": list(tape.tracks),
+                            "eventIds": list(tape.event_ids),
+                            "terminal": list(tape.terminal),
+                        }
                         raise NativeSelectionV8Error(
                             "Native model emitted an invalid v8 text fragment"
                         )
                     required_events.update(tape.event_ids)
-                    original = b"".join(
-                        bytes.fromhex(part["payloadHex"]) for part in attempt["fragments"]
-                    )
-                    attempt["payloadHex"] = original.hex()
                     if len(original) > 65536:
                         raise NativeSelectionV8Error(
                             "Native v8 logical record exceeds its byte budget"
