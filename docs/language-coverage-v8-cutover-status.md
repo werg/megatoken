@@ -1,6 +1,17 @@
 # Native V8 cutover implementation status
 
-## Current continuation — 22 November 2026
+## Current optimizer target-exposure increment — 22 November 2026
+
+The ordinary optimizer now records the actual positive-weight scored source,
+logical target and physical record occurrences, with distinct unique coverage
+and repeated-occurrence denominators. The census survives fresh-process resume
+and is linked to its exact prior checkpoint state. The lifecycle report verifies
+the two-update parent link, registry and cumulative targets. **All57 hosted
+controls passed, zero skips**, in [run44990761001](https://github.com/werg/megatoken/actions/runs/44990761001), including the verified pinned tokenizer. Exact tested formatted source is published here. [Count definitions and limits](SEMANTIC_V8_TARGET_EXPOSURE.md).
+
+The previous native head `a886fb8` passed both general CPU lanes (Python3.11 and3.12: 3,713 passed,83 skipped,20 warnings each) and paired 66-source/11-source admission against producer `c640f2b`; its full logs are retained in `docs/evidence/v8-native-a886-qualified-2026-11-22`. These results are historical evidence for that exact head. New native general CI and complete64-source optimizer qualification remain pending after this executable change.
+
+## Previous support-lifecycle increment — 22 November 2026
 
 The separately frozen production support corpus passed original source checking,
 independent native admission, exact tokenization/packing, ordinary preparation

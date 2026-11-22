@@ -63,3 +63,9 @@ accepted-program recovery or learned usefulness. Reports retain
 `fullLaunchQualified: false` and `learnedSuccess: null`. Production launch
 recipes, durable external model asset publication, multi-worker/distributed
 recovery, held-out quality/cost and default cutover require their own evidence.
+
+## Scored-target exposure
+
+The collector now also requires the actual optimizer target-exposure census in
+both checkpoints, an exact parent digest from step one to resumed step two, and
+preserved cumulative source/target/record counts. [Definitions, proof and limits](SEMANTIC_V8_TARGET_EXPOSURE.md).

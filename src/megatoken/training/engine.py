@@ -866,6 +866,25 @@ def train(
         else:
             # Initialization is identical; sampling/exploration is rank-specific.
             seed_everything(config.seed + data_rank, config.deterministic)
+        semantic_v8_target_exposure = None
+        if config.semantic_v8_policy is not None:
+            from .semantic_v8 import (
+                advance_semantic_v8_target_exposure,
+                merge_semantic_v8_target_exposures,
+                restore_semantic_v8_target_exposure,
+                semantic_v8_target_exposure_from_batches,
+                semantic_v8_target_exposure_report,
+                semantic_v8_target_step_summary,
+            )
+
+            registry_digest = config.semantic_v8_policy["registryDigest"]
+            semantic_v8_target_exposure = restore_semantic_v8_target_exposure(
+                payload,
+                registry_digest=registry_digest,
+                global_step=global_step,
+                phase_transition=phase_transition,
+            )
+
         if config.compile:
             # Compile the reusable tensor operators, not Python action tapes,
             # data cursors, or mutable runtime history management.
@@ -943,6 +962,11 @@ def train(
                                 else {}
                             ),
                             **semantic_training_state(exposure, cohort_digest=cohort_digest),
+                            **(
+                                {"semantic_v8_target_exposure": semantic_v8_target_exposure}
+                                if semantic_v8_target_exposure is not None
+                                else {}
+                            ),
                         }
                     )
                     metadata = {
@@ -1024,9 +1048,19 @@ def train(
                     or (phase.meter == "Q" and global_selected["Q"] >= config.accumulate_events)
                 ):
                     break
+            weights = dict(config.loss_weights)
+            # The old per-operation router loss has been replaced.
+            weights["router_balance"] = 0.0
             preparation_error = None
+            local_target_exposure = None
             try:
                 batches = prepare_batches(model, selected, config)
+                if semantic_v8_target_exposure is not None:
+                    local_target_exposure = semantic_v8_target_exposure_from_batches(
+                        batches,
+                        registry_digest=config.semantic_v8_policy["registryDigest"],
+                        effective_loss_weights=weights,
+                    )
             except Exception as error:
                 preparation_error = error
                 batches = []
@@ -1063,11 +1097,25 @@ def train(
                 logger.log("unscored_source_block", skipped_rounds=empty_selection_rounds)
                 continue
             empty_selection_rounds = 0
+            target_exposure_step = None
+            target_exposure_candidate = None
+            target_exposure_receipt = None
+            if semantic_v8_target_exposure is not None:
+                target_exposure_step = merge_semantic_v8_target_exposures(
+                    context.all_gather_object(local_target_exposure),
+                    registry_digest=config.semantic_v8_policy["registryDigest"],
+                )
+                target_exposure_candidate = advance_semantic_v8_target_exposure(
+                    semantic_v8_target_exposure,
+                    target_exposure_step,
+                    optimizer_step=global_step + 1,
+                    registry_digest=config.semantic_v8_policy["registryDigest"],
+                )
+                target_exposure_receipt = semantic_v8_target_exposure_report(
+                    target_exposure_candidate
+                )
             global_work = Counters(**context.sum_counts(asdict(batch_counters(batches))))
             global_work.validate()
-            weights = dict(config.loss_weights)
-            # The old per-operation router loss has been replaced.
-            weights["router_balance"] = 0.0
             ledger = LossLedger(local_counts, global_counts, weights)
             # Per-window mean losses are divided by the windows of the whole transaction.
             window_scale = 1.0 / max(1, context.sum_counts({"windows": len(batches)})["windows"])
@@ -1165,6 +1213,8 @@ def train(
             ready = diloco_metrics.pop("transducer_ready", None)
             if ready is not None:
                 install_published(transducer, diloco.transducer, ready[2], ready[1])
+            if target_exposure_candidate is not None:
+                semantic_v8_target_exposure = target_exposure_candidate
             model.core.set_model_version(global_step)
             local_sums = ledger.sums
             merged_sums = context.all_gather_object(local_sums)
@@ -1262,6 +1312,25 @@ def train(
                     experts=dispatch_summary(dispatch),
                     budget_overshoot=max(0, consumed - phase.budget),
                     **semantic_training_state(exposure, cohort_digest=cohort_digest),
+                    **(
+                        {
+                            "semantic_v8_target_exposure_step": semantic_v8_target_step_summary(
+                                target_exposure_step
+                            ),
+                            "semantic_v8_target_exposure_totals": {
+                                key: target_exposure_receipt[key]
+                                for key in (
+                                    "sourceCount",
+                                    "logicalTargetCount",
+                                    "physicalTargetRecordCount",
+                                    "scoredOccurrences",
+                                    "lossDenominators",
+                                )
+                            },
+                        }
+                        if target_exposure_receipt is not None
+                        else {}
+                    ),
                     **rates(global_work, elapsed),
                     **step_metrics,
                 )
@@ -1332,6 +1401,15 @@ def train(
             "checkpoint": last_checkpoint,
             "counters": asdict(counters),
             **semantic_training_state(exposure, cohort_digest=cohort_digest),
+            **(
+                {
+                    "semantic_v8_target_exposure": semantic_v8_target_exposure_report(
+                        semantic_v8_target_exposure
+                    )
+                }
+                if semantic_v8_target_exposure is not None
+                else {}
+            ),
         }
         if experiment is not None:
             result["experiment_budget"] = exposure.receipt(

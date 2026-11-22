@@ -275,7 +275,15 @@ def qualify_orchestration_preparation(source, prepared_path, report):
         }
 
 
-def qualify_checkpoints(first_path, resumed_path, prepared, served, manifest):
+def qualify_checkpoints(
+    first_path,
+    resumed_path,
+    prepared,
+    served,
+    manifest,
+    registry_digest,
+    allowed_source_ids=None,
+):
     import torch
 
     from megatoken.semantic_lineage_v8 import checkpoint_lineage_v8, validate_served_lineage_v8
@@ -318,6 +326,12 @@ def qualify_checkpoints(first_path, resumed_path, prepared, served, manifest):
         )
     ]
     require(changed, "Resumed training did not update model master weights")
+    target_exposure = qualify_target_exposure(
+        first,
+        resumed,
+        registry_digest=registry_digest,
+        allowed_source_ids=allowed_source_ids,
+    )
     served_lineage = read_json(served / "semantic-v8-lineage.json")
     validate_served_lineage_v8(served_lineage, manifest)
     require(served_lineage["training"] == resumed_lineage, "Serving lineage changed")
@@ -332,6 +346,117 @@ def qualify_checkpoints(first_path, resumed_path, prepared, served, manifest):
         "changedMasterWeightNames": changed,
         "trainingLineage": resumed_lineage,
         "servingLineageDigest": served_lineage["digest"],
+        "optimizerTargetExposure": target_exposure,
+    }
+
+
+def qualify_target_exposure(first, resumed, *, registry_digest, allowed_source_ids=None):
+    from megatoken.training.semantic_v8 import (
+        semantic_v8_target_exposure_report,
+        validate_semantic_v8_target_exposure,
+    )
+
+    first_state = first.get("semantic_v8_target_exposure")
+    resumed_state = resumed.get("semantic_v8_target_exposure")
+    require(
+        first_state is not None and resumed_state is not None,
+        "V8 lifecycle checkpoint lost its target-exposure census",
+    )
+    first_state = validate_semantic_v8_target_exposure(first_state, registry_digest=registry_digest)
+    resumed_state = validate_semantic_v8_target_exposure(
+        resumed_state, registry_digest=registry_digest
+    )
+    require(
+        first_state["startingGlobalStep"] == 0
+        and first_state["lastGlobalStep"] == first["global_step"] == 1
+        and first_state["optimizerUpdates"] == 1,
+        "First checkpoint target-exposure history is not exactly optimizer step one",
+    )
+    require(
+        resumed_state["startingGlobalStep"] == first_state["startingGlobalStep"]
+        and resumed_state["lastGlobalStep"] == resumed["global_step"] == 2
+        and resumed_state["optimizerUpdates"] == 2,
+        "Resumed target-exposure history is not the exact step-one to step-two continuation",
+    )
+    require(
+        resumed_state["previousDigest"] == first_state["digest"],
+        "Resumed target-exposure history does not name the exact step-one parent",
+    )
+    allowed = None if allowed_source_ids is None else set(allowed_source_ids)
+    for source_id, source in first_state["sources"].items():
+        require(source_id in resumed_state["sources"], "Resume dropped a scored source")
+        if allowed is not None:
+            require(
+                source_id in allowed,
+                "Target exposure includes a source outside the support inventory",
+            )
+        old_source = source
+        new_source = resumed_state["sources"][source_id]
+        require(
+            old_source["split"] == new_source["split"] == "train",
+            "Target exposure changed split",
+        )
+        for logical_id, old_target in old_source["logicalTargets"].items():
+            require(
+                logical_id in new_source["logicalTargets"],
+                "Resume dropped a scored logical target",
+            )
+            new_target = new_source["logicalTargets"][logical_id]
+            for record_id, old_record in old_target["records"].items():
+                require(
+                    record_id in new_target["records"],
+                    "Resume dropped a scored physical record",
+                )
+                new_record = new_target["records"][record_id]
+                require(
+                    set(old_record["windowIndices"]) <= set(new_record["windowIndices"])
+                    and old_record["scoredOccurrences"] <= new_record["scoredOccurrences"]
+                    and old_record["optimizerUpdates"] <= new_record["optimizerUpdates"]
+                    and old_record["firstGlobalStep"] == new_record["firstGlobalStep"]
+                    and old_record["lastGlobalStep"] <= new_record["lastGlobalStep"]
+                    and all(
+                        old_record["lossDenominators"][name]
+                        <= new_record["lossDenominators"].get(name, 0)
+                        for name in old_record["lossDenominators"]
+                    ),
+                    "Resume target-exposure history is not cumulative from step one",
+                )
+    if allowed is not None:
+        require(
+            set(resumed_state["sources"]) <= allowed,
+            "Target exposure includes a source outside the support inventory",
+        )
+    first_report = semantic_v8_target_exposure_report(first_state)
+    resumed_report = semantic_v8_target_exposure_report(resumed_state)
+    return {
+        "schema": resumed_report["schema"],
+        "registryDigest": registry_digest,
+        "historyContinued": True,
+        "firstCheckpointDigest": first_state["digest"],
+        "resumedCheckpointDigest": resumed_state["digest"],
+        "firstCheckpointCounts": {
+            key: first_report[key]
+            for key in (
+                "sourceCount",
+                "logicalTargetCount",
+                "physicalTargetRecordCount",
+                "scoredOccurrences",
+                "lossDenominators",
+            )
+        },
+        "resumedCounts": {
+            key: resumed_report[key]
+            for key in (
+                "sourceCount",
+                "logicalTargetCount",
+                "physicalTargetRecordCount",
+                "scoredOccurrences",
+                "lossDenominators",
+            )
+        },
+        "positiveWeightLossDenominators": resumed_report["lossDenominators"],
+        "sources": resumed_report["sources"],
+        "allTargetsExposed": False,
     }
 
 
@@ -497,12 +622,15 @@ def main():
         )
         orchestration = qualify_orchestration_preparation(options.source, options.prepared, report)
     manifest = read_json(options.served / "manifest.json")
+    registry = read_json(options.prepared / "semantic-v8-families.json")
     checkpoint = qualify_checkpoints(
         options.first_checkpoint,
         options.resumed_checkpoint,
         prepared,
         options.served,
         manifest,
+        registry_digest=registry["digest"],
+        allowed_source_ids=None if support is None else support["sourceInventory"],
     )
     serving = qualify_serving(root, options.served.resolve(), options.source, output, manifest)
     artifacts = [
@@ -553,6 +681,31 @@ def main():
                 "output": str(output),
                 "resumedStep": 2,
                 "nextSelectionExact": True,
+                **(
+                    {
+                        "optimizerTargetExposure": {
+                            key: value
+                            for key, value in checkpoint["optimizerTargetExposure"][
+                                "resumedCounts"
+                            ].items()
+                            if key != "lossDenominators"
+                        }
+                        | {
+                            "registryDigest": checkpoint["optimizerTargetExposure"][
+                                "registryDigest"
+                            ],
+                            "positiveWeightLossDenominators": checkpoint["optimizerTargetExposure"][
+                                "positiveWeightLossDenominators"
+                            ],
+                            "historyContinued": checkpoint["optimizerTargetExposure"][
+                                "historyContinued"
+                            ],
+                            "allTargetsExposed": False,
+                        }
+                    }
+                    if "optimizerTargetExposure" in checkpoint
+                    else {}
+                ),
                 "learnedSuccess": None,
             }
         )
