@@ -11,6 +11,7 @@ from megatoken.data.module_scheduler_machine_v8 import (
     FUNCTIONS,
     INITIALIZE,
     PLAN_SCHEMA,
+    advance,
     assert_next,
     validate_shared_state,
     verify_bound_module_scheduler_plan,
@@ -154,3 +155,36 @@ def test_retained_owner_and_lifecycle_cannot_be_bypassed(mode):
         )
         with pytest.raises(ValueError, match="cannot escape|unfinished"):
             assert_next(_internal_machine(state), record, plan)
+
+
+@pytest.mark.parametrize("record", [{"kind": "return"}, {"kind": "throw", "value": ["num", 7]}])
+def test_unowned_completion_does_not_complete_an_unstarted_module(record):
+    # A dependency rejection can bind a waiting parent that never enters its
+    # driver. A later root completion has no current frame. None is absence of
+    # ownership in both places; it must not identify a synchronous module call.
+    _, plan, state, initialize_record = fixture()
+    machine = _internal_machine(select(state, initialize_record, plan))
+    machine["stack"] = []
+    machine["heap"].update(
+        {
+            "module-record": {
+                "kind": "object",
+                "properties": {
+                    "index": ["num", 0],
+                    "entry": ["bool", True],
+                    "hasTLA": ["bool", True],
+                    "dependencies": ["ref", "dependencies"],
+                    "iterator": ["ref", "iterator"],
+                },
+            },
+            "dependencies": {"kind": "array", "properties": {"length": ["num", 0]}},
+            "iterator": {"kind": "generator", "callee": ["ref", "module-body"]},
+            "module-body": {"kind": "function", "code": "__traced_eval_module_0"},
+        }
+    )
+    machine["heap"]["ledger"]["records"].append(
+        {"file": "main.js", "object": "module-record", "frame": None, "execution": None}
+    )
+    before = copy.deepcopy(machine)
+    advance(before, machine, record, plan)
+    assert machine == before

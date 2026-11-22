@@ -686,7 +686,7 @@ def advance(before, after, record, plan):
             (
                 row
                 for row in ledger["records"]
-                if row["frame"] == frame and row["execution"] is None
+                if frame is not None and row["frame"] == frame and row["execution"] is None
             ),
             None,
         )
