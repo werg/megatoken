@@ -6,7 +6,12 @@ import copy
 import re
 from typing import Any
 
-from .module_namespace_state_v8 import _canonical_value, _exact, _fail, verify_experimental_module_namespace_plan
+from .module_namespace_state_v8 import (
+    _canonical_value,
+    _exact,
+    _fail,
+    verify_experimental_module_namespace_plan,
+)
 
 _ID = re.compile(r"^o[1-9][0-9]*$")
 
@@ -16,7 +21,12 @@ def _table(value: Any, label: str) -> dict[str, Any]:
         _fail(label + " table")
     result = {}
     for row in value:
-        if not isinstance(row, list) or len(row) != 2 or not isinstance(row[0], str) or row[0] in result:
+        if (
+            not isinstance(row, list)
+            or len(row) != 2
+            or not isinstance(row[0], str)
+            or row[0] in result
+        ):
             _fail(label + " identities")
         result[row[0]] = copy.deepcopy(row[1])
     return result
@@ -89,9 +99,7 @@ def _verify_namespace(node: Any, identity: str, plan: dict[str, Any]) -> dict[st
     return expected
 
 
-def _fresh(
-    heap: dict[str, Any], identity: Any, shared_state: dict[str, Any]
-) -> None:
+def _fresh(heap: dict[str, Any], identity: Any, shared_state: dict[str, Any]) -> None:
     protocol = shared_state.get("protocol") or {}
     reserved = {row.get("id") for row in protocol.get("symbols", []) if isinstance(row, dict)}
     reserved.update(
@@ -108,7 +116,9 @@ def _fresh(
         _fail("fresh public heap identity required")
 
 
-def _ordinary_result(kind: str, properties: list[list[Any]], length: int | None = None) -> dict[str, Any]:
+def _ordinary_result(
+    kind: str, properties: list[list[Any]], length: int | None = None
+) -> dict[str, Any]:
     node = {
         "kind": kind,
         "code": None,
@@ -138,7 +148,9 @@ def apply_experimental_module_namespace_shared_transition(
     kind = transition["kind"]
 
     if kind in {"cell.initialize", "cell.write"}:
-        if not _exact(transition, {"kind", "cell", "loweredName", "value"}) or not _canonical_value(transition["value"]):
+        if not _exact(transition, {"kind", "cell", "loweredName", "value"}) or not _canonical_value(
+            transition["value"]
+        ):
             _fail("source cell lifecycle fields")
         cell = next((item for item in plan["cells"] if item["id"] == transition["cell"]), None)
         if cell is None or cell["loweredName"] != transition["loweredName"]:
@@ -215,7 +227,10 @@ def apply_experimental_module_namespace_shared_transition(
             )
             if not _exact(transition, fields):
                 _fail("namespace value fields")
-            export = next((item for item in expected["exports"] if item["name"] == transition["exportName"]), None)
+            export = next(
+                (item for item in expected["exports"] if item["name"] == transition["exportName"]),
+                None,
+            )
             if export is None:
                 _fail("namespace export absent")
             storage = _resolved(shared_state, export["loweredName"])

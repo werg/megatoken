@@ -60,7 +60,14 @@ from .proxy_v8 import validate_state as validate_proxy_state
 from .semantic_json import stable_algorithm_json
 
 PREFIX = "protocol "
-NAMESPACE_RECORD_KINDS = {"cell.initialize", "cell.write", "namespace.create", "namespace.keys", "namespace.read", "namespace.descriptor"}
+NAMESPACE_RECORD_KINDS = {
+    "cell.initialize",
+    "cell.write",
+    "namespace.create",
+    "namespace.keys",
+    "namespace.read",
+    "namespace.descriptor",
+}
 SCHEMA = "semantic-protocol-record/1"
 STATE_SCHEMA = "semantic-protocol-state/1"
 WELL_KNOWN = (
@@ -305,9 +312,7 @@ def validate_protocol_record(record):
     if "bind" in record and record["bind"] is not None:
         _identity(record["bind"])
     for key in ("value", "result", "decision", "receiver", "callee", "symbol"):
-        if key in record and not (
-            record["kind"] == "namespace.descriptor" and key == "value"
-        ):
+        if key in record and not (record["kind"] == "namespace.descriptor" and key == "value"):
             validate_protocol_value(record[key])
     if "success" in record and type(record["success"]) is not bool:
         _fail("success boolean")
@@ -324,7 +329,9 @@ def validate_protocol_record(record):
         if not isinstance(record["moduleFile"], str):
             _fail("namespace module file")
     elif kind == "namespace.keys":
-        if not isinstance(record["names"], list) or any(not isinstance(name, str) for name in record["names"]):
+        if not isinstance(record["names"], list) or any(
+            not isinstance(name, str) for name in record["names"]
+        ):
             _fail("namespace key list")
     elif kind == "namespace.read":
         if not isinstance(record["exportName"], str):
@@ -334,7 +341,9 @@ def validate_protocol_record(record):
         if not isinstance(record["exportName"], str) or type(record["value"]) is not dict:
             _fail("namespace descriptor")
         descriptor = record["value"]
-        _exact(descriptor, {"value", "writable", "enumerable", "configurable"}, "namespace descriptor")
+        _exact(
+            descriptor, {"value", "writable", "enumerable", "configurable"}, "namespace descriptor"
+        )
         validate_protocol_value(descriptor["value"])
         if (
             type(descriptor["writable"]) is not bool
@@ -1438,13 +1447,13 @@ def replay_protocol_case(case, *, namespace_plan=None):
             raise ProtocolV8Error(f"protocol line {number}: {error}") from error
         state = apply_protocol_to_shared_state(state, line, namespace_plan=namespace_plan)
         if number + 1 in case.get("checkpoints", []):
-            state = json.loads(
-                json.dumps(state, separators=(",", ":"), ensure_ascii=False)
-            )
+            state = json.loads(json.dumps(state, separators=(",", ":"), ensure_ascii=False))
             machine = _internal_machine(state)
             if machine["protocol"]["sequence"] != number + 1:
                 _fail("checkpoint sequence")
-            validate_protocol_state(machine["protocol"], machine["heap"], _external_machine(machine))
+            validate_protocol_state(
+                machine["protocol"], machine["heap"], _external_machine(machine)
+            )
     return state
 
 
@@ -1690,8 +1699,7 @@ def _assert_no_generic_source_cell_write(machine, record, namespace_plan):
     }
     aliases = machine.get("captureAliases", {})
     protected = {
-        aliases.get(cell["loweredName"], cell["loweredName"])
-        for cell in source_cells.values()
+        aliases.get(cell["loweredName"], cell["loweredName"]) for cell in source_cells.values()
     }
     protected.update(
         aliases.get(namespace["namespaceName"], namespace["namespaceName"])
@@ -1729,11 +1737,7 @@ def apply_protocol_to_shared_state(shared_state, line, *, namespace_plan=None):
     if namespace_plan is None:
         _fail("source-derived namespace plan is required")
     p = machine["protocol"]
-    if (
-        not machine.get("stack")
-        or machine.get("completion") is not None
-        or p["pendingCalls"]
-    ):
+    if not machine.get("stack") or machine.get("completion") is not None or p["pendingCalls"]:
         _fail("active invocation with no pending property child required for namespace transition")
     if p["sequence"] >= 32768:
         _fail("protocol step budget")

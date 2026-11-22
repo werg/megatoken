@@ -383,6 +383,42 @@
             "id",
             "completion"
           ],
+          "cell.initialize": [
+            "kind",
+            "cell",
+            "loweredName",
+            "value"
+          ],
+          "cell.write": [
+            "kind",
+            "cell",
+            "loweredName",
+            "value"
+          ],
+          "namespace.create": [
+            "kind",
+            "namespaceId",
+            "moduleFile"
+          ],
+          "namespace.keys": [
+            "kind",
+            "namespaceId",
+            "names",
+            "resultId"
+          ],
+          "namespace.read": [
+            "kind",
+            "namespaceId",
+            "exportName",
+            "value"
+          ],
+          "namespace.descriptor": [
+            "kind",
+            "namespaceId",
+            "exportName",
+            "value",
+            "resultId"
+          ],
           "memory.construct": [
             "kind",
             "constructor",
@@ -888,6 +924,7 @@
         },
         "profile": "symbols-ordinary-properties/1",
         "extensions": [
+          "module-namespace-live-cells/1",
           "owned-binary-memory/1",
           "class-construction/1",
           "builtin-iterator/1",
@@ -2458,7 +2495,7 @@
       "default": "not promoted by engineering receipts alone"
     }
   },
-  "digest": "75b4b47cccd0b137e00f477e45572d9d160acbb63f70af4f506e8003359e32cc",
+  "digest": "0df031301d75122edad5f0efbbbe041ddbe90ebaac3cf2d6e6705540acd71a47",
   "fixtureDigest": "56f7f36d3b25b3b11a208be3de337e637b9782e6759faea1e1ec107b0a90f0ce",
   "fixtures": [
     {

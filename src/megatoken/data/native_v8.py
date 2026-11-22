@@ -234,7 +234,9 @@ def validate_v8_artifact(document):
                 try:
                     verify_experimental_module_namespace_plan(program["moduleNamespacePlan"])
                 except ValueError as error:
-                    raise NativeV8Error(f"Invalid experimental module namespace plan: {error}") from error
+                    raise NativeV8Error(
+                        f"Invalid experimental module namespace plan: {error}"
+                    ) from error
             source_rows = [
                 r["fields"]
                 for r in timeline[:cutoff]
@@ -1332,9 +1334,7 @@ def _replay_shared_state(
                 ):
                     _fail("The first protocol profile requires a checked invocation turn")
                 try:
-                    invocation_program = published.get(
-                        invocation_metadata[invocation]["programId"]
-                    )
+                    invocation_program = published.get(invocation_metadata[invocation]["programId"])
                     active_namespace_plan = (
                         invocation_program[0].get("moduleNamespacePlan")
                         if invocation_program is not None
@@ -1360,9 +1360,7 @@ def _replay_shared_state(
                         active_invocation,
                         payload["continuation"] if k == "resume" else payload["job"],
                     )
-                invocation_program = published.get(
-                    invocation_metadata[invocation]["programId"]
-                )
+                invocation_program = published.get(invocation_metadata[invocation]["programId"])
                 active_namespace_plan = (
                     invocation_program[0].get("moduleNamespacePlan")
                     if invocation_program is not None

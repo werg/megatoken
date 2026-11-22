@@ -44,6 +44,7 @@ def initial():
             ["__traced_eval_m1_fixed", ["num", 2]],
         ],
         "captureAliases": [],
+        "frameFunctions": [],
         "stack": [],
         "protocol": None,
     }
@@ -411,6 +412,9 @@ def test_namespace_operation_cannot_bypass_pending_number_continuation_guard():
     state = initial()
     state["stack"] = ["invocation-1"]
     state["frameFunctions"] = [["invocation-1", "code-1"]]
+    state["heap"] = [
+        ["o20", {"id": "o20", "kind": "object", "prototype": None, "extensible": True, "properties": []}]
+    ]
     protocol = create_protocol_state()
     protocol["numberConversions"] = {
         "schema": NUMBER_SCHEMA,
@@ -418,7 +422,7 @@ def test_namespace_operation_cannot_bypass_pending_number_continuation_guard():
             {
                 "id": "conversion-1",
                 "parent": "invocation-1",
-                "input": ["num", 1],
+                "input": ["ref", "o20"],
                 "index": -1,
                 "method": None,
                 "builtin": None,
