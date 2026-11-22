@@ -73,7 +73,9 @@ def _describe():
     }
 
 
-def _fixture_records():
+def _fixture_records(final_action="track_complete"):
+    if final_action not in {"track_complete", "track_cancel"}:
+        raise ValueError("The final coordinator action must be track_complete or track_cancel")
     fixture = Path(__file__).with_name("semantic-orchestration-teacher-v8.json.gz.b64")
     document = json.loads(gzip.decompress(base64.b64decode(fixture.read_bytes())))
     decisions = [
@@ -90,7 +92,19 @@ def _fixture_records():
         raise ValueError(
             "The paired recovery fixture must contain four decisions and two child targets"
         )
-    return [decisions[0], decisions[1], *child_targets, decisions[2], decisions[3]]
+    final_record = json.loads(decisions[3])
+    if (
+        set(final_record) != {"arguments", "name"}
+        or final_record["name"] != "track_complete"
+        or not isinstance(final_record["arguments"], dict)
+        or set(final_record["arguments"]) != {"address"}
+        or not isinstance(final_record["arguments"]["address"], str)
+        or not final_record["arguments"]["address"]
+    ):
+        raise ValueError("The paired recovery fixture must end with its exact track_complete action")
+    final_record["name"] = final_action
+    final_record_bytes = json.dumps(final_record, ensure_ascii=False, separators=(",", ":"))
+    return [decisions[0], decisions[1], *child_targets, decisions[2], final_record_bytes]
 
 
 class _FragmentingFixtureDecoder:
@@ -153,7 +167,7 @@ class _FragmentingFixtureDecoder:
         return (payload,), (token_ids,), (True,), (terminal,), (None,)
 
 
-def _serve(decoder_log_path, durability=None):
+def _serve(decoder_log_path, durability=None, final_action="track_complete"):
     model, codec = _build_model()
     identity = _model_identity(model)
     runtime = MultiTrackRuntime(MultiTrackGenerator.of(model))
@@ -193,7 +207,7 @@ def _serve(decoder_log_path, durability=None):
         )
     decoder_log_path.parent.mkdir(parents=True, exist_ok=True)
     decoder_log = decoder_log_path.open("x", encoding="utf-8")
-    decoder = _FragmentingFixtureDecoder(_fixture_records(), codec, decoder_log)
+    decoder = _FragmentingFixtureDecoder(_fixture_records(final_action), codec, decoder_log)
     original_realize = MultiTrackGenerator._realize
 
     def realize(multi, raw, specs, control, **kwargs):
@@ -253,6 +267,8 @@ def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--describe", action="store_true")
     parser.add_argument("--decoder-log", type=Path)
+    parser.add_argument("--final-action", choices=("track_complete", "track_cancel"),
+                        default="track_complete")
     parser.add_argument("--request-journal-dir", type=Path)
     parser.add_argument("--execution-lock-fd", type=int)
     parser.add_argument("--execution-lock-path", type=Path)
@@ -278,7 +294,8 @@ def main():
         return 0
     if arguments.decoder_log is None:
         parser.error("--decoder-log is required for the JSONL recovery fixture")
-    _serve(arguments.decoder_log, arguments if arguments.request_journal_dir is not None else None)
+    _serve(arguments.decoder_log, arguments if arguments.request_journal_dir is not None else None,
+           arguments.final_action)
     return 0
 
 
