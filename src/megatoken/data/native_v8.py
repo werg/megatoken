@@ -28,6 +28,12 @@ from .module_namespace_machine_v8 import (
     validate_experimental_module_namespace_shared_state,
 )
 from .module_namespace_state_v8 import verify_experimental_module_namespace_plan
+from .module_scheduler_machine_v8 import advance_shared as advance_module_scheduler_shared
+from .module_scheduler_machine_v8 import assert_next as assert_bound_module_scheduler_next
+from .module_scheduler_machine_v8 import (
+    validate_shared_state as validate_bound_module_scheduler_shared,
+)
+from .module_scheduler_machine_v8 import verify_bound_module_scheduler_plan
 from .protocol_v8 import (
     ProtocolV8Error,
     _array_index,
@@ -237,6 +243,17 @@ def validate_v8_artifact(document):
                     raise NativeV8Error(
                         f"Invalid experimental module namespace plan: {error}"
                     ) from error
+            if "moduleSchedulerPlan" in program:
+                try:
+                    if "moduleNamespacePlan" in program:
+                        raise ValueError("scheduler/namespace composition requires its own profile")
+                    verify_bound_module_scheduler_plan(
+                        program["moduleSchedulerPlan"],
+                        source=program["source"],
+                        entry=program["entry"],
+                    )
+                except ValueError as error:
+                    raise NativeV8Error(f"Invalid bound module scheduler plan: {error}") from error
             source_rows = [
                 r["fields"]
                 for r in timeline[:cutoff]
@@ -259,6 +276,12 @@ def validate_v8_artifact(document):
         if active_context_program is None:
             _fail("Active invocation program is not publicly available in the context")
         namespace_plan = active_context_program.get("moduleNamespacePlan")
+        try:
+            validate_bound_module_scheduler_shared(
+                state, active_context_program.get("moduleSchedulerPlan")
+            )
+        except ValueError as error:
+            raise NativeV8Error(f"Malformed bound module scheduler state: {error}") from error
         if state["protocol"] is not None and namespace_plan is not None:
             try:
                 validate_experimental_module_namespace_shared_state(state, namespace_plan)
@@ -1280,6 +1303,8 @@ def _replay_shared_state(
                 )
             program, functions, _ = published[invocation_metadata[active_invocation]["programId"]]
             if kind == "region":
+                if program.get("moduleSchedulerPlan") is not None:
+                    _fail("Bound module scheduler requires explicit source records")
                 frame = state["stack"][-1] if state["stack"] else fields["invocationId"]
                 namespace_plan = program.get("moduleNamespacePlan")
                 target = _replay_region(
@@ -1298,6 +1323,8 @@ def _replay_shared_state(
                     }
                 )
             elif kind == "algorithm":
+                if program.get("moduleSchedulerPlan") is not None:
+                    _fail("Bound module scheduler requires explicit source records")
                 if program.get("moduleNamespacePlan") is not None:
                     _fail("Whole algorithm route cannot bypass namespace cell lifecycle records")
                 frame = state["stack"][-1] if state["stack"] else fields["invocationId"]
@@ -1343,7 +1370,12 @@ def _replay_shared_state(
                         else None
                     )
                     state = apply_protocol_to_shared_state(
-                        state, fields["line"], namespace_plan=active_namespace_plan
+                        state,
+                        fields["line"],
+                        namespace_plan=active_namespace_plan,
+                        module_scheduler_plan=invocation_program[0].get("moduleSchedulerPlan")
+                        if invocation_program is not None
+                        else None,
                     )
                 except ProtocolV8Error as e:
                     raise NativeV8Error(
@@ -1378,6 +1410,23 @@ def _replay_shared_state(
                 namespace_state_before = (
                     copy.deepcopy(state) if active_namespace_plan is not None else None
                 )
+                active_module_plan = (
+                    invocation_program[0].get("moduleSchedulerPlan")
+                    if invocation_program is not None
+                    else None
+                )
+                module_state_before = (
+                    copy.deepcopy(state) if active_module_plan is not None else None
+                )
+                if active_module_plan is not None:
+                    try:
+                        assert_bound_module_scheduler_next(
+                            _internal_machine(state), {"kind": k, **payload}, active_module_plan
+                        )
+                    except ValueError as error:
+                        raise NativeV8Error(
+                            f"Invalid bound module source record: {error}"
+                        ) from error
                 _apply_detail(
                     state,
                     k,
@@ -1392,6 +1441,13 @@ def _replay_shared_state(
                     invocation_metadata=invocation_metadata[active_invocation],
                     callback_allocator=callback_allocator,
                 )
+                if active_module_plan is not None:
+                    try:
+                        state = advance_module_scheduler_shared(
+                            module_state_before, state, {"kind": k, **payload}, active_module_plan
+                        )
+                    except ValueError as error:
+                        raise NativeV8Error(f"Invalid bound module transition: {error}") from error
                 if active_namespace_plan is not None:
                     try:
                         assert_experimental_module_namespace_state_unchanged(

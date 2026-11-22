@@ -38,6 +38,13 @@ from .memory_v8 import FIELDS as MEMORY_FIELDS
 from .memory_v8 import apply_record as apply_memory_record
 from .memory_v8 import validate_record as validate_memory_record
 from .memory_v8 import validate_state as validate_memory_state
+from .module_scheduler_machine_v8 import FIELDS as MODULE_SCHEDULER_FIELDS
+from .module_scheduler_machine_v8 import INITIALIZE as MODULE_SCHEDULER_INITIALIZE
+from .module_scheduler_machine_v8 import advance as advance_module_scheduler
+from .module_scheduler_machine_v8 import assert_next as assert_module_scheduler_next
+from .module_scheduler_machine_v8 import initialize as initialize_module_scheduler
+from .module_scheduler_machine_v8 import validate_record as validate_module_scheduler_record
+from .module_scheduler_machine_v8 import validate_state as validate_module_scheduler_state
 from .number_v8 import FIELDS as NUMBER_FIELDS
 from .number_v8 import apply_record as apply_number_record
 from .number_v8 import assert_next as assert_number_next
@@ -264,6 +271,8 @@ def _expression(term, depth=0, budget=None):
 def validate_protocol_record(record):
     if type(record) is not dict or not isinstance(record.get("kind"), str):
         _fail("record kind must be a string")
+    if record["kind"] in MODULE_SCHEDULER_FIELDS:
+        return validate_module_scheduler_record(record)
     if record["kind"] in ASYNC_CALL_FIELDS:
         return validate_async_call_record(record)
     if record["kind"] in ENUMERATION_FIELDS:
@@ -1693,6 +1702,7 @@ def validate_protocol_state(snapshot, heap_ids=(), shared_state=None):
         validate_number_state(memory_machine)
         validate_generator_state(memory_machine)
         validate_async_call_state(memory_machine)
+        validate_module_scheduler_state(memory_machine)
         validate_proxy_state(memory_machine)
     return True
 
@@ -1725,7 +1735,9 @@ def _assert_no_generic_source_cell_write(machine, record, namespace_plan):
         _fail("namespace owner and source cells require their declared lifecycle records")
 
 
-def apply_protocol_to_shared_state(shared_state, line, *, namespace_plan=None):
+def apply_protocol_to_shared_state(
+    shared_state, line, *, namespace_plan=None, module_scheduler_plan=None
+):
     """Apply a protocol/1 line to the v8 shared heap/locals/call stack."""
     record = decode_protocol_record(line)
     machine = _internal_machine(shared_state)
@@ -1735,9 +1747,29 @@ def apply_protocol_to_shared_state(shared_state, line, *, namespace_plan=None):
     external = _external_machine(machine)
     validate_protocol_state(external["protocol"], external["heap"], external)
 
+    if module_scheduler_plan is not None or record["kind"] == MODULE_SCHEDULER_INITIALIZE:
+        try:
+            assert_module_scheduler_next(machine, record, module_scheduler_plan)
+        except ValueError as error:
+            _fail(str(error))
+
     if record["kind"] not in NAMESPACE_RECORD_KINDS:
         before = copy.deepcopy(external)
-        apply_protocol_record(machine, record)
+        if record["kind"] == MODULE_SCHEDULER_INITIALIZE:
+            try:
+                initialize_module_scheduler(machine, record, module_scheduler_plan)
+                machine["protocol"]["sequence"] += 1
+            except ValueError as error:
+                _fail(str(error))
+        else:
+            apply_protocol_record(machine, record)
+        if module_scheduler_plan is not None:
+            try:
+                advance_module_scheduler(
+                    _internal_machine(before), machine, record, module_scheduler_plan
+                )
+            except ValueError as error:
+                _fail(str(error))
         external_updated = _external_machine(machine)
         if namespace_plan is not None:
             from .module_namespace_machine_v8 import (
@@ -1951,6 +1983,7 @@ def assert_detailed_record_compatible(shared_state, kind, fields, *, namespace_p
             or node.get("generatorFunction") is True
             or node.get("asyncFunction") is True
             or "asyncCall" in node
+            or node.get("kind") == "module-scheduler"
             or node.get("kind") == "proxy"
             or node.get("promiseResolver")
         )

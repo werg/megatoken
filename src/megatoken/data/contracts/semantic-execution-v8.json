@@ -34,6 +34,10 @@
         "algorithm",
         "definitionDigest"
       ],
+      "optionalFields": [
+        "moduleNamespacePlan",
+        "moduleSchedulerPlan"
+      ],
       "sourceCorrespondence": "Independently rechecked producer evidence; public hashes alone do not certify source truth."
     },
     "entry": {
@@ -382,6 +386,11 @@
             "kind",
             "id",
             "completion"
+          ],
+          "module.scheduler.initialize": [
+            "kind",
+            "object",
+            "planDigest"
           ],
           "async.function": [
             "kind",
@@ -957,6 +966,7 @@
         },
         "profile": "symbols-ordinary-properties/1",
         "extensions": [
+          "bound-module-scheduler/1",
           "async-scoped-call/1",
           "module-namespace-live-cells/1",
           "owned-binary-memory/1",
@@ -2026,6 +2036,24 @@
         "capabilities": "First await detaches the child and restores its caller scope. Later continuations resume in the realm FIFO with the same receiver, live capture cells, and execution Promise. Child completion settles that Promise without completing its parent invocation.",
         "boundaries": "Async Promise callbacks, Promise adoption, thenable assimilation and implicit scheduler completion require separate profiles."
       },
+      "moduleScheduler": {
+        "profile": "bound-module-scheduler/1",
+        "planSchema": "semantic-bound-module-scheduler-plan/1",
+        "heapFields": [
+          "kind",
+          "properties",
+          "plan",
+          "owner",
+          "state",
+          "records",
+          "settlements",
+          "sequence"
+        ],
+        "storage": "One logical module-scheduler heap node bound to the active observed program source, entry, acyclic module plan, exact driver functions and completion reaction source offsets.",
+        "initialization": "The first generated record initializes the fresh entry ledger using its exact active plan digest. The logical ledger cannot escape into guest values.",
+        "transitions": "Validated scoped calls, owned async awaits and resumes, exact completion reaction dispatch and synchronous driver completion derive module starts, dependency scheduling, settlement and failure propagation from the same shared frames, Promises, jobs and source record objects. No selected record supplies lifecycle facts.",
+        "boundaries": "Compact and algorithm routes, cyclic evaluation, namespace composition, dynamic import, cross-invocation retained ledgers and general production module admission require separate qualification. End requires every bounded module lifecycle to settle."
+      },
       "construction": {
         "schema": "semantic-construction-state/1",
         "fields": [
@@ -2550,7 +2578,7 @@
       "default": "not promoted by engineering receipts alone"
     }
   },
-  "digest": "f92c2b99bcd373eadaadf2fa425af6b866c4312a18c6ff62b74743c40ab19f3c",
+  "digest": "a952385535b9b5e19d737206286f6f26c149f7301c51b4b106fe3b1cae5ab55a",
   "fixtureDigest": "56f7f36d3b25b3b11a208be3de337e637b9782e6759faea1e1ec107b0a90f0ce",
   "fixtures": [
     {
