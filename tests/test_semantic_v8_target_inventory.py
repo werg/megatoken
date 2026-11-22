@@ -1,7 +1,9 @@
 """Exact positive-loss inventory and optimizer target-presence comparison controls."""
 
+import importlib.util
 import json
 from copy import deepcopy
+from pathlib import Path
 from types import SimpleNamespace
 
 import pytest
@@ -69,6 +71,127 @@ def test_inventory_never_promotes_validation_episode_or_falls_back_to_adapter_li
     episode.supervision.annotations_json = "{}"
     with pytest.raises(ValueError, match="no bound V8 source identity"):
         inventory_episode_source_id(episode, registry_digest=REGISTRY)
+
+
+def test_complete_inventory_keeps_program_identity_and_ignores_observation_only_plans(
+    tmp_path, monkeypatch
+):
+    # The source admission and batch planner are controlled boundaries here. The
+    # complete inventory traversal and actual optimizer-census extraction execute.
+    path = Path(__file__).resolve().parents[1] / "scripts/qualify_semantic_v8_target_inventory.py"
+    spec = importlib.util.spec_from_file_location("inventory_control", path)
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    ids = [f"source-{index:02d}" for index in range(64)]
+    registry = {
+        "digest": REGISTRY,
+        "sources": [{"id": source} for source in ids],
+        "components": [
+            {"split": split, "sourceIds": sources}
+            for split, sources in (
+                ("train", ids[:48]),
+                ("validation", ids[48:60]),
+                ("test", ids[60:]),
+            )
+        ],
+    }
+    (tmp_path / "manifest.json").write_text(json.dumps({"fingerprint": MANIFEST}))
+    (tmp_path / "semantic-v8-families.json").write_text(json.dumps(registry))
+    episodes = [_prepared_episode(source=source) for source in ids[:48]]
+
+    class Corpus:
+        codec_fingerprint = CODEC
+
+        def __init__(self, _roots, *, split):
+            assert split == "train"
+
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *_args):
+            return False
+
+        def __len__(self):
+            return len(episodes)
+
+        def fetch(self, index):
+            return episodes[index], None
+
+    def prepare(_model, items, _config):
+        record = SimpleNamespace(policy_mask=True, logical_id="logical", record_id="physical")
+        encoded = SimpleNamespace(record=record)
+        return [
+            SimpleNamespace(
+                windows=items,
+                counts={"lexical": 1},
+                steps=[
+                    SimpleNamespace(records=[encoded], plans=[]),
+                    SimpleNamespace(
+                        records=[encoded], plans=[SimpleNamespace(denominators={"lexical": 1})]
+                    ),
+                ],
+            )
+        ]
+
+    monkeypatch.setattr(module, "PreparedCorpus", Corpus)
+    monkeypatch.setattr(
+        module,
+        "load_semantic_v8_codec",
+        lambda *_args, **_kwargs: SimpleNamespace(fingerprint=CODEC),
+    )
+    monkeypatch.setattr(
+        module,
+        "load_model_config",
+        lambda *_args, **_kwargs: SimpleNamespace(
+            vocab_size=256, max_history_chunks=128, max_capacity=128, to_dict=lambda: {"width": 1}
+        ),
+    )
+    monkeypatch.setattr(module, "build_model", lambda *_args, **_kwargs: None)
+    monkeypatch.setattr(
+        module,
+        "preflight_semantic_training_v8",
+        lambda *_args, **_kwargs: {"registryDigest": REGISTRY},
+    )
+    monkeypatch.setattr(module, "iter_windows", lambda *_args: [SimpleNamespace(index=0)])
+    monkeypatch.setattr(module, "prepare_batches", prepare)
+    monkeypatch.setattr(module, "batch_counters", lambda _batches: SimpleNamespace(P=1))
+    monkeypatch.delenv("WORLD_SIZE", raising=False)
+    result = module.target_inventory(
+        {
+            "purpose": "diagnostic",
+            "phase": "SE",
+            "model": "tiny",
+            "codec": "controlled",
+            "datasets": [str(tmp_path)],
+            "max_steps": 1,
+            "generated_capacity": 128,
+            "microbatch_episodes": 1,
+            "max_accumulation_windows": 1,
+            "semantic_v8_policy": {
+                "schema": "semantic-training-policy/8",
+                "producerRevision": "1" * 40,
+                "consumerRevision": "2" * 40,
+                "registryDigest": REGISTRY,
+            },
+        },
+        ids,
+    )
+    assert result["scoredSourceIds"] == ids[:48]
+    assert (
+        result["windowCount"] == result["optimizerWindowCount"] == result["onePassMeterCount"] == 48
+    )
+    assert result["positiveWeight"] == {
+        "sourceCount": 48,
+        "logicalTargetCount": 48,
+        "physicalTargetRecordCount": 48,
+        "scoredOccurrences": 48,
+        "lossDenominators": {"lexical": 48},
+    }
+    assert result["available"] == {
+        "policyTargetRecordCount": 48,
+        "lossDenominators": {"lexical": 48},
+    }
+    assert result["optimizerUpdates"] == 0
 
 
 def _inventory():

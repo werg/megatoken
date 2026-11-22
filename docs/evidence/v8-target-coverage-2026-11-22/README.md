@@ -21,3 +21,11 @@ different programs with shared lineage and refused source/registry/split substit
 This is an implementation control result. It does not by itself establish complete
 optimizer coverage. Full ordinary optimizer exposure, exact window/occurrence/loss
 denominator census, token-position coverage and learned success remain separate gates.
+
+A direct run against all retained prepared episodes then reached a second actual
+planner boundary: an observation-only step contains records but has no loss plans.
+The inventory's available-target loop incorrectly zipped those unequal sequences.
+It now skips steps without loss plans, exactly as the optimizer exposure collector
+does, retaining strict record/plan pairing whenever a loss plan exists. The complete
+local failure is retained as `observation-only-inventory-failure.log`; no optimizer
+work had started in that attempt either.

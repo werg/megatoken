@@ -205,6 +205,8 @@ def target_inventory(config_source, expected_source_ids_source=None):
                     )
                 for batch in batches:
                     for step in batch.steps:
+                        if not step.plans:
+                            continue
                         for encoded, plan in zip(step.records, step.plans, strict=True):
                             record = encoded.record
                             if not record.policy_mask:
