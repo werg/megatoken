@@ -691,6 +691,157 @@ def bootstrap_orchestration_child(adapter, *, session, track, childTrack):
         return outcome
 
 
+def derive_callback_admission(
+    *, session, state, previous_public, previous_contexts, completed, public, contexts
+):
+    """Derive one late child from an independently replayed observed callback.
+
+    The private ingress journal remains the host's authority for the arrival.
+    This boundary accepts no separate caller-authored child binding, heap,
+    handler, parent or input. It validates their complete public derivation.
+    """
+    from megatoken.data.native_v8 import _replay_shared_state
+
+    checked = validate_v8_committed_prefix(public, contexts)
+    children = state["children"]
+    if (
+        checked["session"] != session
+        or state["maxActive"] != 1
+        or len(children) != 1
+        or state["cancelled"] is not None
+        or any(operation["kind"] == "callback-admission" for operation in state["operations"])
+        or not _same(contexts, previous_contexts)
+    ):
+        _fail("Late callback admission requires one unchanged, quiescent root history")
+    root = children[0]
+    parent = root["invocation"]["fields"]
+    if (
+        parent["realmPolicy"] != "retained"
+        or parent["invocationId"] not in completed
+        or root["completion"] is None
+        or root["completion"]["completion"]["kind"] != "return"
+        or state["published"] != [parent["invocationId"]]
+    ):
+        _fail("Late callback requires its completed and published retained root")
+    rows, previous = public["timeline"], previous_public["timeline"]
+    suffix = rows[len(previous) :]
+    if (
+        not _same({**public, "timeline": []}, {**previous_public, "timeline": []})
+        or not _same(rows[: len(previous)], previous)
+        or len(suffix) != 2
+        or [row["kind"] for row in suffix] != ["event", "invocation"]
+        or any(row["mode"] != "observed" for row in suffix)
+    ):
+        _fail(
+            "Late callback requires exactly one observed event and its invocation after the retained cut"
+        )
+    event, invocation = suffix
+    incoming = invocation["fields"]
+    boundary = _replay_shared_state(
+        previous, contexts, {}, roundtrip=False, boundary_invocation=parent["invocationId"]
+    )
+    handler = dict(boundary["obligations"]["handlers"]).get(event["fields"]["subscriptionId"])
+    if (
+        handler is None
+        or handler["lifetime"] != "subscription"
+        or handler["closureId"] is None
+        or handler["ownerInvocationId"] != parent["invocationId"]
+        or incoming["activation"] != "callback"
+        or incoming["parentInvocationId"] != parent["invocationId"]
+        or incoming["programId"] != parent["programId"]
+        or incoming["sourceDigest"] != parent["sourceDigest"]
+        or incoming["realmId"] != parent["realmId"]
+        or incoming["realmPolicy"] != "retained"
+        or incoming["track"] != parent["track"]
+        or incoming["closureId"] != handler["closureId"]
+        or incoming["entry"] != handler["entry"]
+    ):
+        _fail("Late callback differs from its independently retained source handler and owner")
+    child = {"program": copy.deepcopy(root["program"]), "invocation": copy.deepcopy(invocation)}
+    child["execution"] = _description(execution_binding(**child, completion_target=state["track"]))
+    child.update(track=None, completion=None)
+    receipt = {
+        "schema": "semantic-orchestration-callback-admission/8",
+        "session": session,
+        "track": state["track"],
+        "admitted": True,
+        "parentInvocationId": parent["invocationId"],
+        "invocationId": incoming["invocationId"],
+        "eventSequence": event["sequence"],
+        "publicDigest": checked["publicDigest"],
+        "contextsDigest": stable_algorithm_hash(contexts),
+        "execution": copy.deepcopy(child["execution"]),
+    }
+    return child, receipt
+
+
+def admit_orchestration_callback(adapter, *, session, track, public, contexts):
+    """Admit one observed late callback without creating or executing its track."""
+    from megatoken.semantic_checkpoint_v8 import capture_random_state, restore_random_state
+    from megatoken.semantic_model_v8 import _fork_session
+
+    with adapter.lock:
+        work = _work(adapter, session, track)
+        _live(work)
+        if work.pending is not None or work.runtime.tracks.tracks[track].status != "active":
+            _fail("Late callback admission requires an active coordinator without pending work")
+        prior = next(
+            (
+                operation
+                for operation in work.orchestration["operations"]
+                if operation["kind"] == "callback-admission"
+            ),
+            None,
+        )
+        if prior is not None:
+            if (
+                stable_algorithm_hash(public) != prior["receipt"]["publicDigest"]
+                or stable_algorithm_hash(contexts) != prior["receipt"]["contextsDigest"]
+            ):
+                _fail("The single late callback admission cannot be repeated with changed history")
+            return copy.deepcopy(prior["receipt"])
+        child, receipt = derive_callback_admission(
+            session=session,
+            state=work.orchestration,
+            previous_public=work.public,
+            previous_contexts=work.contexts,
+            completed=work.completed,
+            public=public,
+            contexts=contexts,
+        )
+        random_before = capture_random_state()
+        branch = _fork_session(work.runtime)
+        try:
+            adapter.runtime.register_execution_context(
+                branch, program=child["program"], invocation=child["invocation"]
+            )
+            adapter._observe(
+                branch,
+                canonical_semantic_observation(receipt),
+                "environment",
+                f"semantic:v8:orchestration:callback-admission:{receipt['invocationId']}",
+                track=track,
+            )
+        except Exception:
+            restore_random_state(random_before)
+            raise
+        _adopt(adapter, work, branch)
+        work.orchestration["children"].append(child)
+        work.orchestration["operations"].append(
+            {
+                "kind": "callback-admission",
+                "acknowledgedThrough": len(public["timeline"]),
+                "contextCount": len(contexts),
+                "randomBefore": random_before,
+                "receipt": copy.deepcopy(receipt),
+            }
+        )
+        work.public = copy.deepcopy(public)
+        # The new child still receives the observed event/input at its own
+        # selection. Admission does not advance that child ingestion cursor.
+        return receipt
+
+
 def semantic_track(work, invocation, public):
     if work.orchestration is None:
         from megatoken.contracts import MAIN_TRACK
@@ -973,6 +1124,28 @@ def restore_orchestration(adapter, *, session, saved, attempts):
             adapter.bootstrap_orchestration_child(
                 session=session, track=state["track"], childTrack=operation["track"]
             )
+        elif kind == "callback-admission":
+            if (
+                set(operation)
+                != {"kind", "acknowledgedThrough", "contextCount", "randomBefore", "receipt"}
+                or type(operation["acknowledgedThrough"]) is not int
+                or not 0 < operation["acknowledgedThrough"] <= len(saved["public"]["timeline"])
+                or type(operation["contextCount"]) is not int
+                or operation["contextCount"] != len(work.contexts)
+            ):
+                _fail("Malformed late callback admission in ordered recovery history")
+            restore_random_state(operation["randomBefore"])
+            receipt = adapter.admit_orchestration_callback(
+                session=session,
+                track=state["track"],
+                public={
+                    **saved["public"],
+                    "timeline": saved["public"]["timeline"][: operation["acknowledgedThrough"]],
+                },
+                contexts=work.contexts,
+            )
+            if not _same(receipt, operation["receipt"]):
+                _fail("Restored late callback differs from its original observed admission")
         elif kind == "completion":
             if (
                 set(operation) != {"kind", "invocationId", "acknowledgedThrough", "randomBefore"}
