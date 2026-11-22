@@ -4,10 +4,12 @@ import copy
 
 import pytest
 
+from megatoken.data.native_v8 import _apply_detail
 from megatoken.data.promise_scheduler_v8 import create_promise, settle_promise
 from megatoken.data.protocol_v8 import (
     ProtocolV8Error,
     _external_machine,
+    _internal_machine,
     apply_protocol_record,
     create_protocol_state,
     validate_protocol_state,
@@ -110,6 +112,14 @@ def root_return(machine):
     apply(machine, {"kind": "return", "invocation": "root", "value": ["num", 99]})
 
 
+def detail(machine, kind, **fields):
+    external = _external_machine(machine)
+    _apply_detail(external, kind, fields, {}, root="root")
+    machine.clear()
+    machine.update(_internal_machine(external))
+    assert validate_protocol_state(external["protocol"], external["heap"], external)
+
+
 def test_first_await_returns_execution_promise_and_restores_caller_scope():
     machine = fixture()
     call(machine)
@@ -122,6 +132,33 @@ def test_first_await_returns_execution_promise_and_restores_caller_scope():
     assert machine["captureAliases"] == {}
     assert machine["lastReturn"] == {"kind": "return", "value": ["ref", "first"]}
     assert machine["ready"] == ["first-await"]
+
+
+def test_async_returned_promise_remains_pending_until_fifo_forwarding_job():
+    machine = fixture()
+    create_promise(machine, "source")
+    settle_promise(machine, "source", "fulfilled", ["num", 23])
+    call(machine)
+    apply(
+        machine,
+        {
+            "kind": "async.complete",
+            "promise": "first",
+            "invocation": "first-body",
+            "completion": {"kind": "return", "value": ["ref", "source"]},
+        },
+    )
+    assert machine["heap"]["first"]["state"] == "pending"
+    apply(machine, {"kind": "promise.adopt.enqueue", "promise": "first", "target": "source", "job": "adopt"})
+    machine["stack"] = []
+    apply(machine, {"kind": "promise.adopt.enter", "promise": "first", "target": "source", "job": "adopt", "forwarding": "forward"})
+    assert machine["ready"] == ["forward"]
+    apply(
+        machine,
+        {"kind": "promise.adopt.forward", "promise": "first", "target": "source", "job": "forward", "status": "fulfilled", "value": ["num", 23]},
+    )
+    assert machine["heap"]["first"]["state"] == "fulfilled"
+    assert machine["heap"]["first"]["result"] == ["num", 23]
 
 
 def test_detached_resume_keeps_live_cells_and_completion_does_not_replace_root():
@@ -222,3 +259,78 @@ def test_restore_refuses_changed_receiver_captures_or_execution_settlement():
     promise["state"], promise["result"] = "fulfilled", ["num", 3]
     with pytest.raises(ProtocolV8Error, match="unfinished async"):
         validate_protocol_state(forged["protocol"], forged["heap"], forged)
+
+
+def test_async_throw_keeps_an_owned_promise_as_opaque_rejection_after_restore():
+    machine = fixture()
+    call(machine)
+    apply(
+        machine,
+        {
+            "kind": "async.complete",
+            "promise": "first",
+            "invocation": "first-body",
+            "completion": {"kind": "throw", "value": ["ref", "input"]},
+        },
+    )
+    machine = _internal_machine(copy.deepcopy(_external_machine(machine)))
+    external = _external_machine(machine)
+    assert validate_protocol_state(external["protocol"], external["heap"], external)
+    assert machine["heap"]["first"]["state"] == "rejected"
+    assert machine["heap"]["first"]["result"] == ["ref", "input"]
+    assert machine["heap"]["first"].get("adoption") is None
+    assert machine["jobs"] == []
+    before = copy.deepcopy(machine)
+    with pytest.raises(ProtocolV8Error):
+        apply_protocol_record(
+            machine,
+            {"kind": "promise.adopt.enqueue", "promise": "first", "target": "input", "job": "invented-adoption"},
+        )
+    assert machine == before
+    assert machine["heap"]["input"]["result"] == ["num", 0]
+
+
+def test_async_forwarding_identity_cannot_collide_with_jobs_or_other_adopters():
+    machine = fixture()
+    for name in ("first", "second"):
+        call(machine, name)
+        apply(
+            machine,
+            {
+                "kind": "async.complete",
+                "promise": name,
+                "invocation": name + "-body",
+                "completion": {"kind": "return", "value": ["ref", "input"]},
+            },
+        )
+        apply(machine, {"kind": "promise.adopt.enqueue", "promise": name, "target": "input", "job": name + "-adopt"})
+        if name == "first":
+            detail(machine, "job", action="enqueue", job="ordinary", owner="root")
+    root_return(machine)
+    assert machine["ready"] == ["first-adopt", "ordinary", "second-adopt"]
+    for forwarding in ("ordinary", "second-adopt", "first-adopt"):
+        before = copy.deepcopy(machine)
+        with pytest.raises(ProtocolV8Error):
+            apply_protocol_record(
+                machine,
+                {"kind": "promise.adopt.enter", "promise": "first", "target": "input", "job": "first-adopt", "forwarding": forwarding},
+            )
+        assert machine == before
+    apply(machine, {"kind": "promise.adopt.enter", "promise": "first", "target": "input", "job": "first-adopt", "forwarding": "first-forward"})
+    machine = _internal_machine(copy.deepcopy(_external_machine(machine)))
+    detail(machine, "job", action="dispatch", job="ordinary", owner="root")
+    detail(machine, "job", action="complete", job="ordinary", owner="root")
+    before = copy.deepcopy(machine)
+    with pytest.raises(ProtocolV8Error):
+        apply_protocol_record(
+            machine,
+            {"kind": "promise.adopt.enter", "promise": "second", "target": "input", "job": "second-adopt", "forwarding": "first-forward"},
+        )
+    assert machine == before
+    apply(machine, {"kind": "promise.adopt.enter", "promise": "second", "target": "input", "job": "second-adopt", "forwarding": "second-forward"})
+    machine = _internal_machine(copy.deepcopy(_external_machine(machine)))
+    external = _external_machine(machine)
+    assert validate_protocol_state(external["protocol"], external["heap"], external)
+    assert machine["ready"] == ["first-forward", "second-forward"]
+    assert machine["heap"]["first"]["adoption"]["forwarding"] == "first-forward"
+    assert machine["heap"]["second"]["adoption"]["forwarding"] == "second-forward"
