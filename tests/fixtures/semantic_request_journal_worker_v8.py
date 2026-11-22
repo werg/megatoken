@@ -32,12 +32,27 @@ class CrashingJournal(DurableNativeRequestJournal):
         if MODE == "after-outcome" and target_name.endswith(".outcome.json"):
             os._exit(72)
 
+    def _after_link_before_temp_unlink(self, target_name, path, temp):
+        if MODE == "after-link-intent" and target_name.endswith(".intent.json"):
+            os._exit(74)
+        if MODE == "after-link-outcome" and target_name.endswith(".outcome.json"):
+            os._exit(75)
+        if MODE == "after-link-superseded" and target_name.endswith(".superseded.json"):
+            os._exit(76)
+
 
 journal = CrashingJournal(ROOT)
 if MODE == "after-admission":
     journal.execute(IDENTITY, REQUEST, lambda _: os._exit(71))
 elif MODE == "after-outcome":
     journal.execute(IDENTITY, REQUEST, lambda _: b"response")
+elif MODE == "after-link-intent":
+    journal.execute(IDENTITY, REQUEST, lambda _: os._exit(71))
+elif MODE == "after-link-outcome":
+    journal.execute(IDENTITY, REQUEST, lambda _: b"response")
+elif MODE == "after-link-superseded":
+    journal.execute(IDENTITY, REQUEST, lambda _: b"response")
+    journal.supersede(IDENTITY, REQUEST, {"op": "select", "session": "session-a"})
 elif MODE == "before-admission":
     journal.execute(IDENTITY, REQUEST, lambda _: b"must-not-run")
 elif MODE == "hold":

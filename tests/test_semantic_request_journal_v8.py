@@ -227,3 +227,60 @@ def test_orphan_outcome_and_missing_lower_slot_refuse(tmp_path):
     intent.unlink()
     with pytest.raises(NativeRequestJournalError, match="missing request intent"):
         journal.inspect(identity(3), b"third")
+
+
+def test_process_crash_after_intent_link_is_reconciled_as_unknown_without_callback(tmp_path):
+    child = run_worker(tmp_path / "journal", "after-link-intent")
+    assert child.returncode == 74
+    journal = DurableNativeRequestJournal(tmp_path / "journal")
+    observed = journal.inspect(identity(), b"request")
+    assert observed["status"] == "unknown"
+    scope = next((tmp_path / "journal").iterdir())
+    assert not any(item.name.startswith(".tmp-") for item in scope.iterdir())
+    with pytest.raises(NativeRequestOutcomeUnknown):
+        journal.execute(identity(), b"request", lambda _: pytest.fail("intent crash was retried"))
+
+
+def test_process_crash_after_outcome_link_preserves_exact_completed_result(tmp_path):
+    child = run_worker(tmp_path / "journal", "after-link-outcome")
+    assert child.returncode == 75
+    journal = DurableNativeRequestJournal(tmp_path / "journal")
+    observed = journal.inspect(identity(), b"request")
+    assert observed["status"] == "completed"
+    assert observed["result_bytes"] == b"response"
+    scope = next((tmp_path / "journal").iterdir())
+    assert not any(item.name.startswith(".tmp-") for item in scope.iterdir())
+
+
+def test_process_crash_after_superseded_link_keeps_latest_recovery_fenced(tmp_path):
+    child = run_worker(tmp_path / "journal", "after-link-superseded")
+    assert child.returncode == 76, child.stderr
+    journal = DurableNativeRequestJournal(tmp_path / "journal")
+    observed = journal.inspect(identity(), b"request")
+    assert observed["status"] == "completed"
+    assert observed["result_bytes"] == b"response"
+    with pytest.raises(NativeRequestConflict, match="superseded"):
+        journal.inspect(identity(), b"request", require_latest=True)
+    scope = next((tmp_path / "journal").iterdir())
+    assert not any(item.name.startswith(".tmp-") for item in scope.iterdir())
+
+
+@pytest.mark.parametrize("kind", ["foreign-target", "extra-alias"])
+def test_cleanup_refuses_unowned_hardlinks_without_deleting_them(tmp_path, kind):
+    journal = DurableNativeRequestJournal(tmp_path / "journal")
+    journal.execute(identity(), b"request", lambda _: b"response")
+    scope, _ = journal._scope(identity())
+    intent, _ = journal._paths(scope, 1)
+    temp = scope / (".tmp-" + "a" * 32)
+    outside = tmp_path / "unowned-alias"
+    if kind == "foreign-target":
+        temp.write_bytes(b"not an admitted record")
+        temp.chmod(0o600)
+        os.link(temp, outside)
+    else:
+        os.link(intent, temp)
+        os.link(temp, outside)
+    with pytest.raises(NativeRequestJournalError, match="unique official|unsafe temporary"):
+        journal.inspect(identity(), b"request")
+    assert temp.stat().st_nlink == (2 if kind == "foreign-target" else 3)
+    assert temp.stat().st_ino == outside.stat().st_ino

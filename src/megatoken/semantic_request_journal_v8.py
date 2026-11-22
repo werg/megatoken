@@ -218,9 +218,36 @@ class DurableNativeRequestJournal:
                 not stat.S_ISREG(st.st_mode)
                 or st.st_uid != os.geteuid()
                 or stat.S_IMODE(st.st_mode) & 0o077
-                or st.st_nlink != 1
+                or st.st_nlink not in (1, 2)
             ):
                 raise NativeRequestJournalError("unsafe temporary journal entry")
+            if st.st_nlink == 2:
+                matches = []
+                for candidate in directory.iterdir():
+                    if candidate.name.startswith(".tmp-"):
+                        continue
+                    if not re.fullmatch(
+                        r"[0-9]{20}\.(?:intent|outcome|superseded)\.json", candidate.name
+                    ):
+                        continue
+                    try:
+                        target_st = candidate.lstat()
+                    except FileNotFoundError:
+                        continue
+                    if (target_st.st_dev, target_st.st_ino) == (st.st_dev, st.st_ino):
+                        matches.append(candidate)
+                if len(matches) != 1:
+                    raise NativeRequestJournalError(
+                        "linked temporary has no unique official journal destination"
+                    )
+                target_st = matches[0].lstat()
+                if (
+                    not stat.S_ISREG(target_st.st_mode)
+                    or target_st.st_uid != os.geteuid()
+                    or stat.S_IMODE(target_st.st_mode) & 0o077
+                    or target_st.st_nlink != 2
+                ):
+                    raise NativeRequestJournalError("unsafe linked journal destination")
             item.unlink()
             removed = True
         if removed:
@@ -349,12 +376,19 @@ class DurableNativeRequestJournal:
         try:
             os.link(temp, path, follow_symlinks=False)
         except FileExistsError as exc:
-            raise NativeRequestConflict("immutable journal slot already exists") from exc
-        finally:
             try:
                 os.unlink(temp)
             except FileNotFoundError:
                 pass
+            raise NativeRequestConflict("immutable journal slot already exists") from exc
+        except OSError:
+            try:
+                os.unlink(temp)
+            except FileNotFoundError:
+                pass
+            raise
+        self._after_link_before_temp_unlink(path.name, path, temp)
+        os.unlink(temp)
         self._sync_directory(path.parent, "record-publish")
         self._after_published(path.name, path)
 
@@ -363,6 +397,9 @@ class DurableNativeRequestJournal:
 
     def _after_published(self, target_name: str, path: Path) -> None:
         """Private fault-injection seam used to model a lost acknowledgement."""
+
+    def _after_link_before_temp_unlink(self, target_name: str, path: Path, temp: Path) -> None:
+        """Private fault seam for a crash after link but before temp cleanup."""
 
     def _request_id(self, scope_id: str, ordinal: int) -> str:
         return _digest(
