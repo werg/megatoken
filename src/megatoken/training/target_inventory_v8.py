@@ -3,8 +3,46 @@
 from __future__ import annotations
 
 import json
+import re
+from dataclasses import asdict
 
 from megatoken.data.semantic_json import stable_algorithm_hash
+
+
+def training_config_identity_v8(config, *, codec_fingerprint, prepared_manifest_fingerprints):
+    """Bind objective settings to verified input contents, not storage locations.
+
+    Callers obtain these fingerprints from the loaded codec and checked prepared
+    manifests. The real configuration still retains its physical paths as audit
+    provenance. Changing any input contents or effective objective changes this
+    identity; copying the same immutable inputs to another directory does not.
+    """
+    fingerprints = list(prepared_manifest_fingerprints)
+    if (
+        config.semantic_v8_policy is None
+        or not isinstance(codec_fingerprint, str)
+        or re.fullmatch(r"[0-9a-f]{64}", codec_fingerprint) is None
+        or not fingerprints
+        or any(
+            not isinstance(value, str) or re.fullmatch(r"[0-9a-f]{64}", value) is None
+            for value in fingerprints
+        )
+        or len(fingerprints) != len(set(fingerprints))
+    ):
+        raise ValueError("V8 objective requires exact codec and distinct prepared fingerprints")
+    identity = asdict(config)
+    for key in (
+        "output",
+        "max_steps",
+        "checkpoint_every",
+        "keep_checkpoints",
+        "log_every",
+        "device",
+    ):
+        identity.pop(key, None)
+    identity["codec"] = {"fingerprint": codec_fingerprint}
+    identity["datasets"] = {"manifestFingerprints": sorted(fingerprints)}
+    return identity
 
 
 def inventory_episode_source_id(episode, *, registry_digest):
