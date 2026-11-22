@@ -100,6 +100,7 @@
           "callFrames": [],
           "sequence": 0,
           "construction": null,
+          "primitiveConversions": null,
           "numberConversions": null,
           "proxyCalls": null,
           "promiseExecutors": null
@@ -427,6 +428,7 @@
           "callFrames": [],
           "sequence": 12,
           "construction": null,
+          "primitiveConversions": null,
           "numberConversions": null,
           "proxyCalls": null,
           "promiseExecutors": null
@@ -531,6 +533,7 @@
           "callFrames": [],
           "sequence": 0,
           "construction": null,
+          "primitiveConversions": null,
           "numberConversions": null,
           "proxyCalls": null,
           "promiseExecutors": null
@@ -835,6 +838,7 @@
           "callFrames": [],
           "sequence": 7,
           "construction": null,
+          "primitiveConversions": null,
           "numberConversions": null,
           "proxyCalls": null,
           "promiseExecutors": null
@@ -939,6 +943,7 @@
           "callFrames": [],
           "sequence": 0,
           "construction": null,
+          "primitiveConversions": null,
           "numberConversions": null,
           "proxyCalls": null,
           "promiseExecutors": null
@@ -1173,6 +1178,7 @@
           "callFrames": [],
           "sequence": 8,
           "construction": null,
+          "primitiveConversions": null,
           "numberConversions": null,
           "proxyCalls": null,
           "promiseExecutors": null

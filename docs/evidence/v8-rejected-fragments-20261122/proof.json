@@ -1,0 +1,53 @@
+{
+  "controls": {
+    "frozen-producer-controls.xml": {
+      "errors": 0,
+      "failures": 0,
+      "names": [
+        "native partial binary failures retain authenticated original tokens without inventing a record",
+        "authenticated partial native bytes retain measured failure cost without inventing a complete UTF-8 record"
+      ],
+      "skips": 0,
+      "testCases": 2
+    },
+    "native-controls.xml": {
+      "errors": 0,
+      "failures": 0,
+      "names": [
+        "test_acknowledged_host_suffix_cannot_be_dropped_and_is_ingested_once",
+        "test_acknowledgement_requires_the_complete_original_selection_evidence",
+        "test_actual_native_runtime_generates_without_mutating_unacknowledged_state",
+        "test_all_eight_original348_invalid_outputs_keep_rejected_final_bytes",
+        "test_callback_completions_preserve_native_tape_for_later_callback_and_parent",
+        "test_commit_cannot_smuggle_extra_routing_payload",
+        "test_completion_requires_terminal_acknowledgement_and_explicit_session_close",
+        "test_continuation_requires_visible_context_and_every_earlier_fragment",
+        "test_failed_emission_retains_original_cost_and_can_retry",
+        "test_malformed_rejected_outputs_retain_raw_evidence_without_aggregate_provenance",
+        "test_native_commit_independently_rejects_false_semantics",
+        "test_observed_native_inputs_match_training_preparation",
+        "test_original_fragment_ids_and_bytes_survive_explicit_commit",
+        "test_real_training_and_serving_prediction_state_and_controls_match_exactly",
+        "test_rejected_candidate_leaves_native_state_available_for_retry",
+        "test_runtime_invalid_first_and_later_fragments_keep_all_original_bytes",
+        "test_wrong_initialization_and_unacknowledged_teacher_history_are_refused"
+      ],
+      "skips": 0,
+      "testCases": 17
+    }
+  },
+  "nativeParent": "cdd01ac0dcd65d92e948cec39f7b5c156800206e",
+  "nativeSource": "6d5ea69109ce26c2baa04a24575f675174066480",
+  "originalEvaluationArchiveSha256": "2d575cbec0b543e329e68e9bb1289e3a7f33988866a145a9fb3c641a41ff91ad",
+  "originalEvaluationArtifact": 14763634179,
+  "originalEvaluationRun": 45046754653,
+  "originalReportsModified": false,
+  "producerControlsSource": "9cf091e6ccc5add960ef0897576d0c391b199a65",
+  "qualification": "Engineering boundary controls including eight immutable original bad byte sequences. No new original348 model inference or quality success.",
+  "qualityClaim": false,
+  "sourceFiles": {
+    "src/megatoken/semantic_model_v8.py": "9021ff40495cffabaeefa19d538fbdebcf8be2de6042a76421dd6e5134c3a09d",
+    "tests/fixtures/semantic-v8-original348-invalid-fragments.json.gz.b64": "411e6335f73bb4bc61f4739ec0f8bd1d5c48df4de554542a7514fafbcd2e7c8b",
+    "tests/test_semantic_model_v8.py": "723cf747d48da46a5a5d07249f847a55008cd87f2d4f60c4aa6747b4894f3858"
+  }
+}

@@ -8,6 +8,7 @@ import io
 import json
 import os
 import subprocess
+import sys
 import tempfile
 import unittest
 from pathlib import Path
@@ -16,6 +17,7 @@ from unittest.mock import patch
 from megatoken.data.algorithm_v7 import stable_algorithm_hash, stable_algorithm_json
 from megatoken.generation.codec import ByteCodec
 from scripts import admit_semantic_v8
+from tests.test_source_identity_v8 import direct_source_sidecar
 
 
 class NativeV8AdmissionTests(unittest.TestCase):
@@ -115,6 +117,18 @@ class NativeV8AdmissionTests(unittest.TestCase):
         cls.example = json.loads(gzip.decompress(base64.b64decode(fixture.read_bytes())))[
             "examples"
         ][0]
+        conversion_fixture = (
+            Path(__file__).parent / "fixtures" / "semantic-primitive-conversion-v8.json.gz.b64"
+        )
+        conversion_cases = json.loads(
+            gzip.decompress(base64.b64decode(conversion_fixture.read_bytes()))
+        )["cases"]
+        cls.conversion_examples = {
+            case["id"]: case["artifact"]
+            for case in conversion_cases
+            if case["id"] in ("getter-replacement", "nested-goals", "promise-key", "mapped-key")
+        }
+        assert len(cls.conversion_examples) == 4
 
     def source_document(self, *, protocol=False):
         document = copy.deepcopy(self.example)
@@ -194,6 +208,27 @@ class NativeV8AdmissionTests(unittest.TestCase):
         self.assertEqual(receipt["checks"]["sourceBinding"], "untested")
         self.assertFalse(receipt["admitted"])
 
+    def test_direct_host_identity_without_live_source_replay_is_not_admission(self):
+        document = self.source_document()
+        side = document["sidecar"]
+        del side["sourceArtifact"], side["sourceArtifactDigest"]
+        side.update(
+            direct_source_sidecar(), representation="mixed", protocolExtensions=["promise-join/1"]
+        )
+        receipt = self.run_cli(document)
+        self.assertIsNone(receipt["sourceArtifactDigest"])
+        self.assertEqual(receipt["sourceIdentityDigest"], side["identityDigest"])
+        self.assertEqual(receipt["checks"]["sourceBinding"], "untested")
+        self.assertFalse(receipt["admitted"])
+        for mutation in ("identity", "inventory"):
+            changed = copy.deepcopy(document)
+            if mutation == "identity":
+                changed["sidecar"]["identityDigest"] = "0" * 64
+            else:
+                changed["sidecar"]["protocolExtensions"] = ["invented"]
+            with self.subTest(mutation=mutation), self.assertRaisesRegex(ValueError, "direct"):
+                self.run_cli(changed)
+
     def test_false_evidence_digests_are_still_rejected(self):
         for field in ("sourceArtifactDigest", "publicDigest", "contextDigest"):
             with self.subTest(field=field):
@@ -218,7 +253,9 @@ class NativeV8AdmissionTests(unittest.TestCase):
             "class-private-source/1",
             "synchronous-generator-source/1",
             "promise-join/1",
+            "promise-adoption/1",
             "number-conversion-source/1",
+            "primitive-conversion-source/1",
             "ordinary-completions-source/1",
             "custom-iterator-source/1",
             "ordinary-data-proxy-source/1",
@@ -237,6 +274,162 @@ class NativeV8AdmissionTests(unittest.TestCase):
         receipt = self.run_cli(document)
         self.assertEqual(receipt["checks"]["sourceBinding"], "untested")
         self.assertFalse(receipt["admitted"])
+
+    def test_real_conversion_source_artifacts_reach_cli_checks_without_claiming_admission(self):
+        # Exercise the production CLI boundary with the actual generated source
+        # artifacts, including mixed profiles. Direct native replay alone does
+        # not check this inventory registration. The byte fallback and absent
+        # live producer deliberately leave complete admission unproven here.
+        for identity, document in self.conversion_examples.items():
+            with self.subTest(identity=identity):
+                self.assertIn(
+                    "primitive-conversion-source/1", document["sidecar"]["protocolExtensions"]
+                )
+                if identity == "promise-key":
+                    self.assertIn(
+                        "promise-adoption/1", document["sidecar"]["protocolExtensions"]
+                    )
+                receipt = self.run_cli(document)
+                self.assertEqual(
+                    receipt["protocolExtensions"], document["sidecar"]["protocolExtensions"]
+                )
+                for name in ("replay", "contexts", "continuation", "masks", "tokenizer"):
+                    self.assertEqual(receipt["checks"][name], "passed")
+                self.assertGreater(receipt["counts"]["protocolRecords"], 0)
+                self.assertGreater(receipt["counts"]["generatedTokens"], 0)
+                self.assertEqual(receipt["counts"]["contexts"], len(document["contexts"]))
+                self.assertEqual(receipt["checks"]["sourceBinding"], "untested")
+                self.assertFalse(receipt["admitted"])
+
+    def test_real_conversion_source_inventory_rejects_unknown_duplicate_and_mismatched_profiles(
+        self,
+    ):
+        for mutation in ("unknown", "duplicate", "mismatch"):
+            with self.subTest(mutation=mutation):
+                document = copy.deepcopy(self.conversion_examples["promise-key"])
+                sidecar = document["sidecar"]
+                extensions = sidecar["protocolExtensions"]
+                source = sidecar["sourceArtifact"]
+                if mutation == "unknown":
+                    extensions.append("unreviewed-conversion-source/1")
+                elif mutation == "duplicate":
+                    extensions.append("primitive-conversion-source/1")
+                if mutation != "mismatch":
+                    source["sidecar"]["compiler"]["extensions"] = list(extensions)
+                else:
+                    source["sidecar"]["compiler"]["extensions"] = extensions[:-1]
+                sidecar["sourceArtifactDigest"] = stable_algorithm_hash(source)
+                with self.assertRaisesRegex(ValueError, "unsupported or mismatched extensions"):
+                    self.run_cli(document)
+
+    def test_live_conversion_admission_uses_exact_producer_and_real_tokenizer_in_cli_subprocess(
+        self,
+    ):
+        producer_root = os.environ.get("MEGATOKEN_NATIVE_SOURCE_PRODUCER")
+        tokenizer = os.environ.get("MEGATOKEN_TOKENIZER_JSON")
+        if not producer_root or not tokenizer:
+            self.skipTest("set the live producer and pinned tokenizer to check full CLI admission")
+        consumer = Path(__file__).resolve().parents[1]
+        producer = Path(producer_root).resolve()
+        git_env = admit_semantic_v8._git_environment()
+
+        def revision(root):
+            return subprocess.check_output(
+                ["git", "rev-parse", "HEAD"], cwd=root, text=True, env=git_env
+            ).strip()
+
+        consumer_revision, producer_revision = revision(consumer), revision(producer)
+        with tempfile.TemporaryDirectory() as folder:
+            for identity, document in self.conversion_examples.items():
+                with self.subTest(identity=identity):
+                    source = Path(folder) / f"{identity}.json"
+                    output = Path(folder) / f"{identity}.receipt.json"
+                    source.write_text(json.dumps(document))
+                    completed = subprocess.run(
+                        [
+                            sys.executable,
+                            str(consumer / "scripts/admit_semantic_v8.py"),
+                            "--input",
+                            str(source),
+                            "--output",
+                            str(output),
+                            "--consumer-revision",
+                            consumer_revision,
+                            "--producer-root",
+                            str(producer),
+                            "--producer-revision",
+                            producer_revision,
+                            "--tokenizer-json",
+                            str(Path(tokenizer).resolve()),
+                        ],
+                        cwd=consumer,
+                        env=git_env,
+                        text=True,
+                        capture_output=True,
+                        timeout=180,
+                    )
+                    self.assertEqual(completed.returncode, 0, completed.stderr)
+                    receipt = json.loads(output.read_text())
+                    self.assertTrue(receipt["admitted"])
+                    self.assertTrue(all(value == "passed" for value in receipt["checks"].values()))
+                    self.assertEqual(receipt["consumerRevision"], consumer_revision)
+                    self.assertEqual(
+                        receipt["sourceVerification"]["producerRevision"], producer_revision
+                    )
+                    self.assertTrue(receipt["sourceVerification"]["sourceValidated"])
+                    self.assertGreater(receipt["counts"]["generatedTokens"], 0)
+                    self.assertEqual(receipt["counts"]["contexts"], len(document["contexts"]))
+
+    def test_composed_protocol_profile_uses_exact_inventory_and_still_requires_live_source(self):
+        extensions = [
+            "number-conversion-source/1",
+            "ordinary-data-proxy-source/1",
+            "owned-binary-memory/1",
+            "promise-executor/1",
+            "promise-join/1",
+        ]
+        document = self.source_document(protocol=True)
+        sidecar = document["sidecar"]
+        sidecar.update(protocolProfile="composed-protocol-source/1", protocolExtensions=extensions)
+        sidecar["sourceArtifact"]["sidecar"]["compiler"]["extensions"] = extensions
+        sidecar["sourceArtifactDigest"] = stable_algorithm_hash(sidecar["sourceArtifact"])
+
+        # The profile makes the compiler inventory structurally acceptable,
+        # but locally asserted evidence cannot pass the producer source check.
+        receipt = self.run_cli(document)
+        self.assertEqual(receipt["protocolProfile"], "composed-protocol-source/1")
+        self.assertEqual(receipt["protocolExtensions"], extensions)
+        self.assertEqual(receipt["checks"]["sourceBinding"], "untested")
+        self.assertFalse(receipt["admitted"])
+
+        invalid_inventories = (
+            [],
+            ["number-conversion-source/1", "invented-extension/1"],
+            ["promise-join/1", "promise-join/1"],
+        )
+        for invalid in invalid_inventories:
+            with self.subTest(extensions=invalid):
+                changed = copy.deepcopy(document)
+                changed["sidecar"]["protocolExtensions"] = invalid
+                changed["sidecar"]["sourceArtifact"]["sidecar"]["compiler"]["extensions"] = invalid
+                changed["sidecar"]["sourceArtifactDigest"] = stable_algorithm_hash(
+                    changed["sidecar"]["sourceArtifact"]
+                )
+                with self.assertRaisesRegex(ValueError, "unsupported or mismatched extensions"):
+                    self.run_cli(changed)
+
+        changed = copy.deepcopy(document)
+        changed["sidecar"]["protocolProfile"] = "unreviewed-composed-profile/1"
+        with self.assertRaisesRegex(ValueError, "unsupported protocol profile"):
+            self.run_cli(changed)
+
+        changed = copy.deepcopy(document)
+        changed["sidecar"]["sourceArtifact"]["sidecar"]["compiler"]["extensions"] = extensions[:-1]
+        changed["sidecar"]["sourceArtifactDigest"] = stable_algorithm_hash(
+            changed["sidecar"]["sourceArtifact"]
+        )
+        with self.assertRaisesRegex(ValueError, "unsupported or mismatched extensions"):
+            self.run_cli(changed)
 
     def test_specialized_promise_profiles_require_their_exact_inventory_and_live_source(self):
         for profile, extensions in (

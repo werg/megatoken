@@ -1,0 +1,29 @@
+Traceback (most recent call last):
+  File "/workspace/scratch/05d92519587f/tracing-target-coverage/docs/evidence/v8-target-coverage-2026-11-22/verify-retained-policy-targets.py", line 279, in <module>
+    main()
+  File "/workspace/scratch/05d92519587f/tracing-target-coverage/docs/evidence/v8-target-coverage-2026-11-22/verify-retained-policy-targets.py", line 256, in main
+    body["digest"] = stable_algorithm_hash(body)
+                     ^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/workspace/scratch/05d92519587f/megatoken-target-coverage/src/megatoken/data/semantic_json.py", line 191, in stable_algorithm_hash
+    text = value if type(value) is str else stable_algorithm_json(value)
+                                            ^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/workspace/scratch/05d92519587f/megatoken-target-coverage/src/megatoken/data/semantic_json.py", line 186, in stable_algorithm_json
+    return _stable_json(value, set())
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/workspace/scratch/05d92519587f/megatoken-target-coverage/src/megatoken/data/semantic_json.py", line 173, in _stable_json
+    + ",".join(
+      ^^^^^^^^^
+  File "/workspace/scratch/05d92519587f/megatoken-target-coverage/src/megatoken/data/semantic_json.py", line 174, in <genexpr>
+    _quote_string(key) + ":" + _stable_json(value[key], active) for key in keys
+                               ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/workspace/scratch/05d92519587f/megatoken-target-coverage/src/megatoken/data/semantic_json.py", line 173, in _stable_json
+    + ",".join(
+      ^^^^^^^^^
+  File "/workspace/scratch/05d92519587f/megatoken-target-coverage/src/megatoken/data/semantic_json.py", line 174, in <genexpr>
+    _quote_string(key) + ":" + _stable_json(value[key], active) for key in keys
+                               ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/workspace/scratch/05d92519587f/megatoken-target-coverage/src/megatoken/data/semantic_json.py", line 180, in _stable_json
+    _error("noncanonical JSON data")
+  File "/workspace/scratch/05d92519587f/megatoken-target-coverage/src/megatoken/data/semantic_json.py", line 15, in _error
+    raise SemanticJSONError("Invalid semantic data: " + message)
+megatoken.data.semantic_json.SemanticJSONError: Invalid semantic data: noncanonical JSON data

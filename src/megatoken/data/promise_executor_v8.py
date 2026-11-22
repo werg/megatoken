@@ -198,11 +198,33 @@ def apply_record(machine, record):
             return True
         target = _promise(machine, capability["promise"])
         value = record["value"]
-        if target["state"] == "pending" and mode == "resolve" and value[0] == "ref":
-            _fail("object and Promise resolution require their separate assimilation protocol")
+        adopted_target = (
+            value[1]
+            if target["state"] == "pending"
+            and mode == "resolve"
+            and value[0] == "ref"
+            and machine["heap"].get(value[1], {}).get("kind") == "promise"
+            else None
+        )
+        if (
+            target["state"] == "pending"
+            and mode == "resolve"
+            and value[0] == "ref"
+            and adopted_target is None
+        ):
+            _fail("object resolution requires its explicit assimilation protocol")
         capability["called"] = True
         capability["resolution"] = {"mode": mode, "value": copy.deepcopy(value)}
-        if target["state"] == "pending":
+        if adopted_target is not None:
+            from .promise_adoption_v8 import stage_intent
+
+            stage_intent(
+                machine,
+                capability["promise"],
+                adopted_target,
+                {"kind": "resolver", "resolver": resolver[1]},
+            )
+        elif target["state"] == "pending":
             _settle(
                 machine,
                 capability["promise"],
@@ -374,12 +396,34 @@ def validate_state(machine):
             if resolution["mode"] not in ("resolve", "reject"):
                 _fail("resolution mode")
             value = _known(machine, resolution["value"])
+            adoption = target.get("adoption") or {}
+            adopting = (
+                resolution["mode"] == "resolve"
+                and value[0] == "ref"
+                and machine["heap"].get(value[1], {}).get("kind") == "promise"
+                and adoption.get("target") == value[1]
+                and adoption.get("cause") == {"kind": "resolver", "resolver": capability["resolve"]}
+                and adoption.get("phase") in ("intent", "queued", "observing", "completed", "self")
+            )
             agrees = (
-                (resolution["mode"] == "reject" or value[0] != "ref")
-                and target.get("adopted") is None
-                and target["state"]
-                == ("fulfilled" if resolution["mode"] == "resolve" else "rejected")
-                and target.get("result") == value
+                adopting
+                and (
+                    adoption.get("phase") == "self"
+                    and target["state"] == "rejected"
+                    and target.get("result") == ["ref", adoption.get("error")]
+                    or target["state"] == "pending"
+                    or adoption.get("phase") == "completed"
+                    and target["state"] in ("fulfilled", "rejected")
+                    and target.get("result") == _promise(machine, value[1]).get("result")
+                    and target["state"] == _promise(machine, value[1]).get("state")
+                )
+                or (
+                    (resolution["mode"] == "reject" or value[0] != "ref")
+                    and target.get("adopted") is None
+                    and target["state"]
+                    == ("fulfilled" if resolution["mode"] == "resolve" else "rejected")
+                    and target.get("result") == value
+                )
             )
         entry = entries.get(capability["promise"])
         completed_throw = bool(

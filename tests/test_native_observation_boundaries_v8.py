@@ -2,8 +2,8 @@ import copy
 import unittest
 
 from megatoken.data.detailed_v7 import encode_record
+from megatoken.data.detailed_v8 import parse_record as parse_detailed
 from megatoken.data.native_v8 import NativeV8Error, _apply_observation, _initial_state
-from megatoken.data.witness_v6 import parse_record as parse_witness
 
 
 def pending_delivery():
@@ -42,7 +42,7 @@ def pending_delivery():
         "handlers": [],
         "closureQueue": [],
     }
-    return state, {"e1"}, set(), obligations
+    return state, {"root/e1"}, set(), obligations
 
 
 def result_row(result, *, status="fulfilled", graph=None):
@@ -141,7 +141,7 @@ class NativeObservationBoundaryTests(unittest.TestCase):
             },
             "requested intent",
         )
-        holders[1].add("e1")
+        holders[1].add("root/e1")
         holders[3]["intents"].clear()
         self.assert_refused_without_mutation(
             holders, result_row(["num", 7]), "dispatched obligation"
@@ -196,12 +196,15 @@ class NativeObservationBoundaryTests(unittest.TestCase):
                 )
                 self.assertEqual(heap["o2"]["properties"][0], ["0", ["ref", "o1"]])
                 self.assertIsNone(heap["o1"]["prototype"])
-                self.assertEqual(dispatched, {"e1"})
-                self.assertEqual(settled, {"e1"})
+                self.assertEqual(dispatched, {"root/e1"})
+                self.assertEqual(settled, {"root/e1"})
                 intent = dict(obligations["intents"])["root/e1"]
                 self.assertEqual(intent["status"], "settled")
                 self.assertEqual(intent["result"]["ownerSequence"], 1)
-                self.assertEqual(parse_witness(intent["result"]["line"])[1]["graph"], graph)
+                self.assertEqual(
+                    parse_detailed(intent["result"]["line"], role="observed")[1]["graph"],
+                    graph,
+                )
                 self.assert_refused_without_mutation(holders, row, "outstanding dispatch")
 
     def test_graph_collision_rolls_back_earlier_fresh_nodes(self):
@@ -235,7 +238,7 @@ class NativeObservationBoundaryTests(unittest.TestCase):
         )
         self.apply(holders, result_row(["num", 7]))
         self.assertEqual(dict(state["heap"])["p1"]["result"], ["num", 7])
-        self.assertEqual(settled, {"e1"})
+        self.assertEqual(settled, {"root/e1"})
 
 
 if __name__ == "__main__":

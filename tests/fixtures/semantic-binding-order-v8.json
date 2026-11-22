@@ -1,0 +1,2483 @@
+{
+  "schema": "semantic-binding-order-interoperability/1",
+  "qualification": {
+    "source": "freshly-rechecked-original-detail",
+    "bindingAdaptation": "redundant positional mappings or names absent from original source; exact generated detail",
+    "public": "replayed-original-and-canonical",
+    "recovery": "canonical-complete-checkpoint",
+    "native": "untested",
+    "admission": "not-claimed",
+    "model": "unmeasured"
+  },
+  "cases": [
+    {
+      "id": "declared-parameter-order",
+      "sourceInputDigest": "e00cfbf4bcdee4fc0ea052ff7addd83411690246350b04557f40fba5a42aa0ec",
+      "sourcePublicDigest": "24bc2d6df7722d7a7441fd5ea1958faf40b90d2c27d7e7a77748b4ab8b7d8918",
+      "bindings": {
+        "a": 1,
+        "z": 0
+      },
+      "declaredParameters": [
+        "z",
+        "a"
+      ],
+      "initialState": {
+        "aliases": [
+          [
+            "z",
+            "a0b0"
+          ],
+          [
+            "a",
+            "a0b1"
+          ]
+        ],
+        "locals": [
+          [
+            "a0b0",
+            [
+              "num",
+              9
+            ]
+          ],
+          [
+            "a0b1",
+            [
+              "num",
+              4
+            ]
+          ]
+        ]
+      },
+      "artifact": {
+        "public": {
+          "schema": "semantic-execution/8",
+          "traceFormat": "semantic-trace/8",
+          "contextFormat": "semantic-context/8",
+          "representation": "mixed",
+          "profile": "compositional-regions/1",
+          "timeline": [
+            {
+              "sequence": 1,
+              "mode": "observed",
+              "kind": "program",
+              "fields": {
+                "session": "teacher1",
+                "track": "host",
+                "programId": "program1",
+                "digest": "3de2e1f73635abb76d6a28166572d3deb925707ae6cd52dbe405d68f88a603de",
+                "entry": "run",
+                "source": "\"use strict\";function run(z,a){return z-a;}",
+                "sites": [
+                  {
+                    "id": "s1",
+                    "start": 0,
+                    "end": 12,
+                    "role": "Literal"
+                  },
+                  {
+                    "id": "s2",
+                    "start": 13,
+                    "end": 43,
+                    "role": "FunctionDeclaration"
+                  },
+                  {
+                    "id": "s3",
+                    "start": 22,
+                    "end": 25,
+                    "role": "Identifier"
+                  },
+                  {
+                    "id": "s4",
+                    "start": 26,
+                    "end": 27,
+                    "role": "Identifier"
+                  },
+                  {
+                    "id": "s5",
+                    "start": 28,
+                    "end": 29,
+                    "role": "Identifier"
+                  },
+                  {
+                    "id": "s6",
+                    "start": 31,
+                    "end": 42,
+                    "role": "ReturnStatement"
+                  },
+                  {
+                    "id": "s7",
+                    "start": 38,
+                    "end": 39,
+                    "role": "Identifier"
+                  },
+                  {
+                    "id": "s8",
+                    "start": 38,
+                    "end": 41,
+                    "role": "BinaryExpression"
+                  },
+                  {
+                    "id": "s9",
+                    "start": 40,
+                    "end": 41,
+                    "role": "Identifier"
+                  }
+                ],
+                "functions": [
+                  {
+                    "start": 13,
+                    "end": 43,
+                    "name": "run",
+                    "params": [
+                      "z",
+                      "a"
+                    ]
+                  }
+                ],
+                "capabilities": [],
+                "dependencies": [],
+                "sourceMap": null,
+                "languageProfile": "owned-javascript/1",
+                "module": false,
+                "sourceMetadata": null,
+                "regionProgram": {
+                  "schema": "semantic-region-program/1",
+                  "traceFormat": "semantic-trace/8",
+                  "profile": "compositional-regions/1",
+                  "source": "\"use strict\";function run(z,a){return z-a;}",
+                  "entry": "run",
+                  "sourceDigest": "3de2e1f73635abb76d6a28166572d3deb925707ae6cd52dbe405d68f88a603de",
+                  "regions": [
+                    {
+                      "id": "r0",
+                      "owner": "run",
+                      "kind": "compact",
+                      "profile": "local-primitive-block/1",
+                      "inputs": [
+                        "z",
+                        "a"
+                      ],
+                      "outputs": [],
+                      "operations": [
+                        {
+                          "kind": "return",
+                          "term": {
+                            "op": "binary",
+                            "operator": "-",
+                            "left": {
+                              "op": "local",
+                              "name": "z"
+                            },
+                            "right": {
+                              "op": "local",
+                              "name": "a"
+                            }
+                          }
+                        }
+                      ],
+                      "effects": {
+                        "reads": [
+                          "z",
+                          "a"
+                        ],
+                        "writes": [],
+                        "calls": [],
+                        "mayThrow": true,
+                        "maySuspend": false,
+                        "allocates": false,
+                        "identityEscapes": false,
+                        "cleanup": false,
+                        "propertyAccess": false
+                      },
+                      "completion": "return",
+                      "obligations": [],
+                      "digest": "7d44c4e2c6f49f1b7b22c25221f4b89c0a7c93382c2ce0b5e8c3fa06fc3e4670"
+                    }
+                  ],
+                  "algorithm": {
+                    "schema": "semantic-algorithm/2",
+                    "profile": "ecmascript-pure-regions/1",
+                    "inputs": [
+                      {
+                        "id": "a0",
+                        "type": "number"
+                      },
+                      {
+                        "id": "a1",
+                        "type": "number"
+                      }
+                    ],
+                    "steps": [
+                      {
+                        "kind": "compute",
+                        "id": "v0",
+                        "term": {
+                          "op": "subtract",
+                          "args": [
+                            {
+                              "op": "input",
+                              "id": "a0"
+                            },
+                            {
+                              "op": "input",
+                              "id": "a1"
+                            }
+                          ]
+                        }
+                      },
+                      {
+                        "kind": "return",
+                        "value": {
+                          "op": "ref",
+                          "id": "v0"
+                        }
+                      }
+                    ]
+                  },
+                  "definitionDigest": "05a7c8758aab0344de9ce3b1b0e8f06c3b06ed0f2ca301afa08b8d56435ab649"
+                }
+              }
+            },
+            {
+              "sequence": 2,
+              "mode": "observed",
+              "kind": "invocation",
+              "fields": {
+                "session": "teacher1",
+                "track": "worker1",
+                "programId": "program1",
+                "invocationId": "invocation1",
+                "realmId": "realm1",
+                "triggerId": "teacher-entry",
+                "completionPolicy": "await-returned-promise",
+                "realmPolicy": "retained",
+                "inputGraph": {
+                  "roots": [
+                    [
+                      "num",
+                      9
+                    ],
+                    [
+                      "num",
+                      4
+                    ]
+                  ],
+                  "objects": []
+                },
+                "entry": "run",
+                "sourceDigest": "3de2e1f73635abb76d6a28166572d3deb925707ae6cd52dbe405d68f88a603de",
+                "receiver": [
+                  "undefined"
+                ],
+                "closureId": null,
+                "activation": "call",
+                "parentInvocationId": null,
+                "taskRevision": 1,
+                "deadline": null,
+                "bindings": {
+                  "a": 1,
+                  "z": 0
+                },
+                "ingressKey": "teacher-entry"
+              }
+            },
+            {
+              "sequence": 3,
+              "mode": "generated",
+              "kind": "semantic",
+              "fields": {
+                "session": "teacher1",
+                "track": "worker1",
+                "invocationId": "invocation1",
+                "line": "detail {\"fields\":{\"name\":\"z\",\"value\":[\"num\",9]},\"kind\":\"bind\"}"
+              }
+            },
+            {
+              "sequence": 4,
+              "mode": "generated",
+              "kind": "semantic",
+              "fields": {
+                "session": "teacher1",
+                "track": "worker1",
+                "invocationId": "invocation1",
+                "line": "detail {\"fields\":{\"name\":\"a\",\"value\":[\"num\",4]},\"kind\":\"bind\"}"
+              }
+            },
+            {
+              "sequence": 5,
+              "mode": "generated",
+              "kind": "semantic",
+              "fields": {
+                "session": "teacher1",
+                "track": "worker1",
+                "invocationId": "invocation1",
+                "line": "detail {\"fields\":{\"expr\":{\"left\":{\"name\":\"z\",\"op\":\"local\"},\"op\":\"binary\",\"operator\":\"-\",\"right\":{\"name\":\"a\",\"op\":\"local\"}},\"invocation\":\"invocation1\",\"result\":[\"num\",5]},\"kind\":\"compute\"}"
+              }
+            },
+            {
+              "sequence": 6,
+              "mode": "generated",
+              "kind": "semantic",
+              "fields": {
+                "session": "teacher1",
+                "track": "worker1",
+                "invocationId": "invocation1",
+                "line": "detail {\"fields\":{\"invocation\":\"invocation1\",\"value\":[\"num\",5]},\"kind\":\"return\"}"
+              }
+            },
+            {
+              "sequence": 7,
+              "mode": "generated",
+              "kind": "semantic",
+              "fields": {
+                "session": "teacher1",
+                "track": "worker1",
+                "invocationId": "invocation1",
+                "line": "detail {\"fields\":{\"kind\":\"return\"},\"kind\":\"end\"}"
+              }
+            }
+          ]
+        },
+        "contexts": [
+          {
+            "schema": "semantic-context/8",
+            "representation": "mixed",
+            "profile": "compositional-regions/1",
+            "invocationId": "invocation1",
+            "programs": [
+              {
+                "id": "program1",
+                "program": {
+                  "schema": "semantic-region-program/1",
+                  "traceFormat": "semantic-trace/8",
+                  "profile": "compositional-regions/1",
+                  "source": "\"use strict\";function run(z,a){return z-a;}",
+                  "entry": "run",
+                  "sourceDigest": "3de2e1f73635abb76d6a28166572d3deb925707ae6cd52dbe405d68f88a603de",
+                  "regions": [
+                    {
+                      "id": "r0",
+                      "owner": "run",
+                      "kind": "compact",
+                      "profile": "local-primitive-block/1",
+                      "inputs": [
+                        "z",
+                        "a"
+                      ],
+                      "outputs": [],
+                      "operations": [
+                        {
+                          "kind": "return",
+                          "term": {
+                            "op": "binary",
+                            "operator": "-",
+                            "left": {
+                              "op": "local",
+                              "name": "z"
+                            },
+                            "right": {
+                              "op": "local",
+                              "name": "a"
+                            }
+                          }
+                        }
+                      ],
+                      "effects": {
+                        "reads": [
+                          "z",
+                          "a"
+                        ],
+                        "writes": [],
+                        "calls": [],
+                        "mayThrow": true,
+                        "maySuspend": false,
+                        "allocates": false,
+                        "identityEscapes": false,
+                        "cleanup": false,
+                        "propertyAccess": false
+                      },
+                      "completion": "return",
+                      "obligations": [],
+                      "digest": "7d44c4e2c6f49f1b7b22c25221f4b89c0a7c93382c2ce0b5e8c3fa06fc3e4670"
+                    }
+                  ],
+                  "algorithm": {
+                    "schema": "semantic-algorithm/2",
+                    "profile": "ecmascript-pure-regions/1",
+                    "inputs": [
+                      {
+                        "id": "a0",
+                        "type": "number"
+                      },
+                      {
+                        "id": "a1",
+                        "type": "number"
+                      }
+                    ],
+                    "steps": [
+                      {
+                        "kind": "compute",
+                        "id": "v0",
+                        "term": {
+                          "op": "subtract",
+                          "args": [
+                            {
+                              "op": "input",
+                              "id": "a0"
+                            },
+                            {
+                              "op": "input",
+                              "id": "a1"
+                            }
+                          ]
+                        }
+                      },
+                      {
+                        "kind": "return",
+                        "value": {
+                          "op": "ref",
+                          "id": "v0"
+                        }
+                      }
+                    ]
+                  },
+                  "definitionDigest": "05a7c8758aab0344de9ce3b1b0e8f06c3b06ed0f2ca301afa08b8d56435ab649"
+                }
+              }
+            ],
+            "input": {
+              "graph": {
+                "objects": [],
+                "roots": [
+                  [
+                    "num",
+                    9
+                  ],
+                  [
+                    "num",
+                    4
+                  ]
+                ]
+              }
+            },
+            "state": {
+              "heap": [],
+              "locals": [
+                [
+                  "a0b0",
+                  [
+                    "num",
+                    9
+                  ]
+                ],
+                [
+                  "a0b1",
+                  [
+                    "num",
+                    4
+                  ]
+                ]
+              ],
+              "stack": [
+                "invocation1"
+              ],
+              "effects": [],
+              "jobs": [],
+              "ready": [],
+              "randomState": null,
+              "pending": null,
+              "lastReturn": null,
+              "completion": null,
+              "receiver": [
+                "undefined"
+              ],
+              "captureAliases": [
+                [
+                  "z",
+                  "a0b0"
+                ],
+                [
+                  "a",
+                  "a0b1"
+                ]
+              ],
+              "continuations": [],
+              "reactionSequence": 0,
+              "blockedSync": null,
+              "callReturn": null,
+              "activeJob": null,
+              "scheduler": {
+                "registration": 0,
+                "ready": 0
+              },
+              "frameFunctions": [
+                [
+                  "invocation1",
+                  "run"
+                ]
+              ],
+              "jobErrors": [],
+              "protocol": null
+            },
+            "regionCursor": {
+              "active": null,
+              "consumed": []
+            },
+            "obligations": {
+              "intents": [],
+              "handlers": [],
+              "callbacks": [],
+              "closureQueue": []
+            },
+            "visibleThrough": 2,
+            "prefixDigest": "7d3a301d7631718ef9b4d2da4779015733f90cb60ccdc4c45a9a3c63333d9de7"
+          },
+          {
+            "schema": "semantic-context/8",
+            "representation": "mixed",
+            "profile": "compositional-regions/1",
+            "invocationId": "invocation1",
+            "programs": [
+              {
+                "id": "program1",
+                "program": {
+                  "schema": "semantic-region-program/1",
+                  "traceFormat": "semantic-trace/8",
+                  "profile": "compositional-regions/1",
+                  "source": "\"use strict\";function run(z,a){return z-a;}",
+                  "entry": "run",
+                  "sourceDigest": "3de2e1f73635abb76d6a28166572d3deb925707ae6cd52dbe405d68f88a603de",
+                  "regions": [
+                    {
+                      "id": "r0",
+                      "owner": "run",
+                      "kind": "compact",
+                      "profile": "local-primitive-block/1",
+                      "inputs": [
+                        "z",
+                        "a"
+                      ],
+                      "outputs": [],
+                      "operations": [
+                        {
+                          "kind": "return",
+                          "term": {
+                            "op": "binary",
+                            "operator": "-",
+                            "left": {
+                              "op": "local",
+                              "name": "z"
+                            },
+                            "right": {
+                              "op": "local",
+                              "name": "a"
+                            }
+                          }
+                        }
+                      ],
+                      "effects": {
+                        "reads": [
+                          "z",
+                          "a"
+                        ],
+                        "writes": [],
+                        "calls": [],
+                        "mayThrow": true,
+                        "maySuspend": false,
+                        "allocates": false,
+                        "identityEscapes": false,
+                        "cleanup": false,
+                        "propertyAccess": false
+                      },
+                      "completion": "return",
+                      "obligations": [],
+                      "digest": "7d44c4e2c6f49f1b7b22c25221f4b89c0a7c93382c2ce0b5e8c3fa06fc3e4670"
+                    }
+                  ],
+                  "algorithm": {
+                    "schema": "semantic-algorithm/2",
+                    "profile": "ecmascript-pure-regions/1",
+                    "inputs": [
+                      {
+                        "id": "a0",
+                        "type": "number"
+                      },
+                      {
+                        "id": "a1",
+                        "type": "number"
+                      }
+                    ],
+                    "steps": [
+                      {
+                        "kind": "compute",
+                        "id": "v0",
+                        "term": {
+                          "op": "subtract",
+                          "args": [
+                            {
+                              "op": "input",
+                              "id": "a0"
+                            },
+                            {
+                              "op": "input",
+                              "id": "a1"
+                            }
+                          ]
+                        }
+                      },
+                      {
+                        "kind": "return",
+                        "value": {
+                          "op": "ref",
+                          "id": "v0"
+                        }
+                      }
+                    ]
+                  },
+                  "definitionDigest": "05a7c8758aab0344de9ce3b1b0e8f06c3b06ed0f2ca301afa08b8d56435ab649"
+                }
+              }
+            ],
+            "input": {
+              "graph": {
+                "objects": [],
+                "roots": [
+                  [
+                    "num",
+                    9
+                  ],
+                  [
+                    "num",
+                    4
+                  ]
+                ]
+              }
+            },
+            "state": {
+              "heap": [],
+              "locals": [
+                [
+                  "a0b0",
+                  [
+                    "num",
+                    9
+                  ]
+                ],
+                [
+                  "a0b1",
+                  [
+                    "num",
+                    4
+                  ]
+                ]
+              ],
+              "stack": [
+                "invocation1"
+              ],
+              "effects": [],
+              "jobs": [],
+              "ready": [],
+              "randomState": null,
+              "pending": null,
+              "lastReturn": null,
+              "completion": null,
+              "receiver": [
+                "undefined"
+              ],
+              "captureAliases": [
+                [
+                  "z",
+                  "a0b0"
+                ],
+                [
+                  "a",
+                  "a0b1"
+                ]
+              ],
+              "continuations": [],
+              "reactionSequence": 0,
+              "blockedSync": null,
+              "callReturn": null,
+              "activeJob": null,
+              "scheduler": {
+                "registration": 0,
+                "ready": 0
+              },
+              "frameFunctions": [
+                [
+                  "invocation1",
+                  "run"
+                ]
+              ],
+              "jobErrors": [],
+              "protocol": null
+            },
+            "regionCursor": {
+              "active": null,
+              "consumed": []
+            },
+            "obligations": {
+              "intents": [],
+              "handlers": [],
+              "callbacks": [],
+              "closureQueue": []
+            },
+            "visibleThrough": 3,
+            "prefixDigest": "a9e6047fba3ee26e9227546e2803bccf5713ed29bb647e2ff53b507901e47321"
+          },
+          {
+            "schema": "semantic-context/8",
+            "representation": "mixed",
+            "profile": "compositional-regions/1",
+            "invocationId": "invocation1",
+            "programs": [
+              {
+                "id": "program1",
+                "program": {
+                  "schema": "semantic-region-program/1",
+                  "traceFormat": "semantic-trace/8",
+                  "profile": "compositional-regions/1",
+                  "source": "\"use strict\";function run(z,a){return z-a;}",
+                  "entry": "run",
+                  "sourceDigest": "3de2e1f73635abb76d6a28166572d3deb925707ae6cd52dbe405d68f88a603de",
+                  "regions": [
+                    {
+                      "id": "r0",
+                      "owner": "run",
+                      "kind": "compact",
+                      "profile": "local-primitive-block/1",
+                      "inputs": [
+                        "z",
+                        "a"
+                      ],
+                      "outputs": [],
+                      "operations": [
+                        {
+                          "kind": "return",
+                          "term": {
+                            "op": "binary",
+                            "operator": "-",
+                            "left": {
+                              "op": "local",
+                              "name": "z"
+                            },
+                            "right": {
+                              "op": "local",
+                              "name": "a"
+                            }
+                          }
+                        }
+                      ],
+                      "effects": {
+                        "reads": [
+                          "z",
+                          "a"
+                        ],
+                        "writes": [],
+                        "calls": [],
+                        "mayThrow": true,
+                        "maySuspend": false,
+                        "allocates": false,
+                        "identityEscapes": false,
+                        "cleanup": false,
+                        "propertyAccess": false
+                      },
+                      "completion": "return",
+                      "obligations": [],
+                      "digest": "7d44c4e2c6f49f1b7b22c25221f4b89c0a7c93382c2ce0b5e8c3fa06fc3e4670"
+                    }
+                  ],
+                  "algorithm": {
+                    "schema": "semantic-algorithm/2",
+                    "profile": "ecmascript-pure-regions/1",
+                    "inputs": [
+                      {
+                        "id": "a0",
+                        "type": "number"
+                      },
+                      {
+                        "id": "a1",
+                        "type": "number"
+                      }
+                    ],
+                    "steps": [
+                      {
+                        "kind": "compute",
+                        "id": "v0",
+                        "term": {
+                          "op": "subtract",
+                          "args": [
+                            {
+                              "op": "input",
+                              "id": "a0"
+                            },
+                            {
+                              "op": "input",
+                              "id": "a1"
+                            }
+                          ]
+                        }
+                      },
+                      {
+                        "kind": "return",
+                        "value": {
+                          "op": "ref",
+                          "id": "v0"
+                        }
+                      }
+                    ]
+                  },
+                  "definitionDigest": "05a7c8758aab0344de9ce3b1b0e8f06c3b06ed0f2ca301afa08b8d56435ab649"
+                }
+              }
+            ],
+            "input": {
+              "graph": {
+                "objects": [],
+                "roots": [
+                  [
+                    "num",
+                    9
+                  ],
+                  [
+                    "num",
+                    4
+                  ]
+                ]
+              }
+            },
+            "state": {
+              "heap": [],
+              "locals": [
+                [
+                  "a0b0",
+                  [
+                    "num",
+                    9
+                  ]
+                ],
+                [
+                  "a0b1",
+                  [
+                    "num",
+                    4
+                  ]
+                ]
+              ],
+              "stack": [
+                "invocation1"
+              ],
+              "effects": [],
+              "jobs": [],
+              "ready": [],
+              "randomState": null,
+              "pending": null,
+              "lastReturn": null,
+              "completion": null,
+              "receiver": [
+                "undefined"
+              ],
+              "captureAliases": [
+                [
+                  "z",
+                  "a0b0"
+                ],
+                [
+                  "a",
+                  "a0b1"
+                ]
+              ],
+              "continuations": [],
+              "reactionSequence": 0,
+              "blockedSync": null,
+              "callReturn": null,
+              "activeJob": null,
+              "scheduler": {
+                "registration": 0,
+                "ready": 0
+              },
+              "frameFunctions": [
+                [
+                  "invocation1",
+                  "run"
+                ]
+              ],
+              "jobErrors": [],
+              "protocol": null
+            },
+            "regionCursor": {
+              "active": null,
+              "consumed": []
+            },
+            "obligations": {
+              "intents": [],
+              "handlers": [],
+              "callbacks": [],
+              "closureQueue": []
+            },
+            "visibleThrough": 4,
+            "prefixDigest": "8cd7cbbe0739024cd30410cc90c36851f78808a427d92968bbd79c5ee7c478cb"
+          },
+          {
+            "schema": "semantic-context/8",
+            "representation": "mixed",
+            "profile": "compositional-regions/1",
+            "invocationId": "invocation1",
+            "programs": [
+              {
+                "id": "program1",
+                "program": {
+                  "schema": "semantic-region-program/1",
+                  "traceFormat": "semantic-trace/8",
+                  "profile": "compositional-regions/1",
+                  "source": "\"use strict\";function run(z,a){return z-a;}",
+                  "entry": "run",
+                  "sourceDigest": "3de2e1f73635abb76d6a28166572d3deb925707ae6cd52dbe405d68f88a603de",
+                  "regions": [
+                    {
+                      "id": "r0",
+                      "owner": "run",
+                      "kind": "compact",
+                      "profile": "local-primitive-block/1",
+                      "inputs": [
+                        "z",
+                        "a"
+                      ],
+                      "outputs": [],
+                      "operations": [
+                        {
+                          "kind": "return",
+                          "term": {
+                            "op": "binary",
+                            "operator": "-",
+                            "left": {
+                              "op": "local",
+                              "name": "z"
+                            },
+                            "right": {
+                              "op": "local",
+                              "name": "a"
+                            }
+                          }
+                        }
+                      ],
+                      "effects": {
+                        "reads": [
+                          "z",
+                          "a"
+                        ],
+                        "writes": [],
+                        "calls": [],
+                        "mayThrow": true,
+                        "maySuspend": false,
+                        "allocates": false,
+                        "identityEscapes": false,
+                        "cleanup": false,
+                        "propertyAccess": false
+                      },
+                      "completion": "return",
+                      "obligations": [],
+                      "digest": "7d44c4e2c6f49f1b7b22c25221f4b89c0a7c93382c2ce0b5e8c3fa06fc3e4670"
+                    }
+                  ],
+                  "algorithm": {
+                    "schema": "semantic-algorithm/2",
+                    "profile": "ecmascript-pure-regions/1",
+                    "inputs": [
+                      {
+                        "id": "a0",
+                        "type": "number"
+                      },
+                      {
+                        "id": "a1",
+                        "type": "number"
+                      }
+                    ],
+                    "steps": [
+                      {
+                        "kind": "compute",
+                        "id": "v0",
+                        "term": {
+                          "op": "subtract",
+                          "args": [
+                            {
+                              "op": "input",
+                              "id": "a0"
+                            },
+                            {
+                              "op": "input",
+                              "id": "a1"
+                            }
+                          ]
+                        }
+                      },
+                      {
+                        "kind": "return",
+                        "value": {
+                          "op": "ref",
+                          "id": "v0"
+                        }
+                      }
+                    ]
+                  },
+                  "definitionDigest": "05a7c8758aab0344de9ce3b1b0e8f06c3b06ed0f2ca301afa08b8d56435ab649"
+                }
+              }
+            ],
+            "input": {
+              "graph": {
+                "objects": [],
+                "roots": [
+                  [
+                    "num",
+                    9
+                  ],
+                  [
+                    "num",
+                    4
+                  ]
+                ]
+              }
+            },
+            "state": {
+              "heap": [],
+              "locals": [
+                [
+                  "a0b0",
+                  [
+                    "num",
+                    9
+                  ]
+                ],
+                [
+                  "a0b1",
+                  [
+                    "num",
+                    4
+                  ]
+                ]
+              ],
+              "stack": [
+                "invocation1"
+              ],
+              "effects": [],
+              "jobs": [],
+              "ready": [],
+              "randomState": null,
+              "pending": null,
+              "lastReturn": null,
+              "completion": null,
+              "receiver": [
+                "undefined"
+              ],
+              "captureAliases": [
+                [
+                  "z",
+                  "a0b0"
+                ],
+                [
+                  "a",
+                  "a0b1"
+                ]
+              ],
+              "continuations": [],
+              "reactionSequence": 0,
+              "blockedSync": null,
+              "callReturn": null,
+              "activeJob": null,
+              "scheduler": {
+                "registration": 0,
+                "ready": 0
+              },
+              "frameFunctions": [
+                [
+                  "invocation1",
+                  "run"
+                ]
+              ],
+              "jobErrors": [],
+              "protocol": null
+            },
+            "regionCursor": {
+              "active": null,
+              "consumed": []
+            },
+            "obligations": {
+              "intents": [],
+              "handlers": [],
+              "callbacks": [],
+              "closureQueue": []
+            },
+            "visibleThrough": 5,
+            "prefixDigest": "c759bc39f0fc86e8ce86527a53ee66c01e71f177c60d221e5349d9c4c3a0825e"
+          },
+          {
+            "schema": "semantic-context/8",
+            "representation": "mixed",
+            "profile": "compositional-regions/1",
+            "invocationId": "invocation1",
+            "programs": [
+              {
+                "id": "program1",
+                "program": {
+                  "schema": "semantic-region-program/1",
+                  "traceFormat": "semantic-trace/8",
+                  "profile": "compositional-regions/1",
+                  "source": "\"use strict\";function run(z,a){return z-a;}",
+                  "entry": "run",
+                  "sourceDigest": "3de2e1f73635abb76d6a28166572d3deb925707ae6cd52dbe405d68f88a603de",
+                  "regions": [
+                    {
+                      "id": "r0",
+                      "owner": "run",
+                      "kind": "compact",
+                      "profile": "local-primitive-block/1",
+                      "inputs": [
+                        "z",
+                        "a"
+                      ],
+                      "outputs": [],
+                      "operations": [
+                        {
+                          "kind": "return",
+                          "term": {
+                            "op": "binary",
+                            "operator": "-",
+                            "left": {
+                              "op": "local",
+                              "name": "z"
+                            },
+                            "right": {
+                              "op": "local",
+                              "name": "a"
+                            }
+                          }
+                        }
+                      ],
+                      "effects": {
+                        "reads": [
+                          "z",
+                          "a"
+                        ],
+                        "writes": [],
+                        "calls": [],
+                        "mayThrow": true,
+                        "maySuspend": false,
+                        "allocates": false,
+                        "identityEscapes": false,
+                        "cleanup": false,
+                        "propertyAccess": false
+                      },
+                      "completion": "return",
+                      "obligations": [],
+                      "digest": "7d44c4e2c6f49f1b7b22c25221f4b89c0a7c93382c2ce0b5e8c3fa06fc3e4670"
+                    }
+                  ],
+                  "algorithm": {
+                    "schema": "semantic-algorithm/2",
+                    "profile": "ecmascript-pure-regions/1",
+                    "inputs": [
+                      {
+                        "id": "a0",
+                        "type": "number"
+                      },
+                      {
+                        "id": "a1",
+                        "type": "number"
+                      }
+                    ],
+                    "steps": [
+                      {
+                        "kind": "compute",
+                        "id": "v0",
+                        "term": {
+                          "op": "subtract",
+                          "args": [
+                            {
+                              "op": "input",
+                              "id": "a0"
+                            },
+                            {
+                              "op": "input",
+                              "id": "a1"
+                            }
+                          ]
+                        }
+                      },
+                      {
+                        "kind": "return",
+                        "value": {
+                          "op": "ref",
+                          "id": "v0"
+                        }
+                      }
+                    ]
+                  },
+                  "definitionDigest": "05a7c8758aab0344de9ce3b1b0e8f06c3b06ed0f2ca301afa08b8d56435ab649"
+                }
+              }
+            ],
+            "input": {
+              "graph": {
+                "objects": [],
+                "roots": [
+                  [
+                    "num",
+                    9
+                  ],
+                  [
+                    "num",
+                    4
+                  ]
+                ]
+              }
+            },
+            "state": {
+              "heap": [],
+              "locals": [
+                [
+                  "a0b0",
+                  [
+                    "num",
+                    9
+                  ]
+                ],
+                [
+                  "a0b1",
+                  [
+                    "num",
+                    4
+                  ]
+                ]
+              ],
+              "stack": [],
+              "effects": [],
+              "jobs": [],
+              "ready": [],
+              "randomState": null,
+              "pending": {
+                "kind": "return",
+                "value": [
+                  "num",
+                  5
+                ]
+              },
+              "lastReturn": null,
+              "completion": null,
+              "receiver": [
+                "undefined"
+              ],
+              "captureAliases": [
+                [
+                  "z",
+                  "a0b0"
+                ],
+                [
+                  "a",
+                  "a0b1"
+                ]
+              ],
+              "continuations": [],
+              "reactionSequence": 0,
+              "blockedSync": null,
+              "callReturn": null,
+              "activeJob": null,
+              "scheduler": {
+                "registration": 0,
+                "ready": 0
+              },
+              "frameFunctions": [
+                [
+                  "invocation1",
+                  "run"
+                ]
+              ],
+              "jobErrors": [],
+              "protocol": null
+            },
+            "regionCursor": {
+              "active": null,
+              "consumed": []
+            },
+            "obligations": {
+              "intents": [],
+              "handlers": [],
+              "callbacks": [],
+              "closureQueue": []
+            },
+            "visibleThrough": 6,
+            "prefixDigest": "a1884b463808c0add01608897d34410e149e6186575376cf70dc31614fa5c38b"
+          }
+        ]
+      }
+    },
+    {
+      "id": "additional-binding-order",
+      "sourceInputDigest": "57ea83c89e1aee5a26b6acdec7700d0685d6d2e66406696eea45e3da1ad50234",
+      "sourcePublicDigest": "d6106404ce50f9c2e2a20af866565d0abc59e4e704914ef57398af003cce5bc0",
+      "bindings": {
+        "z": 0,
+        "a": 1
+      },
+      "declaredParameters": [],
+      "initialState": {
+        "aliases": [
+          [
+            "a",
+            "a0b0"
+          ],
+          [
+            "z",
+            "a0b1"
+          ]
+        ],
+        "locals": [
+          [
+            "a0b0",
+            [
+              "num",
+              4
+            ]
+          ],
+          [
+            "a0b1",
+            [
+              "num",
+              9
+            ]
+          ]
+        ]
+      },
+      "artifact": {
+        "public": {
+          "schema": "semantic-execution/8",
+          "traceFormat": "semantic-trace/8",
+          "contextFormat": "semantic-context/8",
+          "representation": "mixed",
+          "profile": "compositional-regions/1",
+          "timeline": [
+            {
+              "sequence": 1,
+              "mode": "observed",
+              "kind": "program",
+              "fields": {
+                "session": "teacher1",
+                "track": "host",
+                "programId": "program1",
+                "digest": "c7c64085f8a6bb9264e040417e21dbb4ce20dba4066cad52e102b005185946be",
+                "entry": "run",
+                "source": "\"use strict\";function run(){return 7;}",
+                "sites": [
+                  {
+                    "id": "s1",
+                    "start": 0,
+                    "end": 12,
+                    "role": "Literal"
+                  },
+                  {
+                    "id": "s2",
+                    "start": 13,
+                    "end": 38,
+                    "role": "FunctionDeclaration"
+                  },
+                  {
+                    "id": "s3",
+                    "start": 22,
+                    "end": 25,
+                    "role": "Identifier"
+                  },
+                  {
+                    "id": "s4",
+                    "start": 28,
+                    "end": 37,
+                    "role": "ReturnStatement"
+                  },
+                  {
+                    "id": "s5",
+                    "start": 35,
+                    "end": 36,
+                    "role": "Literal"
+                  }
+                ],
+                "functions": [
+                  {
+                    "start": 13,
+                    "end": 38,
+                    "name": "run",
+                    "params": []
+                  }
+                ],
+                "capabilities": [],
+                "dependencies": [],
+                "sourceMap": null,
+                "languageProfile": "owned-javascript/1",
+                "module": false,
+                "sourceMetadata": null,
+                "regionProgram": {
+                  "schema": "semantic-region-program/1",
+                  "traceFormat": "semantic-trace/8",
+                  "profile": "compositional-regions/1",
+                  "source": "\"use strict\";function run(){return 7;}",
+                  "entry": "run",
+                  "sourceDigest": "c7c64085f8a6bb9264e040417e21dbb4ce20dba4066cad52e102b005185946be",
+                  "regions": [
+                    {
+                      "id": "r0",
+                      "owner": "run",
+                      "kind": "compact",
+                      "profile": "local-primitive-block/1",
+                      "inputs": [],
+                      "outputs": [],
+                      "operations": [
+                        {
+                          "kind": "return",
+                          "term": {
+                            "op": "literal",
+                            "value": [
+                              "num",
+                              7
+                            ]
+                          }
+                        }
+                      ],
+                      "effects": {
+                        "reads": [],
+                        "writes": [],
+                        "calls": [],
+                        "mayThrow": true,
+                        "maySuspend": false,
+                        "allocates": false,
+                        "identityEscapes": false,
+                        "cleanup": false,
+                        "propertyAccess": false
+                      },
+                      "completion": "return",
+                      "obligations": [],
+                      "digest": "cc9ca6f443c7b3e1357cbe62ff415023b0827ff86a65945c304e5bac32d62825"
+                    }
+                  ],
+                  "algorithm": {
+                    "schema": "semantic-algorithm/2",
+                    "profile": "ecmascript-pure-regions/1",
+                    "inputs": [],
+                    "steps": [
+                      {
+                        "kind": "compute",
+                        "id": "v0",
+                        "term": {
+                          "op": "literal",
+                          "value": [
+                            "num",
+                            7
+                          ]
+                        }
+                      },
+                      {
+                        "kind": "return",
+                        "value": {
+                          "op": "ref",
+                          "id": "v0"
+                        }
+                      }
+                    ]
+                  },
+                  "definitionDigest": "cddec815913d3ea7d19632b3c1f11c2ad563b823eff7c980c6bcd44693ad92c1"
+                }
+              }
+            },
+            {
+              "sequence": 2,
+              "mode": "observed",
+              "kind": "invocation",
+              "fields": {
+                "session": "teacher1",
+                "track": "worker1",
+                "programId": "program1",
+                "invocationId": "invocation1",
+                "realmId": "realm1",
+                "triggerId": "teacher-entry",
+                "completionPolicy": "await-returned-promise",
+                "realmPolicy": "retained",
+                "inputGraph": {
+                  "roots": [
+                    [
+                      "num",
+                      9
+                    ],
+                    [
+                      "num",
+                      4
+                    ]
+                  ],
+                  "objects": []
+                },
+                "entry": "run",
+                "sourceDigest": "c7c64085f8a6bb9264e040417e21dbb4ce20dba4066cad52e102b005185946be",
+                "receiver": [
+                  "undefined"
+                ],
+                "closureId": null,
+                "activation": "call",
+                "parentInvocationId": null,
+                "taskRevision": 1,
+                "deadline": null,
+                "bindings": {
+                  "z": 0,
+                  "a": 1
+                },
+                "ingressKey": "teacher-entry"
+              }
+            },
+            {
+              "sequence": 3,
+              "mode": "generated",
+              "kind": "semantic",
+              "fields": {
+                "session": "teacher1",
+                "track": "worker1",
+                "invocationId": "invocation1",
+                "line": "detail {\"fields\":{\"invocation\":\"invocation1\",\"value\":[\"num\",7]},\"kind\":\"return\"}"
+              }
+            },
+            {
+              "sequence": 4,
+              "mode": "generated",
+              "kind": "semantic",
+              "fields": {
+                "session": "teacher1",
+                "track": "worker1",
+                "invocationId": "invocation1",
+                "line": "detail {\"fields\":{\"kind\":\"return\"},\"kind\":\"end\"}"
+              }
+            }
+          ]
+        },
+        "contexts": [
+          {
+            "schema": "semantic-context/8",
+            "representation": "mixed",
+            "profile": "compositional-regions/1",
+            "invocationId": "invocation1",
+            "programs": [
+              {
+                "id": "program1",
+                "program": {
+                  "schema": "semantic-region-program/1",
+                  "traceFormat": "semantic-trace/8",
+                  "profile": "compositional-regions/1",
+                  "source": "\"use strict\";function run(){return 7;}",
+                  "entry": "run",
+                  "sourceDigest": "c7c64085f8a6bb9264e040417e21dbb4ce20dba4066cad52e102b005185946be",
+                  "regions": [
+                    {
+                      "id": "r0",
+                      "owner": "run",
+                      "kind": "compact",
+                      "profile": "local-primitive-block/1",
+                      "inputs": [],
+                      "outputs": [],
+                      "operations": [
+                        {
+                          "kind": "return",
+                          "term": {
+                            "op": "literal",
+                            "value": [
+                              "num",
+                              7
+                            ]
+                          }
+                        }
+                      ],
+                      "effects": {
+                        "reads": [],
+                        "writes": [],
+                        "calls": [],
+                        "mayThrow": true,
+                        "maySuspend": false,
+                        "allocates": false,
+                        "identityEscapes": false,
+                        "cleanup": false,
+                        "propertyAccess": false
+                      },
+                      "completion": "return",
+                      "obligations": [],
+                      "digest": "cc9ca6f443c7b3e1357cbe62ff415023b0827ff86a65945c304e5bac32d62825"
+                    }
+                  ],
+                  "algorithm": {
+                    "schema": "semantic-algorithm/2",
+                    "profile": "ecmascript-pure-regions/1",
+                    "inputs": [],
+                    "steps": [
+                      {
+                        "kind": "compute",
+                        "id": "v0",
+                        "term": {
+                          "op": "literal",
+                          "value": [
+                            "num",
+                            7
+                          ]
+                        }
+                      },
+                      {
+                        "kind": "return",
+                        "value": {
+                          "op": "ref",
+                          "id": "v0"
+                        }
+                      }
+                    ]
+                  },
+                  "definitionDigest": "cddec815913d3ea7d19632b3c1f11c2ad563b823eff7c980c6bcd44693ad92c1"
+                }
+              }
+            ],
+            "input": {
+              "graph": {
+                "objects": [],
+                "roots": [
+                  [
+                    "num",
+                    9
+                  ],
+                  [
+                    "num",
+                    4
+                  ]
+                ]
+              }
+            },
+            "state": {
+              "heap": [],
+              "locals": [
+                [
+                  "a0b0",
+                  [
+                    "num",
+                    4
+                  ]
+                ],
+                [
+                  "a0b1",
+                  [
+                    "num",
+                    9
+                  ]
+                ]
+              ],
+              "stack": [
+                "invocation1"
+              ],
+              "effects": [],
+              "jobs": [],
+              "ready": [],
+              "randomState": null,
+              "pending": null,
+              "lastReturn": null,
+              "completion": null,
+              "receiver": [
+                "undefined"
+              ],
+              "captureAliases": [
+                [
+                  "a",
+                  "a0b0"
+                ],
+                [
+                  "z",
+                  "a0b1"
+                ]
+              ],
+              "continuations": [],
+              "reactionSequence": 0,
+              "blockedSync": null,
+              "callReturn": null,
+              "activeJob": null,
+              "scheduler": {
+                "registration": 0,
+                "ready": 0
+              },
+              "frameFunctions": [
+                [
+                  "invocation1",
+                  "run"
+                ]
+              ],
+              "jobErrors": [],
+              "protocol": null
+            },
+            "regionCursor": {
+              "active": null,
+              "consumed": []
+            },
+            "obligations": {
+              "intents": [],
+              "handlers": [],
+              "callbacks": [],
+              "closureQueue": []
+            },
+            "visibleThrough": 2,
+            "prefixDigest": "52f9e4cd82e095fed61cb6e9f7b41b36e908523950b548f0035df8aeb62bcb35"
+          },
+          {
+            "schema": "semantic-context/8",
+            "representation": "mixed",
+            "profile": "compositional-regions/1",
+            "invocationId": "invocation1",
+            "programs": [
+              {
+                "id": "program1",
+                "program": {
+                  "schema": "semantic-region-program/1",
+                  "traceFormat": "semantic-trace/8",
+                  "profile": "compositional-regions/1",
+                  "source": "\"use strict\";function run(){return 7;}",
+                  "entry": "run",
+                  "sourceDigest": "c7c64085f8a6bb9264e040417e21dbb4ce20dba4066cad52e102b005185946be",
+                  "regions": [
+                    {
+                      "id": "r0",
+                      "owner": "run",
+                      "kind": "compact",
+                      "profile": "local-primitive-block/1",
+                      "inputs": [],
+                      "outputs": [],
+                      "operations": [
+                        {
+                          "kind": "return",
+                          "term": {
+                            "op": "literal",
+                            "value": [
+                              "num",
+                              7
+                            ]
+                          }
+                        }
+                      ],
+                      "effects": {
+                        "reads": [],
+                        "writes": [],
+                        "calls": [],
+                        "mayThrow": true,
+                        "maySuspend": false,
+                        "allocates": false,
+                        "identityEscapes": false,
+                        "cleanup": false,
+                        "propertyAccess": false
+                      },
+                      "completion": "return",
+                      "obligations": [],
+                      "digest": "cc9ca6f443c7b3e1357cbe62ff415023b0827ff86a65945c304e5bac32d62825"
+                    }
+                  ],
+                  "algorithm": {
+                    "schema": "semantic-algorithm/2",
+                    "profile": "ecmascript-pure-regions/1",
+                    "inputs": [],
+                    "steps": [
+                      {
+                        "kind": "compute",
+                        "id": "v0",
+                        "term": {
+                          "op": "literal",
+                          "value": [
+                            "num",
+                            7
+                          ]
+                        }
+                      },
+                      {
+                        "kind": "return",
+                        "value": {
+                          "op": "ref",
+                          "id": "v0"
+                        }
+                      }
+                    ]
+                  },
+                  "definitionDigest": "cddec815913d3ea7d19632b3c1f11c2ad563b823eff7c980c6bcd44693ad92c1"
+                }
+              }
+            ],
+            "input": {
+              "graph": {
+                "objects": [],
+                "roots": [
+                  [
+                    "num",
+                    9
+                  ],
+                  [
+                    "num",
+                    4
+                  ]
+                ]
+              }
+            },
+            "state": {
+              "heap": [],
+              "locals": [
+                [
+                  "a0b0",
+                  [
+                    "num",
+                    4
+                  ]
+                ],
+                [
+                  "a0b1",
+                  [
+                    "num",
+                    9
+                  ]
+                ]
+              ],
+              "stack": [],
+              "effects": [],
+              "jobs": [],
+              "ready": [],
+              "randomState": null,
+              "pending": {
+                "kind": "return",
+                "value": [
+                  "num",
+                  7
+                ]
+              },
+              "lastReturn": null,
+              "completion": null,
+              "receiver": [
+                "undefined"
+              ],
+              "captureAliases": [
+                [
+                  "a",
+                  "a0b0"
+                ],
+                [
+                  "z",
+                  "a0b1"
+                ]
+              ],
+              "continuations": [],
+              "reactionSequence": 0,
+              "blockedSync": null,
+              "callReturn": null,
+              "activeJob": null,
+              "scheduler": {
+                "registration": 0,
+                "ready": 0
+              },
+              "frameFunctions": [
+                [
+                  "invocation1",
+                  "run"
+                ]
+              ],
+              "jobErrors": [],
+              "protocol": null
+            },
+            "regionCursor": {
+              "active": null,
+              "consumed": []
+            },
+            "obligations": {
+              "intents": [],
+              "handlers": [],
+              "callbacks": [],
+              "closureQueue": []
+            },
+            "visibleThrough": 3,
+            "prefixDigest": "2ca506cac156cf84e47e1e97b896db56137b3ca02792fc5e1a87099ac3590120"
+          }
+        ]
+      }
+    },
+    {
+      "id": "additional-utf16-order",
+      "sourceInputDigest": "dd85583bd6124d0262fa0d669adf440b3e8e32549ec0059322a3786503ab9044",
+      "sourcePublicDigest": "d6106404ce50f9c2e2a20af866565d0abc59e4e704914ef57398af003cce5bc0",
+      "bindings": {
+        "Ａ": 1,
+        "𐀀": 0
+      },
+      "declaredParameters": [],
+      "initialState": {
+        "aliases": [
+          [
+            "𐀀",
+            "a0b0"
+          ],
+          [
+            "Ａ",
+            "a0b1"
+          ]
+        ],
+        "locals": [
+          [
+            "a0b0",
+            [
+              "num",
+              9
+            ]
+          ],
+          [
+            "a0b1",
+            [
+              "num",
+              4
+            ]
+          ]
+        ]
+      },
+      "artifact": {
+        "public": {
+          "schema": "semantic-execution/8",
+          "traceFormat": "semantic-trace/8",
+          "contextFormat": "semantic-context/8",
+          "representation": "mixed",
+          "profile": "compositional-regions/1",
+          "timeline": [
+            {
+              "sequence": 1,
+              "mode": "observed",
+              "kind": "program",
+              "fields": {
+                "session": "teacher1",
+                "track": "host",
+                "programId": "program1",
+                "digest": "c7c64085f8a6bb9264e040417e21dbb4ce20dba4066cad52e102b005185946be",
+                "entry": "run",
+                "source": "\"use strict\";function run(){return 7;}",
+                "sites": [
+                  {
+                    "id": "s1",
+                    "start": 0,
+                    "end": 12,
+                    "role": "Literal"
+                  },
+                  {
+                    "id": "s2",
+                    "start": 13,
+                    "end": 38,
+                    "role": "FunctionDeclaration"
+                  },
+                  {
+                    "id": "s3",
+                    "start": 22,
+                    "end": 25,
+                    "role": "Identifier"
+                  },
+                  {
+                    "id": "s4",
+                    "start": 28,
+                    "end": 37,
+                    "role": "ReturnStatement"
+                  },
+                  {
+                    "id": "s5",
+                    "start": 35,
+                    "end": 36,
+                    "role": "Literal"
+                  }
+                ],
+                "functions": [
+                  {
+                    "start": 13,
+                    "end": 38,
+                    "name": "run",
+                    "params": []
+                  }
+                ],
+                "capabilities": [],
+                "dependencies": [],
+                "sourceMap": null,
+                "languageProfile": "owned-javascript/1",
+                "module": false,
+                "sourceMetadata": null,
+                "regionProgram": {
+                  "schema": "semantic-region-program/1",
+                  "traceFormat": "semantic-trace/8",
+                  "profile": "compositional-regions/1",
+                  "source": "\"use strict\";function run(){return 7;}",
+                  "entry": "run",
+                  "sourceDigest": "c7c64085f8a6bb9264e040417e21dbb4ce20dba4066cad52e102b005185946be",
+                  "regions": [
+                    {
+                      "id": "r0",
+                      "owner": "run",
+                      "kind": "compact",
+                      "profile": "local-primitive-block/1",
+                      "inputs": [],
+                      "outputs": [],
+                      "operations": [
+                        {
+                          "kind": "return",
+                          "term": {
+                            "op": "literal",
+                            "value": [
+                              "num",
+                              7
+                            ]
+                          }
+                        }
+                      ],
+                      "effects": {
+                        "reads": [],
+                        "writes": [],
+                        "calls": [],
+                        "mayThrow": true,
+                        "maySuspend": false,
+                        "allocates": false,
+                        "identityEscapes": false,
+                        "cleanup": false,
+                        "propertyAccess": false
+                      },
+                      "completion": "return",
+                      "obligations": [],
+                      "digest": "cc9ca6f443c7b3e1357cbe62ff415023b0827ff86a65945c304e5bac32d62825"
+                    }
+                  ],
+                  "algorithm": {
+                    "schema": "semantic-algorithm/2",
+                    "profile": "ecmascript-pure-regions/1",
+                    "inputs": [],
+                    "steps": [
+                      {
+                        "kind": "compute",
+                        "id": "v0",
+                        "term": {
+                          "op": "literal",
+                          "value": [
+                            "num",
+                            7
+                          ]
+                        }
+                      },
+                      {
+                        "kind": "return",
+                        "value": {
+                          "op": "ref",
+                          "id": "v0"
+                        }
+                      }
+                    ]
+                  },
+                  "definitionDigest": "cddec815913d3ea7d19632b3c1f11c2ad563b823eff7c980c6bcd44693ad92c1"
+                }
+              }
+            },
+            {
+              "sequence": 2,
+              "mode": "observed",
+              "kind": "invocation",
+              "fields": {
+                "session": "teacher1",
+                "track": "worker1",
+                "programId": "program1",
+                "invocationId": "invocation1",
+                "realmId": "realm1",
+                "triggerId": "teacher-entry",
+                "completionPolicy": "await-returned-promise",
+                "realmPolicy": "retained",
+                "inputGraph": {
+                  "roots": [
+                    [
+                      "num",
+                      9
+                    ],
+                    [
+                      "num",
+                      4
+                    ]
+                  ],
+                  "objects": []
+                },
+                "entry": "run",
+                "sourceDigest": "c7c64085f8a6bb9264e040417e21dbb4ce20dba4066cad52e102b005185946be",
+                "receiver": [
+                  "undefined"
+                ],
+                "closureId": null,
+                "activation": "call",
+                "parentInvocationId": null,
+                "taskRevision": 1,
+                "deadline": null,
+                "bindings": {
+                  "Ａ": 1,
+                  "𐀀": 0
+                },
+                "ingressKey": "teacher-entry"
+              }
+            },
+            {
+              "sequence": 3,
+              "mode": "generated",
+              "kind": "semantic",
+              "fields": {
+                "session": "teacher1",
+                "track": "worker1",
+                "invocationId": "invocation1",
+                "line": "detail {\"fields\":{\"invocation\":\"invocation1\",\"value\":[\"num\",7]},\"kind\":\"return\"}"
+              }
+            },
+            {
+              "sequence": 4,
+              "mode": "generated",
+              "kind": "semantic",
+              "fields": {
+                "session": "teacher1",
+                "track": "worker1",
+                "invocationId": "invocation1",
+                "line": "detail {\"fields\":{\"kind\":\"return\"},\"kind\":\"end\"}"
+              }
+            }
+          ]
+        },
+        "contexts": [
+          {
+            "schema": "semantic-context/8",
+            "representation": "mixed",
+            "profile": "compositional-regions/1",
+            "invocationId": "invocation1",
+            "programs": [
+              {
+                "id": "program1",
+                "program": {
+                  "schema": "semantic-region-program/1",
+                  "traceFormat": "semantic-trace/8",
+                  "profile": "compositional-regions/1",
+                  "source": "\"use strict\";function run(){return 7;}",
+                  "entry": "run",
+                  "sourceDigest": "c7c64085f8a6bb9264e040417e21dbb4ce20dba4066cad52e102b005185946be",
+                  "regions": [
+                    {
+                      "id": "r0",
+                      "owner": "run",
+                      "kind": "compact",
+                      "profile": "local-primitive-block/1",
+                      "inputs": [],
+                      "outputs": [],
+                      "operations": [
+                        {
+                          "kind": "return",
+                          "term": {
+                            "op": "literal",
+                            "value": [
+                              "num",
+                              7
+                            ]
+                          }
+                        }
+                      ],
+                      "effects": {
+                        "reads": [],
+                        "writes": [],
+                        "calls": [],
+                        "mayThrow": true,
+                        "maySuspend": false,
+                        "allocates": false,
+                        "identityEscapes": false,
+                        "cleanup": false,
+                        "propertyAccess": false
+                      },
+                      "completion": "return",
+                      "obligations": [],
+                      "digest": "cc9ca6f443c7b3e1357cbe62ff415023b0827ff86a65945c304e5bac32d62825"
+                    }
+                  ],
+                  "algorithm": {
+                    "schema": "semantic-algorithm/2",
+                    "profile": "ecmascript-pure-regions/1",
+                    "inputs": [],
+                    "steps": [
+                      {
+                        "kind": "compute",
+                        "id": "v0",
+                        "term": {
+                          "op": "literal",
+                          "value": [
+                            "num",
+                            7
+                          ]
+                        }
+                      },
+                      {
+                        "kind": "return",
+                        "value": {
+                          "op": "ref",
+                          "id": "v0"
+                        }
+                      }
+                    ]
+                  },
+                  "definitionDigest": "cddec815913d3ea7d19632b3c1f11c2ad563b823eff7c980c6bcd44693ad92c1"
+                }
+              }
+            ],
+            "input": {
+              "graph": {
+                "objects": [],
+                "roots": [
+                  [
+                    "num",
+                    9
+                  ],
+                  [
+                    "num",
+                    4
+                  ]
+                ]
+              }
+            },
+            "state": {
+              "heap": [],
+              "locals": [
+                [
+                  "a0b0",
+                  [
+                    "num",
+                    9
+                  ]
+                ],
+                [
+                  "a0b1",
+                  [
+                    "num",
+                    4
+                  ]
+                ]
+              ],
+              "stack": [
+                "invocation1"
+              ],
+              "effects": [],
+              "jobs": [],
+              "ready": [],
+              "randomState": null,
+              "pending": null,
+              "lastReturn": null,
+              "completion": null,
+              "receiver": [
+                "undefined"
+              ],
+              "captureAliases": [
+                [
+                  "𐀀",
+                  "a0b0"
+                ],
+                [
+                  "Ａ",
+                  "a0b1"
+                ]
+              ],
+              "continuations": [],
+              "reactionSequence": 0,
+              "blockedSync": null,
+              "callReturn": null,
+              "activeJob": null,
+              "scheduler": {
+                "registration": 0,
+                "ready": 0
+              },
+              "frameFunctions": [
+                [
+                  "invocation1",
+                  "run"
+                ]
+              ],
+              "jobErrors": [],
+              "protocol": null
+            },
+            "regionCursor": {
+              "active": null,
+              "consumed": []
+            },
+            "obligations": {
+              "intents": [],
+              "handlers": [],
+              "callbacks": [],
+              "closureQueue": []
+            },
+            "visibleThrough": 2,
+            "prefixDigest": "88ded4fce368c0a2e2f4679a1606f663307403e189ebb956961c71153838235f"
+          },
+          {
+            "schema": "semantic-context/8",
+            "representation": "mixed",
+            "profile": "compositional-regions/1",
+            "invocationId": "invocation1",
+            "programs": [
+              {
+                "id": "program1",
+                "program": {
+                  "schema": "semantic-region-program/1",
+                  "traceFormat": "semantic-trace/8",
+                  "profile": "compositional-regions/1",
+                  "source": "\"use strict\";function run(){return 7;}",
+                  "entry": "run",
+                  "sourceDigest": "c7c64085f8a6bb9264e040417e21dbb4ce20dba4066cad52e102b005185946be",
+                  "regions": [
+                    {
+                      "id": "r0",
+                      "owner": "run",
+                      "kind": "compact",
+                      "profile": "local-primitive-block/1",
+                      "inputs": [],
+                      "outputs": [],
+                      "operations": [
+                        {
+                          "kind": "return",
+                          "term": {
+                            "op": "literal",
+                            "value": [
+                              "num",
+                              7
+                            ]
+                          }
+                        }
+                      ],
+                      "effects": {
+                        "reads": [],
+                        "writes": [],
+                        "calls": [],
+                        "mayThrow": true,
+                        "maySuspend": false,
+                        "allocates": false,
+                        "identityEscapes": false,
+                        "cleanup": false,
+                        "propertyAccess": false
+                      },
+                      "completion": "return",
+                      "obligations": [],
+                      "digest": "cc9ca6f443c7b3e1357cbe62ff415023b0827ff86a65945c304e5bac32d62825"
+                    }
+                  ],
+                  "algorithm": {
+                    "schema": "semantic-algorithm/2",
+                    "profile": "ecmascript-pure-regions/1",
+                    "inputs": [],
+                    "steps": [
+                      {
+                        "kind": "compute",
+                        "id": "v0",
+                        "term": {
+                          "op": "literal",
+                          "value": [
+                            "num",
+                            7
+                          ]
+                        }
+                      },
+                      {
+                        "kind": "return",
+                        "value": {
+                          "op": "ref",
+                          "id": "v0"
+                        }
+                      }
+                    ]
+                  },
+                  "definitionDigest": "cddec815913d3ea7d19632b3c1f11c2ad563b823eff7c980c6bcd44693ad92c1"
+                }
+              }
+            ],
+            "input": {
+              "graph": {
+                "objects": [],
+                "roots": [
+                  [
+                    "num",
+                    9
+                  ],
+                  [
+                    "num",
+                    4
+                  ]
+                ]
+              }
+            },
+            "state": {
+              "heap": [],
+              "locals": [
+                [
+                  "a0b0",
+                  [
+                    "num",
+                    9
+                  ]
+                ],
+                [
+                  "a0b1",
+                  [
+                    "num",
+                    4
+                  ]
+                ]
+              ],
+              "stack": [],
+              "effects": [],
+              "jobs": [],
+              "ready": [],
+              "randomState": null,
+              "pending": {
+                "kind": "return",
+                "value": [
+                  "num",
+                  7
+                ]
+              },
+              "lastReturn": null,
+              "completion": null,
+              "receiver": [
+                "undefined"
+              ],
+              "captureAliases": [
+                [
+                  "𐀀",
+                  "a0b0"
+                ],
+                [
+                  "Ａ",
+                  "a0b1"
+                ]
+              ],
+              "continuations": [],
+              "reactionSequence": 0,
+              "blockedSync": null,
+              "callReturn": null,
+              "activeJob": null,
+              "scheduler": {
+                "registration": 0,
+                "ready": 0
+              },
+              "frameFunctions": [
+                [
+                  "invocation1",
+                  "run"
+                ]
+              ],
+              "jobErrors": [],
+              "protocol": null
+            },
+            "regionCursor": {
+              "active": null,
+              "consumed": []
+            },
+            "obligations": {
+              "intents": [],
+              "handlers": [],
+              "callbacks": [],
+              "closureQueue": []
+            },
+            "visibleThrough": 3,
+            "prefixDigest": "db22f8ebe156c3bfb0c6845892d55667e72c3e51b4749b7e13d68f5054fa0516"
+          }
+        ]
+      }
+    }
+  ]
+}

@@ -1,0 +1,19 @@
+{
+  "schema": "v8-local-engineering-evidence/1",
+  "nativeBase": "9a189f6e1fa133134591f69f2cf412bd8289f73a",
+  "archive": "native-source-support-final.log.gz.b64",
+  "decodedBytes": 99,
+  "decodedSha256": "9d43003c600e9673ef78c6f6a86dff0ba0018d6b2ad5b58c7266f6bc906dbf8a",
+  "archiveSha256": "57f7d4da0efafe29857dcdc79094aa8b49ed5075ccf65bf9f394542ac818864b",
+  "pytest": {
+    "passed": 23,
+    "failed": 0,
+    "scope": "source-session admission structure, production supply helper controls, and direct behavior census"
+  },
+  "ruff": {
+    "check": "passed",
+    "format": "passed",
+    "pythonFiles": 592
+  },
+  "productionSourceAndTokenizerSupply": "not-yet-executed"
+}

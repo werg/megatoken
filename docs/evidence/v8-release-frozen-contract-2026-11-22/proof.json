@@ -1,0 +1,44 @@
+{
+  "schema": "v8-release-frozen-contract-local-proof/1",
+  "publishedSource": "d4afac5bb7261aa7ef85c1d65d3ae6dcaf6caeef",
+  "localSource": "5dc020216b24df94ff7fbe2463d23f8f8c367f22",
+  "sourceTree": "3e6d58624f5557bb5b4877a260e504a572dd90a4",
+  "base": "3fb3370dd3c10dbc9309fd2870760cf87751b418",
+  "sourceOrderFilesFrom": "5ecdbaa9842ab086c312a7d0be281780091df065",
+  "sourceFiles": [
+    {
+      "path": "scripts/verify_semantic_v8_release.py",
+      "blob": "2bf5dcc34be5f3ab2bac6b93f5056e5f5d3e08de",
+      "sha256": "6d9f739caa0d22edc5909b231e4117c198e322b4b4a09cb5cf6671e1889bbd9a",
+      "bytes": 36512
+    },
+    {
+      "path": "tests/test_semantic_v8_release_verifier.py",
+      "blob": "b96eaa9feebf67dcef9c8a239890a510bfe481d1",
+      "sha256": "850714c20024c4f1e2006d979253382691512d1d745a855b8274259df7c67285",
+      "bytes": 25794
+    },
+    {
+      "path": "docs/v8-release-verification.md",
+      "blob": "3753aaa0763fc741e4dd84482d314873455cac20",
+      "sha256": "1c4f4d92a7ed03c2f78a59383c821e6cf9809768cdb1a77f6732e604c041c3f4",
+      "bytes": 8091
+    }
+  ],
+  "tests": 62,
+  "failures": 0,
+  "errors": 0,
+  "skips": 0,
+  "runtime": {
+    "python": "3.12.14",
+    "torch": "2.10.0+cpu",
+    "pytest": "8.4.2"
+  },
+  "controlledFixtureOptimizerUpdates": 1,
+  "verifierOptimizerUpdates": 0,
+  "verifierDecoderForwardPasses": 0,
+  "productionTokenizerQualification": false,
+  "freshFullSourceCampaign": false,
+  "learnedSuccess": null,
+  "defaultPromotion": false
+}

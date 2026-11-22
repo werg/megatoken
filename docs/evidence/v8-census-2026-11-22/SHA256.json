@@ -1,0 +1,20 @@
+[
+  {
+    "path": "native887-gallery.log.gz.b64",
+    "decodedBytes": 87159,
+    "decodedSha256": "97921bbc5193ab14a2b9ab395f1094fa226187a7b22acedc8189f05a81560301",
+    "storedSha256": "387d237b8cde5a15f1087603bc665edf4196ab5971fe3ac3edf4459debc892ff"
+  },
+  {
+    "path": "native887-cpu312-failure.log.gz.b64",
+    "decodedBytes": 81311,
+    "decodedSha256": "1d59e0b3521db9d889ca2ff00be8b3ee0939f6cf046baf172776104aa7e41a0b",
+    "storedSha256": "9fa45c7c53f6fa2be57f32a16791f7e54a7e8509061001079d1a4c1e6169a448"
+  },
+  {
+    "path": "local-census-authority.log.gz.b64",
+    "decodedBytes": 99,
+    "decodedSha256": "549df9d3994f3f842aca52e11b2c8164b07bb808a0504d6009f3d59b197f6f6c",
+    "storedSha256": "e7fefd876612149b0007a65bd004992026f0d6bdcf03a3db3f03cacf25eddb5d"
+  }
+]

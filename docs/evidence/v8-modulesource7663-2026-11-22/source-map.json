@@ -1,0 +1,232 @@
+{
+  "schema": "semantic-module-source-promotion-map/1",
+  "contractDigest": "a952385535b9b5e19d737206286f6f26c149f7301c51b4b106fe3b1cae5ab55a",
+  "interoperabilityDigest": "f5c2d5fd15ad3b84e9b17de771d2f72a58f3c7dee4969ded8a7eb9c3c449f661",
+  "interopPayloadCount": 6,
+  "producer": {
+    "baselineLocalCommit": "79ec42a1ef7be0644a84953067d954453ec92c3b",
+    "baselinePublishedCommit": "61c9cacfacad3d5e8fd7bab6c72c8e18b1a5a46b",
+    "localCommit": "e0856ddd0d8859eed5c89f471d7ec9e6e0bda400",
+    "publishedCommit": "7663c11afddc98c4823a8193ac034dda9e8e153d",
+    "tree": "ab893a7885e6d2f8bc94462dfc4697770ba86b89",
+    "paths": [
+      {
+        "path": "src/semantic/compiler-v8.js",
+        "beforeBlob": "583d5b90bc4723ccc419c56cb80dbaa83654fa88",
+        "afterBlob": "2e9b5fd04afdfbfab3a258cd06b3baaebbabcabb",
+        "role": "source-bridge-implementation-and-controls"
+      },
+      {
+        "path": "src/semantic/module-scheduler-source-bridge-v8.js",
+        "beforeBlob": null,
+        "afterBlob": "52c6f784a0c035b2aa769abce7f61bcb181ad72d",
+        "role": "source-bridge-implementation-and-controls"
+      },
+      {
+        "path": "src/semantic/module-v8.js",
+        "beforeBlob": "4bff17fcfba36ca7a0b4ed6cfa31085483d8dbe2",
+        "afterBlob": "0ef456d37515e3116706a430ea3c983f5ff19526",
+        "role": "source-bridge-implementation-and-controls"
+      },
+      {
+        "path": "src/semantic/protocol-source-compiler-v8.js",
+        "beforeBlob": "cda56767ac8da0b6dbe441d4be11aaf28751b0b5",
+        "afterBlob": "d242db49f0c243c825a43b331017e57306267ee1",
+        "role": "source-bridge-implementation-and-controls"
+      },
+      {
+        "path": "src/semantic/protocol-source-v8.js",
+        "beforeBlob": "48d01540f1370b7f37d749a0921bac48d5c1084c",
+        "afterBlob": "ca18737aeb4ac35ed77532c976e34d03a98bf0ff",
+        "role": "source-bridge-implementation-and-controls"
+      },
+      {
+        "path": "test/fixtures/semantic-module-scheduler-source-v8.js",
+        "beforeBlob": null,
+        "afterBlob": "863069b2b02e7a3623ba708f767d3ecff1a893e0",
+        "role": "source-bridge-implementation-and-controls"
+      },
+      {
+        "path": "test/semantic-module-scheduler-admission-v8.test.js",
+        "beforeBlob": null,
+        "afterBlob": "337933242d19b6c20c6e0fa8d19d6d52e55252c2",
+        "role": "source-bridge-implementation-and-controls"
+      },
+      {
+        "path": "tools/emit-semantic-v8-module-scheduler-artifact.mjs",
+        "beforeBlob": null,
+        "afterBlob": "73e30e81beba73e90ddce34d8fa3d22d8ab6fb01",
+        "role": "source-bridge-implementation-and-controls"
+      },
+      {
+        "path": ".github/workflows/module-source-admission-investigation.yml",
+        "beforeBlob": null,
+        "afterBlob": "b0eeaa12280522a30daeea7540fd789472cfbce1",
+        "role": "dedicated-exact-pair-workflow"
+      }
+    ]
+  },
+  "native": {
+    "baselineLocalCommit": "bebe2bbc250ea9d7bd722aa420ca1ea07ca59274",
+    "baselinePublishedCommit": "4fd7b561774f4dcda7d08b985909cd08a882df71",
+    "localCommit": "f773e9ededcd6f2a8e91131dc7fa7a6d2220d12c",
+    "publishedCommit": "3fa9272cb4b91a869e62ed4835a395ea8c8fa429",
+    "tree": "e7ec41ae0d785191f08be7d3a05219068954f0b0",
+    "paths": [
+      {
+        "path": "scripts/admit_semantic_v8.py",
+        "beforeBlob": "cbe81ab40abdf37a55b00212d82767ce4e445b6a",
+        "afterBlob": "231151b70e2226f5eb868c1b78a745d47aac3d6c",
+        "role": "source-admission-deadline-and-packing-controls"
+      },
+      {
+        "path": "scripts/prepare_semantic_v8.py",
+        "beforeBlob": "2609b9bae9edbbb08a20b8d7b3700375cc87151b",
+        "afterBlob": "d3296121a2dbe9ed88d7bd9cbc3647d94ad76532",
+        "role": "source-admission-deadline-and-packing-controls"
+      },
+      {
+        "path": "tests/integration/test_module_scheduler_artifact_packing.py",
+        "beforeBlob": null,
+        "afterBlob": "9bbe8d33b0aad51da7c89a6922654412c676470e",
+        "role": "source-admission-deadline-and-packing-controls"
+      },
+      {
+        "path": "tests/test_admit_semantic_v8_session.py",
+        "beforeBlob": "01c65b710e502e19443b0f9985783d39c1a56556",
+        "afterBlob": "ba03836b591854124c22dd2ab58da192ece81eec",
+        "role": "source-admission-deadline-and-packing-controls"
+      },
+      {
+        "path": "tests/test_orchestration_admit_v8.py",
+        "beforeBlob": "c1b4e93ecd8e7b70298e1ad9a62609648900b579",
+        "afterBlob": "7161a38f29a2d86af4ab4fc0d12dbdee50b97c0f",
+        "role": "source-admission-deadline-and-packing-controls"
+      },
+      {
+        "path": "tests/test_source_recheck_deadline_v8.py",
+        "beforeBlob": null,
+        "afterBlob": "49398f1198b1c9f74c3c320f4ea31709a2e889b1",
+        "role": "source-admission-deadline-and-packing-controls"
+      },
+      {
+        "path": "src/megatoken/data/module_scheduler_machine_v8.py",
+        "beforeBlob": "a1fbe772d1062a01d589e3573ae23046d87ac97c",
+        "afterBlob": "978746664a782509dcf921aaf920deba99073a73",
+        "role": "neutral-hash-import-already-composed-by-root"
+      }
+    ]
+  },
+  "excludedPaths": [
+    {
+      "path": ".github/workflows/module-scheduler-state-investigation.yml",
+      "reason": "candidate retains an older isolated investigation workflow pin; preserve the current main file"
+    }
+  ],
+  "integrationPolicy": "Apply only listed paths or their precise diffs after baseline blob comparison, preserve independent target/recovery edits, preserve the neutral semantic_json hash import, and do not infer production population or learned coverage.",
+  "mainBaselineVerification": [
+    {
+      "repository": "werg/tracing-js-self",
+      "mainRevision": "29236744488564640a53a647c0dcfb418949af6a",
+      "paths": [
+        {
+          "path": "src/semantic/compiler-v8.js",
+          "mainBlob": "583d5b90bc4723ccc419c56cb80dbaa83654fa88",
+          "action": "apply-candidate-delta"
+        },
+        {
+          "path": "src/semantic/module-scheduler-source-bridge-v8.js",
+          "mainBlob": null,
+          "action": "apply-candidate-delta"
+        },
+        {
+          "path": "src/semantic/module-v8.js",
+          "mainBlob": "4bff17fcfba36ca7a0b4ed6cfa31085483d8dbe2",
+          "action": "apply-candidate-delta"
+        },
+        {
+          "path": "src/semantic/protocol-source-compiler-v8.js",
+          "mainBlob": "cda56767ac8da0b6dbe441d4be11aaf28751b0b5",
+          "action": "apply-candidate-delta"
+        },
+        {
+          "path": "src/semantic/protocol-source-v8.js",
+          "mainBlob": "48d01540f1370b7f37d749a0921bac48d5c1084c",
+          "action": "apply-candidate-delta"
+        },
+        {
+          "path": "test/fixtures/semantic-module-scheduler-source-v8.js",
+          "mainBlob": null,
+          "action": "apply-candidate-delta"
+        },
+        {
+          "path": "test/semantic-module-scheduler-admission-v8.test.js",
+          "mainBlob": null,
+          "action": "apply-candidate-delta"
+        },
+        {
+          "path": "tools/emit-semantic-v8-module-scheduler-artifact.mjs",
+          "mainBlob": null,
+          "action": "apply-candidate-delta"
+        },
+        {
+          "path": ".github/workflows/module-source-admission-investigation.yml",
+          "mainBlob": null,
+          "action": "apply-candidate-delta"
+        }
+      ]
+    },
+    {
+      "repository": "werg/megatoken",
+      "mainRevision": "10d1f5fd611fbe4fbc3f19b6463f597d90946f7c",
+      "paths": [
+        {
+          "path": "scripts/admit_semantic_v8.py",
+          "mainBlob": "cbe81ab40abdf37a55b00212d82767ce4e445b6a",
+          "action": "apply-candidate-delta"
+        },
+        {
+          "path": "scripts/prepare_semantic_v8.py",
+          "mainBlob": "2609b9bae9edbbb08a20b8d7b3700375cc87151b",
+          "action": "apply-candidate-delta"
+        },
+        {
+          "path": "tests/integration/test_module_scheduler_artifact_packing.py",
+          "mainBlob": null,
+          "action": "apply-candidate-delta"
+        },
+        {
+          "path": "tests/test_admit_semantic_v8_session.py",
+          "mainBlob": "01c65b710e502e19443b0f9985783d39c1a56556",
+          "action": "apply-candidate-delta"
+        },
+        {
+          "path": "tests/test_orchestration_admit_v8.py",
+          "mainBlob": "c1b4e93ecd8e7b70298e1ad9a62609648900b579",
+          "action": "apply-candidate-delta"
+        },
+        {
+          "path": "tests/test_source_recheck_deadline_v8.py",
+          "mainBlob": null,
+          "action": "apply-candidate-delta"
+        },
+        {
+          "path": "src/megatoken/data/module_scheduler_machine_v8.py",
+          "mainBlob": "978746664a782509dcf921aaf920deba99073a73",
+          "action": "preserve-already-integrated"
+        }
+      ]
+    }
+  ],
+  "workflowIntegrationRequirement": "The isolated workflow currently triggers only the candidate branch and pins its isolated native revision. Main regression coverage must use a main trigger or paired main workflow with the composed native pin, exact clean checkout assets, real tokenizer, and all 45 native + 9 source + 1 packing cases required with zero skips.",
+  "qualification": {
+    "runId": 45020274216,
+    "jobId": 137201398556,
+    "conclusion": "success",
+    "nativeAdmissionControls": 45,
+    "sourceControls": 9,
+    "packingIntegrations": 1,
+    "failures": 0,
+    "skips": 0
+  }
+}

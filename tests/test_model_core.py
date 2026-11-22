@@ -475,6 +475,9 @@ def test_discard_routing_losses_suppresses_and_restores_shared_balance_recording
     assert "shape_bootstrap" in before
     assert any(name.startswith("shape_pool_") for name in before)
     assignments = recorder.assignments
+    internal_positions = recorder.internal_position_counts(routers=routers)
+    assert sum(internal_positions.values()) == assignments
+    assert internal_positions["shape_bootstrap"] > 0
 
     with core.discard_routing_losses():
         core.apply_u(mean, core.prepare_realization(mean), level=4)

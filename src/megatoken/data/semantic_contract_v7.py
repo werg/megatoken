@@ -261,6 +261,9 @@ def validate_envelope_record(item: Mapping[str, Any]) -> bool:
             _fail("Model context sourceReads must be a public list")
     elif kind == "handler-close":
         _string_list(item["discarded"], "Discarded callback events", unique=True)
+    elif kind == "realm-close":
+        if item["track"] != "host" or not isinstance(item["reason"], str) or not item["reason"]:
+            _fail("Realm closure must carry a host-owned reason")
     elif kind == "cancel":
         if (
             not isinstance(item["reason"], str)

@@ -88,6 +88,52 @@ def semantic_selection_instruction_v8(*, continuation: bool = False) -> str:
     return text
 
 
+def semantic_orchestration_instruction_v8(*, continuation: bool = False) -> str:
+    """One shared V8 lifecycle action instruction for serving and training."""
+    text = (
+        "Emit one JSON object {name,arguments}. Allowed actions are track_create, track_join, "
+        "track_progress, track_complete and track_cancel. Copy a declared execution binding "
+        "exactly into track_create, with purpose, completion, capabilities and budget. Join only "
+        "this coordinator's issued child dependency. Progress must contain the exact JSON "
+        "{kind,value} of a delivered child completion. Complete only after all declared children "
+        "have delivered and published results. Other lifecycle actions are outside this bounded profile."
+    )
+    if continuation:
+        text += " Continue the exact current record bytes; end only when the record is complete."
+    return text
+
+
+def semantic_orchestration_input_v8(*, public, children):
+    """Build the exact observed coordinator ingress shared by serving and training."""
+    return {
+        "schema": "semantic-orchestration-input/8",
+        "task": (
+            "Create each declared child; bootstrap is a separate host acknowledgement. Join its "
+            "exact issued dependency, wait for its delivered completion, publish its exact "
+            "kind/value as progress, then complete this coordinator."
+        ),
+        "sourceAdmissionClaim": False,
+        "public": public,
+        "children": children,
+    }
+
+
+def semantic_orchestration_ack_observation_v8(*, track, completion_dependency=None):
+    """Project a committed transition into model-visible input, without a fake selection id."""
+    if not isinstance(track, dict):
+        raise TypeError("Orchestration acknowledgement observation requires a track description")
+    observation = {
+        "schema": "semantic-orchestration-ack-observation/8",
+        "committed": True,
+        "track": track,
+    }
+    if completion_dependency is not None:
+        if not isinstance(completion_dependency, dict):
+            raise TypeError("Orchestration completion dependency must be a JSON object")
+        observation["completion_dependency"] = completion_dependency
+    return observation
+
+
 def semantic_execution_track_purpose(program_id: str, entry: str) -> str:
     """Purpose shown by the trainer and the native execution track."""
     if not isinstance(program_id, str) or not program_id or not isinstance(entry, str) or not entry:

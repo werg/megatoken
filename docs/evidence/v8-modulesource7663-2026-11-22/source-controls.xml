@@ -1,0 +1,19 @@
+<testsuites>
+	<testcase name="explicit original module source evidence survives fresh source, projection and replay checks" time="160.536760" classname="test" file="/home/runner/work/tracing-js-self/tracing-js-self/tracing-js-self/test/semantic-module-scheduler-admission-v8.test.js"/>
+	<testcase name="default module admission retains its existing refusal" time="0.004240" classname="test" file="/home/runner/work/tracing-js-self/tracing-js-self/tracing-js-self/test/semantic-module-scheduler-admission-v8.test.js"/>
+	<testcase name="a raw scheduler plan cannot replace original module source evidence" time="0.000683" classname="test" file="/home/runner/work/tracing-js-self/tracing-js-self/tracing-js-self/test/semantic-module-scheduler-admission-v8.test.js"/>
+	<testcase name="rehashing a changed dependency/TLA plan cannot acquire source authority" time="0.004424" classname="test" file="/home/runner/work/tracing-js-self/tracing-js-self/tracing-js-self/test/semantic-module-scheduler-admission-v8.test.js"/>
+	<testcase name="changed original source cannot reuse a previously linked program" time="0.003697" classname="test" file="/home/runner/work/tracing-js-self/tracing-js-self/tracing-js-self/test/semantic-module-scheduler-admission-v8.test.js"/>
+	<testcase name="a forged original ESM outcome is independently rerun" time="0.066144" classname="test" file="/home/runner/work/tracing-js-self/tracing-js-self/tracing-js-self/test/semantic-module-scheduler-admission-v8.test.js"/>
+	<testcase name="published module plans cannot be removed or switched independently of private source proof" time="1.158436" classname="test" file="/home/runner/work/tracing-js-self/tracing-js-self/tracing-js-self/test/semantic-module-scheduler-admission-v8.test.js"/>
+	<testcase name="logical initialization still requires its freshly rebuilt source certificate" time="31.857943" classname="test" file="/home/runner/work/tracing-js-self/tracing-js-self/tracing-js-self/test/semantic-module-scheduler-admission-v8.test.js"/>
+	<testcase name="experimental source entry remains a bounded scalar single-call profile" time="0.000380" classname="test" file="/home/runner/work/tracing-js-self/tracing-js-self/tracing-js-self/test/semantic-module-scheduler-admission-v8.test.js"/>
+	<!-- tests 9 -->
+	<!-- suites 0 -->
+	<!-- pass 9 -->
+	<!-- fail 0 -->
+	<!-- cancelled 0 -->
+	<!-- skipped 0 -->
+	<!-- todo 0 -->
+	<!-- duration_ms 194123.344268 -->
+</testsuites>

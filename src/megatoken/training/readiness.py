@@ -34,7 +34,12 @@ def check(config):
         validate_training_donors(config)
         report["checks"]["curriculum"] = stage_recipe(config.phase).training
         model = load_model_config(config.model, **config.model_overrides)
-        codec = load_codec(config.codec, vocab_size=model.vocab_size)
+        if config.semantic_v8_policy is not None:
+            from .semantic_v8 import load_semantic_v8_codec
+
+            codec = load_semantic_v8_codec(config.codec, vocab_size=model.vocab_size)
+        else:
+            codec = load_codec(config.codec, vocab_size=model.vocab_size)
         if config.codec == "byte" and config.model != "tiny" and not config.allow_byte_codec:
             raise ValueError("Production models require the pinned raw codec")
         if config.generated_capacity > model.max_capacity:
@@ -42,6 +47,17 @@ def check(config):
         with PreparedCorpus(config.datasets) as corpus:
             if corpus.codec_fingerprint != codec.fingerprint:
                 raise ValueError("Corpus and training codec differ")
+            from .semantic_v8 import preflight_semantic_training_v8
+
+            supply = preflight_semantic_training_v8(
+                config.datasets,
+                codec=codec,
+                policy=config.semantic_v8_policy,
+                max_history=model.max_history_chunks,
+                max_positions=model.max_capacity,
+            )
+            if supply is not None:
+                report["checks"]["semantic_v8"] = supply
             report["checks"]["corpus"] = corpus.identity
             if config.use_stage_mixture:
                 recipe = stage_recipe(config.phase)

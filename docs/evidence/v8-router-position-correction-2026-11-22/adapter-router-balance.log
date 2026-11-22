@@ -1,0 +1,6 @@
+Source tree: /workspace/scratch/9faed68167fb/router-audit-native
+Commit: f36b6578055c2051a15a291f310e08c2e204438e (applied external router correction on base 6f5259fcba8fd68866d628424b3f7df91615972b)
+Runtime: Python 3.12.14, pytest 8.4.2, torch 2.10.0+cpu
+Command: PYTHONPATH=src /workspace/scratch/9faed68167fb/.venv/bin/python -m pytest -q tests/test_adapters.py::test_global_router_balance_covers_the_adapter_routers
+.                                                                        [100%]
+1 passed in 1.65s

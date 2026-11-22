@@ -22,6 +22,51 @@ SCHEMA = "semantic-launch-qualification/1"
 REPOSITORIES = ("tracing-js-self", "megatoken", "natlang")
 
 
+def read_launch_configuration(path):
+    source = Path(path)
+    if source.suffix not in {".yaml", ".yml"}:
+        value = strict_json_loads(source.read_bytes())
+    else:
+        import yaml
+
+        class UniqueKeysLoader(yaml.SafeLoader):
+            pass
+
+        def mapping(loader, node, deep=False):
+            loader.flatten_mapping(node)
+            result = {}
+            for key_node, value_node in node.value:
+                key = loader.construct_object(key_node, deep=deep)
+                if key in result:
+                    raise ValueError("Launch configuration contains a duplicate mapping key")
+                result[key] = loader.construct_object(value_node, deep=deep)
+            return result
+
+        UniqueKeysLoader.add_constructor(yaml.resolver.BaseResolver.DEFAULT_MAPPING_TAG, mapping)
+        value = yaml.load(source.read_bytes(), Loader=UniqueKeysLoader)
+    if not isinstance(value, dict):
+        raise ValueError("Launch configuration must be a mapping")
+    return value
+
+
+def production_configuration(value):
+    from megatoken.training.config import TrainConfig
+
+    result = TrainConfig.from_dict(value)
+    if (
+        result.purpose != "production"
+        or result.phase not in {"SC", "SE"}
+        or result.semantic_experiment is None
+        and result.semantic_v8_policy is None
+    ):
+        raise ValueError(
+            "Launch qualification requires a production semantic experiment or V8 policy"
+        )
+    if int(os.environ.get("WORLD_SIZE", "1")) != 1:
+        raise ValueError("Semantic launch requires one independent learner process")
+    return result
+
+
 def file_identity(path: str | Path) -> dict[str, Any]:
     source = Path(path).resolve(strict=True)
     if not source.is_file():
@@ -60,12 +105,31 @@ def repository_identity(path: str | Path) -> dict[str, Any]:
             timeout=15,
         ).stdout.strip()
 
+    if Path(git("rev-parse", "--show-toplevel")).resolve() != root:
+        raise ValueError("Provide the repository root, not a directory inside it")
     return {
         "path": str(root),
         "revision": git("rev-parse", "HEAD"),
         "tree": git("rev-parse", "HEAD^{tree}"),
         "clean": not bool(git("status", "--porcelain", "--untracked-files=normal")),
     }
+
+
+def qualify_code_revisions(repositories):
+    if set(repositories) != set(REPOSITORIES):
+        raise ValueError("Provide all three repository checkouts")
+    roots = {name: Path(path).resolve(strict=True) for name, path in repositories.items()}
+    if len(set(roots.values())) != len(REPOSITORIES):
+        raise ValueError("Each repository requires its own distinct checkout")
+    package = Path(__file__).resolve().parents[1]
+    if (roots["megatoken"] / "src/megatoken").resolve() != package:
+        raise ValueError(
+            "The running megatoken package must come from the supplied consumer checkout"
+        )
+    identities = {name: repository_identity(roots[name]) for name in REPOSITORIES}
+    if any(not item["clean"] for item in identities.values()):
+        raise ValueError("Qualification requires committed, clean code in all three repositories")
+    return identities
 
 
 def qualify_hindsight(config, codec, model_config, corpus_identity: str) -> dict[str, Any]:
@@ -216,7 +280,9 @@ def _validate_model_and_masters(
     return parameter_identity(layout)
 
 
-def qualify_checkpoint(path, *, config, codec, cohort_digest, coordinator_bootstrap=False):
+def qualify_checkpoint(
+    path, *, config, codec, cohort_digest, coordinator_bootstrap=False, v8_supply=None
+):
     """Validate a committed directory without invoking pointer repair or restoration."""
     import torch
 
@@ -224,7 +290,6 @@ def qualify_checkpoint(path, *, config, codec, cohort_digest, coordinator_bootst
     from megatoken.model import ModelConfig
     from megatoken.training.checkpoint import FORMAT_VERSION
     from megatoken.training.engine import _resume_compatible
-    from megatoken.training.semantic_budget import restore_semantic_training_state
 
     directory = Path(path).resolve(strict=True)
     if not directory.is_dir() or not (directory / "state.pt").is_file():
@@ -301,7 +366,20 @@ def qualify_checkpoint(path, *, config, codec, cohort_digest, coordinator_bootst
         raise ValueError("Semantic checkpoint must retain one rank's cursor and RNG state")
     if config.decoupled is not None and not coordinator_bootstrap and not payload.get("diloco"):
         raise ValueError("Checkpoint is missing coordinator worker recovery state")
-    if not coordinator_bootstrap:
+    v8_lineage = None
+    if config.semantic_v8_policy is not None:
+        from megatoken.training.semantic_launch_v8 import qualify_checkpoint_lineage_v8
+
+        v8_lineage = qualify_checkpoint_lineage_v8(
+            payload,
+            metadata,
+            config=config,
+            supply=v8_supply,
+            coordinator_bootstrap=coordinator_bootstrap,
+        )
+    elif not coordinator_bootstrap:
+        from megatoken.training.semantic_budget import restore_semantic_training_state
+
         restore_semantic_training_state(payload, cohort_digest=cohort_digest)
     return {
         "metadata": file_identity(directory / "metadata.json"),
@@ -312,6 +390,7 @@ def qualify_checkpoint(path, *, config, codec, cohort_digest, coordinator_bootst
         "phaseConsumed": payload.get("phase_consumed"),
         "parameterIdentity": parameter_identity,
         "bootstrapStateSha256": state["sha256"] if coordinator_bootstrap else None,
+        "semanticV8Lineage": v8_lineage,
         "scope": (
             "Checksums, strict model tensors, finite values and exact FP32 master layout; no state installed"
             if coordinator_bootstrap
@@ -330,6 +409,7 @@ def qualify_coordinator(
     bootstrap_state_sha256: str | None = None,
     bootstrap_metadata_sha256: str | None = None,
     bootstrap_receipt: dict[str, Any] | None = None,
+    semantic_v8_lineage: dict[str, Any] | None = None,
 ):
     """Only authenticated GET requests: never take a lease or register a learner."""
     from megatoken.training.diloco_client import Transport
@@ -365,6 +445,17 @@ def qualify_coordinator(
     if manifest.get("parameter_identity") != expected_parameter_identity:
         raise ValueError(
             "Coordinator parameter identity differs from the verified checkpoint layout"
+        )
+    v8_lineage_digest = None
+    if config.semantic_v8_policy is not None:
+        from megatoken.training.semantic_launch_v8 import qualify_coordinator_lineage_v8
+
+        v8_lineage_digest = qualify_coordinator_lineage_v8(
+            manifest,
+            config=config,
+            codec=codec,
+            corpus_identity=corpus_identity,
+            lineage=semantic_v8_lineage,
         )
     bootstrap_provenance = None
     bootstrap_artifact = None
@@ -418,6 +509,7 @@ def qualify_coordinator(
         "bootstrapArtifact": bootstrap_artifact,
         "fragments": len(fragments),
         "workerId": settings.resolved_worker_id,
+        "semanticV8LineageDigest": v8_lineage_digest,
         "status": status,
         "scope": "Read-only objective, corpus, architecture, exact master layout, bootstrap provenance and liveness checks",
     }
@@ -436,10 +528,6 @@ def qualify_launch(
     """Return every independent failure as a gate, without starting training."""
     from megatoken.data.recipes import validate_stage_start, validate_training_donors
     from megatoken.generation.codec import LING_TOKENIZER_SHA256, ByteCodec
-    from megatoken.loading import load_model_config
-    from megatoken.runtime import doctor
-    from megatoken.training.config import TrainConfig
-    from megatoken.training.semantic_budget import SemanticExperimentConfig, validate_stage_supply
 
     gates: dict[str, dict] = {}
 
@@ -467,7 +555,7 @@ def qualify_launch(
         "configurationFile",
         lambda: {
             "identity": file_identity(config_path),
-            "value": strict_json_loads(Path(config_path).read_bytes()),
+            "value": read_launch_configuration(config_path),
         },
     )
     value = None if raw is None else raw["value"]
@@ -476,15 +564,7 @@ def qualify_launch(
     if raw is not None:
         gates["configurationFile"]["evidence"] = raw["identity"]
 
-    def configuration():
-        result = TrainConfig.from_dict(value)
-        if result.purpose != "production" or result.semantic_experiment is None:
-            raise ValueError("Launch qualification requires a production semantic experiment")
-        if int(os.environ.get("WORLD_SIZE", "1")) != 1:
-            raise ValueError("Semantic comparison requires one independent learner process")
-        return result
-
-    config = check("configuration", configuration, ("configurationFile",))
+    config = check("configuration", lambda: production_configuration(value), ("configurationFile",))
 
     def bindings():
         missing = unresolved_bindings(value)
@@ -508,20 +588,17 @@ def qualify_launch(
             },
         }
 
-    def code_revisions():
-        if set(repositories) != set(REPOSITORIES):
-            raise ValueError("Provide all three repository checkouts")
-        identities = {name: repository_identity(repositories[name]) for name in REPOSITORIES}
-        if any(not item["clean"] for item in identities.values()):
-            raise ValueError(
-                "Qualification requires committed, clean code in all three repositories"
-            )
-        return identities
-
-    check("codeRevisions", code_revisions)
-    experiment = None if config is None else SemanticExperimentConfig(**config.semantic_experiment)
+    identities = check("codeRevisions", lambda: qualify_code_revisions(repositories))
+    is_v8 = config is not None and config.semantic_v8_policy is not None
 
     def engineering():
+        if is_v8:
+            from megatoken.training.semantic_launch_v8 import qualify_policy_v8
+
+            return qualify_policy_v8(config, identities)
+        from megatoken.training.semantic_budget import SemanticExperimentConfig
+
+        experiment = SemanticExperimentConfig(**config.semantic_experiment)
         digest = experiment.preflight(phase=config.phase)
         receipt = strict_json_loads(Path(experiment.engineering_receipt).read_bytes())
         references = receipt.get("evidence")
@@ -543,23 +620,40 @@ def qualify_launch(
             "verifiedEvidence": verified,
         }
 
-    evidence = check("engineering", engineering, ("configuration",))
-    model_config = check(
-        "modelGeometry",
-        lambda: load_model_config(
+    evidence = check(
+        "engineering",
+        engineering,
+        ("configuration", "codeRevisions") if is_v8 else ("configuration",),
+    )
+
+    def geometry():
+        from megatoken.loading import load_model_config
+
+        model = load_model_config(
             config.model,
             **{
                 **config.model_overrides,
                 "expert_backend": config.expert_backend,
                 "checkpoint_stages": config.gradient_checkpointing,
             },
-        ),
+        )
+        if config.generated_capacity > model.max_capacity:
+            raise ValueError("Generated capacity exceeds the model's maximum")
+        return model
+
+    model_config = check(
+        "modelGeometry",
+        geometry,
         ("configuration",),
     )
     if model_config is not None:
         gates["modelGeometry"]["evidence"] = model_config.to_dict()
 
     def tokenizer():
+        if is_v8:
+            from megatoken.training.semantic_v8 import load_semantic_v8_codec
+
+            return load_semantic_v8_codec(config.codec, vocab_size=model_config.vocab_size)
         source = Path(config.codec)
         if source.is_dir():
             metadata = strict_json_loads((source / "codec.json").read_bytes())
@@ -580,9 +674,19 @@ def qualify_launch(
             "sha256": LING_TOKENIZER_SHA256,
             "vocabularySize": codec.vocab_size,
         }
-    supply = check(
-        "corpus",
-        lambda: validate_stage_supply(
+
+    def corpus_supply():
+        if is_v8:
+            from megatoken.training.semantic_launch_v8 import qualify_corpus_v8
+
+            return qualify_corpus_v8(config, codec, model_config)
+        from megatoken.training.semantic_budget import (
+            SemanticExperimentConfig,
+            validate_stage_supply,
+        )
+
+        experiment = SemanticExperimentConfig(**config.semantic_experiment)
+        return validate_stage_supply(
             config.datasets,
             phase=config.phase,
             representation=experiment.representation,
@@ -591,7 +695,11 @@ def qualify_launch(
             consumer_revision=evidence["artifactProducerRevisions"]["megatoken"],
             max_history=model_config.max_history_chunks,
             max_positions=model_config.max_capacity,
-        ),
+        )
+
+    supply = check(
+        "corpus",
+        corpus_supply,
         ("engineering", "tokenizer", "modelGeometry"),
     )
 
@@ -633,6 +741,7 @@ def qualify_launch(
             codec=codec,
             cohort_digest=evidence["cohortDigest"],
             coordinator_bootstrap=bootstrap_checkpoint is not None,
+            v8_supply=supply if is_v8 else None,
         )
         validate_stage_start(config, result["phase"])
         return {
@@ -640,7 +749,7 @@ def qualify_launch(
             **result,
         }
 
-    check("checkpoint", checkpoint, ("engineering", "tokenizer"))
+    checkpoint_evidence = check("checkpoint", checkpoint, ("engineering", "tokenizer", "corpus"))
 
     def read_bootstrap_receipt():
         if bootstrap_checkpoint is None:
@@ -658,7 +767,7 @@ def qualify_launch(
             raise ValueError("Bootstrap provenance receipt must be a file")
         return strict_json_loads(receipt_path.read_bytes())
 
-    check("bootstrapProvenance", read_bootstrap_receipt, ("checkpoint",))
+    bootstrap_evidence = check("bootstrapProvenance", read_bootstrap_receipt, ("checkpoint",))
 
     def output():
         target = Path(config.output).resolve()
@@ -667,7 +776,12 @@ def qualify_launch(
             existing = existing.parent
         if not existing.is_dir() or not os.access(existing, os.W_OK | os.X_OK):
             raise ValueError("Training output has no writable parent directory")
-        for root in [*config.datasets, *config.engram_imports, config.hindsight_targets]:
+        for root in [
+            config.codec,
+            *config.datasets,
+            *(config.engram_imports or []),
+            config.hindsight_targets,
+        ]:
             asset = Path(root).resolve()
             if target == asset or asset in target.parents or target in asset.parents:
                 raise ValueError("Training output overlaps immutable input assets")
@@ -676,6 +790,8 @@ def qualify_launch(
     check("outputLocation", output, ("configuration",))
 
     def hardware():
+        from megatoken.runtime import doctor
+
         result = doctor(
             require_cuda=require_cuda, require_blackwell=config.require_blackwell, probe_cuda=True
         )
@@ -694,20 +810,21 @@ def qualify_launch(
                 model_config,
                 codec,
                 supply["corpusIdentity"],
-                expected_parameter_identity=evidence["checkpoint"]["parameterIdentity"],
+                expected_parameter_identity=checkpoint_evidence["parameterIdentity"],
                 bootstrap_state_sha256=(
-                    evidence["checkpoint"]["bootstrapStateSha256"]
+                    checkpoint_evidence["bootstrapStateSha256"]
                     if bootstrap_checkpoint is not None
                     else None
                 ),
                 bootstrap_metadata_sha256=(
-                    evidence["checkpoint"]["metadata"]["sha256"]
+                    checkpoint_evidence["metadata"]["sha256"]
                     if bootstrap_checkpoint is not None
                     else None
                 ),
                 bootstrap_receipt=(
-                    evidence["bootstrapProvenance"] if bootstrap_checkpoint is not None else None
+                    bootstrap_evidence if bootstrap_checkpoint is not None else None
                 ),
+                semantic_v8_lineage=supply.get("trainingLineage") if is_v8 else None,
             ),
             (
                 "configuration",

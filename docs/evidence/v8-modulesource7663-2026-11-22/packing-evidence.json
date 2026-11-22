@@ -1,0 +1,255 @@
+{
+  "allContextBytesReassembled": true,
+  "allContextDependenciesPreserved": true,
+  "allPhysicalRecordsWithin8192Tokens": true,
+  "allTargetBytesReassembled": true,
+  "artifactSha256": "b206c883e8f665af5ff1e959b035f4f009a22aad5dabc2cf6be4cffae13e5615",
+  "consumerRevision": "3fa9272cb4b91a869e62ed4835a395ea8c8fa429",
+  "contextsOver8192Tokens": 566,
+  "criticalTargetCounts": {
+    "allocate": 20,
+    "async.await": 2,
+    "async.call": 2,
+    "async.complete": 2,
+    "async.function": 1,
+    "async.resume": 2,
+    "call": 18,
+    "generator.create": 3,
+    "generator.finish": 3,
+    "generator.function": 3,
+    "generator.handler.catch": 1,
+    "generator.handler.enter": 1,
+    "generator.handler.route": 2,
+    "generator.lookup": 8,
+    "generator.receive": 7,
+    "generator.resume": 8,
+    "generator.start": 3,
+    "generator.yield": 5,
+    "module.scheduler.initialize": 1,
+    "promise.executor.enter": 1,
+    "promise.executor.finish": 1,
+    "promise.resolver.call": 1,
+    "return": 18
+  },
+  "datasetBinding": {
+    "componentId": "semantic-region-component:f875fda34ceb08a92d25f5f9be5be68ce7a96c9fc1bb023118ecf5e22723fb1b",
+    "contextsDigest": "03d6c6d86448fc2cf205081c212414dd481e24fd5d0cbb44fa86600ba21b80f7",
+    "coreDigest": null,
+    "episodeDigest": "de5ff5de665bfd398739f6c14f63fa26091edcb641117fe9fc20dace6a432b18",
+    "family": "module-scheduler-source-pack-fixture",
+    "registryDigest": "af5610dc9cb127b5f620f1311865693b98dcddce162d954e17806c274b765cd0",
+    "schema": "semantic-region-dataset-binding/1",
+    "sourceArtifactDigest": "da1e817c6073c9803ff424fb40a4145268654b5ed1bbc5a77386e3557860cb65",
+    "sourceDigest": "bb8e7810e32ec2476f4eb6629ed234f43e0edb8f3c2bbe0efcc25363bbd55b64",
+    "sourceId": "module-scheduler-source-pack-fixture",
+    "split": "validation",
+    "traceFormat": "semantic-trace/8"
+  },
+  "learnedSuccess": null,
+  "logicalContexts": 708,
+  "logicalGeneratedTargets": 708,
+  "maxPackedWindowTokens": 8192,
+  "maxWholeContextTokens": 12300,
+  "nativeAdmission": {
+    "admitted": true,
+    "checks": {
+      "contexts": "passed",
+      "continuation": "passed",
+      "masks": "passed",
+      "replay": "passed",
+      "sourceBinding": "passed",
+      "tokenizer": "passed"
+    },
+    "componentGate": "native-consumer-only",
+    "consumerRevision": "3fa9272cb4b91a869e62ed4835a395ea8c8fa429",
+    "contextFormat": "semantic-context/8",
+    "contextsDigest": "03d6c6d86448fc2cf205081c212414dd481e24fd5d0cbb44fa86600ba21b80f7",
+    "contractDigest": "a952385535b9b5e19d737206286f6f26c149f7301c51b4b106fe3b1cae5ab55a",
+    "counts": {
+      "algorithmRecords": 0,
+      "contexts": 708,
+      "detailedRecords": 595,
+      "generatedRecords": 708,
+      "generatedTokens": 22974,
+      "observedTokens": 7074274,
+      "protocolRecords": 113,
+      "records": 710,
+      "regionRecords": 0
+    },
+    "datasetBindingDigest": "9bcc9ad0b2c497dd985455dd0d5aa219eb112847762e367f6ed95fd6bad72ec4",
+    "fixtureDigest": "56f7f36d3b25b3b11a208be3de337e637b9782e6759faea1e1ec107b0a90f0ce",
+    "framing": {
+      "eosTokenId": null,
+      "kind": "native-physical-record-boundaries/1",
+      "physicalRecords": 12438,
+      "terminalTokens": 0
+    },
+    "interoperabilityDigest": "f5c2d5fd15ad3b84e9b17de771d2f72a58f3c7dee4969ded8a7eb9c3c449f661",
+    "learningClaim": null,
+    "nativeTrainingDigest": "e5c8a825a43eba64f818b13e667d49297dd66b800470f505c49560be7bdc21b6",
+    "optimizerSteps": 0,
+    "protocolExtensions": [
+      "async-scoped-call-source/1",
+      "bound-module-scheduler-source/1",
+      "builtin-iterator/1",
+      "primitive-conversion-source/1",
+      "promise-executor/1",
+      "synchronous-generator-source/1"
+    ],
+    "protocolProfile": "bound-module-scheduler-source/1",
+    "publicDigest": "de5ff5de665bfd398739f6c14f63fa26091edcb641117fe9fc20dace6a432b18",
+    "representation": "mixed",
+    "schema": "semantic-native-admission/8",
+    "sourceArtifactDigest": "da1e817c6073c9803ff424fb40a4145268654b5ed1bbc5a77386e3557860cb65",
+    "sourceProfile": "compositional-regions/1",
+    "sourceVerification": {
+      "artifactSha256": "b206c883e8f665af5ff1e959b035f4f009a22aad5dabc2cf6be4cffae13e5615",
+      "contextDigest": "03d6c6d86448fc2cf205081c212414dd481e24fd5d0cbb44fa86600ba21b80f7",
+      "datasetBindingDigest": "9bcc9ad0b2c497dd985455dd0d5aa219eb112847762e367f6ed95fd6bad72ec4",
+      "familyBindingValidated": true,
+      "producerRevision": "7663c11afddc98c4823a8193ac034dda9e8e153d",
+      "producerTreeClean": true,
+      "projectionValidated": true,
+      "publicDigest": "de5ff5de665bfd398739f6c14f63fa26091edcb641117fe9fc20dace6a432b18",
+      "regionRecords": null,
+      "registryDigest": "af5610dc9cb127b5f620f1311865693b98dcddce162d954e17806c274b765cd0",
+      "replayValidated": true,
+      "schema": "semantic-native-source-recheck/1",
+      "sourceArtifactDigest": "da1e817c6073c9803ff424fb40a4145268654b5ed1bbc5a77386e3557860cb65",
+      "sourceValidated": true
+    },
+    "tokenizer": {
+      "identity": "7f52faca2fe82273a889023defd2f1a6fd6080a21096ec77e97f4798a0a370b2",
+      "sha256": "40fb9d7d7795b8bd305aeff39ce9963f3f450915b9553f2938e009be9a1fed60",
+      "status": "passed"
+    },
+    "traceFormat": "semantic-trace/8"
+  },
+  "nativeTrainingDigest": "e5c8a825a43eba64f818b13e667d49297dd66b800470f505c49560be7bdc21b6",
+  "optimizerUpdates": 0,
+  "packedWindows": 898,
+  "physicalContextParts": 11679,
+  "physicalSelectedTargets": 708,
+  "preparedManifestRaw": "{\n  \"behavior_coverage\": {\n    \"episodes\": {\n      \"validation|semantic_execution|semantic_async\": 1,\n      \"validation|semantic_execution|semantic_code_invocation\": 1,\n      \"validation|semantic_execution|semantic_v8\": 1\n    },\n    \"original_families\": {\n      \"validation|semantic_execution|semantic_async\": 1,\n      \"validation|semantic_execution|semantic_code_invocation\": 1,\n      \"validation|semantic_execution|semantic_v8\": 1\n    },\n    \"original_family_ids\": {\n      \"validation|semantic_execution|semantic_async\": [\n        \"semantic-region-component:f875fda34ceb08a92d25f5f9be5be68ce7a96c9fc1bb023118ecf5e22723fb1b\"\n      ],\n      \"validation|semantic_execution|semantic_code_invocation\": [\n        \"semantic-region-component:f875fda34ceb08a92d25f5f9be5be68ce7a96c9fc1bb023118ecf5e22723fb1b\"\n      ],\n      \"validation|semantic_execution|semantic_v8\": [\n        \"semantic-region-component:f875fda34ceb08a92d25f5f9be5be68ce7a96c9fc1bb023118ecf5e22723fb1b\"\n      ]\n    },\n    \"version\": 2\n  },\n  \"census\": {\n    \"U\": 7097248,\n    \"U_definition\": \"Raw-codec tokens in accepted deduplicated complete transcripts, including shared context.\",\n    \"accepted_episodes\": 1,\n    \"duplicates\": 0,\n    \"executed_transcript_U\": 0,\n    \"filtered_rows\": 0,\n    \"free_position_candidates\": 22974,\n    \"free_position_candidates_definition\": \"The static masked target inventory: positions that could carry loss.\",\n    \"incomplete_transcript_U\": 0,\n    \"independent_families\": 1,\n    \"parser_review_rows\": 0,\n    \"quarantined\": 0,\n    \"rejected_rows\": 0,\n    \"simulated_transcript_U\": 0,\n    \"strata\": [\n      {\n        \"U\": 7097248,\n        \"eligible_assistant_tokens\": 22974,\n        \"episodes\": 1,\n        \"executed_observation_tokens\": 7074274,\n        \"families\": 1,\n        \"free_position_candidates\": 22974,\n        \"source_id\": \"semantic-execution-v8\",\n        \"split\": \"validation\",\n        \"stream\": \"semantic_execution\",\n        \"tool_observation_tokens\": 0\n      }\n    ],\n    \"verified_success_U\": 0\n  },\n  \"chunking\": {\n    \"codec_fingerprint\": \"7f52faca2fe82273a889023defd2f1a6fd6080a21096ec77e97f4798a0a370b2\",\n    \"config\": {\n      \"chat_template\": \"auto\",\n      \"code_tree_scale\": 1.5,\n      \"hard_max_tokens\": 8192,\n      \"limits\": {\n        \"isolate_native\": true,\n        \"max_depth\": 12,\n        \"max_injections\": 2048,\n        \"max_nodes\": 100000,\n        \"max_parse_bytes\": 1048576,\n        \"max_parse_milliseconds\": 0,\n        \"max_regions\": 20000,\n        \"max_tree_depth\": 128,\n        \"worker_timeout_ms\": 5000\n      },\n      \"max_bytes\": 16384,\n      \"parser_backend\": \"tree_sitter\",\n      \"planner_max_edges\": 64,\n      \"soft_max_tokens\": 768,\n      \"target_tokens\": 512,\n      \"tree_distance_budget\": 4.0,\n      \"tree_distance_weight\": 0.15,\n      \"use_icu\": false,\n      \"version\": \"recursive-parser-v2\"\n    },\n    \"config_fingerprint\": \"02246d76b517454299c35a682576de35f2877e3a14ae011f28a465dda811e82e\",\n    \"fingerprint\": \"bc5e145e98467c541f480c10a93bb2c7be5ffe2d110cb5a17fba93a99e350e9a\",\n    \"parsers\": {\n      \"chat\": {\n        \"templates\": {\n          \"chatml\": {\n            \"aliases\": [\n              \"qwen\"\n            ],\n            \"allow_named_tools\": false,\n            \"body_newlines\": 0,\n            \"channel_markers\": [],\n            \"ends\": [\n              \"3c7c696d5f656e647c3e\"\n            ],\n            \"format_markers\": [],\n            \"mode\": \"delimited\",\n            \"name\": \"chatml\",\n            \"prefixes\": [],\n            \"separator\": \"0a\",\n            \"start\": \"3c7c696d5f73746172747c3e\"\n          },\n          \"deepseek\": {\n            \"aliases\": [\n              \"deepseek-v3\",\n              \"deepseek-r1\"\n            ],\n            \"allow_named_tools\": false,\n            \"body_newlines\": 0,\n            \"channel_markers\": [],\n            \"ends\": [\n              \"3cefbd9c656e64e296816f66e2968173656e74656e6365efbd9c3e\"\n            ],\n            \"format_markers\": [],\n            \"mode\": \"deepseek\",\n            \"name\": \"deepseek\",\n            \"prefixes\": [\n              \"3cefbd9c626567696ee296816f66e2968173656e74656e6365efbd9c3e\"\n            ],\n            \"separator\": \"3cefbd9c417373697374616e74efbd9c3e\",\n            \"start\": \"3cefbd9c55736572efbd9c3e\"\n          },\n          \"gemma\": {\n            \"aliases\": [\n              \"gemma2\",\n              \"gemma3\"\n            ],\n            \"allow_named_tools\": false,\n            \"body_newlines\": 0,\n            \"channel_markers\": [],\n            \"ends\": [\n              \"3c656e645f6f665f7475726e3e\"\n            ],\n            \"format_markers\": [],\n            \"mode\": \"delimited\",\n            \"name\": \"gemma\",\n            \"prefixes\": [\n              \"3c626f733e\"\n            ],\n            \"separator\": \"0a\",\n            \"start\": \"3c73746172745f6f665f7475726e3e\"\n          },\n          \"harmony\": {\n            \"aliases\": [],\n            \"allow_named_tools\": true,\n            \"body_newlines\": 0,\n            \"channel_markers\": [\n              \"3c7c6368616e6e656c7c3e\"\n            ],\n            \"ends\": [\n              \"3c7c656e647c3e\",\n              \"3c7c72657475726e7c3e\",\n              \"3c7c63616c6c7c3e\"\n            ],\n            \"format_markers\": [\n              \"3c7c636f6e73747261696e7c3e\"\n            ],\n            \"mode\": \"delimited\",\n            \"name\": \"harmony\",\n            \"prefixes\": [],\n            \"separator\": \"3c7c6d6573736167657c3e\",\n            \"start\": \"3c7c73746172747c3e\"\n          },\n          \"harmony_legacy\": {\n            \"aliases\": [],\n            \"allow_named_tools\": true,\n            \"body_newlines\": 0,\n            \"channel_markers\": [\n              \"3c7c6d6574615f7365707c3e\"\n            ],\n            \"ends\": [\n              \"3c7c696d5f656e647c3e\",\n              \"3c7c66696d5f7375666669787c3e\",\n              \"3c7c676869737375657c3e\"\n            ],\n            \"format_markers\": [\n              \"3c7c6d6574615f73746172747c3e\"\n            ],\n            \"mode\": \"delimited\",\n            \"name\": \"harmony_legacy\",\n            \"prefixes\": [\n              \"3c7c656e646f66746578747c3e\"\n            ],\n            \"separator\": \"3c7c696d5f7365707c3e\",\n            \"start\": \"3c7c696d5f73746172747c3e\"\n          },\n          \"inst\": {\n            \"aliases\": [\n              \"llama2\",\n              \"llama-2\",\n              \"mistral\"\n            ],\n            \"allow_named_tools\": false,\n            \"body_newlines\": 0,\n            \"channel_markers\": [],\n            \"ends\": [\n              \"3c2f733e\"\n            ],\n            \"format_markers\": [],\n            \"mode\": \"inst\",\n            \"name\": \"inst\",\n            \"prefixes\": [\n              \"3c733e\"\n            ],\n            \"separator\": \"5b2f494e53545d\",\n            \"start\": \"5b494e53545d\"\n          },\n          \"llama3\": {\n            \"aliases\": [\n              \"llama-3\",\n              \"llama3.1\",\n              \"llama3.2\",\n              \"llama3.3\"\n            ],\n            \"allow_named_tools\": true,\n            \"body_newlines\": 2,\n            \"channel_markers\": [],\n            \"ends\": [\n              \"3c7c656f745f69647c3e\",\n              \"3c7c656f6d5f69647c3e\",\n              \"3c7c656e645f6f665f746578747c3e\"\n            ],\n            \"format_markers\": [],\n            \"mode\": \"delimited\",\n            \"name\": \"llama3\",\n            \"prefixes\": [\n              \"3c7c626567696e5f6f665f746578747c3e\"\n            ],\n            \"separator\": \"3c7c656e645f6865616465725f69647c3e\",\n            \"start\": \"3c7c73746172745f6865616465725f69647c3e\"\n          },\n          \"phi3\": {\n            \"aliases\": [\n              \"phi-3\",\n              \"phi4\"\n            ],\n            \"allow_named_tools\": false,\n            \"body_newlines\": 1,\n            \"channel_markers\": [],\n            \"ends\": [\n              \"3c7c656e647c3e\",\n              \"3c7c656e646f66746578747c3e\"\n            ],\n            \"format_markers\": [],\n            \"mode\": \"delimited\",\n            \"name\": \"phi3\",\n            \"prefixes\": [],\n            \"separator\": \"7c3e\",\n            \"start\": \"3c7c\"\n          }\n        },\n        \"version\": \"chat-framing-v1\"\n      },\n      \"implementation\": \"bfd48445630387eb441499ae13aafc3315c12e75ffc4795cc6a88bd7c8f993d9\",\n      \"prose\": {\n        \"icu\": null,\n        \"rules\": \"unicode-prose-v1\",\n        \"unicode\": \"16.0.0\",\n        \"uniseg\": \"0.10.1\"\n      },\n      \"syntax\": {\n        \"backend\": \"tree_sitter\",\n        \"grammar_dependencies\": {\n          \"tree-sitter-c-sharp\": \"0.23.5\",\n          \"tree-sitter-embedded-template\": \"0.25.0\",\n          \"tree-sitter-yaml\": \"0.7.2\"\n        },\n        \"markdown_it_py\": \"4.0.0\",\n        \"network\": \"disabled\",\n        \"providers\": [],\n        \"registry\": \"offline-grammar-registry-v1\",\n        \"tree_sitter\": \"0.25.2\",\n        \"tree_sitter_language_pack\": \"0.13.0\"\n      }\n    }\n  },\n  \"chunking_stats\": {\n    \"boundaries\": {\n      \"end\": 1418,\n      \"sentence\": 2839,\n      \"word\": 8181\n    },\n    \"bytes\": 21609802,\n    \"diagnostics\": {\n      \"semantic_boundary_projected\": 223\n    },\n    \"forced_splits\": 0,\n    \"histogram\": {\n      \"0\": 0,\n      \"1024\": 198,\n      \"128\": 2,\n      \"192\": 0,\n      \"256\": 1,\n      \"32\": 458,\n      \"384\": 0,\n      \"512\": 2,\n      \"64\": 237,\n      \"768\": 11529,\n      \"96\": 11,\n      \">1024\": 0\n    },\n    \"histogram_kind\": \"disjoint buckets, inclusive upper bounds\",\n    \"languages\": {\n      \"text\": 12438\n    },\n    \"max_positions\": 900,\n    \"mean_positions\": 570.6100659269979,\n    \"over_soft_max\": 198,\n    \"positions\": 7097248,\n    \"records\": 12438,\n    \"reference_tokens\": 7097248,\n    \"unversioned_records\": 0\n  },\n  \"codec_fingerprint\": \"7f52faca2fe82273a889023defd2f1a6fd6080a21096ec77e97f4798a0a370b2\",\n  \"complete\": true,\n  \"counts\": {\n    \"*\": 1,\n    \"split:validation\": 1,\n    \"split:validation|stream:semantic_execution\": 1,\n    \"stream:semantic_execution\": 1\n  },\n  \"dedup\": {\n    \"anchor_count\": 8,\n    \"evaluation_after\": null,\n    \"max_candidates\": 4096,\n    \"max_descendants_per_parent\": 20000,\n    \"min_near_words\": 40,\n    \"near_threshold\": 0.94,\n    \"shingle_words\": 5,\n    \"sketch_size\": 256,\n    \"split_seed\": \"semantic-region-family-components/1\",\n    \"train_fraction\": 0.98,\n    \"validation_fraction\": 0.01\n  },\n  \"feature_counts\": {},\n  \"feature_extractors\": [],\n  \"fingerprint\": \"fd1056ee3c3cf13860a13229fcebc2b7d2261018caa41833a5d1213036c87c1f\",\n  \"index\": {\n    \"path\": \"index.sqlite\",\n    \"sha256\": \"7844766798fb2798fb3838b21f7c683c3d6807910283b20f13189574652583e3\"\n  },\n  \"parser_review\": {},\n  \"pipeline_fingerprint\": \"251b8829f277f3b7f0c14ac5b8a22a0252ad7a7326c809ee4a0dce1cb473502d\",\n  \"schema_version\": 10,\n  \"scored_media_counts\": {},\n  \"shards\": [\n    {\n      \"bytes\": 104295939,\n      \"episodes\": 1,\n      \"path\": \"episodes-000000.jsonl\",\n      \"sha256\": \"3cd47b6a0f64f0bde5f8641dce3e52c432898cdf50c6a40b806ae7d66b003d0c\"\n    }\n  ],\n  \"sources\": [\n    {\n      \"consumerRevision\": \"3fa9272cb4b91a869e62ed4835a395ea8c8fa429\",\n      \"contractDigest\": \"a952385535b9b5e19d737206286f6f26c149f7301c51b4b106fe3b1cae5ab55a\",\n      \"fixtureDigest\": \"56f7f36d3b25b3b11a208be3de337e637b9782e6759faea1e1ec107b0a90f0ce\",\n      \"learningClaim\": null,\n      \"maxHistory\": 1024,\n      \"maxPositions\": 8192,\n      \"optimizerSteps\": 0,\n      \"producerRevision\": \"7663c11afddc98c4823a8193ac034dda9e8e153d\",\n      \"registryDigest\": \"af5610dc9cb127b5f620f1311865693b98dcddce162d954e17806c274b765cd0\",\n      \"representation\": \"mixed\",\n      \"schema\": \"semantic-preparation/8\",\n      \"tokenizerIdentity\": \"7f52faca2fe82273a889023defd2f1a6fd6080a21096ec77e97f4798a0a370b2\",\n      \"tokenizerSha256\": \"40fb9d7d7795b8bd305aeff39ce9963f3f450915b9553f2938e009be9a1fed60\"\n    }\n  ],\n  \"structured_supply\": {\n    \"counts\": {\n      \"validation|semantic_execution|episode_views\": 1,\n      \"validation|semantic_execution|event_modality:text\": 12438,\n      \"validation|semantic_execution|group_clock:unknown\": 12438,\n      \"validation|semantic_execution|group_modalities:text\": 12438,\n      \"validation|semantic_execution|group_width:1\": 12438,\n      \"validation|semantic_execution|record_provenance:executed\": 11730,\n      \"validation|semantic_execution|record_provenance:teacher\": 708\n    },\n    \"denominators\": \"group_* count committed groups; event_* and availability count events; record_* count physical records; language_pair and episode_views count episodes; original_families deduplicate each dimension\",\n    \"original_families\": {\n      \"validation|semantic_execution|episode_views\": 1,\n      \"validation|semantic_execution|event_modality:text\": 1,\n      \"validation|semantic_execution|group_clock:unknown\": 1,\n      \"validation|semantic_execution|group_modalities:text\": 1,\n      \"validation|semantic_execution|group_width:1\": 1,\n      \"validation|semantic_execution|record_provenance:executed\": 1,\n      \"validation|semantic_execution|record_provenance:teacher\": 1\n    },\n    \"version\": 1\n  }\n}\n",
+  "preparedManifestSha256": "039d3c81178f9e3819376f8264c95f5aff2018a8f7db3a8fe312f5f9413002f2",
+  "preparedReportRaw": "{\n  \"consumerRevision\": \"3fa9272cb4b91a869e62ed4835a395ea8c8fa429\",\n  \"contractDigest\": \"a952385535b9b5e19d737206286f6f26c149f7301c51b4b106fe3b1cae5ab55a\",\n  \"counts\": {\n    \"admitted\": 1,\n    \"attempted\": 1\n  },\n  \"fixtureDigest\": \"56f7f36d3b25b3b11a208be3de337e637b9782e6759faea1e1ec107b0a90f0ce\",\n  \"learningClaim\": null,\n  \"maxHistory\": 1024,\n  \"maxPositions\": 8192,\n  \"optimizerSteps\": 0,\n  \"producerRevision\": \"7663c11afddc98c4823a8193ac034dda9e8e153d\",\n  \"refusals\": [],\n  \"registryDigest\": \"af5610dc9cb127b5f620f1311865693b98dcddce162d954e17806c274b765cd0\",\n  \"representation\": \"mixed\",\n  \"schema\": \"semantic-preparation/8\",\n  \"tokenizerIdentity\": \"7f52faca2fe82273a889023defd2f1a6fd6080a21096ec77e97f4798a0a370b2\",\n  \"tokenizerSha256\": \"40fb9d7d7795b8bd305aeff39ce9963f3f450915b9553f2938e009be9a1fed60\"\n}\n",
+  "preparedReportSha256": "d9f09986a19b2c8f9af1bed400e1902c0d2532df9ac0f2ab443ce2085dff06fb",
+  "producerRevision": "7663c11afddc98c4823a8193ac034dda9e8e153d",
+  "productionPopulationChanged": false,
+  "schema": "semantic-v8-module-scheduler-artifact-pack/1",
+  "selectedTokenAndMaskDigest": "057829c2c1e4870deec4647f16c42281aa9aab40c8aedc2312a96e05d5bdee73",
+  "sourceAdmission": {
+    "artifactSha256": "b206c883e8f665af5ff1e959b035f4f009a22aad5dabc2cf6be4cffae13e5615",
+    "contextDigest": "03d6c6d86448fc2cf205081c212414dd481e24fd5d0cbb44fa86600ba21b80f7",
+    "datasetBindingDigest": "9bcc9ad0b2c497dd985455dd0d5aa219eb112847762e367f6ed95fd6bad72ec4",
+    "familyBindingValidated": true,
+    "producerRevision": "7663c11afddc98c4823a8193ac034dda9e8e153d",
+    "producerTreeClean": true,
+    "projectionValidated": true,
+    "publicDigest": "de5ff5de665bfd398739f6c14f63fa26091edcb641117fe9fc20dace6a432b18",
+    "regionRecords": null,
+    "registryDigest": "af5610dc9cb127b5f620f1311865693b98dcddce162d954e17806c274b765cd0",
+    "replayValidated": true,
+    "schema": "semantic-native-source-recheck/1",
+    "sourceArtifactDigest": "da1e817c6073c9803ff424fb40a4145268654b5ed1bbc5a77386e3557860cb65",
+    "sourceValidated": true
+  },
+  "sourceFamily": "module-scheduler-source-pack-fixture",
+  "sourceRegistry": {
+    "ancestors": [
+      "module-graph:e5292f3f3e94d2cde6177998102bd33a6895475f55b3e2aad79e0b6f8118a96b",
+      "module-source:b48d9df219e1c3de1b81a889a288210dab4eccc4517989d4a6b7bbd32ce51f11",
+      "module-source:c809d6f77e602e3e1ffef02ae6b261b45066e70add87ca374270cb2728d20a92",
+      "module-source:ce757901eda0924b3cdb66f48751863d3038a2280fb83430ee2184b12bb82c25"
+    ],
+    "componentId": "semantic-region-component:f875fda34ceb08a92d25f5f9be5be68ce7a96c9fc1bb023118ecf5e22723fb1b",
+    "coreDigest": null,
+    "coreStatus": "detailed",
+    "entry": "__traced_evaluated_entry",
+    "family": "module-scheduler-source-pack-fixture",
+    "holdout": null,
+    "members": [
+      "module-graph:e5292f3f3e94d2cde6177998102bd33a6895475f55b3e2aad79e0b6f8118a96b",
+      "module-scheduler-source-pack-fixture",
+      "module-source:b48d9df219e1c3de1b81a889a288210dab4eccc4517989d4a6b7bbd32ce51f11",
+      "module-source:c809d6f77e602e3e1ffef02ae6b261b45066e70add87ca374270cb2728d20a92",
+      "module-source:ce757901eda0924b3cdb66f48751863d3038a2280fb83430ee2184b12bb82c25"
+    ],
+    "policy": "semantic-region-family-components/1",
+    "registry": {
+      "components": [
+        {
+          "holdout": null,
+          "id": "semantic-region-component:f875fda34ceb08a92d25f5f9be5be68ce7a96c9fc1bb023118ecf5e22723fb1b",
+          "members": [
+            "module-graph:e5292f3f3e94d2cde6177998102bd33a6895475f55b3e2aad79e0b6f8118a96b",
+            "module-scheduler-source-pack-fixture",
+            "module-source:b48d9df219e1c3de1b81a889a288210dab4eccc4517989d4a6b7bbd32ce51f11",
+            "module-source:c809d6f77e602e3e1ffef02ae6b261b45066e70add87ca374270cb2728d20a92",
+            "module-source:ce757901eda0924b3cdb66f48751863d3038a2280fb83430ee2184b12bb82c25"
+          ],
+          "sourceIds": [
+            "module-scheduler-source-pack-fixture"
+          ],
+          "split": "validation"
+        }
+      ],
+      "coreSchema": "semantic-algorithm/2",
+      "diagnostics": {
+        "connectedComponents": 1,
+        "declaredFamilies": 1,
+        "exactSourceVariants": 1,
+        "normalizedCores": 0,
+        "sourceMembers": 1,
+        "splitComponents": {
+          "test": 0,
+          "train": 0,
+          "validation": 1
+        },
+        "withoutNormalizedCore": 1
+      },
+      "digest": "af5610dc9cb127b5f620f1311865693b98dcddce162d954e17806c274b765cd0",
+      "holdouts": {
+        "coreDigests": [],
+        "families": [],
+        "sourceDigests": []
+      },
+      "policy": "semantic-region-family-components/1",
+      "schema": "semantic-region-family-registry/1",
+      "seed": 873041,
+      "sources": [
+        {
+          "ancestors": [
+            "module-graph:e5292f3f3e94d2cde6177998102bd33a6895475f55b3e2aad79e0b6f8118a96b",
+            "module-source:b48d9df219e1c3de1b81a889a288210dab4eccc4517989d4a6b7bbd32ce51f11",
+            "module-source:c809d6f77e602e3e1ffef02ae6b261b45066e70add87ca374270cb2728d20a92",
+            "module-source:ce757901eda0924b3cdb66f48751863d3038a2280fb83430ee2184b12bb82c25"
+          ],
+          "coreDigest": null,
+          "coreStatus": "detailed",
+          "entry": "__traced_evaluated_entry",
+          "family": "module-scheduler-source-pack-fixture",
+          "id": "module-scheduler-source-pack-fixture",
+          "source": "\"use strict\";\nasync function __traced_evaluated_entry(self) {\n  const __traced_eval_cells=[];\n  const __traced_eval_modules=[];\n  const __traced_eval_entry_index=2;\n  function* __traced_eval_module_0(){\n  yield {__traced_eval_m1_x:()=>__traced_eval_m1_x};\n  let __traced_eval_m1_x=0;\n  try {(yield Promise.reject(7));} catch(e){__traced_eval_m1_x=e;}\n  }\n  function* __traced_eval_module_1(){\n  yield {__traced_eval_m2_x:()=>__traced_eval_m2_x};\n  (yield 0);\n  const __traced_eval_m2_x=2;\n  }\n  function* __traced_eval_module_2(){\n  function __traced_eval_m3_run(){return __traced_eval_cells[0].__traced_eval_m1_x()+__traced_eval_cells[1].__traced_eval_m2_x();}\n  yield {__traced_eval_m3_run:()=>__traced_eval_m3_run};\n  }\n  __traced_eval_modules[0]={index:0,entry:false,hasTLA:true,dependencies:[],parents:[],pending:0,asyncOrder:0,dfsIndex:-1,ancestorIndex:-1,cycleRoot:-1,started:false,status:\"linked\",failed:false,error:undefined,execution:undefined,iterator:__traced_eval_module_0()};\n  __traced_eval_modules[1]={index:1,entry:false,hasTLA:true,dependencies:[],parents:[],pending:0,asyncOrder:0,dfsIndex:-1,ancestorIndex:-1,cycleRoot:-1,started:false,status:\"linked\",failed:false,error:undefined,execution:undefined,iterator:__traced_eval_module_1()};\n  __traced_eval_modules[2]={index:2,entry:true,hasTLA:false,dependencies:[0,1],parents:[],pending:0,asyncOrder:0,dfsIndex:-1,ancestorIndex:-1,cycleRoot:-1,started:false,status:\"linked\",failed:false,error:undefined,execution:undefined,iterator:__traced_eval_module_2()};\n  __traced_eval_cells[0]=__traced_eval_modules[0].iterator.next().value;\n  __traced_eval_cells[1]=__traced_eval_modules[1].iterator.next().value;\n  __traced_eval_cells[2]=__traced_eval_modules[2].iterator.next().value;\n  \n  let __traced_eval_resolve;\n  let __traced_eval_reject;\n  let __traced_eval_async_order=0;\n  let __traced_eval_dfs_index=0;\n  const __traced_eval_stack=[];\n  const __traced_eval_completion=new Promise(function(resolve,reject){\n    __traced_eval_resolve=resolve;\n    __traced_eval_reject=reject;\n  });\n  function __traced_eval_complete(record){\n    record.status='evaluated';\n    record.asyncOrder=-1;\n    if(record.entry)__traced_eval_resolve(undefined);\n  }\n  function __traced_eval_failed(record,error){\n    if(record.status==='evaluated')return;\n    record.status='evaluated';\n    record.asyncOrder=-1;\n    record.failed=true;\n    record.error=error;\n    if(record.entry)__traced_eval_reject(error);\n    for(let i=0;i<record.parents.length;i++)\n      __traced_eval_failed(__traced_eval_modules[record.parents[i]],error);\n  }\n  function __traced_eval_gather(record,ready){\n    for(let i=0;i<record.parents.length;i++){\n      const parent=__traced_eval_modules[record.parents[i]];\n      if(!ready[parent.index]&&!parent.failed&&\n          !__traced_eval_modules[parent.cycleRoot].failed){\n        parent.pending-=1;\n        if(parent.pending===0){\n          ready[parent.index]=true;\n          if(!parent.hasTLA)__traced_eval_gather(parent,ready);\n        }\n      }\n    }\n  }\n  function __traced_eval_sync(record){\n    if(record.started)throw new TypeError('Module body already started');\n    record.started=true;\n    const step=record.iterator.next();\n    if(!step.done)throw new TypeError('Synchronous module unexpectedly suspended');\n  }\n  function __traced_eval_fulfilled(record){\n    if(record.failed)return;\n    __traced_eval_complete(record);\n    const ready=[];\n    __traced_eval_gather(record,ready);\n    for(let count=0;count<__traced_eval_modules.length;count++){\n      let next=null;\n      for(let i=0;i<__traced_eval_modules.length;i++){\n        const candidate=__traced_eval_modules[i];\n        if(ready[i]&&(next===null||candidate.asyncOrder<next.asyncOrder))\n          next=candidate;\n      }\n      if(next===null)break;\n      ready[next.index]=false;\n      if(!next.failed){\n        if(next.hasTLA)__traced_eval_start_async(next);\n        else{\n          try{__traced_eval_sync(next);__traced_eval_complete(next);}\n          catch(error){__traced_eval_failed(next,error);}\n        }\n      }\n    }\n  }\n  async function __traced_eval_async(record){\n    let step=record.iterator.next();\n    while(!step.done){\n      let resumed;\n      try{resumed=await step.value;}\n      catch(error){step=record.iterator.throw(error);continue;}\n      step=record.iterator.next(resumed);\n    }\n  }\n  function __traced_eval_start_async(record){\n    if(record.started)throw new TypeError('Module body already started');\n    record.started=true;\n    record.execution=__traced_eval_async(record);\n    record.execution.then(function(){__traced_eval_fulfilled(record);},\n      function(error){__traced_eval_failed(record,error);});\n  }\n  function __traced_eval_visit(record){\n    if(record.status!=='linked'){\n      if(record.failed)throw record.error;\n      return;\n    }\n    record.status='evaluating';\n    record.dfsIndex=__traced_eval_dfs_index;\n    record.ancestorIndex=__traced_eval_dfs_index;\n    __traced_eval_dfs_index+=1;\n    __traced_eval_stack.push(record.index);\n    for(let i=0;i<record.dependencies.length;i++){\n      let dependency=__traced_eval_modules[record.dependencies[i]];\n      __traced_eval_visit(dependency);\n      if(dependency.status==='evaluating'){\n        if(dependency.ancestorIndex<record.ancestorIndex)\n          record.ancestorIndex=dependency.ancestorIndex;\n      }else{\n        dependency=__traced_eval_modules[dependency.cycleRoot];\n        if(dependency.failed)throw dependency.error;\n      }\n      if(dependency.asyncOrder>0){\n        record.pending+=1;\n        dependency.parents.push(record.index);\n      }\n    }\n    if(record.pending>0||record.hasTLA){\n      __traced_eval_async_order+=1;\n      record.asyncOrder=__traced_eval_async_order;\n      if(record.pending===0)__traced_eval_start_async(record);\n    }else __traced_eval_sync(record);\n    if(record.ancestorIndex===record.dfsIndex){\n      let done=false;\n      while(!done){\n        const member=__traced_eval_modules[__traced_eval_stack.pop()];\n        member.status=member.asyncOrder===0?'evaluated':'evaluating-async';\n        member.cycleRoot=record.index;\n        done=member.index===record.index;\n      }\n    }\n  }\n  try{\n    const entry=__traced_eval_modules[__traced_eval_entry_index];\n    __traced_eval_visit(entry);\n    if(entry.status==='evaluated')__traced_eval_resolve(undefined);\n  }catch(error){\n    for(let i=0;i<__traced_eval_stack.length;i++){\n      const record=__traced_eval_modules[__traced_eval_stack[i]];\n      record.status='evaluated';record.failed=true;record.error=error;\n    }\n    __traced_eval_reject(error);\n  }\n  await __traced_eval_completion;\n\n  return await __traced_eval_cells[2].__traced_eval_m3_run()();\n}\n",
+          "sourceDigest": "bb8e7810e32ec2476f4eb6629ed234f43e0edb8f3c2bbe0efcc25363bbd55b64"
+        }
+      ],
+      "traceFormat": "semantic-trace/8"
+    },
+    "registryDigest": "af5610dc9cb127b5f620f1311865693b98dcddce162d954e17806c274b765cd0",
+    "schema": "semantic-region-split-identity/1",
+    "seed": 873041,
+    "sourceDigest": "bb8e7810e32ec2476f4eb6629ed234f43e0edb8f3c2bbe0efcc25363bbd55b64",
+    "sourceId": "module-scheduler-source-pack-fixture",
+    "split": "validation",
+    "traceFormat": "semantic-trace/8"
+  },
+  "tokenizerEvidence": {
+    "identity": "7f52faca2fe82273a889023defd2f1a6fd6080a21096ec77e97f4798a0a370b2",
+    "schema": "semantic-tokenizer-admission/1",
+    "sha256": "40fb9d7d7795b8bd305aeff39ce9963f3f450915b9553f2938e009be9a1fed60",
+    "status": "passed",
+    "verification": "pinned-tokenizer-bytes"
+  },
+  "totalScoredPositions": 22974
+}

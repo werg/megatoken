@@ -11,7 +11,8 @@ permissions:
 
 concurrency:
   group: semantic-v8-${{ github.ref }}
-  cancel-in-progress: true
+  # New PR revisions supersede obsolete checks; manual evidence runs finish.
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 jobs:
   paired-v8:
@@ -44,7 +45,7 @@ jobs:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           repository: werg/tracing-js-self
-          ref: 012c9fe49a082319bf98ac0c571596da925741a4
+          ref: d4afb62604acdc605a9d816f3a4b8a222a247c48 # exact data-preparation producer and matching conversion fixture
           path: tracing-js-self
           persist-credentials: false
       - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
@@ -93,10 +94,44 @@ jobs:
         run: |
           npm run semantic:v8:contract --prefix tracing-js-self 2>&1 | tee "$RUNNER_TEMP/semantic-v8-contract.log"
           cmp tracing-js-self/contracts/semantic-execution-v8.json megatoken/src/megatoken/data/contracts/semantic-execution-v8.json
+      - name: Admit and pack the actual original-module namespace artifact
+        if: ${{ matrix.population == 'interoperability' }}
+        working-directory: megatoken
+        run: |
+          python -m pytest -q -s tests/integration/test_module_namespace_artifact_packing.py \
+            --basetemp="$RUNNER_TEMP/v8-namespace-artifact" \
+            --junitxml="$RUNNER_TEMP/semantic-v8-namespace-artifact.xml" \
+            2>&1 | tee "$RUNNER_TEMP/semantic-v8-namespace-artifact.log"
+          python - <<'PY'
+          import os, xml.etree.ElementTree as ET
+          from pathlib import Path
+          cases = list(ET.parse(Path(os.environ['RUNNER_TEMP']) / 'semantic-v8-namespace-artifact.xml').getroot().iter('testcase'))
+          if len(cases) != 1 or any(case.find(kind) is not None for case in cases for kind in ('failure', 'error', 'skipped')):
+              raise ValueError('The actual namespace artifact must pass source/native/token/packing checks with zero skips')
+          print('One actual namespace artifact passed; six operation kinds packed; zero optimizer updates')
+          PY
+      - name: Check the paired coordinator and source-qualified teacher boundaries
+        working-directory: tracing-js-self
+        run: |
+          node --test --test-reporter=junit test/semantic-native-process-v8.test.js test/semantic-native-orchestration-transport-v8.test.js \
+            test/semantic-selected-orchestration-v8.test.js \
+            test/semantic-orchestration-training-v8.test.js test/semantic-native-v8.test.js \
+            test/semantic-selected-orchestration-checkpoint-v8.test.js \
+            test/semantic-native-orchestration-recovery-v8.test.js \
+            test/semantic-native-module-namespace-state-v8.test.js \
+            2>&1 | tee "$RUNNER_TEMP/semantic-v8-transport-tests.xml"
+          python - <<'PY'
+          import os, xml.etree.ElementTree as ET
+          from pathlib import Path
+          cases = list(ET.parse(Path(os.environ['RUNNER_TEMP']) / 'semantic-v8-transport-tests.xml').getroot().iter('testcase'))
+          if not cases or any(case.find(kind) is not None for case in cases for kind in ('failure', 'error', 'skipped')):
+              raise ValueError('Every paired V8 transport control, including the Python contract check, must run and pass')
+          print(f'{len(cases)} paired transport controls passed with zero skips')
+          PY
       - name: Check independent replay and malformed restoration boundaries
         working-directory: megatoken
         run: |
-          python -m pytest -q tests/test_*v8.py tests/test_algorithm_v7.py tests/test_protocol_properties.py \
+          python -m pytest -q tests/test_*v8*.py tests/test_algorithm_v7.py tests/test_protocol_properties.py tests/test_semantic_launch.py \
             --junitxml="$RUNNER_TEMP/semantic-v8-tests.xml" 2>&1 | tee "$RUNNER_TEMP/semantic-v8-tests.log"
           python - <<'PY'
           import os, xml.etree.ElementTree as ET
@@ -137,6 +172,23 @@ jobs:
             costs.summary.flat.tokenMeasurement!=='passed'||costs.summary.nativePacking.measuredEpisodes!==declared)
             throw new Error('Every declared CI case requires complete production-tokenizer and native-packing measurements');
           JS
+      - name: Qualify ordinary V8 training resume export and real service restoration
+        if: ${{ matrix.population == 'interoperability' }}
+        working-directory: tracing-js-self
+        run: |
+          node tools/qualify-ordinary-v8-lifecycle.mjs --out "$RUNNER_TEMP/v8-ordinary-lifecycle" \
+            --megatoken "$MEGATOKEN_ROOT" --python "$MEGATOKEN_PYTHON" \
+            --tokenizer "$MEGATOKEN_TOKENIZER_JSON" --native-policy "$SEMANTIC_V8_NATIVE_POLICY" \
+            2>&1 | tee "$RUNNER_TEMP/semantic-v8-ordinary-lifecycle.log"
+      - name: Qualify source-qualified orchestration through ordinary training and serving
+        if: ${{ matrix.population == 'interoperability' }}
+        working-directory: tracing-js-self
+        run: |
+          node tools/qualify-ordinary-v8-lifecycle.mjs --orchestration-teacher \
+            --out "$RUNNER_TEMP/v8-ordinary-orchestration" \
+            --megatoken "$MEGATOKEN_ROOT" --python "$MEGATOKEN_PYTHON" \
+            --tokenizer "$MEGATOKEN_TOKENIZER_JSON" --native-policy "$SEMANTIC_V8_NATIVE_POLICY" \
+            2>&1 | tee "$RUNNER_TEMP/semantic-v8-ordinary-orchestration.log"
       - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         if: always()
         with:
@@ -149,7 +201,15 @@ jobs:
             ${{ runner.temp }}/semantic-v8-contract.log
             ${{ runner.temp }}/semantic-v8-tests.xml
             ${{ runner.temp }}/semantic-v8-tests.log
+            ${{ runner.temp }}/semantic-v8-transport-tests.xml
+            ${{ runner.temp }}/semantic-v8-namespace-artifact.xml
+            ${{ runner.temp }}/semantic-v8-namespace-artifact.log
+            ${{ runner.temp }}/v8-namespace-artifact/
             ${{ runner.temp }}/semantic-v8-qualification.log
             ${{ runner.temp }}/semantic-v8-costs.log
             ${{ runner.temp }}/v8-admitted/
             ${{ runner.temp }}/v8-costs/
+            ${{ runner.temp }}/semantic-v8-ordinary-lifecycle.log
+            ${{ runner.temp }}/v8-ordinary-lifecycle/
+            ${{ runner.temp }}/semantic-v8-ordinary-orchestration.log
+            ${{ runner.temp }}/v8-ordinary-orchestration/

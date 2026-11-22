@@ -9,6 +9,16 @@ candidate integration; serving-cost and comprehension qualification remain open.
 
 ## Native semantic execution v8
 
+Current work in [PR #38](https://github.com/werg/megatoken/pull/38) and
+[producer PR #47](https://github.com/werg/tracing-js-self/pull/47) is **V8 data
+preparation**: independent source admission, causal contexts and targets,
+component splits, tokenizer/mask checks and physical packing. The
+[data-preparation status](docs/language-coverage-v8-cutover-status.md) defines
+the bounded milestone and links deferred work. Model quality and production
+cutover are later milestones.
+
+### Earlier bounded baseline
+
 The bounded v8 candidate adds independent replay and physical-record packing
 for mixed algorithm, region, detailed, and protocol records, together with
 actual native model serving and a reproducible fitting diagnostic. This is the
@@ -17,7 +27,7 @@ and [producer PR #46](https://github.com/werg/tracing-js-self/pull/46). The
 [producer training and dataset runbook](https://github.com/werg/tracing-js-self/blob/64239894b36607de1265b67c337f537f3fc9a163/docs/SEMANTIC_V8_TRAINING.md)
 describes source collection, frozen family splits, and native-admitted exports.
 
-The final measured implementation is pinned to consumer
+For that earlier baseline, the measured implementation was pinned to consumer
 `39c4036564428e44cc89caf261f517d856482695` and producer
 `012c9fe49a082319bf98ac0c571596da925741a4`. The retained
 [native regression](docs/evidence/semantic-v8-final-39c4036/README.md) passed

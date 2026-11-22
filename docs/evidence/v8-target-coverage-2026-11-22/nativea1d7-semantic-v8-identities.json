@@ -1,0 +1,20 @@
+{
+  "producer": {
+    "revision": "550387918313393b49017397d47bd66e9d4b5e82",
+    "tree": "c2e3ad495c958eabbcf3d516818f9a5d3fde475e"
+  },
+  "consumer": {
+    "revision": "a1d7f83dc46e4829ca4226e4040519cd5835f365",
+    "tree": "cad13724b7c6866c0d93fad6dc561606ee947990"
+  },
+  "policy": {
+    "schema": "semantic-native-policy/8",
+    "consumerRepository": "werg/megatoken",
+    "consumerRevision": "a1d7f83dc46e4829ca4226e4040519cd5835f365",
+    "contractDigest": "0df031301d75122edad5f0efbbbe041ddbe90ebaac3cf2d6e6705540acd71a47",
+    "fixtureDigest": "56f7f36d3b25b3b11a208be3de337e637b9782e6759faea1e1ec107b0a90f0ce",
+    "tokenizerIdentity": "7f52faca2fe82273a889023defd2f1a6fd6080a21096ec77e97f4798a0a370b2",
+    "tokenizerSha256": "40fb9d7d7795b8bd305aeff39ce9963f3f450915b9553f2938e009be9a1fed60",
+    "interoperabilityDigest": "f5c2d5fd15ad3b84e9b17de771d2f72a58f3c7dee4969ded8a7eb9c3c449f661"
+  }
+}

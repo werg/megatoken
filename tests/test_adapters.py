@@ -301,6 +301,8 @@ def test_global_router_balance_covers_the_adapter_routers(tmp_path):
     )
     ledger.finish()
     model.zero_grad()
+    internal_positions = window.internal_position_counts(routers=routers)
+    internal_assignments = window.internal_assignment_counts(routers=routers)
     diagnostics = window.backward(DistributedContext(), routers=routers, coefficient=1.0)
     assert selector_names and all(
         f"balance_{name}_assignments" in diagnostics for name in selector_names
@@ -309,6 +311,8 @@ def test_global_router_balance_covers_the_adapter_routers(tmp_path):
     topk = model.config.adapter_topk
     for name in OWNERS:
         count = diagnostics[f"balance_adapter_{name}_assignments"]
+        assert internal_assignments[f"adapter_{name}"] == count
+        assert internal_positions[f"adapter_{name}"] == count // topk
         assert count > 0 and count % topk == 0
         assert diagnostics[f"balance_adapter_{name}_loss"] > 0
         owner = model.core.adapters.owners[name]

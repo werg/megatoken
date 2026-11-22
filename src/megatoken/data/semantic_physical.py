@@ -81,6 +81,7 @@ def physical_semantic_episode(
     max_positions: int,
     max_history: int,
     selection_instruction=None,
+    selection_instruction_for_record=None,
     emit_context_windows=True,
 ):
     if type(max_positions) is not int or max_positions < 1:
@@ -130,7 +131,9 @@ def physical_semantic_episode(
         for chunk_index, chunk in enumerate(chunks):
             chunk_event = event
             if record.policy_mask and chunk_index > 0:
-                if selection_instruction is None:
+                if selection_instruction_for_record is not None:
+                    instruction = selection_instruction_for_record(record, continuation=True)
+                elif selection_instruction is None:
                     from megatoken.controls import semantic_selection_instruction
 
                     instruction = semantic_selection_instruction(continuation=True)

@@ -1,0 +1,419 @@
+{
+  "schema": "semantic-v8-local-retained-input-full-target-fit/1",
+  "status": "passed",
+  "scope": "Actual fresh 348-update diagnostic optimization over unchanged prepared inputs retained from the original failed 0694/dbc campaign, followed by complete planner rederivation with an independent prepared-policy-target universe and exact final checkpoint comparison.",
+  "freshPairedQualification": false,
+  "currentContractQualification": false,
+  "productionLaunchQualified": false,
+  "inputProvenance": {
+    "producerRevision": "0694fa9280712fa1364ead46a477c757a0ca4bfa",
+    "nativeAdmissionRevision": "dbc89dcd52cb93d1d9fdca2989fab64b85e5d427",
+    "workflowRunId": 45005718379,
+    "artifactId": 14747074516,
+    "artifactZipSha256": "aa58746ea26d49a67333f7e7812e1cad585c6fbc2d0093592d6fb39dc1c3f792",
+    "policy": {
+      "schema": "semantic-training-policy/8",
+      "producerRevision": "0694fa9280712fa1364ead46a477c757a0ca4bfa",
+      "consumerRevision": "dbc89dcd52cb93d1d9fdca2989fab64b85e5d427",
+      "registryDigest": "306a20791e1a76fa53872f6b1b856bba66f1308c1428a3a745171d28322b3e6c"
+    },
+    "contractDigest": "0df031301d75122edad5f0efbbbe041ddbe90ebaac3cf2d6e6705540acd71a47"
+  },
+  "optimizerExecutable": {
+    "referencePushedRevision": "a1d7f83dc46e4829ca4226e4040519cd5835f365",
+    "referenceLocalRevision": "f4b0b938a11149b13da776195dbd8b5155e9005a",
+    "srcTree": "64e4539528d02b5b19ccbb7c556c977153a2930e",
+    "sameSrcTreeAsReference": true,
+    "note": "The checkpoint consumerRevision is the original admitted-input policy, not a claim that this local optimizer ran dbc or a fresh paired campaign. The actual optimizer source tree is independently recorded here."
+  },
+  "collectorExecutable": {
+    "referencePushedRevision": "2479a9d59793569954a85d0f911085bfd4ee29f6",
+    "localHeadAtComparison": "42ba5bb791c1116c56c9af49cbe4dcbec8707503",
+    "files": [
+      {
+        "path": "scripts/qualify_semantic_v8_target_inventory.py",
+        "gitBlob": "db027f8e1e54ba8f7acf7d3f632e24ee65b0b67e",
+        "sha256": "744d2b09bfc6fa1554202209d692e1e7400b0faeafd6d71fb8aeb97bbd997442"
+      },
+      {
+        "path": "scripts/qualify_semantic_v8_target_coverage.py",
+        "gitBlob": "775b1b24b00a18db07fb33c8162b7d0a8912d103",
+        "sha256": "aed23b081ddeb944b6c2f982d7d8fc6eb0d7aed2ae14b553abee957d1d9f2f89"
+      }
+    ],
+    "sameTrainingSrcTree": "64e4539528d02b5b19ccbb7c556c977153a2930e",
+    "independentPreparedPolicyTargetSetRequired": true
+  },
+  "runtime": {
+    "cuda_build": null,
+    "cudnn": null,
+    "devices": [],
+    "errors": [],
+    "ok": true,
+    "packages": {
+      "numpy": "2.5.5",
+      "safetensors": "0.8.0",
+      "tokenizers": "0.23.3",
+      "torch": "2.14.1+cpu",
+      "triton": null
+    },
+    "platform": "Linux-6.18.57-x86_64-with-glibc2.41",
+    "python": "3.12.14",
+    "warnings": [
+      "CPU reference mode: CUDA kernels, memory fit, and throughput are unverified"
+    ]
+  },
+  "environment": {
+    "PYTHONPATH": "src",
+    "OMP_NUM_THREADS": "1",
+    "MKL_NUM_THREADS": "1"
+  },
+  "commands": {
+    "cwd": "/workspace/scratch/05d92519587f/megatoken-target-coverage",
+    "training": [
+      "../native-recovery-venv/bin/python",
+      "-m",
+      "megatoken",
+      "train",
+      "--config",
+      "../target-coverage-local-config.json"
+    ],
+    "trainingExitCode": 0,
+    "qualification": [
+      "../native-recovery-venv/bin/python",
+      "scripts/qualify_semantic_v8_target_coverage.py",
+      "--checkpoint",
+      "../target-coverage-local-fit/checkpoints/SE-000000348-periodic",
+      "--prepared",
+      "../target-coverage-failure/v8-support-prepared",
+      "--expected-source-ids",
+      "../target-coverage-failure/v8-support-source-ids.json",
+      "--inventory",
+      "../target-inventory-local-independent.json",
+      "--output",
+      "../target-coverage-local-evidence.json"
+    ],
+    "qualificationExitCode": 0
+  },
+  "optimizerUpdates": 348,
+  "elapsedSeconds": 5607.900659478999,
+  "termination": "step_limit",
+  "finalMetricsFileModifiedUtc": "2026-11-22T11:07:27.917380+00:00",
+  "phaseConsumed": 52054,
+  "counters": {
+    "D": 1433173,
+    "G": 12668,
+    "I": 8295456,
+    "P": 52054,
+    "Q": 720,
+    "audio_samples": 0,
+    "control_encodes": 0,
+    "facet_encodes": 720,
+    "image_events": 0,
+    "media_events": 0,
+    "raw_facet_replays": 0,
+    "reconstruction_records": 61192,
+    "reconstruction_tokens": 6862283,
+    "record_ingestions": 73860,
+    "scored_windows": 348,
+    "source_bytes": 23772457,
+    "video_frames": 0,
+    "writer_reader_windows": 348
+  },
+  "preparedManifestFingerprint": "f72b4e181b5dc4db5b891b5f6ab4b21bfb027dd3b93d688bdc1a7eddd950e822",
+  "registryDigest": "306a20791e1a76fa53872f6b1b856bba66f1308c1428a3a745171d28322b3e6c",
+  "inventoryDigest": "1448910c17fa4ca735f4e9919b8acd8b28abe4fce6f7d85d44bfde09a0bf6720",
+  "coverageDigest": "4fc9653bc2ca992163ad6f1a69c4ceb4ff7c34337c1719aee83c0bab64ebba15",
+  "optimizerCensusDigest": "6e5179a1bfb737a1c4707eeede0dd6067c681c75528c7ece316e0d1b73e528f9",
+  "positiveWeight": {
+    "sourceCount": 48,
+    "logicalTargetCount": 696,
+    "physicalTargetRecordCount": 720,
+    "scoredOccurrences": 720,
+    "lossDenominators": {
+      "lexical": 26027,
+      "reconstruction": 26027,
+      "structure": 2880,
+      "terminal": 1440,
+      "router_z": 720
+    }
+  },
+  "comparison": {
+    "schema": "semantic-v8-target-presence-comparison/1",
+    "inventoryDigest": "1448910c17fa4ca735f4e9919b8acd8b28abe4fce6f7d85d44bfde09a0bf6720",
+    "expectedPositiveWeightPhysicalTargets": 720,
+    "coveredPositiveWeightPhysicalTargets": 720,
+    "expectedPositiveWeightLogicalTargets": 696,
+    "coveredPositiveWeightLogicalTargets": 696,
+    "missingPositiveWeightPhysicalTargets": [],
+    "unexpectedPhysicalTargets": [],
+    "targetPresenceCoverage": 1.0,
+    "allPositiveWeightTargetsExposed": true,
+    "exactOnePassCensus": true,
+    "scoredOccurrenceMismatches": [],
+    "windowIndexMismatches": [],
+    "positiveWeightDenominatorMismatches": [],
+    "repeatedWindowExposureObserved": false,
+    "tokenOrMaskPositionCoverage": "unmeasured",
+    "learnedSuccess": null
+  },
+  "variantCensus": {
+    "child-teacher": {
+      "sourceCount": 12,
+      "optimizerWindowCount": 36,
+      "logicalTargetCount": 72,
+      "physicalTargetRecordCount": 96,
+      "scoredOccurrences": 96,
+      "lossDenominators": {
+        "lexical": 5063,
+        "reconstruction": 5063,
+        "structure": 384,
+        "terminal": 192,
+        "router_z": 96
+      }
+    },
+    "pure": {
+      "sourceCount": 12,
+      "optimizerWindowCount": 12,
+      "logicalTargetCount": 24,
+      "physicalTargetRecordCount": 24,
+      "scoredOccurrences": 24,
+      "lossDenominators": {
+        "lexical": 966,
+        "reconstruction": 966,
+        "structure": 96,
+        "terminal": 48,
+        "router_z": 24
+      }
+    },
+    "repeated-2calls": {
+      "sourceCount": 12,
+      "optimizerWindowCount": 144,
+      "logicalTargetCount": 288,
+      "physicalTargetRecordCount": 288,
+      "scoredOccurrences": 288,
+      "lossDenominators": {
+        "lexical": 9168,
+        "reconstruction": 9168,
+        "structure": 1152,
+        "terminal": 576,
+        "router_z": 288
+      }
+    },
+    "callbacks-recovery": {
+      "sourceCount": 12,
+      "optimizerWindowCount": 156,
+      "logicalTargetCount": 312,
+      "physicalTargetRecordCount": 312,
+      "scoredOccurrences": 312,
+      "lossDenominators": {
+        "lexical": 10830,
+        "reconstruction": 10830,
+        "structure": 1248,
+        "terminal": 624,
+        "router_z": 312
+      }
+    }
+  },
+  "effectiveLossWeights": {
+    "lexical": 1.0,
+    "reconstruction": 1.0,
+    "audio_prediction": 1.0,
+    "audio_reconstruction": 1.0,
+    "visual_prediction": 1.0,
+    "visual_reconstruction": 1.0,
+    "relation_semantic": 0.25,
+    "structure": 0.25,
+    "modality": 0.25,
+    "policy_outcome": 0.1,
+    "binding": 0.5,
+    "placement": 0.25,
+    "terminal": 0.1,
+    "facet_prediction": 0.1,
+    "relation": 0.025,
+    "encoder_alignment": 1.0,
+    "query_alignment": 0.5,
+    "retrieval_ranking": 0.25,
+    "router_balance": 0.0,
+    "router_z": 0.0001
+  },
+  "checkpoint": {
+    "directory": "/workspace/scratch/05d92519587f/target-coverage-local-fit/checkpoints/SE-000000348-periodic",
+    "files": [
+      {
+        "path": "metadata.json",
+        "bytes": 1034,
+        "sha256": "b5345e043beceb26f5069a94c49970b9c9a0078b22d520a918db077c3c9c8fb2"
+      },
+      {
+        "path": "state.pt",
+        "bytes": 39384526,
+        "sha256": "ceaa39848375f601d468f22669b50261a9bf23733706ac159dbcc86ac9d8c371"
+      },
+      {
+        "path": "transducer.pt",
+        "bytes": 21705,
+        "sha256": "0c964cb88b5d707f8a2c717199303d81cdcb2fdb8067c2bbb57580deca219382"
+      }
+    ],
+    "binaryStateIncludedInGit": false,
+    "note": "Binary checkpoint remains at this workspace path for separate preservation. Git evidence includes metadata, full optimizer census, metrics, runtime and file hashes."
+  },
+  "retainedFiles": [
+    {
+      "path": "supplied-training-config.json",
+      "originalPath": "/workspace/scratch/05d92519587f/target-coverage-local-config.json",
+      "originalBytes": 1139,
+      "originalSha256": "a0b08d3f1029673ae3c6c8a8a7a738bccd401d704491e6bd0fae963fe0dd99d2",
+      "retainedBytes": 1139,
+      "retainedSha256": "a0b08d3f1029673ae3c6c8a8a7a738bccd401d704491e6bd0fae963fe0dd99d2",
+      "compression": null
+    },
+    {
+      "path": "resolved-training-config.json",
+      "originalPath": "/workspace/scratch/05d92519587f/target-coverage-local-fit/config.json",
+      "originalBytes": 2630,
+      "originalSha256": "2e9a798122108c9f9f2fb3ecc61e95378f84ccb330ffcc8043615030f750091d",
+      "retainedBytes": 2630,
+      "retainedSha256": "2e9a798122108c9f9f2fb3ecc61e95378f84ccb330ffcc8043615030f750091d",
+      "compression": null
+    },
+    {
+      "path": "runtime.json",
+      "originalPath": "/workspace/scratch/05d92519587f/target-coverage-local-fit/runtime.json",
+      "originalBytes": 413,
+      "originalSha256": "8481dd96ead53ba75a666328bd74ed70af2ae57127de33673a771f7662d278d2",
+      "retainedBytes": 413,
+      "retainedSha256": "8481dd96ead53ba75a666328bd74ed70af2ae57127de33673a771f7662d278d2",
+      "compression": null
+    },
+    {
+      "path": "tensor-accounting.json",
+      "originalPath": "/workspace/scratch/05d92519587f/target-coverage-local-fit/tensor-accounting.json",
+      "originalBytes": 2221,
+      "originalSha256": "69d71a9f629a54e5e016364d9c52ceaa18207d3ace9d23c52456abba7ed65228",
+      "retainedBytes": 2221,
+      "retainedSha256": "69d71a9f629a54e5e016364d9c52ceaa18207d3ace9d23c52456abba7ed65228",
+      "compression": null
+    },
+    {
+      "path": "checkpoint-metadata.json",
+      "originalPath": "/workspace/scratch/05d92519587f/target-coverage-local-fit/checkpoints/SE-000000348-periodic/metadata.json",
+      "originalBytes": 1034,
+      "originalSha256": "b5345e043beceb26f5069a94c49970b9c9a0078b22d520a918db077c3c9c8fb2",
+      "retainedBytes": 1034,
+      "retainedSha256": "b5345e043beceb26f5069a94c49970b9c9a0078b22d520a918db077c3c9c8fb2",
+      "compression": null
+    },
+    {
+      "path": "checkpoint-latest.json",
+      "originalPath": "/workspace/scratch/05d92519587f/target-coverage-local-fit/checkpoints/latest.json",
+      "originalBytes": 133,
+      "originalSha256": "2436a62176c535b352934d2bc8598372e65925d70131331d42a68418fc16ed67",
+      "retainedBytes": 133,
+      "retainedSha256": "2436a62176c535b352934d2bc8598372e65925d70131331d42a68418fc16ed67",
+      "compression": null
+    },
+    {
+      "path": "parameters.json.gz",
+      "originalPath": "/workspace/scratch/05d92519587f/target-coverage-local-fit/parameters.json",
+      "originalBytes": 77546,
+      "originalSha256": "1641bf60d946ad8a557f0c4b645d6f771237b79db8487078ad3799d96966fa27",
+      "retainedBytes": 3089,
+      "retainedSha256": "5bd3bfa090d9c8eb2ab2365d2b2fd3b1eb784324b3a6866239282d87a6a60aa4",
+      "compression": "gzip"
+    },
+    {
+      "path": "optimizer-metrics.jsonl.gz",
+      "originalPath": "/workspace/scratch/05d92519587f/target-coverage-local-fit/metrics.jsonl",
+      "originalBytes": 339701,
+      "originalSha256": "2e9236a63ce523ba4faeae510874304faafa744d6442d75df0422fca29a68964",
+      "retainedBytes": 34185,
+      "retainedSha256": "62f9cf078219dc069ce517a90546b70b8702dc08cfe71466a8f65fbda8c0ca45",
+      "compression": "gzip"
+    },
+    {
+      "path": "optimizer.log.gz",
+      "originalPath": "/workspace/scratch/05d92519587f/target-coverage-local-train.log",
+      "originalBytes": 789289,
+      "originalSha256": "efdfa988b21ea09d78f576bf3347e3738cea05d7451272f95e3bbc8aecd87bfd",
+      "retainedBytes": 72081,
+      "retainedSha256": "f3ab27e5c542759d7ecafb4ba57c281755e18cc675b7ac7e754bffdfd55446a0",
+      "compression": "gzip"
+    },
+    {
+      "path": "qualification.log.gz",
+      "originalPath": "/workspace/scratch/05d92519587f/target-coverage-local-qualification.log",
+      "originalBytes": 229455,
+      "originalSha256": "c0dddbcb4d5b487dbd6274d3c82477bac7159077d7496a0abadc3f7b942f9dab",
+      "retainedBytes": 21752,
+      "retainedSha256": "563076c00475290a66ff39ee793a779f1d631d074d50f66f7fd77f60324a7d83",
+      "compression": "gzip"
+    },
+    {
+      "path": "target-coverage.json.gz",
+      "originalPath": "/workspace/scratch/05d92519587f/target-coverage-local-evidence.json",
+      "originalBytes": 477476,
+      "originalSha256": "80784bc1d48e6e2578741384ba8a58e76dd23d7fbea5c91ede6b5683cd826622",
+      "retainedBytes": 39559,
+      "retainedSha256": "656e0d21ee970838bc9872ceeda0b6a2189b2c8f267152743debf60b48902a66",
+      "compression": "gzip"
+    },
+    {
+      "path": "target-inventory.json.gz",
+      "originalPath": "/workspace/scratch/05d92519587f/target-inventory-local-independent.json",
+      "originalBytes": 368707,
+      "originalSha256": "2891c81f9021640049ee8ac9ea5408aa2bf9e8793c2ef7cac5016bb6d05a70ae",
+      "retainedBytes": 19297,
+      "retainedSha256": "23f8885a00073a8a4e196a82257739af0fcb60acb7b8bd904fc08ca429de879d",
+      "compression": "gzip"
+    },
+    {
+      "path": "independent-prepared-policy-audit.json.gz",
+      "originalPath": "/workspace/scratch/05d92519587f/target-coverage-local-independent-audit.json",
+      "originalBytes": 126849,
+      "originalSha256": "7cce2e9f4c7f40511158806eb03afd3be4d29bf3cd7f4cb4cb1abac1d92bcdd4",
+      "retainedBytes": 17766,
+      "retainedSha256": "77ad8e24da5aa652fd749e01d7846ce41be5c2a2adb56e03864f8fe788ba5867",
+      "compression": "gzip"
+    },
+    {
+      "path": "independent-prepared-policy-audit.log",
+      "originalPath": "/workspace/scratch/05d92519587f/target-coverage-local-independent-audit.log",
+      "originalBytes": 272,
+      "originalSha256": "6bea92fc43429260f7da83fa06980d1ff7a3ace26fb4cdcec709e60104935b09",
+      "retainedBytes": 272,
+      "retainedSha256": "6bea92fc43429260f7da83fa06980d1ff7a3ace26fb4cdcec709e60104935b09",
+      "compression": null
+    },
+    {
+      "path": "independent-prepared-policy-audit-initial-failure.log",
+      "originalPath": "/workspace/scratch/05d92519587f/target-coverage-local-independent-audit-initial-failure.log",
+      "originalBytes": 2287,
+      "originalSha256": "391344c36fa61d7904fd387eaae7d6dea021902e403929778357078560a9e229",
+      "retainedBytes": 2287,
+      "retainedSha256": "391344c36fa61d7904fd387eaae7d6dea021902e403929778357078560a9e229",
+      "compression": null
+    }
+  ],
+  "tokenOrMaskPositionCoverage": "unmeasured",
+  "learnedSuccess": null,
+  "supplementalIndependentAudit": {
+    "status": "passed",
+    "digest": "cd6aad04fa8e25640a03506162bb7b6a3f455048382e9fb395e93be9798509ba",
+    "scriptSha256": "f19a3e45a8810ac1e35d16043345cf56b845422863c2e4c43926340afce7d6ae",
+    "scriptRepository": "werg/tracing-js-self",
+    "scriptPath": "docs/evidence/v8-target-coverage-2026-11-22/verify-retained-policy-targets.py",
+    "runtime": {
+      "torch": "2.14.1+cpu",
+      "device": "cpu"
+    },
+    "originalOptimizerUpdates": 348,
+    "additionalOptimizerUpdates": 0,
+    "preparedPolicyTargetCount": 720,
+    "plannedPositiveTargetCount": 720,
+    "actualPositiveTargetCount": 720,
+    "retainedPlannerAndActualCensusRowsEqual": true,
+    "initialAttempt": "All comparisons passed; strict report digest rejected torch.__version__ because it is a TorchVersion string subclass. Explicit str conversion fixed the report field; full rerun passed. No optimizer or objective changes."
+  }
+}

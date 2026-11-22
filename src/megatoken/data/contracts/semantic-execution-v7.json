@@ -899,6 +899,14 @@
             ],
             "optional": []
           },
+          "realm-close": {
+            "mode": "observed",
+            "required": [
+              "realmId",
+              "reason"
+            ],
+            "optional": []
+          },
           "dispatch": {
             "mode": "observed",
             "required": [
@@ -1057,6 +1065,7 @@
             "handler",
             "event",
             "handler-close",
+            "realm-close",
             "dispatch",
             "result",
             "source-evict",
@@ -1154,7 +1163,7 @@
       "legacyArtifacts": "Rejected. Regenerate public records, native receipts, prepared data and model-bound indexes."
     }
   },
-  "digest": "55e7be0a4287be57a4165eaab106d131dcda027a65ed175d98f1a7ad8b47303c",
+  "digest": "3b5a818c93f78d5982650229e92eefd791edb8cdd0f4e04d4ec0b5c9bb23c1f1",
   "fixtureDigest": "2f34d35060fde7e15fdf8bb0f5fcc25429b0697fcc02df3d45b26968aad0e196",
   "fixtures": {
     "algorithm": {

@@ -1,0 +1,29 @@
+{
+  "schema": "v8-local-engineering-evidence/1",
+  "date": "2026-11-22",
+  "nativeBase": "21572be70f7884397e513fd65099fda240526971",
+  "producerBase": "bbdb7f9fff8b5da8308059b4383f5f8a341b9574",
+  "artifacts": [
+    {
+      "source": "native-census-final-root.log",
+      "archive": "native-census-final-root.log.gz.b64",
+      "decodedBytes": 98,
+      "decodedSha256": "c76461a88c53d89d389f37dae2fcdfab877d4ac9e827890dc49cfce5ecea82f0",
+      "archiveSha256": "03d6ace89fb45186ac3d86829d7b20a9d95407725d67d4a80c56a5d2aa6361c7"
+    },
+    {
+      "source": "v8-source-recovery-probe.log",
+      "archive": "v8-source-recovery-probe.log.gz.b64",
+      "decodedBytes": 894,
+      "decodedSha256": "d4edccac740eb018391f8901303285c43ff55b2ecf9c518e414768cad94b00e0",
+      "archiveSha256": "3aa8b934ab01514d11401eddeaf74b7b9ec00f29f0f9eaf39300ec29a2ff0adf"
+    },
+    {
+      "source": "v8-source-recovery-callbacks.json",
+      "archive": "v8-source-recovery-callbacks.json.gz.b64",
+      "decodedBytes": 497250,
+      "decodedSha256": "cfe85c19875139201cde922d2ca8c0f46e050fc105acf060de28a5bebaae24b3",
+      "archiveSha256": "b4ff620f8618d0cf75b5847084ee8ac8b21597b614c1610c8f528af8aa77c6a3"
+    }
+  ]
+}

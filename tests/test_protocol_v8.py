@@ -156,7 +156,7 @@ class PromiseJoinNativeTests(unittest.TestCase):
             "scheduler": {"registration": 0, "ready": 0},
             "continuations": [],
             "captureAliases": {},
-            "frameFunctions": {},
+            "frameFunctions": {"invocation": "run"},
             "completion": None,
             "activeJob": None,
         }
@@ -333,6 +333,9 @@ class ProtocolV8NativeReplayTests(unittest.TestCase):
             "source-promise-executor-first-call": (5, 2, 16),
             "source-promise-executor-retained-resolution": (5, 1, 10),
             "source-promise-executor-abrupt": (3, 0, 11),
+            "source-promise-adoption-executor": (12, 1, 14),
+            "source-promise-adoption-async-return": (9, 0, 12),
+            "source-promise-adoption-reaction-return": (9, 0, 17),
             "source-ordinary-constructor-prototype": (25, 0, 8),
             "source-enumeration-map-callback": (18, 0, 6),
             "generator-own-symbol-alias": (27, 0, 12),

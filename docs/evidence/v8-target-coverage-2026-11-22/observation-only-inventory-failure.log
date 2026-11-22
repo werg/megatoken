@@ -1,0 +1,11 @@
+Traceback (most recent call last):
+  File "/workspace/scratch/05d92519587f/megatoken-target-coverage/scripts/qualify_semantic_v8_target_inventory.py", line 312, in <module>
+    raise SystemExit(main())
+                     ^^^^^^
+  File "/workspace/scratch/05d92519587f/megatoken-target-coverage/scripts/qualify_semantic_v8_target_inventory.py", line 283, in main
+    result = target_inventory(args.config, args.expected_source_ids)
+             ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/workspace/scratch/05d92519587f/megatoken-target-coverage/scripts/qualify_semantic_v8_target_inventory.py", line 208, in target_inventory
+    for encoded, plan in zip(step.records, step.plans, strict=True):
+                         ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+ValueError: zip() argument 2 is shorter than argument 1

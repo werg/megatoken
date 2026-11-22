@@ -1,0 +1,17 @@
+{
+  "schema": "semantic-binding-order-fixture-provenance/1",
+  "producerRepository": "werg/tracing-js-self",
+  "producerRevision": "29e802f379b03375ed893dc133baf25dd15a4ba9",
+  "producerTree": "208503c1f3cfe9a13050c5c8b1884ab24c80a5ce",
+  "generator": "tools/generate-semantic-binding-fixtures.mjs",
+  "generatorCommand": "node tools/generate-semantic-binding-fixtures.mjs --check",
+  "producerFixture": "test/fixtures/semantic-binding-order-v8.json",
+  "consumerFixture": "tests/fixtures/semantic-binding-order-v8.json",
+  "fixtureSha256": "742b843dab6170d0ca9360cc71740959e4222e6e7f90fa475a6a19c32456bd0a",
+  "caseIds": [
+    "declared-parameter-order",
+    "additional-binding-order",
+    "additional-utf16-order"
+  ],
+  "qualification": "Source was rechecked at the pinned producer. Binding maps use bounded ingress adaptations: redundant positional mappings or source-absent names. This fixture does not claim source admission, native admission, or model quality."
+}

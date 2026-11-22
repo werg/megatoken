@@ -1,0 +1,102 @@
+{
+  "schema": "v8-input-relocation-source-and-scope/1",
+  "sourceRevision": "b85a3301b6482bdf5a5a9ba79f7f356c5f824681",
+  "sourceTree": "8c92b6c9278d9885430b276278563762dc95e660",
+  "finalTestRevision": "4f3a42c004444fbd1fe032238d2105aca3b5ace8",
+  "finalTestTree": "325505734c9dcbc49d43512bdcff7552dbdc8bbb",
+  "runtime": {
+    "python": "3.12.14",
+    "torch": "2.10.0+cpu",
+    "pytest": "9.2.0",
+    "device": "cpu",
+    "precision": "fp32",
+    "declaredPytestRange": ">=8.3,<9",
+    "pytestMatchesDeclaredRange": false,
+    "fullyLockedEnvironment": false
+  },
+  "sourceFiles": [
+    {
+      "path": "src/megatoken/training/engine.py",
+      "gitBlob": "d6c98d1835cdc7041e6c6ff7055ee611729519cd",
+      "sha256": "0d6843191d7cd7e90e4fe014188c1a3006e8ed1fb835c7d67a04878e1d9b4d2f",
+      "bytes": 73773
+    },
+    {
+      "path": "src/megatoken/training/positions_v8.py",
+      "gitBlob": "78420daff3341af684d36e4891b52410e31254db",
+      "sha256": "d11fb8353182b96896d5d8b283438d5285daf9d8b76365d08a75f88099028c84",
+      "bytes": 65130
+    },
+    {
+      "path": "src/megatoken/training/target_inventory_v8.py",
+      "gitBlob": "1b6cd79dd3e0775fbaab24709574155ea5beff58",
+      "sha256": "648c29548f870c3dbaae48f3f56b9ef152185d4c2f9302b4e83c602e960323ab",
+      "bytes": 13258
+    },
+    {
+      "path": "scripts/qualify_semantic_v8_target_inventory.py",
+      "gitBlob": "b3829b19c3cecfaed83adea18a460bdd084e45bd",
+      "sha256": "6f2beb3014012e05ed06da378989990094e6b7a539d9a0b124cc47abc10ff124",
+      "bytes": 13381
+    },
+    {
+      "path": "tests/test_semantic_v8_input_relocation.py",
+      "gitBlob": "bee5fbe6e20757d02f3c2617e7a56e75da347483",
+      "sha256": "ed079ae60d372c353198df820ddf2916073794dcfc3b1339046e840d698f1487",
+      "bytes": 14765
+    }
+  ],
+  "compressedProofs": [
+    {
+      "path": "relocation-regression-proof.json.gz",
+      "originalBytes": 117901,
+      "originalSha256": "3f1e8e63e093cb99b4a9f86bfb31aec0486b3ec8c672891254d2e023a12588c1",
+      "decompression": "gzip",
+      "originalSource": "relocation-b85-regression-tmp/test_real_v8_next_update_survi0/relocation-proof.json"
+    },
+    {
+      "path": "relocation-final-proof.json.gz",
+      "originalBytes": 117901,
+      "originalSha256": "394e07146b7ca501ab9b44f7c06f968ef4b870de7d60c6972ff4f65d69244155",
+      "decompression": "gzip",
+      "originalSource": "relocation-4f3-controls-tmp/test_real_v8_next_update_survi0/relocation-proof.json"
+    },
+    {
+      "path": "position-complete-regression-proof.json.gz",
+      "originalBytes": 420291,
+      "originalSha256": "165304153a3b574b50b63e113fe4e4eeea4ca87e229b0bd8d39158ac6e88685b",
+      "decompression": "gzip",
+      "originalSource": "relocation-b85-regression-tmp/test_full_controlled_corpus_ex0/position-proof.json"
+    },
+    {
+      "path": "position-resume-regression-proof.json.gz",
+      "originalBytes": 242583,
+      "originalSha256": "c1320f39fdc100ac083216ab086fc6cc2b03419a4158377b24659022458db3b6",
+      "decompression": "gzip",
+      "originalSource": "relocation-b85-regression-tmp/test_v8_normal_update_checkpoi0/position-resume-proof.json"
+    }
+  ],
+  "finalRelocationTestActualUpdates": 3,
+  "finalRefusalFixtureActualUpdates": 1,
+  "final14CaseModuleActualUpdates": 4,
+  "independentReviewActualUpdates": 0,
+  "productionSourceAndTokenizerAdmissionInjectedForRelocation": true,
+  "productionTokenizerLoaderRefusalAlsoTested": true,
+  "distributedRelocationQualified": false,
+  "acceptedLiveHistoryRestoreQualified": false,
+  "wholeReleaseQualified": false,
+  "learnedQuality": null,
+  "frozenHostedCampaignsUnchanged": true,
+  "finalControlsCommand": "PYTHONPATH=src:. TMPDIR=<scratch>/test-tmp MEGATOKEN_TOKENIZER_JSON=<scratch>/semantic-v8-tokenizer.json OMP_NUM_THREADS=1 MKL_NUM_THREADS=1 <python> -m pytest -q tests/test_semantic_v8_input_relocation.py --basetemp=<scratch>/relocation-4f3-controls-tmp --junitxml=<scratch>/relocation-4f3-controls.xml",
+  "regressionPopulation": [
+    "tests/test_semantic_v8_input_relocation.py",
+    "tests/test_semantic_v8_position_receipts.py",
+    "tests/test_semantic_v8_training_lifecycle.py",
+    "tests/test_semantic_v8_target_inventory.py",
+    "tests/test_qualify_semantic_v8_lifecycle.py",
+    "tests/test_qualify_semantic_v8_lifecycle_support.py",
+    "test_uninterrupted_matches_exact_resume",
+    "test_resume_rejects_changed_objective",
+    "test_resume_compatibility_covers_every_setting_that_changes_the_trajectory"
+  ]
+}

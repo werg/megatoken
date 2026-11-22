@@ -1,0 +1,37 @@
+<?xml version="1.0" encoding="utf-8"?><testsuites name="pytest tests"><testsuite name="pytest" errors="4" failures="0" skipped="0" tests="4" time="0.991" timestamp="2026-11-22T11:44:09.479365+01:00" hostname="07bf85b14210"><testcase classname="" name="tests.test_semantic_v8_admission_cache" time="0.000"><error message="collection failure">ImportError while importing test module '/workspace/scratch/05d92519587f/megatoken-target-coverage-current/tests/test_semantic_v8_admission_cache.py'.
+Hint: make sure your test modules/packages have valid Python names.
+Traceback:
+/opt/codex/runtimes/codex-primary-runtime/dependencies/python/lib/python3.12/importlib/__init__.py:90: in import_module
+    return _bootstrap._gcd_import(name[level:], package, level)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+tests/test_semantic_v8_admission_cache.py:8: in &lt;module&gt;
+    from test_semantic_v8_training_policy import prepared_v8_fixture
+tests/test_semantic_v8_training_policy.py:23: in &lt;module&gt;
+    from tests.test_source_identity_v8 import direct_source_sidecar
+E   ModuleNotFoundError: No module named 'tests'</error></testcase><testcase classname="" name="tests.test_semantic_v8_training_policy" time="0.000"><error message="collection failure">ImportError while importing test module '/workspace/scratch/05d92519587f/megatoken-target-coverage-current/tests/test_semantic_v8_training_policy.py'.
+Hint: make sure your test modules/packages have valid Python names.
+Traceback:
+/opt/codex/runtimes/codex-primary-runtime/dependencies/python/lib/python3.12/importlib/__init__.py:90: in import_module
+    return _bootstrap._gcd_import(name[level:], package, level)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+tests/test_semantic_v8_training_policy.py:23: in &lt;module&gt;
+    from tests.test_source_identity_v8 import direct_source_sidecar
+E   ModuleNotFoundError: No module named 'tests'</error></testcase><testcase classname="" name="tests.test_qualify_semantic_v8_lifecycle" time="0.000"><error message="collection failure">ImportError while importing test module '/workspace/scratch/05d92519587f/megatoken-target-coverage-current/tests/test_qualify_semantic_v8_lifecycle.py'.
+Hint: make sure your test modules/packages have valid Python names.
+Traceback:
+/opt/codex/runtimes/codex-primary-runtime/dependencies/python/lib/python3.12/importlib/__init__.py:90: in import_module
+    return _bootstrap._gcd_import(name[level:], package, level)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+tests/test_qualify_semantic_v8_lifecycle.py:12: in &lt;module&gt;
+    from scripts.qualify_semantic_v8_lifecycle import qualify_target_exposure
+E   ModuleNotFoundError: No module named 'scripts'</error></testcase><testcase classname="" name="tests.test_semantic_v8_training_lifecycle" time="0.000"><error message="collection failure">ImportError while importing test module '/workspace/scratch/05d92519587f/megatoken-target-coverage-current/tests/test_semantic_v8_training_lifecycle.py'.
+Hint: make sure your test modules/packages have valid Python names.
+Traceback:
+/opt/codex/runtimes/codex-primary-runtime/dependencies/python/lib/python3.12/importlib/__init__.py:90: in import_module
+    return _bootstrap._gcd_import(name[level:], package, level)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+tests/test_semantic_v8_training_lifecycle.py:16: in &lt;module&gt;
+    from test_semantic_v8_training_policy import pinned_tokenizer_path, prepared_v8_fixture
+tests/test_semantic_v8_training_policy.py:23: in &lt;module&gt;
+    from tests.test_source_identity_v8 import direct_source_sidecar
+E   ModuleNotFoundError: No module named 'tests'</error></testcase></testsuite></testsuites>

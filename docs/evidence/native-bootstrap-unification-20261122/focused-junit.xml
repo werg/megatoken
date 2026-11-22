@@ -1,0 +1,211 @@
+<?xml version="1.0" encoding="utf-8"?><testsuites name="pytest tests"><testsuite name="pytest" errors="0" failures="2" skipped="0" tests="85" time="230.983" timestamp="2026-11-22T15:37:39.662995+01:00" hostname="07bf85b14210"><testcase classname="tests.test_semantic_request_journal_v8" name="test_exact_result_persisted_and_same_slot_is_idempotent" time="0.010" /><testcase classname="tests.test_semantic_request_journal_v8" name="test_payload_operation_and_model_substitution_conflict" time="0.007" /><testcase classname="tests.test_semantic_request_journal_v8" name="test_ordinals_are_contiguous_and_scopes_are_separate" time="0.012" /><testcase classname="tests.test_semantic_request_journal_v8" name="test_crash_before_intent_publication_is_never_admitted" time="0.036" /><testcase classname="tests.test_semantic_request_journal_v8" name="test_crash_after_intent_leaves_unknown_and_never_reexecutes" time="0.035" /><testcase classname="tests.test_semantic_request_journal_v8" name="test_crash_after_outcome_publication_is_readable_without_callback" time="0.033" /><testcase classname="tests.test_semantic_request_journal_v8" name="test_live_second_process_cannot_enter_same_scope" time="0.065" /><testcase classname="tests.test_semantic_request_journal_v8" name="test_model_identity_is_frozen_for_session_generation" time="0.006" /><testcase classname="tests.test_semantic_request_journal_v8" name="test_scope_creation_sync_failure_prevents_callback" time="0.003" /><testcase classname="tests.test_semantic_request_journal_v8" name="test_supersession_authority_binds_the_exact_later_mutation" time="0.016" /><testcase classname="tests.test_semantic_request_journal_v8" name="test_lost_outcome_publication_ack_is_recovered_only_after_fresh_sync" time="0.007" /><testcase classname="tests.test_semantic_request_journal_v8" name="test_readback_sync_failure_is_not_reported_as_completed" time="0.006" /><testcase classname="tests.test_semantic_request_journal_v8" name="test_orphan_outcome_and_missing_lower_slot_refuse" time="0.010" /><testcase classname="tests.test_semantic_bootstrap_recovery_v8" name="test_bootstrap_outcome_recovers_in_a_fresh_process" time="13.288" /><testcase classname="tests.test_semantic_bootstrap_recovery_v8" name="test_direct_child_bootstrap_is_refused_before_native_or_journal_mutation[bootstrap_orchestration_child]" time="2.975" /><testcase classname="tests.test_semantic_bootstrap_recovery_v8" name="test_direct_child_bootstrap_is_refused_before_native_or_journal_mutation[bootstrap-orchestration-child]" time="3.044" /><testcase classname="tests.test_semantic_bootstrap_recovery_v8" name="test_direct_child_bootstrap_is_refused_before_native_or_journal_mutation[bootstrap_orchestration-child]" time="3.226" /><testcase classname="tests.test_semantic_bootstrap_recovery_v8" name="test_direct_child_bootstrap_is_refused_before_native_or_journal_mutation[bootstrap-orchestration_child]" time="3.320" /><testcase classname="tests.test_semantic_bootstrap_recovery_v8" name="test_bootstrap_requires_the_same_adjacent_create_identity[session_id-&lt;lambda&gt;]" time="3.171" /><testcase classname="tests.test_semantic_bootstrap_recovery_v8" name="test_bootstrap_requires_the_same_adjacent_create_identity[stream_id-&lt;lambda&gt;]" time="3.183" /><testcase classname="tests.test_semantic_bootstrap_recovery_v8" name="test_bootstrap_requires_the_same_adjacent_create_identity[session_generation-&lt;lambda&gt;]" time="3.178" /><testcase classname="tests.test_semantic_bootstrap_recovery_v8" name="test_bootstrap_requires_the_same_adjacent_create_identity[ordinal-&lt;lambda&gt;]" time="2.794" /><testcase classname="tests.test_semantic_bootstrap_recovery_v8" name="test_bootstrap_requires_the_same_adjacent_create_identity[model_identity-&lt;lambda&gt;]" time="3.103" /><testcase classname="tests.test_semantic_bootstrap_recovery_v8" name="test_bootstrap_requires_the_exact_original_create_bytes_and_precheckpoint[createRequestBase64]" time="2.770" /><testcase classname="tests.test_semantic_bootstrap_recovery_v8" name="test_bootstrap_requires_the_exact_original_create_bytes_and_precheckpoint[createPreCheckpointDigest]" time="3.293" /><testcase classname="tests.test_semantic_bootstrap_recovery_v8" name="test_bootstrap_requires_create_to_be_the_latest_completed_native_request" time="3.232" /><testcase classname="tests.test_semantic_bootstrap_recovery_v8" name="test_bootstrap_requires_a_completed_create_outcome" time="3.107" /><testcase classname="tests.test_semantic_bootstrap_recovery_v8" name="test_bootstrap_precheckpoint_must_equal_the_committed_create_poststate" time="3.516" /><testcase classname="tests.test_semantic_bootstrap_recovery_v8" name="test_bootstrap_recovery_never_admits_a_missing_outcome" time="3.748" /><testcase classname="tests.test_semantic_bootstrap_recovery_v8" name="test_bootstrap_unknown_outcome_is_not_retried_in_fresh_adapter" time="5.851" /><testcase classname="tests.test_semantic_bootstrap_recovery_v8" name="test_later_native_mutation_supersedes_bootstrap_recovery" time="5.799" /><testcase classname="tests.test_semantic_bootstrap_recovery_v8" name="test_bootstrap_recovery_rejects_identity_and_child_substitutions[generation-generation differs]" time="5.339" /><testcase classname="tests.test_semantic_bootstrap_recovery_v8" name="test_bootstrap_recovery_rejects_identity_and_child_substitutions[model-model, tokenizer or training identity differs]" time="5.675" /><testcase classname="tests.test_semantic_bootstrap_recovery_v8" name="test_bootstrap_recovery_rejects_identity_and_child_substitutions[operation-only exact child bootstrap operations]" time="5.644" /><testcase classname="tests.test_semantic_bootstrap_recovery_v8" name="test_bootstrap_recovery_rejects_identity_and_child_substitutions[child-request differs]" time="6.001"><failure message="AssertionError: Regex pattern did not match.&#10; Regex: 'request differs'&#10; Input: 'request slot identity or exact bytes differ'">tmp_path = PosixPath('/workspace/scratch/9faed68167fb/native-recovery-unification/pytest-of-agent/pytest-0/test_bootstrap_recovery_reject3')
+mutation = 'child', message = 'request differs'
+
+    @pytest.mark.parametrize(
+        ("mutation", "message"),
+        [
+            ("generation", "generation differs"),
+            ("model", "model, tokenizer or training identity differs"),
+            ("operation", "only exact child bootstrap operations"),
+            ("child", "request differs"),
+        ],
+    )
+    def test_bootstrap_recovery_rejects_identity_and_child_substitutions(tmp_path, mutation, message):
+        with real_runtime() as (open_adapter, _decoder):
+            with execution_lease(tmp_path / "owner", session="teacher1") as lease:
+                adapter, _opened, bridge, args, _created = bootstrap_case(tmp_path, lease, open_adapter)
+                bridge.durable_bootstrap_child(**args)
+                changed = copy.deepcopy(args)
+                if mutation == "generation":
+                    changed["identity"]["session_generation"] = 2
+                elif mutation == "model":
+                    changed["identity"]["model_identity"]["checkpoint"] = "b" * 64
+                elif mutation == "operation":
+                    changed["identity"]["operation"] = "commit"
+                else:
+                    request = json.loads(base64.b64decode(changed["requestBase64"]))
+                    request["childTrack"] += ":foreign"
+                    changed["requestBase64"] = base64.b64encode(_canonical(request) + b"\n").decode(
+                        "ascii"
+                    )
+                fresh = open_adapter()
+                fresh_bridge = DurableNativeCommitBridge(fresh, bridge.journal, lease)
+                with pytest.raises(NativeRequestJournalError, match=message):
+&gt;                   fresh_bridge.recover_bootstrap_child(**changed)
+
+tests/test_semantic_bootstrap_recovery_v8.py:408: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+src/megatoken/semantic_commit_recovery_v8.py:1363: in recover_bootstrap_child
+    readback = self.journal.inspect(identity, frame, require_latest=True)
+               ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+src/megatoken/semantic_request_journal_v8.py:626: in inspect
+    intent, result = self._check_slot(
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+
+self = &lt;megatoken.semantic_request_journal_v8.DurableNativeRequestJournal object at 0x7f1e57a2b5c0&gt;
+directory = PosixPath('/workspace/scratch/9faed68167fb/native-recovery-unification/pytest-of-agent/pytest-0/test_bootstrap_recovery_reject3/journal/50b8a83ceba6a7b9b94c73b5d50aa6234302534a7f4b6f40f749ac8ff9e45a50')
+scope_id = '50b8a83ceba6a7b9b94c73b5d50aa6234302534a7f4b6f40f749ac8ff9e45a50'
+identity = {'model_identity': {'checkpoint': 'aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa', 'tokenizer': '49...d4e'}, 'operation': 'bootstrap-orchestration-child', 'ordinal': 2, 'schema': 'semantic-native-request-identity/1', ...}
+request = b'{"createIdentity":{"model_identity":{"checkpoint":"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"...iwic2Vzc2lvbiI6InRlYWNoZXIxIiwidHJhY2siOiJ0cmFjazowIn0K","schema":"semantic-native-durable-bootstrap-child-request/8"}'
+previous_outcome = 'ad6c137b6edf3d7eb9871d7e9ed200bb045b2a33f5fc3d420598163425067600'
+
+    def _check_slot(
+        self,
+        directory: Path,
+        scope_id: str,
+        identity: dict,
+        request: bytes,
+        previous_outcome: str | None,
+    ):
+        ordinal = identity["ordinal"]
+        intent_path, outcome_path = self._paths(directory, ordinal)
+        intent = self._read_record(intent_path, self.max_request_bytes * 2 + 8192)
+        if intent is None:
+            if (
+                os.path.lexists(outcome_path)
+                or self._read_record(outcome_path, self.max_result_bytes * 2 + 8192) is not None
+                or os.path.lexists(directory / f"{ordinal:020d}.superseded.json")
+            ):
+                raise NativeRequestJournalError("orphan outcome exists without its intent")
+            if any(
+                int(match.group(1)) &gt; ordinal
+                for item in directory.iterdir()
+                if (
+                    match := re.fullmatch(
+                        r"([0-9]{20})\.(?:intent|outcome|superseded)\.json", item.name
+                    )
+                )
+            ):
+                raise NativeRequestJournalError(
+                    "missing request slot precedes retained higher ordinal"
+                )
+            return None, None
+        expected_intent = {
+            "schema": _SCHEMA_INTENT,
+            "request_id": self._request_id(scope_id, ordinal),
+            "identity": identity,
+            "request_sha256": _digest(request),
+            "request_b64": base64.b64encode(request).decode("ascii"),
+            "previous_outcome_sha256": previous_outcome,
+        }
+        if intent != expected_intent:
+&gt;           raise NativeRequestConflict("request slot identity or exact bytes differ")
+E           megatoken.semantic_request_journal_v8.NativeRequestConflict: request slot identity or exact bytes differ
+
+src/megatoken/semantic_request_journal_v8.py:414: NativeRequestConflict
+
+During handling of the above exception, another exception occurred:
+
+tmp_path = PosixPath('/workspace/scratch/9faed68167fb/native-recovery-unification/pytest-of-agent/pytest-0/test_bootstrap_recovery_reject3')
+mutation = 'child', message = 'request differs'
+
+    @pytest.mark.parametrize(
+        ("mutation", "message"),
+        [
+            ("generation", "generation differs"),
+            ("model", "model, tokenizer or training identity differs"),
+            ("operation", "only exact child bootstrap operations"),
+            ("child", "request differs"),
+        ],
+    )
+    def test_bootstrap_recovery_rejects_identity_and_child_substitutions(tmp_path, mutation, message):
+        with real_runtime() as (open_adapter, _decoder):
+            with execution_lease(tmp_path / "owner", session="teacher1") as lease:
+                adapter, _opened, bridge, args, _created = bootstrap_case(tmp_path, lease, open_adapter)
+                bridge.durable_bootstrap_child(**args)
+                changed = copy.deepcopy(args)
+                if mutation == "generation":
+                    changed["identity"]["session_generation"] = 2
+                elif mutation == "model":
+                    changed["identity"]["model_identity"]["checkpoint"] = "b" * 64
+                elif mutation == "operation":
+                    changed["identity"]["operation"] = "commit"
+                else:
+                    request = json.loads(base64.b64decode(changed["requestBase64"]))
+                    request["childTrack"] += ":foreign"
+                    changed["requestBase64"] = base64.b64encode(_canonical(request) + b"\n").decode(
+                        "ascii"
+                    )
+                fresh = open_adapter()
+                fresh_bridge = DurableNativeCommitBridge(fresh, bridge.journal, lease)
+&gt;               with pytest.raises(NativeRequestJournalError, match=message):
+                     ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+E               AssertionError: Regex pattern did not match.
+E                Regex: 'request differs'
+E                Input: 'request slot identity or exact bytes differ'
+
+tests/test_semantic_bootstrap_recovery_v8.py:407: AssertionError</failure></testcase><testcase classname="tests.test_semantic_bootstrap_recovery_v8" name="test_rehashed_bootstrap_response_must_match_restored_track[wrong-parent]" time="5.942" /><testcase classname="tests.test_semantic_bootstrap_recovery_v8" name="test_rehashed_bootstrap_response_must_match_restored_track[wrong-budget]" time="6.116" /><testcase classname="tests.test_semantic_bootstrap_recovery_v8" name="test_rehashed_bootstrap_poststate_rejects_mutated_history[operations]" time="6.191" /><testcase classname="tests.test_semantic_bootstrap_recovery_v8" name="test_rehashed_bootstrap_poststate_rejects_mutated_history[attempts]" time="6.352" /><testcase classname="tests.test_semantic_bootstrap_recovery_v8" name="test_rehashed_bootstrap_poststate_rejects_mutated_history[randomState]" time="6.276" /><testcase classname="tests.test_semantic_bootstrap_recovery_v8" name="test_rehashed_bootstrap_poststate_rejects_mutated_history[randomBefore]" time="5.912" /><testcase classname="tests.test_semantic_bootstrap_recovery_v8" name="test_live_child_mismatch_fences_later_duplicate_before_journal_read" time="6.118" /><testcase classname="tests.test_semantic_bootstrap_recovery_v8" name="test_duplicate_durable_bootstrap_returns_the_retained_result_without_dispatch" time="6.156" /><testcase classname="tests.test_semantic_commit_recovery_v8" name="test_exact_commit_bytes_recover_whole_native_adapter_without_recommitting" time="0.990" /><testcase classname="tests.test_semantic_commit_recovery_v8" name="test_outcome_lost_ack_fences_original_and_fresh_recovery_keeps_exact_response" time="0.502" /><testcase classname="tests.test_semantic_commit_recovery_v8" name="test_missing_outcome_after_native_commit_remains_unknown_and_cannot_retry" time="0.230" /><testcase classname="tests.test_semantic_commit_recovery_v8" name="test_request_substitutions_never_reuse_saved_outcome[operation]" time="0.318" /><testcase classname="tests.test_semantic_commit_recovery_v8" name="test_request_substitutions_never_reuse_saved_outcome[bytes]" time="0.314" /><testcase classname="tests.test_semantic_commit_recovery_v8" name="test_request_substitutions_never_reuse_saved_outcome[model]" time="0.370" /><testcase classname="tests.test_semantic_commit_recovery_v8" name="test_request_substitutions_never_reuse_saved_outcome[checkpoint]" time="0.420" /><testcase classname="tests.test_semantic_commit_recovery_v8" name="test_request_substitutions_never_reuse_saved_outcome[stream]" time="0.314" /><testcase classname="tests.test_semantic_commit_recovery_v8" name="test_pending_sibling_is_refused_before_native_commit" time="0.306" /><testcase classname="tests.test_semantic_commit_recovery_v8" name="test_current_adapter_with_advanced_sibling_never_receives_old_response" time="0.631" /><testcase classname="tests.test_semantic_commit_recovery_v8" name="test_earlier_commit_never_rolls_back_later_durable_intent[False]" time="0.411" /><testcase classname="tests.test_semantic_commit_recovery_v8" name="test_earlier_commit_never_rolls_back_later_durable_intent[True]" time="0.979" /><testcase classname="tests.test_semantic_commit_recovery_v8" name="test_rpc_requires_configured_bridge_and_blocks_unjournaled_commits" time="0.364" /><testcase classname="tests.test_semantic_commit_recovery_v8" name="test_live_inherited_descriptor_excludes_second_process" time="0.034" /><testcase classname="tests.test_semantic_commit_recovery_v8" name="test_outliving_native_child_retains_lock_after_every_parent_descriptor_closes" time="0.046" /><testcase classname="tests.test_semantic_commit_recovery_v8" name="test_execution_lock_refuses_replaced_inode_and_wrong_scope" time="0.002" /><testcase classname="tests.test_semantic_commit_recovery_v8" name="test_fresh_subprocess_reconstructs_persisted_commit_under_inherited_owner" time="2.421" /><testcase classname="tests.test_semantic_commit_recovery_v8" name="test_original_request_must_be_one_exact_jsonl_frame[]" time="0.084" /><testcase classname="tests.test_semantic_commit_recovery_v8" name="test_original_request_must_be_one_exact_jsonl_frame[\n\n]" time="0.077" /><testcase classname="tests.test_semantic_commit_recovery_v8" name="test_original_request_must_be_one_exact_jsonl_frame[\r\n]" time="0.070" /><testcase classname="tests.test_semantic_commit_recovery_v8" name="test_rehashed_saved_poststate_cannot_remove_prior_sibling" time="0.773" /><testcase classname="tests.test_semantic_commit_recovery_v8" name="test_real_native_runtime_restores_committed_target_and_unchanged_sibling" time="5.292" /><testcase classname="tests.test_semantic_commit_recovery_v8" name="test_real_native_orchestration_commit_restores_reserved_child" time="5.949" /><testcase classname="tests.test_semantic_commit_recovery_v8" name="test_durable_bootstrap_child_recovers_lost_reply_by_full_reexecution" time="16.158" /><testcase classname="tests.test_semantic_commit_recovery_v8" name="test_unknown_bootstrap_intent_is_never_redispatched_or_create_recovered" time="3.247" /><testcase classname="tests.test_semantic_commit_recovery_v8" name="test_invalid_child_bootstrap_is_rejected_before_admission" time="3.218"><failure message="AssertionError: Regex pattern did not match.&#10; Regex: 'exact committed unbootstrapped child'&#10; Input: 'Native commit recovery: bootstrap predecessor did not create the exact unbootstrapped child'">tmp_path = PosixPath('/workspace/scratch/9faed68167fb/native-recovery-unification/pytest-of-agent/pytest-0/test_invalid_child_bootstrap_i0')
+
+    def test_invalid_child_bootstrap_is_rejected_before_admission(tmp_path):
+        from tests.test_semantic_v8_orchestration import (
+            chosen,
+            create_arguments,
+            open_coordinator,
+            real_runtime,
+        )
+    
+        with real_runtime() as (open_adapter, _decoder):
+            adapter = open_adapter()
+            opened = open_coordinator(adapter)
+            selected = chosen(adapter, opened, "track_create", create_arguments(opened))
+            with execution_lease(tmp_path / "owner", session=opened["session"]) as lease:
+                journal = DurableNativeRequestJournal(tmp_path / "journal")
+                bridge = DurableNativeCommitBridge(adapter, journal, lease)
+                _, create_request, create_args = _durable_child_create(
+                    adapter, opened, selected, bridge
+                )
+                args = _bootstrap_args(adapter, opened, "forged-child", create_request, create_args)
+                with pytest.raises(
+                    NativeRequestJournalError, match="exact committed unbootstrapped child"
+                ):
+&gt;                   bridge.durable_bootstrap_child(**args)
+
+tests/test_semantic_commit_recovery_v8.py:680: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+src/megatoken/semantic_commit_recovery_v8.py:1229: in durable_bootstrap_child
+    self._check_bootstrap_pre(request, create_value, create_response, before, preCheckpointDigest)
+src/megatoken/semantic_commit_recovery_v8.py:458: in _check_bootstrap_pre
+    self._check_bootstrap_predecessor(request, before, create_value, create_response)
+src/megatoken/semantic_commit_recovery_v8.py:439: in _check_bootstrap_predecessor
+    _fail("bootstrap predecessor did not create the exact unbootstrapped child")
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+
+message = 'bootstrap predecessor did not create the exact unbootstrapped child'
+
+    def _fail(message):
+&gt;       raise NativeRequestJournalError("Native commit recovery: " + message)
+E       megatoken.semantic_request_journal_v8.NativeRequestJournalError: Native commit recovery: bootstrap predecessor did not create the exact unbootstrapped child
+
+src/megatoken/semantic_commit_recovery_v8.py:52: NativeRequestJournalError
+
+During handling of the above exception, another exception occurred:
+
+tmp_path = PosixPath('/workspace/scratch/9faed68167fb/native-recovery-unification/pytest-of-agent/pytest-0/test_invalid_child_bootstrap_i0')
+
+    def test_invalid_child_bootstrap_is_rejected_before_admission(tmp_path):
+        from tests.test_semantic_v8_orchestration import (
+            chosen,
+            create_arguments,
+            open_coordinator,
+            real_runtime,
+        )
+    
+        with real_runtime() as (open_adapter, _decoder):
+            adapter = open_adapter()
+            opened = open_coordinator(adapter)
+            selected = chosen(adapter, opened, "track_create", create_arguments(opened))
+            with execution_lease(tmp_path / "owner", session=opened["session"]) as lease:
+                journal = DurableNativeRequestJournal(tmp_path / "journal")
+                bridge = DurableNativeCommitBridge(adapter, journal, lease)
+                _, create_request, create_args = _durable_child_create(
+                    adapter, opened, selected, bridge
+                )
+                args = _bootstrap_args(adapter, opened, "forged-child", create_request, create_args)
+&gt;               with pytest.raises(
+                    NativeRequestJournalError, match="exact committed unbootstrapped child"
+                ):
+E               AssertionError: Regex pattern did not match.
+E                Regex: 'exact committed unbootstrapped child'
+E                Input: 'Native commit recovery: bootstrap predecessor did not create the exact unbootstrapped child'
+
+tests/test_semantic_commit_recovery_v8.py:677: AssertionError</failure></testcase><testcase classname="tests.test_semantic_commit_recovery_v8" name="test_guarded_session_cannot_raw_dispatch_child_bootstrap" time="6.192" /><testcase classname="tests.test_semantic_commit_recovery_v8" name="test_previously_superseded_create_is_not_bootstrap_authority" time="2.986" /><testcase classname="tests.test_semantic_commit_recovery_v8" name="test_bootstrap_rejects_wrong_owner_model_generation_ordinal_and_create_frame" time="2.856" /><testcase classname="tests.test_semantic_commit_recovery_v8" name="test_completed_bootstrap_replay_is_blocked_after_later_mutation" time="5.564" /><testcase classname="tests.test_semantic_commit_recovery_v8" name="test_bootstrap_recovery_refuses_independent_reexecution_mismatch" time="10.546" /><testcase classname="tests.test_semantic_commit_recovery_v8" name="test_bootstrap_refuses_mutating_an_unrelated_session" time="7.283" /><testcase classname="tests.test_semantic_commit_recovery_v8" name="test_later_native_mutation_durably_supersedes_commit_before_dispatch[select]" time="0.346" /><testcase classname="tests.test_semantic_commit_recovery_v8" name="test_later_native_mutation_durably_supersedes_commit_before_dispatch[cancel]" time="0.343" /><testcase classname="tests.test_semantic_commit_recovery_v8" name="test_lost_supersession_acknowledgement_prevents_later_native_mutation" time="0.445" /><testcase classname="tests.test_semantic_commit_recovery_v8" name="test_new_durable_commit_reestablishes_exact_recoverable_poststate" time="1.133" /><testcase classname="tests.test_semantic_commit_recovery_v8" name="test_read_only_native_rpcs_keep_commit_recoverable" time="0.548" /><testcase classname="tests.test_semantic_commit_recovery_v8" name="test_ordinary_restore_cannot_bypass_durable_commit_reconciliation" time="0.655" /><testcase classname="tests.test_semantic_commit_recovery_v8" name="test_fresh_native_generation_cannot_mutate_before_existing_commit_is_recovered[initialize]" time="0.529" /><testcase classname="tests.test_semantic_commit_recovery_v8" name="test_fresh_native_generation_cannot_mutate_before_existing_commit_is_recovered[select]" time="0.518" /><testcase classname="tests.test_semantic_commit_recovery_v8" name="test_fresh_native_generation_cannot_mutate_before_existing_commit_is_recovered[open-orchestration]" time="0.542" /><testcase classname="tests.test_semantic_commit_recovery_v8" name="test_native_execution_generation_is_fixed_and_new_generation_is_explicit" time="0.890" /></testsuite></testsuites>

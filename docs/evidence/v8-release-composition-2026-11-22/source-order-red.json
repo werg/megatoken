@@ -1,0 +1,25 @@
+{
+  "schema": "semantic-v8-release-source-order-red/1",
+  "runtimeRevision": "6c70b40a437ee986b42c2d86b8a450d48fe32fa2",
+  "testControl": "Real two-source PreparedDataset order is source-0, source-1; controlled journal/descriptor order is source-1, source-0. Existing verifier forwards descriptor order and the expected native command order fails.",
+  "tests": 1,
+  "failures": 1,
+  "errors": 0,
+  "skips": 0,
+  "optimizerUpdates": 0,
+  "freshProducerReplay": false,
+  "nativeReprepareSubprocess": "explicitly intercepted to inspect exact original input order",
+  "originalPreparedFilesChanged": false,
+  "files": [
+    {
+      "path": "scripts/verify_semantic_v8_release.py",
+      "blob": "d100bf74d161b6f726d48ceb3b7795d288d3af66",
+      "sha256": "905b81cd1270de12830eca0d49dc6db267129a1c042330b40b4238dc1290ac4e"
+    },
+    {
+      "path": "tests/test_semantic_v8_release_verifier.py",
+      "blob": "751a632bcfa7ab0924c1e3d8b6de0b087ba49aaa",
+      "sha256": "12178d9089abe3e38f04dbee6b438a98b226f693eda42b5636a9e826a1e6afa6"
+    }
+  ]
+}

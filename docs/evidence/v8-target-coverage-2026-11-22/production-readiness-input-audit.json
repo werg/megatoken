@@ -1,0 +1,81 @@
+{
+  "schema": "semantic-v8-production-readiness-input-audit/1",
+  "inspectedNativeRevision": "218ae8b6f990bccc07d5c68b665883d604f66652",
+  "scope": "Read-only source/template and available-workspace input audit. This is not an invocation of the production launch qualifier.",
+  "templateUnresolvedBindings": [
+    "config.datasets[0]",
+    "config.codec",
+    "config.engram_imports[0]",
+    "config.engram_imports[1]",
+    "config.decoupled.run_id",
+    "config.decoupled.coordinator_url",
+    "config.semantic_v8_policy.producerRevision",
+    "config.semantic_v8_policy.consumerRevision",
+    "config.semantic_v8_policy.registryDigest"
+  ],
+  "exampleRuntime": {
+    "model": "32x512",
+    "precision": "bf16",
+    "require_blackwell": true,
+    "microbatch_episodes": 1,
+    "max_accumulation_windows": 64,
+    "generated_capacity": 512
+  },
+  "exampleIndependentWorkers": 8,
+  "stageRequirements": {
+    "SC": {
+      "previousPhase": "S",
+      "requiredDonorProfiles": [
+        "deepseek-v4.1-flash-1017",
+        "qwen3.8-flash-next"
+      ]
+    },
+    "SE": {
+      "previousPhase": "S",
+      "requiredDonorProfiles": [
+        "deepseek-v4.1-flash-1017",
+        "qwen3.8-flash-next"
+      ]
+    }
+  },
+  "availableRuntime": {
+    "torch": "2.10.0+cpu",
+    "cudaAvailable": false
+  },
+  "workspaceAssetSearch": {
+    "fileNames": [
+      "engram.json",
+      "descriptors.npz",
+      "encoding.pt",
+      "targets.sqlite",
+      "semantic-bootstrap-provenance.json"
+    ],
+    "matches": [],
+    "scope": "Available conversation workspace only; repository source, dependency directories and temporary controlled test fixtures are not production assets."
+  },
+  "expectedNatlangCheckoutPresent": false,
+  "tokenizerFileSha256": "40fb9d7d7795b8bd305aeff39ce9963f3f450915b9553f2938e009be9a1fed60",
+  "sourceFileSha256": {
+    "configs/train/semantic-v8-production.example.yaml": "4aedebe5464cd31b305da399429fcf5424b6e4a260d2ffe3d5de617af5837b98",
+    "src/megatoken/training/semantic_launch.py": "5dcac38c122cc82ac60cff7e4537826a6f76e6c9fe09e8ed327c4346f73f7884",
+    "src/megatoken/training/semantic_launch_v8.py": "5d107b77371ac2777684632cf13f882ee456dbfeaf1bba2ad3a39f9b5fac54fc",
+    "src/megatoken/training/config.py": "e12823ba9300bc15e6badb9fa335a962ff6d4fa72323f4309a0be9d6c66c85eb",
+    "src/megatoken/data/recipes.py": "13704290f12852333e3bcb06f09a135f04fc552b6671cbb451a92bcb4f931484",
+    "src/megatoken/data/stages.json": "d7478cb751904a5b95cd3287757e6d6891b1813c6dff3604195d61427a50b1a6"
+  },
+  "launchQualifierInvoked": false,
+  "optimizerSteps": 0,
+  "coordinatorProbed": false,
+  "coordinatorMutations": 0,
+  "preflightReady": false,
+  "learnedSuccess": null,
+  "remainingEvidence": [
+    "Reviewed bound production configuration and exact clean three-repository identities",
+    "Production geometry donor descriptors and metadata for both canonical pinned profiles",
+    "Complete corpus-bound hindsight index, target tensors and inherited teacher encoding",
+    "Exact stage-S bootstrap or same-stage worker checkpoint with matching model/master layout and V8 lineage",
+    "Initialized authenticated coordinator state and actual bootstrap provenance where applicable",
+    "Matching CUDA hardware and full launch-qualifier success",
+    "Production training memory fit, multi-worker recovery under load, held-out learned quality and measured cost"
+  ]
+}

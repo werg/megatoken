@@ -1,0 +1,48 @@
+{
+  "schema": "bound-module-main-composition-evidence/1",
+  "producer": {
+    "published": "ae870a10079e4b59d63b0155d31ae77b797bfbc8",
+    "local": "efcf65d3951b7f774257765d08a7574a71a95f3e",
+    "tree": "4e5283a78f0d027d8b26fadfc357020675f9a35a"
+  },
+  "native": {
+    "published": "09f94f7eb4da4368b1fc1751d42c4d0eed073523",
+    "local": "9d9b70c2f8898a1e862eeba1d2f503b23481237c",
+    "tree": "32856c6f292d8b1a83da24c66426838b6526d05c"
+  },
+  "nativeFullRegressionSource": {
+    "published": "5d013677df80406b1eade7c0c3662c540b967d3c",
+    "local": "d824294ee1549f3b13a062190758caa1b6c02925",
+    "tree": "a66a92ad0e855bdcd96e3a96e21038ceebacedb3",
+    "differenceFromFinal": "import ordering only"
+  },
+  "nativeInitialFailedSource": {
+    "published": "9c6bac501c84853a62ae514935255f613fcbd17a",
+    "local": "c131ba5fc397e7e988c1b87f68dba453429def1f",
+    "tree": "de8cba308255e732856da81bb166c5f4978c60db"
+  },
+  "contractDigest": "a952385535b9b5e19d737206286f6f26c149f7301c51b4b106fe3b1cae5ab55a",
+  "fixtureDigest": "56f7f36d3b25b3b11a208be3de337e637b9782e6759faea1e1ec107b0a90f0ce",
+  "interoperabilityDigest": "f5c2d5fd15ad3b84e9b17de771d2f72a58f3c7dee4969ded8a7eb9c3c449f661",
+  "nativeCases": 225,
+  "nativeSubtests": 119,
+  "nativeAfterImportOrderCases": 16,
+  "producerLeafCases": 208,
+  "failures": 0,
+  "errors": 0,
+  "skipped": 0,
+  "originalModuleSources": 6,
+  "actualNativeModuleSources": 6,
+  "ownedModuleTransitions": 64,
+  "moduleDataAdmission": false,
+  "fullFitLaunched": false,
+  "defaultPromotion": false,
+  "countsOverlap": true,
+  "runtime": {
+    "node": "v24.22.3",
+    "python": "Python 3.12.14",
+    "torch": "2.14.1+cpu",
+    "device": "cpu",
+    "tokenizerSha256": "40fb9d7d7795b8bd305aeff39ce9963f3f450915b9553f2938e009be9a1fed60"
+  }
+}

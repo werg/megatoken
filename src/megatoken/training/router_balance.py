@@ -55,6 +55,7 @@ class _RouterState:
     router: BalancedRouter
     counts: Tensor
     contexts: dict[tuple, _ContextEntry] = field(default_factory=dict)
+    internal_positions: int = 0
 
 
 @dataclass
@@ -75,6 +76,12 @@ class RouterBalanceWindow:
                 router, torch.zeros(router.experts, dtype=torch.float64, device=used.device)
             )
         assignment = used.flatten()
+        # Ordinary selectors choose one expert for each internal row. Adapter
+        # controllers retain several expert choices per context row, so their
+        # internal position count is the context-row dimension rather than the
+        # top-k assignment count.
+        internal_positions = used.shape[0] if isinstance(route, AdapterRoute) else used.numel()
+        state.internal_positions += int(internal_positions)
         state.counts.scatter_add_(
             0, assignment, torch.ones_like(assignment, dtype=state.counts.dtype)
         )
@@ -97,6 +104,27 @@ class RouterBalanceWindow:
     @property
     def assignments(self) -> int:
         return int(sum(float(s.counts.sum()) for s in self.states.values()))
+
+    def internal_position_counts(self, *, routers: dict[str, BalancedRouter]) -> dict[str, int]:
+        """Count actual routed internal rows without retaining route identities.
+
+        Adapter selectors can assign multiple experts to one context row; this
+        counts the row once while ``internal_assignment_counts`` retains the
+        separate optimizer-facing assignment denominator.
+        """
+        return {
+            name: self.states[id(router)].internal_positions if id(router) in self.states else 0
+            for name, router in sorted(routers.items())
+        }
+
+    def internal_assignment_counts(self, *, routers: dict[str, BalancedRouter]) -> dict[str, int]:
+        """Count expert assignments, including multiple adapter choices per row."""
+        return {
+            name: int(float(self.states[id(router)].counts.sum()))
+            if id(router) in self.states
+            else 0
+            for name, router in sorted(routers.items())
+        }
 
     def global_counts(self, distributed, *, routers: dict[str, BalancedRouter]):
         # Every rank contributes a fixed order and shape, even when it has no routes.

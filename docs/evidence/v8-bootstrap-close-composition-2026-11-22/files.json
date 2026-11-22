@@ -1,0 +1,32 @@
+[
+  {
+    "file": "README.md",
+    "bytes": 2638,
+    "sha256": "abfb284faf00d2702c4088c0d6c9ca2d1ef20db625b0921e2f271bf4daf8fb6a"
+  },
+  {
+    "file": "command.txt",
+    "bytes": 455,
+    "sha256": "91ce408ee718f3f66a8f7bb4e13432c9b68af6fab0369b4557610441f8d97af1"
+  },
+  {
+    "file": "composed-native-recovery.log",
+    "bytes": 221,
+    "sha256": "3cc7255d178291e6e9bd1a37c32133d4b4d35cd783db00ee57b8d98d6eaa85b3"
+  },
+  {
+    "file": "composed-native-recovery.xml",
+    "bytes": 10535,
+    "sha256": "7676830f3b7e900660f754d5bc18d4154448a0c73f65d33ebb0ca60b0c7ec7ff"
+  },
+  {
+    "file": "initial-format-check.log",
+    "bytes": 15675,
+    "sha256": "710482cb6ddd2226bf712bb501fe330f30a80483cb6dc025ea7ff3e0785e718c"
+  },
+  {
+    "file": "summary.json",
+    "bytes": 2113,
+    "sha256": "14018434936ca6f1c1c2ebcbdb0b7e6bc7063b9d6e3aea528bd2973f2bc2f1e5"
+  }
+]

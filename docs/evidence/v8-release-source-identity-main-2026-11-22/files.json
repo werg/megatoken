@@ -1,0 +1,43 @@
+{
+  "schema": "retained-evidence-inventory/1",
+  "files": [
+    {
+      "path": "README.md",
+      "bytes": 4187,
+      "sha256": "cbe72a45d44c8700439029206591350a3c9acb6d9a6a564a5dadceb044d35a24"
+    },
+    {
+      "path": "controls.log",
+      "bytes": 100,
+      "sha256": "e608a113f36ef3e9b4c4b8dd056a12805bbf111d50bb32a4e9e63a20da65fab5"
+    },
+    {
+      "path": "controls.xml",
+      "bytes": 10895,
+      "sha256": "535b13b83e112e4059189e533842ed31ed70ed52e629ea60595aa24a51289fad"
+    },
+    {
+      "path": "prior-candidate-comparison.json",
+      "bytes": 39374,
+      "sha256": "7f1b2fd779598e9caf94252750874b7b078cff9c82da8ab178a57d6dcbbd2e41"
+    },
+    {
+      "path": "qualification.json",
+      "bytes": 1561,
+      "sha256": "973e368add421bff035e6f395716c4d44d1b0fd3e0fb50b195a908fcb2fede26"
+    },
+    {
+      "path": "ruff.log",
+      "bytes": 45,
+      "sha256": "f3248628f03b3d0a928e68546110a114be245447916bd8f99798f084731918b4"
+    },
+    {
+      "path": "source-map.json",
+      "bytes": 35245,
+      "sha256": "10fcfbcce124cd168350d35252f0caa41dbdff370b21e343619b4b9a5dc47e82"
+    }
+  ],
+  "excludes": [
+    "files.json"
+  ]
+}

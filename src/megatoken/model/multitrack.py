@@ -1081,9 +1081,15 @@ class _GroupedTeacherReadout(nn.Module):
         control: Tensor | None = None,
         mixture: AdapterMixture | None = None,
         track_ids: Tensor | None = None,
+        position_sinks=None,
     ) -> dict[str, tuple[Tensor, int]]:
         if raw.ndim != 4 or raw.shape[1] != len(plans):
             raise ValueError("Realization needs one canonical facet block per target")
+        if position_sinks is not None and (
+            len(position_sinks) != len(plans)
+            or any(not isinstance(plan, PreparedTargets) for plan in plans)
+        ):
+            raise ValueError("Text position receipts require one raw-text sink per target")
         zero = raw.float().sum() * 0
         adapter_plan = (
             self.core.adapters.plan("r", mixture, track_ids, control)
@@ -1113,7 +1119,12 @@ class _GroupedTeacherReadout(nn.Module):
                         counts[family] += 1
                         continue
                     if isinstance(plan, PreparedTargets):
-                        parts = self.decoder.teacher_raw(self.core, context, plan)
+                        parts = self.decoder.teacher_raw(
+                            self.core,
+                            context,
+                            plan,
+                            position_sink=None if position_sinks is None else position_sinks[index],
+                        )
                     else:
                         parts = self.decoder(self.core, context, plan.spec, teacher=plan).losses
             for name in DECODER_LOSSES:
@@ -1129,8 +1140,9 @@ class _GroupedTeacherReadout(nn.Module):
         control: Tensor | None = None,
         mixture: AdapterMixture | None = None,
         track_ids: Tensor | None = None,
+        position_sinks=None,
     ) -> dict[str, tuple[Tensor, int]]:
-        return self.losses_for_selected(raw, plans, control, mixture, track_ids)
+        return self.losses_for_selected(raw, plans, control, mixture, track_ids, position_sinks)
 
 
 class MultiTrackGenerator:
@@ -1481,6 +1493,7 @@ class MultiTrackGenerator:
         modality_masks: Tensor | None = None,
         full_group: GroupActionTape | None = None,
         plan_indices: Sequence[int] | None = None,
+        position_audit=None,
     ) -> GroupSupervisedResult:
         """One production grouped objective with bootstrap or live recurrent state.
 
@@ -1533,6 +1546,8 @@ class MultiTrackGenerator:
                 raise ValueError("Target modalities differ from their recorded group members")
             modalities = full_group.modalities
             roles = torch.tensor([full_group.roles], dtype=torch.long, device=state.device)
+        if position_audit is not None:
+            position_audit.inputs(identities, roles)
         controls = tuple(control_payloads) if control_payloads is not None else (b"",) * len(names)
         if len(controls) != len(names) or any(not isinstance(x, bytes) for x in controls):
             raise ValueError("Every grouped event needs one causal control payload")
@@ -1622,13 +1637,26 @@ class MultiTrackGenerator:
             core, self.generator.decoder, self.generator.media_realizers
         )
         prior_terms = readout.losses_for_selected(
-            sampled, plans, target_control, state.adapters, track_ids
+            sampled,
+            plans,
+            target_control,
+            state.adapters,
+            track_ids,
+            None if position_audit is None else position_audit.decoder_sinks("prior"),
+        )
+        reconstruction_sinks = (
+            None if position_audit is None else position_audit.decoder_sinks("reconstruction")
         )
 
         if mode == "bootstrap":
             with core.discard_routing_losses():
                 recon_terms = readout(
-                    codec_sample, plans, target_control, state.adapters, track_ids
+                    codec_sample,
+                    plans,
+                    target_control,
+                    state.adapters,
+                    track_ids,
+                    reconstruction_sinks,
                 )
             continuation = target_raw
             correspondence = (
@@ -1650,6 +1678,7 @@ class MultiTrackGenerator:
                         None if target_control is None else target_control.detach(),
                         None if state.adapters is None else state.adapters.detach(),
                         track_ids,
+                        reconstruction_sinks,
                     ),
                 )
             correspondence = mean.float().sum() * 0
@@ -1755,6 +1784,8 @@ class MultiTrackGenerator:
         sums["modality"] = torch.nn.functional.cross_entropy(
             modality_logits.flatten(0, 1), modality_targets.flatten(), reduction="sum"
         )
+        if position_audit is not None:
+            position_audit.modality(modality_targets, modality_masks)
         counts["modality"] = len(names)
         sums["relation_semantic"] = relation_loss
         counts["relation_semantic"] = relation_count

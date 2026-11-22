@@ -1,0 +1,19 @@
+{
+  "cuda_build": null,
+  "cudnn": null,
+  "devices": [],
+  "errors": [],
+  "ok": true,
+  "packages": {
+    "numpy": "2.5.5",
+    "safetensors": "0.8.0",
+    "tokenizers": "0.23.3",
+    "torch": "2.14.1+cpu",
+    "triton": null
+  },
+  "platform": "Linux-6.18.57-x86_64-with-glibc2.41",
+  "python": "3.12.14",
+  "warnings": [
+    "CPU reference mode: CUDA kernels, memory fit, and throughput are unverified"
+  ]
+}

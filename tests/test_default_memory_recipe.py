@@ -478,3 +478,39 @@ def test_frozen_coordinator_does_not_prune_old_unvisited_memory():
     coordinator.merge()
     assert bank.edge_count == 1
     assert not coordinator.record_validation(32768, 1.0)
+
+
+def test_semantic_v8_sc_production_example_keeps_all_admission_safeguards():
+    root = Path(__file__).resolve().parents[1]
+    mapping = read_mapping(root / "configs/train/semantic-v8-production.example.yaml")
+    mapping.update(
+        datasets=["/fixture/v8-prepared"],
+        codec="/fixture/pinned-codec",
+        engram_imports=["/fixture/deepseek", "/fixture/qwen"],
+        semantic_v8_policy={
+            "schema": "semantic-training-policy/8",
+            "producerRevision": "a" * 40,
+            "consumerRevision": "b" * 40,
+            "registryDigest": "c" * 64,
+        },
+        decoupled={**mapping["decoupled"], "coordinator_url": "https://coordinator.test"},
+    )
+    config = TrainConfig.from_dict(mapping, expand_data=False)
+
+    assert config.purpose == "production" and config.phase == "SC"
+    assert config.hindsight_targets and config.navigation_weight > 0
+    assert config.hindsight_distill_weight > 0
+    assert config.eval_every > 0 and config.eval_windows > 0
+    assert config.checkpoint_every > 0 and config.keep_checkpoints > 0
+    assert config.engram_imports == ["/fixture/deepseek", "/fixture/qwen"]
+    assert config.decoupled.workers > 1
+    for update in (
+        {"hindsight_targets": None},
+        {"navigation_weight": 0},
+        {"eval_every": 0},
+        {"checkpoint_every": 0},
+        {"decoupled": None},
+        {"allow_unverified_data": True},
+    ):
+        with pytest.raises(ValueError):
+            replace(config, **update)

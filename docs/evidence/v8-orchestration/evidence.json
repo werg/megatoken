@@ -1,0 +1,86 @@
+{
+  "schema": "native-v8-orchestration-engineering-evidence/1",
+  "status": "implemented-awaiting-required-hosted-shared-model-qualification",
+  "consumerBaseRevision": "44a0771caf3744715fa716317cf3dd57d456f85a",
+  "sourceProvenance": "Implementation content identities captured before commit/publication; the coordinating PR ledger records the publication commit.",
+  "sourceSha256": {
+    "scripts/serve_semantic_v8.py": "1af1ec42be00e10ff8600bd27f08b99d0d5658f2123cee34026a0682abd387ca",
+    "src/megatoken/execution_context.py": "ade3f2ec09e245823837f44d4fc700680184edf8d4e2e411eeb49b19dfdf8b6d",
+    "src/megatoken/semantic_orchestration_v8.py": "c377f0f774d5c4989e4690f26e2d3dc3a09cd0ef25002d054fed69e50e4ce358",
+    "src/megatoken/semantic_model_v8.py": "8bd7159fcd9f21477c75e390f399fe585382d0a6d20ee934b006e8bc6fed8361",
+    "src/megatoken/multitrack_runtime.py": "cabbc7013b2f70f813c740aa5a84d40caf7c6c12899385b83edc4cfcb0666288",
+    "tests/test_semantic_v8_orchestration.py": "dfa36eaecac6fc6d86ee0c8162e0d2dcadf335f36f100ad06c74b81954bea7f6",
+    "tests/test_semantic_v8_orchestration_authority.py": "9cca2443bfe96e14ab190a218a66140b89bc3b6e3e2a57622de81aaa5f321fc3"
+  },
+  "localAuthority": {
+    "command": "PYTHONDONTWRITEBYTECODE=1 PYTHONPATH=src python -m pytest -q tests/test_semantic_v8_orchestration_authority.py tests/test_prediction_prefix_v8.py tests/test_native_v8_lifecycle_authority.py",
+    "passed": 24,
+    "failed": 0,
+    "seconds": 44.33,
+    "newAuthorityControls": 19,
+    "scope": "Actual neutral bindings, typed registry, independent V8 public replay and 11-client legacy absence; no ML runtime or source admission"
+  },
+  "sharedModel": {
+    "command": "python -m pytest -q tests/test_semantic_v8_orchestration.py",
+    "testFunctions": 8,
+    "localStatus": "Collection error: ModuleNotFoundError torch",
+    "skipped": false,
+    "hostedRequired": true,
+    "scope": "Actual shared recurrent runtime, explicit controlled lifecycle/lexical decisions, reserved/waiting/terminal and two-session reconstruction; separate unchanged actual decoder failure control"
+  },
+  "review": {
+    "finding": "Exact delivered child receipt retries were incorrectly blocked by later public/pending/terminal state. Historical reads now bind the original public+contexts+result and create no new authority.",
+    "positiveCases": 5,
+    "negativeControls": [
+      "changed public cut",
+      "changed contexts",
+      "changed result",
+      "unknown invocation"
+    ],
+    "closedControl": "Exact saved receipt returned with sessionRetained false, no reopened session or mutation",
+    "probeScope": "Actual completion API + V8 replay + typed registry over an explicitly assembled already-delivered state; no model generation/dispatch claim",
+    "probeRelocation": "Retained scripts only replace their scratch-relative root with repository-relative paths; rerun JSON is byte-data equivalent to independent retained results."
+  },
+  "limits": [
+    "No source-admission or learned-success claim",
+    "No fabricated curriculum behavior labels",
+    "Dynamic callbacks/descendants/module initialization outside this bounded coordinator profile",
+    "Remote effect rollback and resource restoration remain separate",
+    "Ordinary guest semantic commit retains its existing fail-closed acknowledgement-loss behavior",
+    "Producer orchestration bridge/collector and default routing remain separate work"
+  ],
+  "artifacts": {
+    "README.md": {
+      "sha256": "76266cce9652e56864bb7cd797b3fea645417d98d6f00c3876ceb14014dfb827",
+      "bytes": 2999
+    },
+    "completion-retry-after.json": {
+      "sha256": "c431116ffe6e39cc9be67b7b6131879892c0f5a42a22fbdca045811ded66fc01",
+      "bytes": 1136
+    },
+    "completion-retry-before.json": {
+      "sha256": "3b2eb67cd598eb47f2b85f5776a4ef09f57dc9cb2ddf2dd8602030faf4306efc",
+      "bytes": 1471
+    },
+    "completion-retry-negative-probe.py": {
+      "sha256": "bf9220969e51941d97bb12a73373fa5f7c7d51bbb4296c7c5410223095acf4e0",
+      "bytes": 2595
+    },
+    "completion-retry-negative.json": {
+      "sha256": "19d56f1a122d7015a8cd46cb50ff6587ced1b3487b6344c03209fdfe7a578167",
+      "bytes": 1222
+    },
+    "completion-retry-probe.py": {
+      "sha256": "3a26a817bc755c94fe0420b107c39d909b59ba9b88879a0bd3b793cad048b388",
+      "bytes": 4847
+    },
+    "local-authority.log": {
+      "sha256": "3525b181ce67e6fdfa4dcde806bb6160aa581b09453e78da378419bfdcf480dd",
+      "bytes": 100
+    },
+    "local-shared-model-unavailable.log": {
+      "sha256": "15ab0a1ed3877680789348cf977b1f7282fec4826a6bb71a8a261c80df992df7",
+      "bytes": 962
+    }
+  }
+}

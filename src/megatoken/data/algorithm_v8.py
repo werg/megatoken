@@ -2,7 +2,7 @@
 
 This deliberately does not call JavaScript or the producer.  It shares only
 the established, separately implemented ECMAScript primitive operations and
-tagged-value/heap rules from algorithm v7.
+tagged-value/heap rules from algorithm primitives.
 """
 
 from __future__ import annotations
@@ -11,7 +11,7 @@ import copy
 import json
 from typing import Any
 
-from . import algorithm_v7 as v7
+from . import semantic_primitives as primitives
 
 VERSION = "semantic-algorithm/2"
 PROFILE = "ecmascript-pure-regions/1"
@@ -52,10 +52,10 @@ def validate_term(term: Any, *, scopes=(), inputs=None, values=None, budget=None
         op = t.get("op")
         if op == "literal":
             _exact(t, ("op", "value"))
-            v7._validate_value(t["value"])
+            primitives._validate_value(t["value"])
         elif op in ("input", "ref"):
             _exact(t, ("op", "id"))
-            v7._identity(t["id"])
+            primitives._identity(t["id"])
             allowed = inputs if op == "input" else values
             if allowed is not None and t["id"] not in allowed:
                 _fail("unbound name")
@@ -143,11 +143,11 @@ def validate_term(term: Any, *, scopes=(), inputs=None, values=None, budget=None
             visit(t["input"], depth + 1, lexical)
             visit(t["initial"], depth + 1, lexical)
         else:
-            if op not in v7.OPERATIONS:
+            if op not in primitives.OPERATIONS:
                 _fail("unknown operation")
             _exact(t, ("op", "args"))
             args = t["args"]
-            if type(args) is not list or len(args) != v7.OPERATIONS[op][0]:
+            if type(args) is not list or len(args) != primitives.OPERATIONS[op][0]:
                 _fail("operation arity")
             for a in args:
                 visit(a, depth + 1, lexical)
@@ -183,7 +183,7 @@ def validate_algorithm(core):
     }
     for row in core["inputs"]:
         _exact(row, ("id", "type"))
-        v7._identity(row["id"])
+        primitives._identity(row["id"])
         if row["id"] in allids or row["type"] not in types:
             _fail("input declaration")
         allids.add(row["id"])
@@ -194,7 +194,7 @@ def validate_algorithm(core):
             _fail("step")
         if step.get("kind") == "compute":
             _exact(step, ("kind", "id", "term"))
-            v7._identity(step["id"])
+            primitives._identity(step["id"])
             if done or step["id"] in allids:
                 _fail("duplicate/late compute")
             validate_term(step["term"], inputs=ins, values=vals)
@@ -216,7 +216,7 @@ def validate_algorithm(core):
 def _primitive_array(value, heap):
     if value[0] != "ref":
         _fail("traverse input identity")
-    node, props = v7._heap_node(heap, value[1])
+    node, props = primitives._heap_node(heap, value[1])
     if node.get("kind") != "array":
         _fail("traverse input array")
     length = props.get("length")
@@ -234,7 +234,7 @@ def _primitive_array(value, heap):
         item = props.get(str(i))
         if item is None:
             _fail("sparse array")
-        v7._validate_value(item)
+        primitives._validate_value(item)
         if item[0] == "ref":
             _fail("non-primitive traversal item")
         result.append(item.copy())
@@ -247,7 +247,7 @@ def _ordered_properties(properties):
     indexed = []
     ordinary = []
     for key, value in properties.items():
-        idx = v7._array_index(key)
+        idx = primitives._array_index(key)
         if idx is None:
             ordinary.append((key, value))
         else:
@@ -260,7 +260,7 @@ def evaluate_term(
 ):
     inputs = inputs or {}
     values = values or {}
-    heap = v7._snapshot_heap(heap)
+    heap = primitives._snapshot_heap(heap)
     allocator = allocator if allocator is not None else {"prefix": "v8", "next": 0}
     budget = budget if budget is not None else {"remaining": 32768}
     if (
@@ -276,13 +276,13 @@ def evaluate_term(
         if type(scope) not in (list, tuple):
             _fail("lexical values")
         for value in scope:
-            v7._validate_value(value)
+            primitives._validate_value(value)
     validate_term(term, scopes=tuple(len(scope) for scope in scopes))
 
     def committed(value):
-        v7._validate_value(value)
+        primitives._validate_value(value)
         if value[0] == "ref":
-            v7._heap_node(heap, value[1])
+            primitives._heap_node(heap, value[1])
         return value.copy()
 
     def alloc(kind, props):
@@ -316,7 +316,7 @@ def evaluate_term(
             key = (
                 t["key"]
                 if op == "project"
-                else v7._to_string(visit(t["key"], env_inputs, env_values, env_scopes))
+                else primitives._to_string(visit(t["key"], env_inputs, env_values, env_scopes))
             )
             if obj[0] == "str":
                 if key == "length":
@@ -332,7 +332,7 @@ def evaluate_term(
                 _fail("string property outside ordinary index profile")
             if obj[0] != "ref":
                 _fail("ordinary own-data get")
-            node, props = v7._heap_node(heap, obj[1])
+            node, props = primitives._heap_node(heap, obj[1])
             inherited = {
                 "__proto__",
                 "constructor",
@@ -419,15 +419,15 @@ def evaluate_term(
                     out.append(acc.copy())
                 elif mode == "map":
                     out.append(result)
-                elif mode == "filter" and v7._truthy(result):
+                elif mode == "filter" and primitives._truthy(result):
                     out.append(item)
-                elif mode == "find" and v7._truthy(result):
+                elif mode == "find" and primitives._truthy(result):
                     return item
-                elif mode == "find_index" and v7._truthy(result):
+                elif mode == "find_index" and primitives._truthy(result):
                     return ["num", i]
-                elif mode == "some" and v7._truthy(result):
+                elif mode == "some" and primitives._truthy(result):
                     return ["bool", True]
-                elif mode == "every" and not v7._truthy(result):
+                elif mode == "every" and not primitives._truthy(result):
                     return ["bool", False]
             if mode == "fold":
                 return acc
@@ -444,12 +444,15 @@ def evaluate_term(
             left = visit(t["args"][0], env_inputs, env_values, env_scopes)
             if op == "select":
                 return visit(
-                    t["args"][1 if v7._truthy(left) else 2], env_inputs, env_values, env_scopes
+                    t["args"][1 if primitives._truthy(left) else 2],
+                    env_inputs,
+                    env_values,
+                    env_scopes,
                 )
             take = (
-                v7._truthy(left)
+                primitives._truthy(left)
                 if op == "and"
-                else not v7._truthy(left)
+                else not primitives._truthy(left)
                 if op == "or"
                 else left[0] in ("undefined", "null")
             )
@@ -457,17 +460,19 @@ def evaluate_term(
         if op == "fold_left":
             input_value = visit(t["input"], env_inputs, env_values, env_scopes)
             initial = visit(t["initial"], env_inputs, env_values, env_scopes)
-            items = v7._dense_items(input_value, heap)
+            items = primitives._dense_items(input_value, heap)
             if initial[0] != "num":
                 _fail("numeric fold initial value")
-            result = v7._decode_scalar(initial)
+            result = primitives._decode_scalar(initial)
             for item in items:
                 budget["remaining"] -= 1
                 if budget["remaining"] < 0:
                     _fail("semantic work budget")
-                result += v7._decode_scalar(item)
-            return v7._encode_scalar(result)
-        return v7._operation(op, [visit(a, env_inputs, env_values, env_scopes) for a in t["args"]])
+                result += primitives._decode_scalar(item)
+            return primitives._encode_scalar(result)
+        return primitives._operation(
+            op, [visit(a, env_inputs, env_values, env_scopes) for a in t["args"]]
+        )
 
     return visit(term), heap, allocator
 
@@ -475,13 +480,13 @@ def evaluate_term(
 def evaluate_algorithm(core, arguments, *, heap=None, allocator=None):
     """Evaluate a pure core and retain claims, aliases and allocated objects."""
     validate_algorithm(core)
-    args = v7._data_list(arguments, "algorithm/2 arguments")
+    args = primitives._data_list(arguments, "algorithm/2 arguments")
     if len(args) != len(core["inputs"]):
         _fail("input arity")
-    actual_heap = v7._snapshot_heap(heap)
+    actual_heap = primitives._snapshot_heap(heap)
     inputs = {}
     for arg, declaration in zip(args, core["inputs"], strict=True):
-        v7._validate_value(arg)
+        primitives._validate_value(arg)
         kind = declaration["type"]
         if (
             kind in ("scalar", "number", "dense-number-array")
@@ -496,9 +501,9 @@ def evaluate_algorithm(core, arguments, *, heap=None, allocator=None):
         if kind == "nullable-data" and arg[0] not in ("ref", "null", "undefined"):
             _fail("nullable-data input type")
         if arg[0] == "ref":
-            v7._heap_node(actual_heap, arg[1])
+            primitives._heap_node(actual_heap, arg[1])
         if kind == "dense-number-array":
-            v7._dense_items(arg, actual_heap)
+            primitives._dense_items(arg, actual_heap)
         if kind == "dense-primitive-array":
             _primitive_array(arg, actual_heap)
         inputs[declaration["id"]] = arg.copy()
@@ -511,7 +516,7 @@ def evaluate_algorithm(core, arguments, *, heap=None, allocator=None):
         or allocator["next"] < 0
     ):
         _fail("allocator")
-    v7._identity(allocator["prefix"], "allocator prefix")
+    primitives._identity(allocator["prefix"], "allocator prefix")
     if allocator["next"] > 1024:
         _fail("allocation budget")
     values = {}
@@ -579,7 +584,7 @@ def replay_algorithm_line(core, input_graph, line):
         or type(input_graph["roots"]) is not list
     ):
         _fail("input graph envelope")
-    heap = v7.algorithm_heap_from_graph(input_graph)
+    heap = primitives.algorithm_heap_from_graph(input_graph)
     result = evaluate_algorithm(
         core, input_graph["roots"], heap=heap, allocator={"prefix": "core-v8", "next": 0}
     )

@@ -58,6 +58,150 @@ def finish_row(output="output"):
 
 
 class PromiseJoinBoundaryTests(unittest.TestCase):
+    def test_all_settled_keeps_rejections_pending_and_duplicate_entries_distinct(self):
+        state, row = joined_machine()
+        state["heap"]["later"] = {
+            "kind": "promise",
+            "properties": {},
+            "state": "pending",
+            "result": None,
+            "reactions": [],
+        }
+        state["heap"]["input"].update(state="rejected", result=["str", "no"])
+        row.update(mode="allSettled", inputs=["later", "input", "input"], jobs=["j0", "j1", "j2"])
+        apply_protocol_record(state, row)
+        state["stack"] = []
+        for index in (1, 2):
+            apply_protocol_record(
+                state,
+                {
+                    **finish_row(None),
+                    "job": "j" + str(index),
+                    "entry": "entry" + str(index),
+                    "status": "pending",
+                    "value": None,
+                },
+            )
+            self.assertTrue(validate_state(state))
+            state = copy.deepcopy(state)
+        self.assertEqual(state["heap"]["result"]["state"], "pending")
+        self.assertEqual(
+            state["heap"]["entry1"]["properties"],
+            {
+                "status": ["str", "rejected"],
+                "reason": ["str", "no"],
+            },
+        )
+        from megatoken.data.promise_scheduler_v8 import settle_promise
+
+        settle_promise(state, "later", "fulfilled", ["undefined"])
+        apply_protocol_record(state, {**finish_row(), "job": "j0", "entry": "entry0"})
+        self.assertEqual(
+            state["heap"]["output"]["properties"],
+            {
+                "0": ["ref", "entry0"],
+                "1": ["ref", "entry1"],
+                "2": ["ref", "entry2"],
+                "length": ["num", 3],
+            },
+        )
+        self.assertTrue(validate_state(state))
+        state["heap"]["entry1"]["properties"]["status"] = ["str", "changed"]
+        state["heap"]["output"]["properties"]["length"] = ["num", 0]
+        self.assertTrue(validate_state(state))
+
+    def test_all_settled_invalid_entry_or_settlement_is_atomic(self):
+        state, row = joined_machine()
+        state["heap"]["later"] = {
+            "kind": "promise",
+            "properties": {},
+            "state": "pending",
+            "result": None,
+            "reactions": [],
+        }
+        row.update(mode="allSettled", inputs=["input", "later"], jobs=["job", "later-job"])
+        apply_protocol_record(state, row)
+        state["stack"] = []
+        step = {**finish_row(None), "entry": "entry", "status": "pending", "value": None}
+        for change in (
+            {"entry": None},
+            {"entry": "later-job"},
+            {"output": "output", "status": "fulfilled", "value": ["ref", "output"]},
+            {"status": "rejected", "value": ["num", 7]},
+        ):
+            before = copy.deepcopy(state)
+            with self.subTest(change=change), self.assertRaises(ProtocolV8Error):
+                apply_protocol_record(state, {**step, **change})
+            self.assertEqual(state, before)
+        apply_protocol_record(state, step)
+        changed = copy.deepcopy(state)
+        changed["heap"]["entry"]["properties"]["value"] = ["num", 8]
+        with self.assertRaisesRegex(ProtocolV8Error, "pending entry"):
+            validate_state(changed)
+        changed = copy.deepcopy(state)
+        changed["heap"]["result"].update(state="fulfilled", result=["ref", "entry"])
+        changed["heap"]["result"]["join"]["settled"] = True
+        with self.assertRaisesRegex(ProtocolV8Error, "allSettled"):
+            validate_state(changed)
+
+    def test_all_settled_empty_result_and_bound(self):
+        state, row = joined_machine(empty=True)
+        row["mode"] = "allSettled"
+        apply_protocol_record(state, row)
+        self.assertEqual(state["heap"]["result"]["result"], ["ref", "output"])
+        self.assertTrue(validate_state(state))
+        state["heap"]["output"]["properties"].update({"0": ["num", 7], "length": ["num", 1]})
+        self.assertTrue(validate_state(state))
+        state, row = joined_machine()
+        row.update(
+            mode="allSettled", inputs=["input"] * 4096, jobs=["job" + str(i) for i in range(4096)]
+        )
+        with self.assertRaisesRegex(ProtocolV8Error, "array length"):
+            apply_protocol_record(state, row)
+
+    def test_shared_join_heap_retains_controller_ownership_after_root_return(self):
+        state, row = joined_machine()
+        apply_protocol_record(state, row)
+        self.assertEqual(state["heap"]["result"]["join"]["owner"], "root")
+        state["stack"] = []
+        self.assertTrue(validate_state(state))
+
+        callback = copy.deepcopy(state)
+        callback.update(
+            stack=["callback"], frameFunctions={"callback": "handler"}, jobs=[], ready=[]
+        )
+        self.assertTrue(validate_state(callback))
+        apply_protocol_record(state, finish_row())
+        callback["heap"] = copy.deepcopy(state["heap"])
+        self.assertTrue(validate_state(callback))
+        self.assertEqual(callback["heap"]["result"]["result"], ["ref", "output"])
+
+    def test_join_jobs_cannot_migrate_between_controllers(self):
+        state, row = joined_machine()
+        apply_protocol_record(state, row)
+        for mutation in ("join-owner", "job-owner", "controller-owner"):
+            changed = copy.deepcopy(state)
+            if mutation == "join-owner":
+                changed["heap"]["result"]["join"]["owner"] = "callback"
+            elif mutation == "job-owner":
+                changed["jobs"][0][1]["owner"] = "callback"
+            else:
+                changed["frameFunctions"] = {"callback": "handler"}
+                changed["stack"] = ["callback"]
+            with (
+                self.subTest(mutation=mutation),
+                self.assertRaisesRegex(ProtocolV8Error, "another invocation|scheduler linkage"),
+            ):
+                validate_state(changed)
+
+        changed = copy.deepcopy(state)
+        changed["stack"] = []
+        changed["frameFunctions"] = {"callback": "handler"}
+        before = copy.deepcopy(changed)
+        with self.assertRaisesRegex(ProtocolV8Error, "unknown or stale"):
+            apply_protocol_record(changed, finish_row())
+        self.assertEqual(changed, before)
+
     def test_legacy_settlement_cannot_bypass_join_result_ownership(self):
         state, row = joined_machine()
         apply_protocol_record(state, row)

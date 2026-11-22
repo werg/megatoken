@@ -1,0 +1,372 @@
+﻿2026-11-22T05:04:21.7604021Z Current runner version: '2.338.2'
+2026-11-22T05:04:21.7632041Z ##[group]Runner Image Provisioner
+2026-11-22T05:04:21.7633058Z Hosted Compute Agent
+2026-11-22T05:04:21.7633710Z Version: 20261111.635
+2026-11-22T05:04:21.7634409Z Commit: b8a594ea514ff44cadb5342986c68b1eac6e22ed
+2026-11-22T05:04:21.7635155Z Build Date: 2026-11-11T01:49:01Z
+2026-11-22T05:04:21.7635826Z Worker ID: {d9933008-8bdc-490d-97ea-d64e9af9bcdd}
+2026-11-22T05:04:21.7636636Z Region: centralus
+2026-11-22T05:04:21.7637196Z Cloud: Azure
+2026-11-22T05:04:21.7637787Z ##[endgroup]
+2026-11-22T05:04:21.7639581Z ##[group]Operating System
+2026-11-22T05:04:21.7640250Z Ubuntu
+2026-11-22T05:04:21.7640949Z 24.04.5
+2026-11-22T05:04:21.7641866Z LTS
+2026-11-22T05:04:21.7642561Z ##[endgroup]
+2026-11-22T05:04:21.7643132Z ##[group]Runner Image
+2026-11-22T05:04:21.7643735Z Image: ubuntu-24.04
+2026-11-22T05:04:21.7644451Z Version: 20261116.376.1
+2026-11-22T05:04:21.7645693Z Included Software: https://github.com/actions/runner-images/blob/ubuntu24/20261116.376/images/ubuntu/Ubuntu2404-Readme.md
+2026-11-22T05:04:21.7647769Z Image Release: https://github.com/actions/runner-images/releases/tag/ubuntu24%2F20261116.376
+2026-11-22T05:04:21.7648741Z ##[endgroup]
+2026-11-22T05:04:21.7650018Z ##[group]GITHUB_TOKEN Permissions
+2026-11-22T05:04:21.7652995Z Contents: read
+2026-11-22T05:04:21.7653661Z Metadata: read
+2026-11-22T05:04:21.7654232Z ##[endgroup]
+2026-11-22T05:04:21.7656410Z Secret source: Actions
+2026-11-22T05:04:21.7657409Z Cache mode: write
+2026-11-22T05:04:21.7658200Z Prepare workflow directory
+2026-11-22T05:04:21.8021940Z Prepare all required actions
+2026-11-22T05:04:21.8071779Z Getting action download info
+2026-11-22T05:04:22.0992101Z Download action repository 'actions/checkout@v4' (SHA:11d5960a326750d5838078e36cf38b85af677262)
+2026-11-22T05:04:22.2644294Z Download action repository 'actions/setup-python@v5' (SHA:a26af69be951a213d495a4c3e4e4022e16d87065)
+2026-11-22T05:04:22.3763445Z Download action repository 'actions/upload-artifact@v4' (SHA:ea165f8d65b6e75b540449e92b4886f43607fa02)
+2026-11-22T05:04:22.5942318Z Complete job name: controls
+2026-11-22T05:04:22.6826106Z ##[group]Run actions/checkout@v4
+2026-11-22T05:04:22.6827010Z with:
+2026-11-22T05:04:22.6827503Z   ref: a0cfb1d2c2fc152a1716e655619c7ef93c65d82b
+2026-11-22T05:04:22.6828131Z   persist-credentials: false
+2026-11-22T05:04:22.6828665Z   repository: werg/megatoken
+2026-11-22T05:04:22.6833445Z   token: ***
+2026-11-22T05:04:22.6833936Z   ssh-strict: true
+2026-11-22T05:04:22.6834384Z   ssh-user: git
+2026-11-22T05:04:22.6834819Z   clean: true
+2026-11-22T05:04:22.6835275Z   sparse-checkout-cone-mode: true
+2026-11-22T05:04:22.6835800Z   fetch-depth: 1
+2026-11-22T05:04:22.6836225Z   fetch-tags: false
+2026-11-22T05:04:22.6836666Z   show-progress: true
+2026-11-22T05:04:22.6837113Z   lfs: false
+2026-11-22T05:04:22.6837534Z   submodules: false
+2026-11-22T05:04:22.6837976Z   set-safe-directory: true
+2026-11-22T05:04:22.6838478Z   allow-unsafe-pr-checkout: false
+2026-11-22T05:04:22.6839378Z ##[endgroup]
+2026-11-22T05:04:23.0032584Z Syncing repository: werg/megatoken
+2026-11-22T05:04:23.0034484Z ##[group]Getting Git version info
+2026-11-22T05:04:23.0035233Z Working directory is '/home/runner/work/megatoken/megatoken'
+2026-11-22T05:04:23.0036325Z [command]/usr/bin/git version
+2026-11-22T05:04:23.0174079Z git version 2.56.1
+2026-11-22T05:04:23.0196181Z ##[endgroup]
+2026-11-22T05:04:23.0211894Z Temporarily overriding HOME='/home/runner/work/_temp/d76081c6-9816-4bef-95df-b7a2fa22e9a3' before making global git config changes
+2026-11-22T05:04:23.0214904Z Adding repository directory to the temporary git global config as a safe directory
+2026-11-22T05:04:23.0217630Z [command]/usr/bin/git config --global --add safe.directory /home/runner/work/megatoken/megatoken
+2026-11-22T05:04:23.0281805Z Deleting the contents of '/home/runner/work/megatoken/megatoken'
+2026-11-22T05:04:23.0284305Z ##[group]Initializing the repository
+2026-11-22T05:04:23.0294050Z [command]/usr/bin/git init /home/runner/work/megatoken/megatoken
+2026-11-22T05:04:23.0428355Z hint: Using 'master' as the name for the initial branch. This default branch name
+2026-11-22T05:04:23.0430618Z hint: will change to "main" in Git 3.0. To configure the initial branch name
+2026-11-22T05:04:23.0433284Z hint: to use in all of your new repositories, which will suppress this warning,
+2026-11-22T05:04:23.0434739Z hint: call:
+2026-11-22T05:04:23.0435621Z hint:
+2026-11-22T05:04:23.0436720Z hint: 	git config --global init.defaultBranch <name>
+2026-11-22T05:04:23.0437990Z hint:
+2026-11-22T05:04:23.0439381Z hint: Names commonly chosen instead of 'master' are 'main', 'trunk' and
+2026-11-22T05:04:23.0441013Z hint: 'development'. The just-created branch can be renamed via this command:
+2026-11-22T05:04:23.0442674Z hint:
+2026-11-22T05:04:23.0443705Z hint: 	git branch -m <name>
+2026-11-22T05:04:23.0444666Z hint:
+2026-11-22T05:04:23.0445842Z hint: Disable this message with "git config set advice.defaultBranchName false"
+2026-11-22T05:04:23.0447723Z Initialized empty Git repository in /home/runner/work/megatoken/megatoken/.git/
+2026-11-22T05:04:23.0456183Z [command]/usr/bin/git remote add origin https://github.com/werg/megatoken
+2026-11-22T05:04:23.0515961Z ##[endgroup]
+2026-11-22T05:04:23.0517291Z ##[group]Disabling automatic garbage collection
+2026-11-22T05:04:23.0520792Z [command]/usr/bin/git config --local gc.auto 0
+2026-11-22T05:04:23.0557556Z ##[endgroup]
+2026-11-22T05:04:23.0558996Z ##[group]Setting up auth
+2026-11-22T05:04:23.0565822Z [command]/usr/bin/git config --local --name-only --get-regexp core\.sshCommand
+2026-11-22T05:04:23.0608106Z [command]/usr/bin/git submodule foreach --recursive sh -c "git config --local --name-only --get-regexp 'core\.sshCommand' && git config --local --unset-all 'core.sshCommand' || :"
+2026-11-22T05:04:23.1069511Z [command]/usr/bin/git config --local --name-only --get-regexp http\.https\:\/\/github\.com\/\.extraheader
+2026-11-22T05:04:23.1115656Z [command]/usr/bin/git submodule foreach --recursive sh -c "git config --local --name-only --get-regexp 'http\.https\:\/\/github\.com\/\.extraheader' && git config --local --unset-all 'http.https://github.com/.extraheader' || :"
+2026-11-22T05:04:23.1359389Z [command]/usr/bin/git config --local --name-only --get-regexp ^includeIf\.gitdir:
+2026-11-22T05:04:23.1404373Z [command]/usr/bin/git submodule foreach --recursive git config --local --show-origin --name-only --get-regexp remote.origin.url
+2026-11-22T05:04:23.1645877Z [command]/usr/bin/git config --local http.https://github.com/.extraheader AUTHORIZATION: basic ***
+2026-11-22T05:04:23.1694198Z ##[endgroup]
+2026-11-22T05:04:23.1695032Z ##[group]Fetching the repository
+2026-11-22T05:04:23.1709474Z [command]/usr/bin/git -c protocol.version=2 fetch --no-tags --prune --no-recurse-submodules --depth=1 origin a0cfb1d2c2fc152a1716e655619c7ef93c65d82b
+2026-11-22T05:04:25.4033893Z From https://github.com/werg/megatoken
+2026-11-22T05:04:25.4035105Z  * branch            a0cfb1d2c2fc152a1716e655619c7ef93c65d82b -> FETCH_HEAD
+2026-11-22T05:04:25.4044720Z ##[endgroup]
+2026-11-22T05:04:25.4046306Z ##[group]Determining the checkout info
+2026-11-22T05:04:25.4047999Z ##[endgroup]
+2026-11-22T05:04:25.4049044Z [command]/usr/bin/git sparse-checkout disable
+2026-11-22T05:04:25.4126424Z [command]/usr/bin/git config --local --unset-all extensions.worktreeConfig
+2026-11-22T05:04:25.4170588Z ##[group]Checking out the ref
+2026-11-22T05:04:25.4174352Z [command]/usr/bin/git checkout --progress --force a0cfb1d2c2fc152a1716e655619c7ef93c65d82b
+2026-11-22T05:04:25.6558918Z Note: switching to 'a0cfb1d2c2fc152a1716e655619c7ef93c65d82b'.
+2026-11-22T05:04:25.6559619Z 
+2026-11-22T05:04:25.6560028Z You are in 'detached HEAD' state. You can look around, make experimental
+2026-11-22T05:04:25.6560982Z changes and commit them, and you can discard any commits you make in this
+2026-11-22T05:04:25.6562346Z state without impacting any branches by switching back to a branch.
+2026-11-22T05:04:25.6562953Z 
+2026-11-22T05:04:25.6563351Z If you want to create a new branch to retain commits you create, you may
+2026-11-22T05:04:25.6564744Z do so (now or later) by using -c with the switch command. Example:
+2026-11-22T05:04:25.6565372Z 
+2026-11-22T05:04:25.6565588Z   git switch -c <new-branch-name>
+2026-11-22T05:04:25.6566000Z 
+2026-11-22T05:04:25.6566199Z Or undo this operation with:
+2026-11-22T05:04:25.6566564Z 
+2026-11-22T05:04:25.6566721Z   git switch -
+2026-11-22T05:04:25.6567023Z 
+2026-11-22T05:04:25.6567612Z Turn off this advice by setting config variable advice.detachedHead to false
+2026-11-22T05:04:25.6568484Z 
+2026-11-22T05:04:25.6569100Z HEAD is now at a0cfb1d Apply formatter output and remove unused support fixture counter
+2026-11-22T05:04:25.6599425Z ##[endgroup]
+2026-11-22T05:04:25.6654493Z [command]/usr/bin/git log -1 --format=%H
+2026-11-22T05:04:25.6688800Z a0cfb1d2c2fc152a1716e655619c7ef93c65d82b
+2026-11-22T05:04:25.6698774Z ##[group]Removing auth
+2026-11-22T05:04:25.6702603Z [command]/usr/bin/git config --local --name-only --get-regexp core\.sshCommand
+2026-11-22T05:04:25.6743631Z [command]/usr/bin/git submodule foreach --recursive sh -c "git config --local --name-only --get-regexp 'core\.sshCommand' && git config --local --unset-all 'core.sshCommand' || :"
+2026-11-22T05:04:25.6983800Z [command]/usr/bin/git config --local --name-only --get-regexp http\.https\:\/\/github\.com\/\.extraheader
+2026-11-22T05:04:25.7020395Z http.https://github.com/.extraheader
+2026-11-22T05:04:25.7030271Z [command]/usr/bin/git config --local --unset-all http.https://github.com/.extraheader
+2026-11-22T05:04:25.7075632Z [command]/usr/bin/git submodule foreach --recursive sh -c "git config --local --name-only --get-regexp 'http\.https\:\/\/github\.com\/\.extraheader' && git config --local --unset-all 'http.https://github.com/.extraheader' || :"
+2026-11-22T05:04:25.7315734Z [command]/usr/bin/git config --local --name-only --get-regexp ^includeIf\.gitdir:
+2026-11-22T05:04:25.7356280Z [command]/usr/bin/git submodule foreach --recursive git config --local --show-origin --name-only --get-regexp remote.origin.url
+2026-11-22T05:04:25.7589588Z ##[endgroup]
+2026-11-22T05:04:25.8006603Z ##[group]Run actions/setup-python@v5
+2026-11-22T05:04:25.8007406Z with:
+2026-11-22T05:04:25.8007910Z   python-version: 3.12.14
+2026-11-22T05:04:25.8008573Z   check-latest: false
+2026-11-22T05:04:25.8017485Z   token: ***
+2026-11-22T05:04:25.8018028Z   update-environment: true
+2026-11-22T05:04:25.8018688Z   allow-prereleases: false
+2026-11-22T05:04:25.8019312Z   freethreaded: false
+2026-11-22T05:04:25.8019850Z ##[endgroup]
+2026-11-22T05:04:25.9442970Z ##[group]Installed versions
+2026-11-22T05:04:25.9458676Z Version 3.12.14 was not found in the local cache
+2026-11-22T05:04:25.9647771Z (node:2357) [DEP0040] DeprecationWarning: The `punycode` module is deprecated. Please use a userland alternative instead.
+2026-11-22T05:04:25.9648907Z (Use `node --trace-deprecation ...` to show where the warning was created)
+2026-11-22T05:04:26.6900378Z Version 3.12.14 is available for downloading
+2026-11-22T05:04:26.6902692Z Download from "https://github.com/actions/python-versions/releases/download/3.12.14-31661455385/python-3.12.14-linux-24.04-x64.tar.gz"
+2026-11-22T05:04:27.3619975Z Extract downloaded archive
+2026-11-22T05:04:27.3775166Z [command]/usr/bin/tar xz --warning=no-unknown-keyword --overwrite -C /home/runner/work/_temp/c322eb6c-d35d-4772-8bd6-c71094d765c6 -f /home/runner/work/_temp/d283885f-b0f1-4022-aa0b-a2db4c76d0b8
+2026-11-22T05:04:29.3171628Z Execute installation script
+2026-11-22T05:04:29.3294664Z Check if Python hostedtoolcache folder exist...
+2026-11-22T05:04:29.3295586Z Create Python 3.12.14 folder
+2026-11-22T05:04:29.3309858Z Copy Python binaries to hostedtoolcache folder
+2026-11-22T05:04:29.7883136Z Create additional symlinks (Required for the UsePythonVersion Azure Pipelines task and the setup-python GitHub Action)
+2026-11-22T05:04:29.7932133Z Upgrading pip...
+2026-11-22T05:04:31.5581613Z Collecting pip
+2026-11-22T05:04:31.6176161Z Downloading pip-26.3-py3-none-any.whl.metadata (4.6 kB)
+2026-11-22T05:04:31.6437483Z Downloading pip-26.3-py3-none-any.whl (2.0 MB)
+2026-11-22T05:04:31.7127185Z ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━ 2.0/2.0 MB 47.5 MB/s eta 0:00:00
+2026-11-22T05:04:31.7127915Z 
+2026-11-22T05:04:31.7331878Z Installing collected packages: pip
+2026-11-22T05:04:31.7334437Z Attempting uninstall: pip
+2026-11-22T05:04:31.7356337Z Found existing installation: pip 25.0.1
+2026-11-22T05:04:31.7706381Z Uninstalling pip-25.0.1:
+2026-11-22T05:04:31.7761945Z Successfully uninstalled pip-25.0.1
+2026-11-22T05:04:32.7416358Z Successfully installed pip-26.3
+2026-11-22T05:04:32.7896273Z Create complete file
+2026-11-22T05:04:32.7938352Z Successfully set up CPython (3.12.14)
+2026-11-22T05:04:32.7939368Z ##[endgroup]
+2026-11-22T05:04:32.8155994Z ##[group]Run python -m pip install -e '.[dev]'
+2026-11-22T05:04:32.8156433Z [36;1mpython -m pip install -e '.[dev]'[0m
+2026-11-22T05:04:32.8183409Z shell: /usr/bin/bash -e {0}
+2026-11-22T05:04:32.8183698Z env:
+2026-11-22T05:04:32.8183969Z   pythonLocation: /opt/hostedtoolcache/Python/3.12.14/x64
+2026-11-22T05:04:32.8184438Z   PKG_CONFIG_PATH: /opt/hostedtoolcache/Python/3.12.14/x64/lib/pkgconfig
+2026-11-22T05:04:32.8184939Z   Python_ROOT_DIR: /opt/hostedtoolcache/Python/3.12.14/x64
+2026-11-22T05:04:32.8185340Z   Python2_ROOT_DIR: /opt/hostedtoolcache/Python/3.12.14/x64
+2026-11-22T05:04:32.8185721Z   Python3_ROOT_DIR: /opt/hostedtoolcache/Python/3.12.14/x64
+2026-11-22T05:04:32.8186100Z   LD_LIBRARY_PATH: /opt/hostedtoolcache/Python/3.12.14/x64/lib
+2026-11-22T05:04:32.8186413Z ##[endgroup]
+2026-11-22T05:04:33.1630094Z Obtaining file:///home/runner/work/megatoken/megatoken
+2026-11-22T05:04:33.1648115Z   Installing build dependencies: started
+2026-11-22T05:04:34.2100811Z   Installing build dependencies: finished with status 'done'
+2026-11-22T05:04:34.2106695Z   Checking if build backend supports build_editable: started
+2026-11-22T05:04:34.2499676Z   Checking if build backend supports build_editable: finished with status 'done'
+2026-11-22T05:04:34.2507712Z   Getting requirements to build editable: started
+2026-11-22T05:04:34.4053775Z   Getting requirements to build editable: finished with status 'done'
+2026-11-22T05:04:34.4066702Z   Installing backend dependencies: started
+2026-11-22T05:04:34.9440614Z   Installing backend dependencies: finished with status 'done'
+2026-11-22T05:04:34.9448149Z   Preparing editable metadata (pyproject.toml): started
+2026-11-22T05:04:35.1422776Z   Preparing editable metadata (pyproject.toml): finished with status 'done'
+2026-11-22T05:04:35.2559869Z Collecting jsonschema<5,>=4.23 (from megatoken==0.1.0)
+2026-11-22T05:04:35.3311531Z   Downloading jsonschema-4.26.0-py3-none-any.whl.metadata (7.6 kB)
+2026-11-22T05:04:35.3611833Z Collecting markdown-it-py==4.0.0 (from megatoken==0.1.0)
+2026-11-22T05:04:35.3743663Z   Downloading markdown_it_py-4.0.0-py3-none-any.whl.metadata (7.3 kB)
+2026-11-22T05:04:35.6241867Z Collecting numpy<3,>=1.26 (from megatoken==0.1.0)
+2026-11-22T05:04:35.6374750Z   Downloading numpy-2.5.5-cp312-cp312-manylinux_2_27_x86_64.manylinux_2_28_x86_64.whl.metadata (6.6 kB)
+2026-11-22T05:04:35.6884041Z Collecting pyyaml<7,>=6.0 (from megatoken==0.1.0)
+2026-11-22T05:04:35.7015470Z   Downloading pyyaml-6.0.4-cp312-cp312-manylinux2014_x86_64.manylinux_2_17_x86_64.manylinux_2_28_x86_64.whl.metadata (2.3 kB)
+2026-11-22T05:04:35.7274130Z Collecting tree-sitter-c-sharp==0.23.5 (from megatoken==0.1.0)
+2026-11-22T05:04:35.7410880Z   Downloading tree_sitter_c_sharp-0.23.5-cp310-abi3-manylinux1_x86_64.manylinux_2_28_x86_64.manylinux_2_5_x86_64.whl.metadata (2.7 kB)
+2026-11-22T05:04:35.7653710Z Collecting tree-sitter-embedded-template==0.25.0 (from megatoken==0.1.0)
+2026-11-22T05:04:35.7784853Z   Downloading tree_sitter_embedded_template-0.25.0-cp310-abi3-manylinux1_x86_64.manylinux_2_28_x86_64.manylinux_2_5_x86_64.whl.metadata (2.3 kB)
+2026-11-22T05:04:35.8234374Z Collecting tree-sitter-language-pack==0.13.0 (from megatoken==0.1.0)
+2026-11-22T05:04:35.8368674Z   Downloading tree_sitter_language_pack-0.13.0-cp310-abi3-manylinux2014_x86_64.whl.metadata (19 kB)
+2026-11-22T05:04:35.8705238Z Collecting tree-sitter-yaml==0.7.2 (from megatoken==0.1.0)
+2026-11-22T05:04:35.8836769Z   Downloading tree_sitter_yaml-0.7.2-cp310-abi3-manylinux1_x86_64.manylinux_2_28_x86_64.manylinux_2_5_x86_64.whl.metadata (1.8 kB)
+2026-11-22T05:04:35.9401179Z Collecting tree-sitter==0.25.2 (from megatoken==0.1.0)
+2026-11-22T05:04:35.9533145Z   Downloading tree_sitter-0.25.2-cp312-cp312-manylinux2014_x86_64.manylinux_2_17_x86_64.manylinux_2_28_x86_64.whl.metadata (10.0 kB)
+2026-11-22T05:04:36.0133926Z Collecting uniseg==0.10.1 (from megatoken==0.1.0)
+2026-11-22T05:04:36.0276896Z   Downloading uniseg-0.10.1-py3-none-any.whl.metadata (7.3 kB)
+2026-11-22T05:04:36.0575844Z Collecting build<2,>=1.2 (from megatoken==0.1.0)
+2026-11-22T05:04:36.0705741Z   Downloading build-1.6.1-py3-none-any.whl.metadata (5.6 kB)
+2026-11-22T05:04:36.1075985Z Collecting pytest<9,>=8.3 (from megatoken==0.1.0)
+2026-11-22T05:04:36.1211277Z   Downloading pytest-8.4.2-py3-none-any.whl.metadata (7.7 kB)
+2026-11-22T05:04:36.4524408Z Collecting ruff<1,>=0.11 (from megatoken==0.1.0)
+2026-11-22T05:04:36.4657987Z   Downloading ruff-0.17.6-py3-none-manylinux_2_17_x86_64.manylinux2014_x86_64.whl.metadata (20 kB)
+2026-11-22T05:04:36.4917137Z Collecting mdurl~=0.1 (from markdown-it-py==4.0.0->megatoken==0.1.0)
+2026-11-22T05:04:36.5048207Z   Downloading mdurl-0.1.2-py3-none-any.whl.metadata (1.6 kB)
+2026-11-22T05:04:36.5184639Z Collecting packaging>=24.0 (from build<2,>=1.2->megatoken==0.1.0)
+2026-11-22T05:04:36.5196659Z   Using cached packaging-26.3-py3-none-any.whl.metadata (3.5 kB)
+2026-11-22T05:04:36.5409216Z Collecting pyproject_hooks (from build<2,>=1.2->megatoken==0.1.0)
+2026-11-22T05:04:36.5545593Z   Downloading pyproject_hooks-1.3.3-py3-none-any.whl.metadata (1.3 kB)
+2026-11-22T05:04:36.5798287Z Collecting attrs>=22.2.0 (from jsonschema<5,>=4.23->megatoken==0.1.0)
+2026-11-22T05:04:36.5930668Z   Downloading attrs-26.1.0-py3-none-any.whl.metadata (8.8 kB)
+2026-11-22T05:04:36.6173606Z Collecting jsonschema-specifications>=2023.03.6 (from jsonschema<5,>=4.23->megatoken==0.1.0)
+2026-11-22T05:04:36.6313022Z   Downloading jsonschema_specifications-2025.9.1-py3-none-any.whl.metadata (2.9 kB)
+2026-11-22T05:04:36.6642030Z Collecting referencing>=0.28.4 (from jsonschema<5,>=4.23->megatoken==0.1.0)
+2026-11-22T05:04:36.6772201Z   Downloading referencing-0.37.0-py3-none-any.whl.metadata (2.8 kB)
+2026-11-22T05:04:36.9468037Z Collecting rpds-py>=0.25.0 (from jsonschema<5,>=4.23->megatoken==0.1.0)
+2026-11-22T05:04:36.9601687Z   Downloading rpds_py-2026.9.1-cp312-cp312-manylinux_2_17_x86_64.manylinux2014_x86_64.whl.metadata (4.1 kB)
+2026-11-22T05:04:36.9862436Z Collecting iniconfig>=1 (from pytest<9,>=8.3->megatoken==0.1.0)
+2026-11-22T05:04:36.9993634Z   Downloading iniconfig-2.3.1-py3-none-any.whl.metadata (2.8 kB)
+2026-11-22T05:04:37.0075907Z Collecting pluggy<2,>=1.5 (from pytest<9,>=8.3->megatoken==0.1.0)
+2026-11-22T05:04:37.0087853Z   Using cached pluggy-1.7.0-py3-none-any.whl.metadata (5.0 kB)
+2026-11-22T05:04:37.0629000Z Collecting pygments>=2.7.2 (from pytest<9,>=8.3->megatoken==0.1.0)
+2026-11-22T05:04:37.0760494Z   Downloading pygments-2.21.0-py3-none-any.whl.metadata (2.5 kB)
+2026-11-22T05:04:37.1095631Z Collecting typing-extensions>=4.4.0 (from referencing>=0.28.4->jsonschema<5,>=4.23->megatoken==0.1.0)
+2026-11-22T05:04:37.1227980Z   Downloading typing_extensions-4.16.0-py3-none-any.whl.metadata (3.3 kB)
+2026-11-22T05:04:37.1408910Z Downloading markdown_it_py-4.0.0-py3-none-any.whl (87 kB)
+2026-11-22T05:04:37.1688866Z Downloading tree_sitter-0.25.2-cp312-cp312-manylinux2014_x86_64.manylinux_2_17_x86_64.manylinux_2_28_x86_64.whl (635 kB)
+2026-11-22T05:04:37.1974426Z    ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━ 635.4/635.4 kB 28.9 MB/s  0:00:00
+2026-11-22T05:04:37.2108790Z Downloading tree_sitter_c_sharp-0.23.5-cp310-abi3-manylinux1_x86_64.manylinux_2_28_x86_64.manylinux_2_5_x86_64.whl (358 kB)
+2026-11-22T05:04:37.2286534Z Downloading tree_sitter_embedded_template-0.25.0-cp310-abi3-manylinux1_x86_64.manylinux_2_28_x86_64.manylinux_2_5_x86_64.whl (18 kB)
+2026-11-22T05:04:37.2464433Z Downloading tree_sitter_language_pack-0.13.0-cp310-abi3-manylinux2014_x86_64.whl (20.0 MB)
+2026-11-22T05:04:37.3492374Z    ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━ 20.0/20.0 MB 197.6 MB/s  0:00:00
+2026-11-22T05:04:37.3704584Z Downloading tree_sitter_yaml-0.7.2-cp310-abi3-manylinux1_x86_64.manylinux_2_28_x86_64.manylinux_2_5_x86_64.whl (91 kB)
+2026-11-22T05:04:37.3873723Z Downloading uniseg-0.10.1-py3-none-any.whl (8.2 MB)
+2026-11-22T05:04:37.4203938Z    ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━ 8.2/8.2 MB 261.8 MB/s  0:00:00
+2026-11-22T05:04:37.4339121Z Downloading build-1.6.1-py3-none-any.whl (31 kB)
+2026-11-22T05:04:37.4490834Z Downloading jsonschema-4.26.0-py3-none-any.whl (90 kB)
+2026-11-22T05:04:37.4643235Z Downloading mdurl-0.1.2-py3-none-any.whl (10.0 kB)
+2026-11-22T05:04:37.4797389Z Downloading numpy-2.5.5-cp312-cp312-manylinux_2_27_x86_64.manylinux_2_28_x86_64.whl (15.7 MB)
+2026-11-22T05:04:37.5300970Z    ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━ 15.7/15.7 MB 326.0 MB/s  0:00:00
+2026-11-22T05:04:37.5435036Z Downloading pytest-8.4.2-py3-none-any.whl (365 kB)
+2026-11-22T05:04:37.5482470Z Using cached pluggy-1.7.0-py3-none-any.whl (27 kB)
+2026-11-22T05:04:37.5617499Z Downloading pyyaml-6.0.4-cp312-cp312-manylinux2014_x86_64.manylinux_2_17_x86_64.manylinux_2_28_x86_64.whl (849 kB)
+2026-11-22T05:04:37.5677548Z    ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━ 849.2/849.2 kB 162.1 MB/s  0:00:00
+2026-11-22T05:04:37.5809195Z Downloading ruff-0.17.6-py3-none-manylinux_2_17_x86_64.manylinux2014_x86_64.whl (10.6 MB)
+2026-11-22T05:04:37.6159549Z    ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━ 10.6/10.6 MB 319.7 MB/s  0:00:00
+2026-11-22T05:04:37.6290741Z Downloading attrs-26.1.0-py3-none-any.whl (67 kB)
+2026-11-22T05:04:37.6445359Z Downloading iniconfig-2.3.1-py3-none-any.whl (7.6 kB)
+2026-11-22T05:04:37.6595838Z Downloading jsonschema_specifications-2025.9.1-py3-none-any.whl (18 kB)
+2026-11-22T05:04:37.6630265Z Using cached packaging-26.3-py3-none-any.whl (129 kB)
+2026-11-22T05:04:37.6759792Z Downloading pygments-2.21.0-py3-none-any.whl (1.3 MB)
+2026-11-22T05:04:37.6822690Z    ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━ 1.3/1.3 MB 238.2 MB/s  0:00:00
+2026-11-22T05:04:37.6951817Z Downloading referencing-0.37.0-py3-none-any.whl (26 kB)
+2026-11-22T05:04:37.7102285Z Downloading rpds_py-2026.9.1-cp312-cp312-manylinux_2_17_x86_64.manylinux2014_x86_64.whl (371 kB)
+2026-11-22T05:04:37.7333869Z Downloading typing_extensions-4.16.0-py3-none-any.whl (45 kB)
+2026-11-22T05:04:37.7485920Z Downloading pyproject_hooks-1.3.3-py3-none-any.whl (10 kB)
+2026-11-22T05:04:37.8592437Z Building wheels for collected packages: megatoken
+2026-11-22T05:04:37.8600861Z   Building editable for megatoken (pyproject.toml): started
+2026-11-22T05:04:37.8969994Z   Building editable for megatoken (pyproject.toml): finished with status 'done'
+2026-11-22T05:04:37.8975784Z   Created wheel for megatoken: filename=megatoken-0.1.0-py3-none-any.whl size=8427 sha256=bc2dbc5409e20920b697ad11c20ba03a48f8ed12d04e429ed8b07f0a425da3a9
+2026-11-22T05:04:37.8977230Z   Stored in directory: /tmp/pip-ephem-wheel-cache-1gr0vxxt/wheels/19/9a/54/1beb815c410c75da6efd4cac83ff15fbfe7acb6f2bbd0b1f78
+2026-11-22T05:04:37.8998819Z Successfully built megatoken
+2026-11-22T05:04:37.9540099Z Installing collected packages: uniseg, typing-extensions, tree-sitter-yaml, tree-sitter-embedded-template, tree-sitter-c-sharp, tree-sitter, ruff, rpds-py, pyyaml, pyproject_hooks, pygments, pluggy, packaging, numpy, mdurl, iniconfig, attrs, tree-sitter-language-pack, referencing, pytest, markdown-it-py, build, jsonschema-specifications, jsonschema, megatoken
+2026-11-22T05:04:42.0921387Z 
+2026-11-22T05:04:42.0949719Z Successfully installed attrs-26.1.0 build-1.6.1 iniconfig-2.3.1 jsonschema-4.26.0 jsonschema-specifications-2025.9.1 markdown-it-py-4.0.0 mdurl-0.1.2 megatoken-0.1.0 numpy-2.5.5 packaging-26.3 pluggy-1.7.0 pygments-2.21.0 pyproject_hooks-1.3.3 pytest-8.4.2 pyyaml-6.0.4 referencing-0.37.0 rpds-py-2026.9.1 ruff-0.17.6 tree-sitter-0.25.2 tree-sitter-c-sharp-0.23.5 tree-sitter-embedded-template-0.25.0 tree-sitter-language-pack-0.13.0 tree-sitter-yaml-0.7.2 typing-extensions-4.16.0 uniseg-0.10.1
+2026-11-22T05:04:42.1914922Z ##[group]Run python -m ruff format scripts/qualify_semantic_v8_lifecycle.py tests/test_qualify_semantic_v8_lifecycle_support.py
+2026-11-22T05:04:42.1915871Z [36;1mpython -m ruff format scripts/qualify_semantic_v8_lifecycle.py tests/test_qualify_semantic_v8_lifecycle_support.py[0m
+2026-11-22T05:04:42.1916415Z [36;1mpython - <<'PY'[0m
+2026-11-22T05:04:42.1916638Z [36;1mimport json[0m
+2026-11-22T05:04:42.1916853Z [36;1mfrom pathlib import Path[0m
+2026-11-22T05:04:42.1917350Z [36;1mfor name in ('scripts/qualify_semantic_v8_lifecycle.py', 'tests/test_qualify_semantic_v8_lifecycle_support.py'):[0m
+2026-11-22T05:04:42.1918054Z [36;1m    print('FORMATTED_SOURCE_JSON ' + json.dumps({'path': name, 'content': Path(name).read_text()}))[0m
+2026-11-22T05:04:42.1918495Z [36;1mPY[0m
+2026-11-22T05:04:42.1941970Z shell: /usr/bin/bash --noprofile --norc -e -o pipefail {0}
+2026-11-22T05:04:42.1942308Z env:
+2026-11-22T05:04:42.1942598Z   pythonLocation: /opt/hostedtoolcache/Python/3.12.14/x64
+2026-11-22T05:04:42.1943034Z   PKG_CONFIG_PATH: /opt/hostedtoolcache/Python/3.12.14/x64/lib/pkgconfig
+2026-11-22T05:04:42.1943456Z   Python_ROOT_DIR: /opt/hostedtoolcache/Python/3.12.14/x64
+2026-11-22T05:04:42.1943819Z   Python2_ROOT_DIR: /opt/hostedtoolcache/Python/3.12.14/x64
+2026-11-22T05:04:42.1944184Z   Python3_ROOT_DIR: /opt/hostedtoolcache/Python/3.12.14/x64
+2026-11-22T05:04:42.1944556Z   LD_LIBRARY_PATH: /opt/hostedtoolcache/Python/3.12.14/x64/lib
+2026-11-22T05:04:42.1944872Z ##[endgroup]
+2026-11-22T05:04:42.2293236Z 2 files left unchanged
+2026-11-22T05:04:42.2608171Z FORMATTED_SOURCE_JSON {"path": "scripts/qualify_semantic_v8_lifecycle.py", "content": "#!/usr/bin/env python3\n\"\"\"Verify ordinary V8 optimizer/resume/export and real JSONL serving evidence.\n\nRun preparation, two bounded normal trainer invocations and export first. This\ncollector requires their actual artifacts, a clean pinned consumer checkout and\nthe ordinary pinned tokenizer. It never injects a decoder or changes admission.\nGenerated output is retained without making a learned-success claim.\n\"\"\"\n\nfrom __future__ import annotations\n\nimport argparse\nimport copy\nimport hashlib\nimport json\nimport os\nimport selectors\nimport subprocess\nimport sys\nfrom pathlib import Path\n\n\ndef read_json(path):\n    return json.loads(Path(path).read_text())\n\n\ndef write_json(path, value):\n    Path(path).write_text(json.dumps(value, indent=2, allow_nan=False) + \"\\n\")\n\n\ndef file_identity(path):\n    path = Path(path).resolve()\n    digest = hashlib.sha256()\n    with path.open(\"rb\") as stream:\n        for block in iter(lambda: stream.read(1 << 20), b\"\"):\n            digest.update(block)\n    return {\"path\": str(path), \"bytes\": path.stat().st_size, \"sha256\": digest.hexdigest()}\n\n\ndef require(condition, message):\n    if not condition:\n        raise ValueError(message)\n\n\nclass Service:\n    def __init__(self, root, served, output, name):\n        self.output = output\n        self.name = name\n        self.calls = []\n        self.stderr = (output / f\"{name}-stderr.log\").open(\"w\")\n        self.process = subprocess.Popen(\n            [\n                sys.executable,\n                str(root / \"scripts/serve_semantic_v8.py\"),\n                \"--served\",\n                str(served),\n                \"--device\",\n                \"cpu\",\n                \"--threads\",\n                \"1\",\n                \"--max-tokens\",\n                \"4\",\n                \"--max-fragments\",\n                \"1\",\n                \"--profile-output\",\n                str(output / f\"{name}-profile.json\"),\n            ],\n            cwd=root,\n            env={\n                **os.environ,\n                \"PYTHONPATH\": str(root / \"src\"),\n                \"OMP_NUM_THREADS\": \"1\",\n                \"MKL_NUM_THREADS\": \"1\",\n            },\n            stdin=subprocess.PIPE,\n            stdout=subprocess.PIPE,\n            stderr=self.stderr,\n            text=True,\n        )\n\n    def __enter__(self):\n        return self\n\n    def __exit__(self, error_type, *_):\n        self.process.stdin.close()\n        try:\n            self.process.wait(timeout=30)\n        except subprocess.TimeoutExpired:\n            self.process.kill()\n            self.process.wait()\n        finally:\n            self.process.stdout.close()\n            self.stderr.close()\n            write_json(self.output / f\"{self.name}-rpc.json\", self.calls)\n        if error_type is None:\n            require(\n                self.process.returncode == 0, f\"Native service {self.name} did not close cleanly\"\n            )\n\n    def call(self, operation, **fields):\n        request = {\"id\": f\"{self.name}-{len(self.calls)}\", \"op\": operation, **fields}\n        self.process.stdin.write(json.dumps(request, allow_nan=False) + \"\\n\")\n        self.process.stdin.flush()\n        with selectors.DefaultSelector() as ready:\n            ready.register(self.process.stdout, selectors.EVENT_READ)\n            if not ready.select(timeout=180):\n                raise TimeoutError(f\"Native V8 service timed out on {operation}\")\n        line = self.process.stdout.readline()\n        require(line, f\"Native V8 service exited on {operation}; inspect {self.name}-stderr.log\")\n        response = json.loads(line)\n        self.calls.append({\"request\": request, \"response\": response})\n        require(response.get(\"id\") == request[\"id\"], \"Native service changed the request ID\")\n        return response\n\n\ndef success(response):\n    require(response.get(\"ok\") is True, f\"Native RPC refused: {response.get('error')}\")\n    return response[\"result\"]\n\n\ndef original_attempt(response):\n    attempt = (\n        response[\"result\"].get(\"selection\")\n        if response.get(\"ok\")\n        else response[\"error\"].get(\"evidence\")\n    )\n    require(isinstance(attempt, dict), \"Selection failed before producing model evidence\")\n    require(\n        attempt.get(\"origin\") == \"actual-model-selected\"\n        and attempt.get(\"modelSelected\") is True\n        and attempt.get(\"generatedTokens\", 0) > 0\n        and attempt.get(\"fragments\"),\n        \"Qualification requires original tokens from the loaded model\",\n    )\n    return attempt\n\n\ndef qualify_serving(root, served, source, output, manifest):\n    example = read_json(source)\n    orchestration = \"orchestrationTranscript\" in example.get(\"sidecar\", {})\n    context = copy.deepcopy(example[\"contexts\"][0])\n    public = copy.deepcopy(example[\"public\"])\n    public[\"timeline\"] = public[\"timeline\"][: context[\"visibleThrough\"]]\n    selection = {\n        \"session\": public[\"timeline\"][0][\"fields\"][\"session\"],\n        \"public\": public,\n        \"contexts\": [],\n        \"context\": context,\n    }\n    identity = {\n        \"seed\": 17,\n        \"checkpointIdentity\": manifest[\"model_sha256\"],\n        \"tokenizerIdentity\": manifest[\"codec_fingerprint\"],\n        \"trainingIdentity\": manifest[\"semantic_v8_lineage_digest\"],\n    }\n    controls = []\n    with Service(root, served, output, \"original\") as service:\n        for label, invalid in (\n            (\n                \"omitted\",\n                {key: value for key, value in identity.items() if key != \"trainingIdentity\"},\n            ),\n            (\"null\", {**identity, \"trainingIdentity\": None}),\n            (\"substituted\", {**identity, \"trainingIdentity\": \"0\" * 64}),\n        ):\n            response = service.call(\"initialize\", **invalid)\n            require(response.get(\"ok\") is False, f\"Serving accepted {label} training identity\")\n            controls.append({\"kind\": label, \"error\": response[\"error\"]})\n        initialized = success(service.call(\"initialize\", **identity))\n        require(initialized[\"trainingIdentity\"] == identity[\"trainingIdentity\"], \"Lineage changed\")\n        select_operation = \"select\"\n        if orchestration:\n            opened = success(\n                service.call(\n                    \"open-orchestration\",\n                    session=selection[\"session\"],\n                    public={**example[\"public\"], \"timeline\": example[\"public\"][\"timeline\"][:2]},\n                    origin=\"model\",\n                    childBudget=100000,\n                )\n            )\n            selection = {\"session\": selection[\"session\"], \"track\": opened[\"track\"]}\n            select_operation = \"select-orchestration\"\n        first_response = service.call(select_operation, **selection)\n        first = original_attempt(first_response)\n        packet = success(service.call(\"checkpoint\"))\n        write_json(output / \"live-checkpoint.json\", packet)\n        if first_response[\"ok\"]:\n            success(\n                service.call(\n                    \"reject\",\n                    session=selection[\"session\"],\n                    selectionId=first[\"selectionId\"],\n                    reason=\"Lifecycle qualification does not acknowledge generated semantics\",\n                )\n            )\n        expected = original_attempt(service.call(select_operation, **selection))\n    with Service(root, served, output, \"restored\") as service:\n        restored = success(service.call(\"restore\", checkpoint=packet))\n        actual = original_attempt(service.call(select_operation, **selection))\n    compared = (\n        \"selectionId\",\n        \"fragments\",\n        \"payloadHex\",\n        \"generatedTokens\",\n        \"checkpointIdentity\",\n        \"tokenizerIdentity\",\n        \"trainingIdentity\",\n    )\n    for key in compared:\n        require(actual[key] == expected[key], f\"Fresh-process next selection differs: {key}\")\n    require(restored[\"restored\"] is True, \"Live state did not restore\")\n    require(restored[\"reexecutedSelections\"] == 0, \"Unexpected acknowledged model selections\")\n    return {\n        \"initialization\": initialized,\n        \"identityRefusals\": controls,\n        \"firstSelection\": first,\n        \"firstSelectionError\": first_response.get(\"error\"),\n        \"restoration\": restored,\n        \"nextSelectionComparedFields\": list(compared),\n        \"nextSelectionExact\": True,\n        \"acknowledgedModelSelections\": 0,\n        \"selectionFamily\": \"orchestration\" if orchestration else \"semantic\",\n        \"learnedSuccess\": None,\n        \"scope\": \"Actual trained CPU weights and pinned tokenizer; original token selection and fresh-process initial-state/RNG continuation. No semantic record was acknowledged.\",\n    }\n\n\ndef qualify_orchestration_preparation(source, prepared_path, report):\n    \"\"\"Inspect real saved rows without mistaking materialization for exposure.\"\"\"\n    from megatoken.data import PreparedCorpus\n    from megatoken.data.semantic_orchestration_training_v8 import (\n        validate_orchestration_records_v8,\n        validate_orchestration_transcript_v8,\n    )\n\n    example = read_json(source)\n    if \"orchestrationTranscript\" not in example.get(\"sidecar\", {}):\n        require(not report[\"counts\"].get(\"orchestrationRecords\"), \"Detached orchestration count\")\n        return None\n    validation = validate_orchestration_transcript_v8(example)\n    require(\n        report[\"counts\"].get(\"orchestrationRecords\") == 4,\n        \"Ordinary preparation omitted lifecycle targets\",\n    )\n    with PreparedCorpus([prepared_path], split=\"train\") as corpus:\n        require(len(corpus) == 1, \"Orchestration qualification needs its single admitted episode\")\n        episode = next(corpus.iter_episodes())\n        require(\n            validate_orchestration_records_v8(episode, validation),\n            \"Saved physical lifecycle records differ from the source-qualified transcript\",\n        )\n        targets = [\n            record\n            for record in episode.records\n            if record.logical_id.startswith(\"semantic:v8:orchestration:target:\")\n        ]\n        require(\n            len({record.logical_id for record in targets}) == 4\n            and all(record.policy_mask for record in targets),\n            \"Saved lifecycle targets lost loss-bearing physical parts\",\n        )\n        semantic = json.loads(episode.supervision.annotations_json)[\"semantic_execution\"]\n        return {\n            \"transcriptDigest\": validation[\"transcriptDigest\"],\n            \"logicalLifecycleTargets\": 4,\n            \"physicalLifecycleTargetParts\": len(targets),\n            \"trackOwners\": sorted(track.track_id for track in episode.tracks),\n            \"nativeTrainingDigest\": semantic[\"nativeAdmission\"][\"nativeTrainingDigest\"],\n            \"workAccounting\": example[\"sidecar\"][\"orchestrationTranscript\"][\"policy\"][\n                \"workAccounting\"\n            ],\n            \"optimizerExposurePerTarget\": None,\n            \"actualModelFragmentBudgetEquivalence\": None,\n        }\n\n\ndef qualify_checkpoints(first_path, resumed_path, prepared, served, manifest):\n    import torch\n\n    from megatoken.semantic_lineage_v8 import checkpoint_lineage_v8, validate_served_lineage_v8\n    from megatoken.training.checkpoint import load_checkpoint\n\n    first, first_metadata = load_checkpoint(first_path, map_location=\"cpu\")\n    resumed, resumed_metadata = load_checkpoint(resumed_path, map_location=\"cpu\")\n    first_lineage = checkpoint_lineage_v8(first, first_metadata)\n    resumed_lineage = checkpoint_lineage_v8(resumed, resumed_metadata)\n    require(\n        first_lineage is not None and first_lineage == resumed_lineage, \"Training lineage changed\"\n    )\n    require(\n        first[\"global_step\"] == 1 and resumed[\"global_step\"] == 2, \"Expected one step then resume\"\n    )\n    require(\n        first_lineage[\"preparedManifestFingerprints\"] == [prepared[\"fingerprint\"]],\n        \"Checkpoint does not bind this single prepared corpus\",\n    )\n    require(manifest[\"model_version\"] == 2, \"Serving bundle did not export the resumed step\")\n    require(\n        manifest[\"checkpoint_sha256\"] == resumed_metadata[\"state_sha256\"],\n        \"Serving bundle names another training checkpoint\",\n    )\n    moments1 = first[\"optimizer\"][\"moments\"]\n    moments2 = resumed[\"optimizer\"][\"moments\"]\n    require(moments1 and set(moments1) <= set(moments2), \"Optimizer lost existing moment owners\")\n    advanced = [\n        name\n        for name in moments1\n        if float(moments1[name].get(\"step\", 0)) == 1 and float(moments2[name].get(\"step\", 0)) == 2\n    ]\n    require(advanced, \"No retained optimizer moment advanced from step one to two\")\n    changed = [\n        name\n        for name in first[\"optimizer\"][\"master_weights\"]\n        if not torch.equal(\n            first[\"optimizer\"][\"master_weights\"][name],\n            resumed[\"optimizer\"][\"master_weights\"][name],\n        )\n    ]\n    require(changed, \"Resumed training did not update model master weights\")\n    served_lineage = read_json(served / \"semantic-v8-lineage.json\")\n    validate_served_lineage_v8(served_lineage, manifest)\n    require(served_lineage[\"training\"] == resumed_lineage, \"Serving lineage changed\")\n    return {\n        \"firstGlobalStep\": first[\"global_step\"],\n        \"resumedGlobalStep\": resumed[\"global_step\"],\n        \"firstCheckpointSha256\": first_metadata[\"state_sha256\"],\n        \"resumedCheckpointSha256\": resumed_metadata[\"state_sha256\"],\n        \"retainedMomentOwners\": len(moments1),\n        \"advancedMomentOwners\": len(advanced),\n        \"changedMasterWeights\": len(changed),\n        \"changedMasterWeightNames\": changed,\n        \"trainingLineage\": resumed_lineage,\n        \"servingLineageDigest\": served_lineage[\"digest\"],\n    }\n\n\ndef read_support_source_inventory(path, registry_digest):\n    value = read_json(path)\n    require(\n        isinstance(value, dict)\n        and set(value) == {\"schema\", \"registryDigest\", \"sourceIds\"}\n        and value[\"schema\"] == \"semantic-v8-source-population/1\"\n        and value[\"registryDigest\"] == registry_digest,\n        \"Support inventory is malformed or bound to another registry\",\n    )\n    ids = value[\"sourceIds\"]\n    require(\n        isinstance(ids, list)\n        and len(ids) == 64\n        and all(isinstance(item, str) and item for item in ids)\n        and len(set(ids)) == 64,\n        \"Support inventory must contain exactly 64 unique source IDs\",\n    )\n    return tuple(sorted(ids))\n\n\ndef validate_support_population(prepared_root, source_path, inventory_path):\n    from megatoken.data import PreparedCorpus\n    from megatoken.data.semantic_corpus_v8 import _verify_binding\n    from megatoken.data.semantic_json import stable_algorithm_hash\n\n    prepared_root = Path(prepared_root)\n    registry = read_json(prepared_root / \"semantic-v8-families.json\")\n    registry_digest = registry.get(\"digest\") if isinstance(registry, dict) else None\n    expected = read_support_source_inventory(inventory_path, registry_digest)\n    require(\n        isinstance(registry, dict)\n        and registry.get(\"schema\") == \"semantic-region-family-registry/1\"\n        and stable_algorithm_hash(\n            {key: value for key, value in registry.items() if key != \"digest\"}\n        )\n        == registry_digest,\n        \"Prepared support registry digest is invalid\",\n    )\n    source_rows = registry.get(\"sources\")\n    require(\n        isinstance(source_rows, list)\n        and len(source_rows) == 64\n        and {row.get(\"id\") for row in source_rows if isinstance(row, dict)} == set(expected),\n        \"Prepared support registry differs from the immutable 64-source inventory\",\n    )\n    split_by_id = {}\n    for component in registry.get(\"components\", []):\n        require(\n            isinstance(component, dict)\n            and component.get(\"split\") in {\"train\", \"validation\", \"test\"}\n            and isinstance(component.get(\"sourceIds\"), list),\n            \"Prepared support registry has a malformed split component\",\n        )\n        for source_id in component[\"sourceIds\"]:\n            require(\n                source_id in expected and source_id not in split_by_id,\n                \"Prepared support registry duplicates or substitutes a source\",\n            )\n            split_by_id[source_id] = component[\"split\"]\n    require(set(split_by_id) == set(expected), \"Prepared support registry omits source assignments\")\n    sample_document = read_json(source_path)\n    sample_identity, sample_member, sample_component, sample_binding = _verify_binding(\n        sample_document, registry\n    )\n    sample_source_id = sample_identity[\"sourceId\"]\n    require(\n        sample_source_id in expected and sample_component[\"split\"] == \"train\",\n        \"Lifecycle sample must be a source-bound member of the frozen training inventory\",\n    )\n    counts = {split: 0 for split in (\"train\", \"validation\", \"test\")}\n    observed = set()\n    sample_semantic = None\n    with PreparedCorpus([str(prepared_root)], split=None) as corpus:\n        for episode in corpus.iter_episodes():\n            try:\n                semantic = json.loads(episode.supervision.annotations_json)[\"semantic_execution\"]\n            except (KeyError, TypeError, json.JSONDecodeError) as error:\n                raise ValueError(\"Prepared support episode has no source identity\") from error\n            source_id, split = semantic.get(\"sourceId\"), episode.lineage.frozen_split\n            require(\n                source_id in split_by_id\n                and source_id not in observed\n                and split_by_id[source_id] == split,\n                \"Prepared support episode differs from its frozen inventory or split\",\n            )\n            observed.add(source_id)\n            counts[split] += 1\n            if source_id == sample_source_id:\n                sample_semantic = semantic\n    require(observed == set(expected), \"Prepared support corpus is missing an inventory source\")\n    require(isinstance(sample_semantic, dict), \"Prepared support corpus lacks the selected sample\")\n    public_artifact = {\"public\": sample_document[\"public\"], \"contexts\": sample_document[\"contexts\"]}\n    if \"orchestrationTranscript\" in sample_document[\"sidecar\"]:\n        public_artifact[\"sidecar\"] = sample_document[\"sidecar\"]\n    require(\n        sample_semantic.get(\"datasetBinding\") == sample_binding\n        and sample_semantic.get(\"publicArtifact\") == public_artifact,\n        \"Lifecycle sample public/context/source bytes differ from the prepared training episode\",\n    )\n    require(\n        counts == {\"train\": 48, \"validation\": 12, \"test\": 4},\n        \"Prepared support corpus differs from its frozen 48/12/4 source split\",\n    )\n    return {\n        \"registryDigest\": registry_digest,\n        \"sourceCount\": len(expected),\n        \"sourceInventory\": list(expected),\n        \"splitCounts\": counts,\n        \"sampleSourceId\": sample_source_id,\n        \"sampleDatasetBinding\": sample_binding,\n        \"sampleMember\": sample_member,\n    }\n\n\ndef main():\n    parser = argparse.ArgumentParser(description=__doc__)\n    parser.add_argument(\"--expected-source-ids\", type=Path)\n    for name in (\n        \"consumer-root\",\n        \"prepared\",\n        \"source\",\n        \"first-checkpoint\",\n        \"resumed-checkpoint\",\n        \"served\",\n        \"output\",\n    ):\n        parser.add_argument(\"--\" + name, type=Path, required=True)\n    options = parser.parse_args()\n    driver = file_identity(__file__)\n    root = options.consumer_root.resolve()\n    options.output.mkdir(parents=True, exist_ok=False)\n    output = options.output.resolve()\n    sys.path.insert(0, str(root / \"src\"))\n    head = subprocess.check_output([\"git\", \"rev-parse\", \"HEAD\"], cwd=root, text=True).strip()\n    dirty = subprocess.check_output(\n        [\"git\", \"status\", \"--porcelain\", \"--untracked-files=all\"], cwd=root, text=True\n    )\n    require(not dirty, \"Qualification consumer checkout must be clean\")\n    prepared = read_json(options.prepared / \"manifest.json\")\n    report = read_json(options.prepared / \"semantic-v8-report.json\")\n    require(report[\"consumerRevision\"] == head, \"Prepared data names another consumer revision\")\n    if options.expected_source_ids:\n        support = validate_support_population(\n            options.prepared, options.source, options.expected_source_ids\n        )\n        require(\n            report[\"counts\"][\"admitted\"] == support[\"sourceCount\"] and not report[\"refusals\"],\n            \"Prepared support report differs from the immutable source inventory\",\n        )\n        require(\n            report.get(\"registryDigest\") == support[\"registryDigest\"],\n            \"Prepared support report names another registry\",\n        )\n        orchestration = None\n    else:\n        support = None\n        require(\n            report[\"counts\"][\"admitted\"] == 1 and not report[\"refusals\"],\n            \"Expected one admitted source\",\n        )\n        orchestration = qualify_orchestration_preparation(options.source, options.prepared, report)\n    manifest = read_json(options.served / \"manifest.json\")\n    checkpoint = qualify_checkpoints(\n        options.first_checkpoint,\n        options.resumed_checkpoint,\n        prepared,\n        options.served,\n        manifest,\n    )\n    serving = qualify_serving(root, options.served.resolve(), options.source, output, manifest)\n    artifacts = [\n        options.source,\n        options.prepared / \"manifest.json\",\n        options.prepared / \"semantic-v8-report.json\",\n        *([options.expected_source_ids] if options.expected_source_ids else []),\n    ]\n    for directory in (options.first_checkpoint, options.resumed_checkpoint, options.served):\n        artifacts.extend(sorted(path for path in directory.rglob(\"*\") if path.is_file()))\n    summary = {\n        \"schema\": \"semantic-ordinary-lifecycle-qualification/8\",\n        \"consumerRevision\": head,\n        \"driver\": driver,\n        \"preparation\": report,\n        \"preparedManifestFingerprint\": prepared[\"fingerprint\"],\n        **(\n            {\n                \"supportPopulation\": support,\n                \"fullLaunchQualified\": False,\n                \"supportSourceInventory\": file_identity(options.expected_source_ids),\n            }\n            if support is not None\n            else {}\n        ),\n        \"optimizerResumeExport\": checkpoint,\n        \"serving\": serving,\n        **({\"orchestrationPreparation\": orchestration} if orchestration is not None else {}),\n        \"artifacts\": [file_identity(path) for path in artifacts],\n        \"learnedSuccess\": None,\n        \"limits\": [\n            \"Two optimizer steps do not qualify learned execution quality or prove exposure of every source target.\",\n            *(\n                []\n                if support is not None\n                else [\n                    \"One source family and two optimizer steps do not qualify learned execution quality.\"\n                ]\n            ),\n            \"Fresh-process recovery retained original failed/unacknowledged selections; accepted-record recovery was not exercised.\",\n            \"Artifact hashes identify local complete bundles. Durable external bundle publication is a separate recorded step.\",\n        ],\n    }\n    write_json(output / \"summary.json\", summary)\n    print(\n        json.dumps(\n            {\n                \"output\": str(output),\n                \"resumedStep\": 2,\n                \"nextSelectionExact\": True,\n                \"learnedSuccess\": None,\n            }\n        )\n    )\n    return 0\n\n\nif __name__ == \"__main__\":\n    raise SystemExit(main())\n"}
+2026-11-22T05:04:42.2706281Z FORMATTED_SOURCE_JSON {"path": "tests/test_qualify_semantic_v8_lifecycle_support.py", "content": "\"\"\"Source-bound support-cohort lifecycle qualification controls.\"\"\"\n\nimport importlib.util\nimport json\nfrom pathlib import Path\nfrom types import SimpleNamespace\n\nimport pytest\n\nfrom megatoken.data.semantic_json import stable_algorithm_hash\nfrom megatoken.data.source_identity_v8 import source_evidence_binding_v8\n\nSCRIPT = Path(__file__).resolve().parents[1] / \"scripts\" / \"qualify_semantic_v8_lifecycle.py\"\nSPEC = importlib.util.spec_from_file_location(\"qualify_semantic_v8_lifecycle_support\", SCRIPT)\nMODULE = importlib.util.module_from_spec(SPEC)\nSPEC.loader.exec_module(MODULE)\n\n\nclass Corpus:\n    rows = []\n\n    def __init__(self, roots, split=None):\n        assert split is None\n\n    def __enter__(self):\n        return self\n\n    def __exit__(self, *_):\n        return None\n\n    def iter_episodes(self):\n        return iter(self.rows)\n\n\ndef _binding(document, identity, member, component):\n    side = document[\"sidecar\"]\n    return {\n        \"schema\": \"semantic-region-dataset-binding/1\",\n        \"traceFormat\": \"semantic-trace/8\",\n        \"episodeDigest\": stable_algorithm_hash(document[\"public\"]),\n        \"contextsDigest\": stable_algorithm_hash(document[\"contexts\"]),\n        **source_evidence_binding_v8(side),\n        \"registryDigest\": identity[\"registryDigest\"],\n        \"componentId\": component[\"id\"],\n        \"split\": component[\"split\"],\n        \"sourceId\": member[\"id\"],\n        \"family\": member[\"family\"],\n        \"sourceDigest\": member[\"sourceDigest\"],\n        \"coreDigest\": member[\"coreDigest\"],\n    }\n\n\ndef _fixture(tmp_path, monkeypatch):\n    ids = [f\"support-{i:02d}\" for i in range(64)]\n    splits = [\"train\"] * 48 + [\"validation\"] * 12 + [\"test\"] * 4\n    components = []\n    sources = []\n    members_by_id = {}\n    components_by_id = {}\n    for i in range(64):\n        source_id, split = ids[i], splits[i]\n        member = {\n            \"id\": source_id,\n            \"family\": f\"family-{i:02d}\",\n            \"sourceDigest\": f\"{i + 1:064x}\",\n            \"coreDigest\": f\"{i + 65:064x}\",\n        }\n        component = {\n            \"id\": f\"component-{i:02d}\",\n            \"split\": split,\n            \"sourceIds\": [source_id],\n            \"members\": [source_id],\n        }\n        sources.append(member)\n        components.append(component)\n        members_by_id[source_id], components_by_id[source_id] = member, component\n    registry = {\n        \"schema\": \"semantic-region-family-registry/1\",\n        \"sources\": sources,\n        \"components\": components,\n    }\n    registry[\"digest\"] = stable_algorithm_hash(registry)\n    root = tmp_path / \"prepared\"\n    root.mkdir()\n    (root / \"semantic-v8-families.json\").write_text(json.dumps(registry))\n    inventory = tmp_path / \"inventory.json\"\n    inventory.write_text(\n        json.dumps(\n            {\n                \"schema\": \"semantic-v8-source-population/1\",\n                \"registryDigest\": registry[\"digest\"],\n                \"sourceIds\": ids,\n            }\n        )\n    )\n    sample_path = tmp_path / \"sample.json\"\n    source_id = ids[0]\n    member, component = members_by_id[source_id], components_by_id[source_id]\n    identity = {\n        \"schema\": \"semantic-region-split-identity/1\",\n        \"sourceId\": source_id,\n        \"registryDigest\": registry[\"digest\"],\n        \"registry\": registry,\n        \"componentId\": component[\"id\"],\n        \"members\": component[\"members\"],\n        \"split\": component[\"split\"],\n        \"sourceDigest\": member[\"sourceDigest\"],\n        \"coreDigest\": member[\"coreDigest\"],\n    }\n    document = {\n        \"public\": {\n            \"schema\": \"semantic-execution/8\",\n            \"traceFormat\": \"semantic-trace/8\",\n            \"timeline\": [{\"event\": \"sample\"}],\n        },\n        \"contexts\": [{\"visibleThrough\": 0, \"records\": []}],\n        \"sidecar\": {\n            \"sourceArtifact\": {\"reference\": {\"source\": \"const x=1\", \"entry\": \"x\"}},\n            \"splitIdentity\": identity,\n            \"split\": component[\"split\"],\n            \"sourceComponent\": component[\"id\"],\n            \"familyRegistryDigest\": registry[\"digest\"],\n        },\n    }\n    document[\"sidecar\"][\"datasetBinding\"] = _binding(document, identity, member, component)\n    sample_path.write_text(json.dumps(document))\n    public_artifact = {\"public\": document[\"public\"], \"contexts\": document[\"contexts\"]}\n    rows = []\n    for row_id, split in zip(ids, splits, strict=True):\n        semantic = {\n            \"sourceId\": row_id,\n            \"datasetBinding\": {\"sourceId\": row_id},\n            \"publicArtifact\": {\"public\": {}, \"contexts\": []},\n        }\n        if row_id == source_id:\n            semantic[\"datasetBinding\"] = document[\"sidecar\"][\"datasetBinding\"]\n            semantic[\"publicArtifact\"] = public_artifact\n        rows.append(\n            SimpleNamespace(\n                supervision=SimpleNamespace(\n                    annotations_json=json.dumps({\"semantic_execution\": semantic})\n                ),\n                lineage=SimpleNamespace(frozen_split=split),\n            )\n        )\n    Corpus.rows = rows\n    import megatoken.data\n\n    monkeypatch.setattr(megatoken.data, \"PreparedCorpus\", Corpus)\n    return root, inventory, sample_path, ids, registry, document, identity, member, component\n\n\ndef test_support_lifecycle_binds_sample_to_exact_prepared_train_member(tmp_path, monkeypatch):\n    root, inventory, sample, ids, registry, *_ = _fixture(tmp_path, monkeypatch)\n    result = MODULE.validate_support_population(root, sample, inventory)\n    assert result[\"registryDigest\"] == registry[\"digest\"]\n    assert result[\"sourceCount\"] == 64\n    assert result[\"splitCounts\"] == {\"train\": 48, \"validation\": 12, \"test\": 4}\n    assert result[\"sampleSourceId\"] == ids[0]\n    assert result[\"sampleDatasetBinding\"][\"sourceId\"] == ids[0]\n\n\n@pytest.mark.parametrize(\"sample_index\", [48, 60])\ndef test_support_lifecycle_rejects_validation_or_test_sample(tmp_path, monkeypatch, sample_index):\n    root, inventory, sample, ids, *_ = _fixture(tmp_path, monkeypatch)\n    value = json.loads(sample.read_text())\n    value[\"sidecar\"][\"splitIdentity\"][\"sourceId\"] = ids[sample_index]\n    value[\"annotations\"] = {\"sourceId\": ids[0]}\n    sample.write_text(json.dumps(value))\n    with pytest.raises(ValueError):\n        MODULE.validate_support_population(root, sample, inventory)\n\n\n@pytest.mark.parametrize(\"field\", [\"public\", \"contexts\", \"sourceArtifact\"])\ndef test_support_lifecycle_rejects_rehashed_sample_different_from_prepared(\n    tmp_path, monkeypatch, field\n):\n    root, inventory, sample, _, registry, document, identity, member, component = _fixture(\n        tmp_path, monkeypatch\n    )\n    if field == \"public\":\n        document[\"public\"][\"timeline\"].append({\"event\": \"altered\"})\n    elif field == \"contexts\":\n        document[\"contexts\"].append({\"visibleThrough\": 1, \"records\": []})\n    else:\n        document[\"sidecar\"][\"sourceArtifact\"][\"reference\"][\"source\"] = \"const x=2\"\n    document[\"sidecar\"][\"datasetBinding\"] = _binding(document, identity, member, component)\n    sample.write_text(json.dumps(document))\n    with pytest.raises(ValueError, match=\"public/context/source bytes differ\"):\n        MODULE.validate_support_population(root, sample, inventory)\n\n\n@pytest.mark.parametrize(\"mutation\", [\"missing\", \"duplicate\"])\ndef test_support_lifecycle_rejects_missing_and_duplicate_prepared_sources(\n    tmp_path, monkeypatch, mutation\n):\n    root, inventory, sample, *_ = _fixture(tmp_path, monkeypatch)\n    if mutation == \"missing\":\n        Corpus.rows.pop()\n        expected = \"missing an inventory source\"\n    else:\n        Corpus.rows[-1] = Corpus.rows[0]\n        expected = \"differs from its frozen inventory or split\"\n    with pytest.raises(ValueError, match=expected):\n        MODULE.validate_support_population(root, sample, inventory)\n"}
+2026-11-22T05:04:42.2760727Z ##[group]Run set -o pipefail
+2026-11-22T05:04:42.2761042Z [36;1mset -o pipefail[0m
+2026-11-22T05:04:42.2761875Z [36;1mpython -m ruff check scripts/qualify_semantic_v8_lifecycle.py tests/test_qualify_semantic_v8_lifecycle_support.py[0m
+2026-11-22T05:04:42.2762733Z [36;1mpython -m ruff format --check scripts/qualify_semantic_v8_lifecycle.py tests/test_qualify_semantic_v8_lifecycle_support.py[0m
+2026-11-22T05:04:42.2763885Z [36;1mpython -m pytest -q tests/test_qualify_semantic_v8_lifecycle_support.py tests/test_qualify_semantic_v8_supply.py --junitxml="$RUNNER_TEMP/support-controls.xml" 2>&1 | tee "$RUNNER_TEMP/support-controls.log"[0m
+2026-11-22T05:04:42.2785786Z shell: /usr/bin/bash --noprofile --norc -e -o pipefail {0}
+2026-11-22T05:04:42.2786105Z env:
+2026-11-22T05:04:42.2786358Z   pythonLocation: /opt/hostedtoolcache/Python/3.12.14/x64
+2026-11-22T05:04:42.2786784Z   PKG_CONFIG_PATH: /opt/hostedtoolcache/Python/3.12.14/x64/lib/pkgconfig
+2026-11-22T05:04:42.2787247Z   Python_ROOT_DIR: /opt/hostedtoolcache/Python/3.12.14/x64
+2026-11-22T05:04:42.2787623Z   Python2_ROOT_DIR: /opt/hostedtoolcache/Python/3.12.14/x64
+2026-11-22T05:04:42.2787998Z   Python3_ROOT_DIR: /opt/hostedtoolcache/Python/3.12.14/x64
+2026-11-22T05:04:42.2788380Z   LD_LIBRARY_PATH: /opt/hostedtoolcache/Python/3.12.14/x64/lib
+2026-11-22T05:04:42.2788693Z ##[endgroup]
+2026-11-22T05:04:42.3117998Z All checks passed!
+2026-11-22T05:04:42.3396226Z 2 files already formatted
+2026-11-22T05:04:43.4593197Z ...........                                                              [100%]
+2026-11-22T05:04:43.4594045Z ------- generated xml file: /home/runner/work/_temp/support-controls.xml -------
+2026-11-22T05:04:43.4594581Z 11 passed in 0.85s
+2026-11-22T05:04:43.5021674Z ##[group]Run actions/upload-artifact@v4
+2026-11-22T05:04:43.5022006Z with:
+2026-11-22T05:04:43.5022226Z   name: support-lifecycle-controls
+2026-11-22T05:04:43.5022490Z   retention-days: 30
+2026-11-22T05:04:43.5022916Z   path: /home/runner/work/_temp/support-controls.xml
+/home/runner/work/_temp/support-controls.log
+
+2026-11-22T05:04:43.5023390Z   if-no-files-found: warn
+2026-11-22T05:04:43.5023622Z   compression-level: 6
+2026-11-22T05:04:43.5023842Z   overwrite: false
+2026-11-22T05:04:43.5024299Z   include-hidden-files: false
+2026-11-22T05:04:43.5024531Z env:
+2026-11-22T05:04:43.5024784Z   pythonLocation: /opt/hostedtoolcache/Python/3.12.14/x64
+2026-11-22T05:04:43.5025211Z   PKG_CONFIG_PATH: /opt/hostedtoolcache/Python/3.12.14/x64/lib/pkgconfig
+2026-11-22T05:04:43.5025636Z   Python_ROOT_DIR: /opt/hostedtoolcache/Python/3.12.14/x64
+2026-11-22T05:04:43.5026016Z   Python2_ROOT_DIR: /opt/hostedtoolcache/Python/3.12.14/x64
+2026-11-22T05:04:43.5026430Z   Python3_ROOT_DIR: /opt/hostedtoolcache/Python/3.12.14/x64
+2026-11-22T05:04:43.5026810Z   LD_LIBRARY_PATH: /opt/hostedtoolcache/Python/3.12.14/x64/lib
+2026-11-22T05:04:43.5027134Z ##[endgroup]
+2026-11-22T05:04:43.6741036Z (node:2537) [DEP0040] DeprecationWarning: The `punycode` module is deprecated. Please use a userland alternative instead.
+2026-11-22T05:04:43.6742104Z (Use `node --trace-deprecation ...` to show where the warning was created)
+2026-11-22T05:04:43.6793268Z Multiple search paths detected. Calculating the least common ancestor of all paths
+2026-11-22T05:04:43.6796294Z The least common ancestor is /home/runner/work/_temp. This will be the root directory of the artifact
+2026-11-22T05:04:43.6797381Z With the provided path, there will be 2 files uploaded
+2026-11-22T05:04:43.6804242Z Artifact name is valid!
+2026-11-22T05:04:43.6804748Z Root directory input is valid!
+2026-11-22T05:04:43.9599318Z Beginning upload of artifact content to blob storage
+2026-11-22T05:04:43.9807409Z (node:2537) [DEP0169] DeprecationWarning: `url.parse()` behavior is not standardized and prone to errors that have security implications. Use the WHATWG URL API instead. CVEs are not issued for `url.parse()` vulnerabilities.
+2026-11-22T05:04:44.1197223Z Uploaded bytes 882
+2026-11-22T05:04:44.1621679Z Finished uploading artifact content to blob storage!
+2026-11-22T05:04:44.1622753Z SHA256 digest of uploaded artifact zip is 4da12be8c56124df8ce0e3a8e699123a2f4fb7dbb91aec23fb884e1d08a9935b
+2026-11-22T05:04:44.1624645Z Finalizing artifact upload
+2026-11-22T05:04:44.5042845Z Artifact support-lifecycle-controls.zip successfully finalized. Artifact ID 14740592900
+2026-11-22T05:04:44.5043796Z Artifact support-lifecycle-controls has been successfully uploaded! Final size is 882 bytes. Artifact ID is 14740592900
+2026-11-22T05:04:44.5049839Z Artifact download URL: https://github.com/werg/megatoken/actions/runs/44987781224/artifacts/14740592900
+2026-11-22T05:04:44.5232304Z Post job cleanup.
+2026-11-22T05:04:44.6478960Z (node:2549) [DEP0040] DeprecationWarning: The `punycode` module is deprecated. Please use a userland alternative instead.
+2026-11-22T05:04:44.6479806Z (Use `node --trace-deprecation ...` to show where the warning was created)
+2026-11-22T05:04:44.6678363Z Post job cleanup.
+2026-11-22T05:04:44.7691891Z [command]/usr/bin/git version
+2026-11-22T05:04:44.7738032Z git version 2.56.1
+2026-11-22T05:04:44.7796709Z Temporarily overriding HOME='/home/runner/work/_temp/a2436f90-946b-4946-be7e-18b9e104a2af' before making global git config changes
+2026-11-22T05:04:44.7798264Z Adding repository directory to the temporary git global config as a safe directory
+2026-11-22T05:04:44.7806620Z [command]/usr/bin/git config --global --add safe.directory /home/runner/work/megatoken/megatoken
+2026-11-22T05:04:44.7870072Z [command]/usr/bin/git config --local --name-only --get-regexp core\.sshCommand
+2026-11-22T05:04:44.7943522Z [command]/usr/bin/git submodule foreach --recursive sh -c "git config --local --name-only --get-regexp 'core\.sshCommand' && git config --local --unset-all 'core.sshCommand' || :"
+2026-11-22T05:04:44.8328009Z [command]/usr/bin/git config --local --name-only --get-regexp http\.https\:\/\/github\.com\/\.extraheader
+2026-11-22T05:04:44.8382136Z [command]/usr/bin/git submodule foreach --recursive sh -c "git config --local --name-only --get-regexp 'http\.https\:\/\/github\.com\/\.extraheader' && git config --local --unset-all 'http.https://github.com/.extraheader' || :"
+2026-11-22T05:04:44.8736268Z [command]/usr/bin/git config --local --name-only --get-regexp ^includeIf\.gitdir:
+2026-11-22T05:04:44.8785482Z [command]/usr/bin/git submodule foreach --recursive git config --local --show-origin --name-only --get-regexp remote.origin.url
+2026-11-22T05:04:44.9226985Z Cleaning up orphan processes
+2026-11-22T05:04:44.9613131Z ##[warning]Node.js 20 is deprecated. The following actions target Node.js 20 but are being forced to run on Node.js 24: actions/checkout@v4, actions/setup-python@v5, actions/upload-artifact@v4. For more information see: https://github.blog/changelog/2025-09-19-deprecation-of-node-20-on-github-actions-runners/

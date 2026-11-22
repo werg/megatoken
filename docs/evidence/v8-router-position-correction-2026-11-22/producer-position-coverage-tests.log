@@ -1,0 +1,30 @@
+Source tree: /workspace/scratch/9faed68167fb/bootstrap-producer
+Commit: b4157952ed0fc28c5ae1eb8893cd9035ce25bbdb
+Runtime: Node v24.22.3
+Command: node --experimental-vm-modules --test test/semantic-v8-position-coverage.test.js
+✔ full gate requires explicit independent positions and preserves logical/physical counts (1.914015ms)
+✔ full gate rejects historical unmeasured report (0.466458ms)
+✔ full gate rejects missing position inventory (0.29137ms)
+✔ full gate rejects same-count shifted mask (0.229559ms)
+✔ full gate rejects duplicated occurrence (0.308485ms)
+✔ full gate rejects omitted target (0.227706ms)
+✔ full gate rejects invented target (0.220035ms)
+✔ full gate rejects missing decoder count (0.276698ms)
+✔ full gate rejects boolean count (0.244171ms)
+✔ full gate rejects unsupported structured masks (1.207953ms)
+✔ full gate rejects logical/physical conflation (0.248146ms)
+✔ full gate rejects hidden routing credit (0.174628ms)
+✔ full gate rejects missing per-update router receipt (0.126467ms)
+✔ full gate rejects router assignment total mismatch (0.152585ms)
+✔ full gate rejects router scope promotion (0.226334ms)
+✔ full gate rejects changed source membership (0.178734ms)
+✔ full gate rejects changed objective (0.249779ms)
+✔ full gate rejects learned quality promotion (0.151764ms)
+ℹ tests 18
+ℹ suites 0
+ℹ pass 18
+ℹ fail 0
+ℹ cancelled 0
+ℹ skipped 0
+ℹ todo 0
+ℹ duration_ms 135.969335

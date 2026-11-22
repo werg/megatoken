@@ -178,7 +178,27 @@ def _diloco_initialize(args):
         "checkpoint_stages": config.gradient_checkpointing,
     }
     model_config = load_model_config(config.model, **overrides)
-    codec = load_codec(config.codec, vocab_size=model_config.vocab_size)
+    semantic_lineage = None
+    if config.semantic_v8_policy is not None:
+        if getattr(args, "corpus_metadata", None):
+            raise ValueError(
+                "V8 coordinator initialization requires the actual prepared roots; corpus metadata alone is insufficient"
+            )
+        from megatoken.training.semantic_v8 import load_semantic_v8_codec
+
+        codec = load_semantic_v8_codec(config.codec, vocab_size=model_config.vocab_size)
+    else:
+        codec = load_codec(config.codec, vocab_size=model_config.vocab_size)
+    from megatoken.training.semantic_v8 import preflight_semantic_training_v8
+
+    if not getattr(args, "corpus_metadata", None) or config.semantic_v8_policy is not None:
+        preflight_semantic_training_v8(
+            config.datasets,
+            codec=codec,
+            policy=config.semantic_v8_policy,
+            max_history=model_config.max_history_chunks,
+            max_positions=model_config.max_capacity,
+        )
     if getattr(args, "corpus_metadata", None):
         corpus = json.loads(Path(args.corpus_metadata).read_text())
         roots = corpus.get("roots")
@@ -232,6 +252,57 @@ def _diloco_initialize(args):
         with PreparedCorpus(config.datasets) as prepared:
             dataset_fingerprint = prepared.identity
             chunking_identity = prepared.chunking
+    if config.semantic_v8_policy is not None:
+        # Derive the identical rank-independent sampling/packing contract used
+        # by a worker after validating the real prepared corpus and pinned codec.
+        from megatoken.data.recipes import stage_recipe
+        from megatoken.training.engine import window_config
+        from megatoken.training.stream import (
+            IndependentWindowStream,
+            MixtureWindowStream,
+        )
+
+        if config.use_stage_mixture:
+            lineage_stream = MixtureWindowStream(
+                config.datasets,
+                codec,
+                window_config(config),
+                stage_recipe(config.phase).mixture,
+                stage_recipe(config.phase).meter,
+                seed=config.seed,
+                rank=0,
+                world_size=1,
+                independent=True,
+            )
+        else:
+            lineage_corpus = PreparedCorpus(config.datasets)
+            lineage_stream = IndependentWindowStream(
+                lineage_corpus,
+                codec,
+                window_config(config),
+                seed=config.seed,
+                rank=0,
+                world_size=1,
+            )
+        try:
+            stream_identity = lineage_stream.fingerprint
+        finally:
+            lineage_stream.close()
+        from megatoken.semantic_lineage_v8 import build_training_lineage_v8
+
+        with PreparedCorpus(config.datasets) as lineage_corpus:
+            prepared_manifests = sorted(
+                json.loads((root / "manifest.json").read_text())["fingerprint"]
+                for root in lineage_corpus.all_roots
+            )
+        semantic_lineage = build_training_lineage_v8(
+            policy=config.semantic_v8_policy,
+            tokenizer_identity=codec.fingerprint,
+            prepared_manifests=prepared_manifests,
+            corpus_identity=dataset_fingerprint,
+            stream_identity=stream_identity,
+            chunking=chunking_identity,
+        )
     from megatoken.data.hindsight import HindsightTargets
 
     teacher_targets = (
@@ -284,6 +355,13 @@ def _diloco_initialize(args):
         if source_state_sha256 != source_metadata.get("state_sha256"):
             raise ValueError("Bootstrap checkpoint state checksum mismatch")
         payload, _ = load_checkpoint(args.resume, map_location="cpu")
+        prior_policy = payload["train_config"].get("semantic_v8_policy")
+        if prior_policy != config.semantic_v8_policy:
+            raise ValueError("Bootstrap checkpoint V8 training policy differs")
+        if prior_policy is not None:
+            from megatoken.semantic_lineage_v8 import checkpoint_lineage_v8
+
+            checkpoint_lineage_v8(payload, source_metadata)
         from megatoken.data.recipes import validate_stage_start
 
         validate_stage_start(config, payload["train_config"]["phase"])
@@ -337,6 +415,8 @@ def _diloco_initialize(args):
         codec_fingerprint=codec.fingerprint,
         train_identity=training_identity(config),
         dataset_fingerprint=dataset_fingerprint,
+        semantic_v8_lineage=semantic_lineage,
+        semantic_v8_policy=config.semantic_v8_policy,
         chunking_identity=chunking_identity,
         workers=config.decoupled.workers,
         min_quorum=args.quorum if args.quorum is not None else min(4, config.decoupled.workers),

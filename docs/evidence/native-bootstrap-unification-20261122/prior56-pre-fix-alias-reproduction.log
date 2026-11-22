@@ -1,0 +1,8 @@
+Reproduction against published native commit b504228288e2935c9e021da23896fc82babc6836 using the real runtime, completed durable child-create predecessor, inherited execution lease, and guarded JSONL dispatch:
+
+bootstrap_orchestration_child: REFUSED NativeRequestJournalError: Native commit recovery: configured durable sessions require durable-bootstrap-child
+bootstrap-orchestration-child: REFUSED NativeRequestJournalError: Native commit recovery: configured durable sessions require durable-bootstrap-child
+bootstrap_orchestration-child: ACCEPTED; checkpoint_changed=True; last_operation=bootstrap
+bootstrap-orchestration_child: ACCEPTED; checkpoint_changed=True; last_operation=bootstrap
+
+The two mixed-separator spellings passed the guard, were normalized by dispatch, and appended a raw bootstrap operation without a durable bootstrap intent. This reproduces the guarded native path; it is not a fake-adapter or routing-only probe.

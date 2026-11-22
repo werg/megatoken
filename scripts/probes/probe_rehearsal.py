@@ -532,7 +532,21 @@ def audit_config(path: Path, repo: Path, recipes: dict, index: dict) -> dict[str
     entry["unfilled_placeholders"] = find_placeholders(raw)
     resolved = None
     try:
-        resolved = TrainConfig.from_dict(raw, expand_data=False)
+        loader_config = raw
+        semantic_policy = raw.get("semantic_v8_policy")
+        if isinstance(semantic_policy, dict):
+            # Readiness audits recipe shape separately from whether the pins
+            # have been filled. Preserve and report the original placeholders.
+            loader_config = dict(raw)
+            loader_config["semantic_v8_policy"] = dict(semantic_policy)
+            for key, length in (
+                ("producerRevision", 40),
+                ("consumerRevision", 40),
+                ("registryDigest", 64),
+            ):
+                if str(loader_config["semantic_v8_policy"].get(key, "")).startswith("PIN_"):
+                    loader_config["semantic_v8_policy"][key] = "0" * length
+        resolved = TrainConfig.from_dict(loader_config, expand_data=False)
         entry["loader_error"] = None
     except Exception as exc:  # noqa: BLE001
         entry["loader_error"] = f"{type(exc).__name__}: {exc}"
@@ -542,7 +556,10 @@ def audit_config(path: Path, repo: Path, recipes: dict, index: dict) -> dict[str
         "navigation_enabled": resolved is not None and resolved.navigation_weight > 0,
         "distillation_enabled": resolved is not None and resolved.hindsight_distill_weight > 0,
     }
-    entry["default_memory"]["configured"] = all(entry["default_memory"].values())
+    entry["default_memory"]["configured"] = not entry["default_memory"]["required"] or all(
+        entry["default_memory"][key]
+        for key in ("teacher_artifact", "navigation_enabled", "distillation_enabled")
+    )
     datasets = [d for d in raw.get("datasets", []) if isinstance(d, str)]
     roots: list[dict[str, Any]] = []
     supplied: set[str] = set()

@@ -1,0 +1,10 @@
+Source tree: /workspace/scratch/9faed68167fb/route-readiness-native
+Commit: 39ecf7e22d5619d7b9bb9ed45370ded1e5661c31
+Runtime: Python 3.12.14, pytest 8.4.2, torch 2.10.0+cpu
+Command: PYTHONPATH=src /workspace/scratch/9faed68167fb/.venv/bin/python -m pytest -q tests/test_semantic_v8_position_receipts.py tests/test_semantic_v8_training_lifecycle.py tests/test_adapters.py tests/test_model_core.py
+Skip: tests/test_semantic_v8_training_lifecycle.py:283 (separately provisioned pinned tokenizer unavailable)
+............................................s........................... [ 75%]
+.......................                                                  [100%]
+=========================== short test summary info ============================
+SKIPPED [1] tests/test_semantic_v8_training_lifecycle.py:283: The separately provisioned pinned tokenizer is unavailable
+94 passed, 1 skipped in 60.05s (0:01:00)

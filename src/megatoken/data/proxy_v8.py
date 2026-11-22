@@ -5,7 +5,7 @@ from __future__ import annotations
 import copy
 import math
 
-from . import algorithm_v7 as scalar
+from . import semantic_primitives as scalar
 
 PROFILE = "ordinary-data-proxy/1"
 SCHEMA = "semantic-proxy-call-state/1"

@@ -1,0 +1,57 @@
+<?xml version="1.0" encoding="utf-8"?><testsuites name="pytest tests"><testsuite name="pytest" errors="0" failures="1" skipped="0" tests="1" time="0.351" timestamp="2026-11-22T17:27:12.861254+01:00" hostname="07bf85b14210"><testcase classname="tests.test_semantic_v8_release_verifier" name="test_release_refuses_mislabeled_source_before_fresh_preparation" time="0.114"><failure message="AssertionError: Mislabeled source reached fresh verification">tmp_path = PosixPath('/workspace/scratch/05d92519587f/native-release-source-id-red-tmp/test_release_refuses_mislabele0')
+monkeypatch = &lt;_pytest.monkeypatch.MonkeyPatch object at 0x7ffbb7f64ec0&gt;
+
+    def test_release_refuses_mislabeled_source_before_fresh_preparation(tmp_path, monkeypatch):
+        from megatoken.training import semantic_v8
+    
+        descriptor = descriptor_fixture(tmp_path)
+        member = descriptor["roles"]["prepared"][0]["sourceArtifacts"][0]
+        artifact = {
+            "public": {"schema": "semantic-execution/8"},
+            "sidecar": {
+                "datasetBinding": {
+                    "sourceId": "different-physical-source",
+                    "split": "train",
+                    "registryDigest": POLICY["registryDigest"],
+                }
+            },
+        }
+        (tmp_path / member["path"]).write_text(json.dumps(artifact))
+        (tmp_path / "release-inputs.json").write_text(json.dumps(descriptor))
+        (tmp_path / "training/recipe.json").write_text(json.dumps(recipe_fixture()))
+        before = release.bundle_inventory(tmp_path)
+        observed = []
+    
+        def unexpected_call(*_args, **_kwargs):
+            observed.append("fresh verification or subprocess")
+            raise AssertionError("Mislabeled source reached fresh verification")
+    
+        monkeypatch.setattr(release, "checked_repository", lambda *_args, **_kwargs: {})
+        monkeypatch.setattr(semantic_v8, "load_semantic_v8_codec", lambda *_args, **_kwargs: object())
+        monkeypatch.setattr(semantic_v8, "preflight_semantic_training_v8", unexpected_call)
+        monkeypatch.setattr(release, "regenerate_prepared", unexpected_call)
+        monkeypatch.setattr(release.subprocess, "run", unexpected_call)
+        with pytest.raises(ValueError, match="declared sourceId"):
+&gt;           release.verify_release(
+                tmp_path,
+                "release-inputs.json",
+                tmp_path / "producer",
+                descriptor["consumerRevision"],
+                30,
+            )
+
+tests/test_semantic_v8_release_verifier.py:269: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+scripts/verify_semantic_v8_release.py:808: in verify_release
+    preflight = preflight_semantic_training_v8(
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+
+_args = (['/workspace/scratch/05d92519587f/native-release-source-id-red-tmp/test_release_refuses_mislabele0/prepared/000'],)
+_kwargs = {'codec': &lt;object object at 0x7ffbb86e9a80&gt;, 'policy': {'schema': 'semantic-training-policy/8', 'producerRevision': 'a...ryDigest': '0000000000000000000000000000000000000000000000000000000000000000'}, 'max_history': 8, 'max_positions': 128}
+
+    def unexpected_call(*_args, **_kwargs):
+        observed.append("fresh verification or subprocess")
+&gt;       raise AssertionError("Mislabeled source reached fresh verification")
+E       AssertionError: Mislabeled source reached fresh verification
+
+tests/test_semantic_v8_release_verifier.py:261: AssertionError</failure></testcase></testsuite></testsuites>

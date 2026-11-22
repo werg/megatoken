@@ -1,0 +1,35 @@
+{
+  "purpose": "diagnostic",
+  "phase": "SC",
+  "model": "tiny",
+  "codec": "/workspace/scratch/eda2bfedfb1a/qualification-assets/ling-tokenizer.json",
+  "model_overrides": {
+    "vocab_size": 157184,
+    "max_history_chunks": 128,
+    "max_capacity": 128
+  },
+  "datasets": [
+    "/workspace/scratch/eda2bfedfb1a/qualification-assets/prepared-v8-7da2150"
+  ],
+  "output": "/workspace/scratch/eda2bfedfb1a/qualification-assets/ordinary-v8-fit",
+  "device": "cpu",
+  "precision": "fp32",
+  "max_steps": 1,
+  "checkpoint_every": 1,
+  "keep_checkpoints": 2,
+  "microbatch_episodes": 1,
+  "accumulate_scored": 1,
+  "accumulate_ingested": 1,
+  "max_accumulation_windows": 1,
+  "generated_capacity": 128,
+  "max_window_records": 128,
+  "max_history_tokens": 16384,
+  "gradient_checkpointing": false,
+  "expert_backend": "torch",
+  "semantic_v8_policy": {
+    "schema": "semantic-training-policy/8",
+    "producerRevision": "a4d0a56ef5b5b0ab1c1768ed16b15194630a0e89",
+    "consumerRevision": "7da2150adaf5501338d73f82a41a9058a5bd1937",
+    "registryDigest": "d3147c3e9088004a3c9c06eef0dd6864c05c600f4920538eff7970d43d243cbf"
+  }
+}

@@ -3,7 +3,7 @@
 import json
 from importlib.resources import files
 
-from .algorithm_v7 import stable_algorithm_hash
+from .semantic_json import stable_algorithm_hash
 
 CONTRACT = json.loads(
     files("megatoken.data").joinpath("contracts/semantic-execution-v8.json").read_bytes()

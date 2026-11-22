@@ -1,0 +1,30 @@
+{
+  "schema": "scoped-router-receipt-validation-source-map/1",
+  "repository": "werg/megatoken",
+  "baseCommit": "2f3e6cf04aad60473e8ecc67e846e81e5b9dec83",
+  "remoteCommit": "19d011247e9f1883db632121ca6d8c591abc875d",
+  "localCommit": "9d15fdcafa15a0fcaab88bb206c9e1d5714bf038",
+  "tree": "c249e5781bda25871ee1c1fb906768c3defedab7",
+  "localWorktree": "/workspace/scratch/05d92519587f/native-router-review-2f3",
+  "scope": "Receipt validators, meaningful negative regressions and recorder scope documentation only; capture/optimizer/engine/bootstrap code unchanged",
+  "files": [
+    {
+      "path": "docs/v8-target-position-audit.md",
+      "gitBlobSha": "723585ac8e289427e3f01960c65fd0a07a891d86",
+      "bytes": 7343,
+      "sha256": "747d87e133c2cca6ca28f403a500f04dd768cac2654ec44b789683b342c1e6e0"
+    },
+    {
+      "path": "src/megatoken/training/positions_v8.py",
+      "gitBlobSha": "f6986db0a04058f68b99e61b2778720038e2dac1",
+      "bytes": 64924,
+      "sha256": "6058b5a04f3bd0fb614b88a6b86377f37d2ca2a5ed2452ae3df59b52d4e509a2"
+    },
+    {
+      "path": "tests/test_semantic_v8_position_receipts.py",
+      "gitBlobSha": "2fad68520f3e87840a1f0b23d064e112e33ce130",
+      "bytes": 35332,
+      "sha256": "6dfd5840f43b61c1433b6f5f824d709276517233a35f5c79cbda2a7668166122"
+    }
+  ]
+}

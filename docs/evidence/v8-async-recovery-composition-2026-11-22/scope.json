@@ -1,0 +1,16 @@
+{
+  "schema": "native-async-recovery-composition-evidence/1",
+  "runKind": "local",
+  "nativeRevision": "db624cc7ff0781868470e815e9d0f1dade8f0ab0",
+  "testCases": 140,
+  "pytestSubtests": 119,
+  "failures": 0,
+  "errors": 0,
+  "skips": 0,
+  "optimizerUpdates": 0,
+  "contractDigest": "f92c2b99bcd373eadaadf2fa425af6b866c4312a18c6ff62b74743c40ab19f3c",
+  "files": {
+    "complete-native-controls.xml": "e2042fab6fbedf643fc425aeee819355becbf4d1657625fb0b141e7fa7753707",
+    "complete-native-controls.log": "71126083ee14e58d49e05285bddf5e41c0e02e161dd86cd376724bcc51bd041e"
+  }
+}

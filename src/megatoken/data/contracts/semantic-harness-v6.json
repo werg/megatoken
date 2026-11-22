@@ -366,6 +366,14 @@
         ],
         "optional": []
       },
+      "realm-close": {
+        "mode": "observed",
+        "required": [
+          "realmId",
+          "reason"
+        ],
+        "optional": []
+      },
       "dispatch": {
         "mode": "observed",
         "required": [
@@ -491,6 +499,7 @@
         "handler",
         "event",
         "handler-close",
+        "realm-close",
         "dispatch",
         "result",
         "source-evict",
@@ -505,7 +514,7 @@
       "requestsPerCommittedSelection": 1
     }
   },
-  "digest": "8b10bbaf2c091eef864726344a44be25a9217af932fd74496f953ef3534c8e07",
+  "digest": "51bec54b28aae99f644e01aca8948815850e4917a35dcc2604a191d2996a8b2b",
   "fixtureDigest": "8c7c086e3b69624365c2c437a15765a214752ad9d77dfcf723bc54d314faba95",
   "fixtures": {
     "witness": {

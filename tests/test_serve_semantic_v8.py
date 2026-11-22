@@ -14,13 +14,20 @@ def test_jsonl_rejects_ambiguous_or_nonstandard_json_and_recovers(monkeypatch, c
     calls = []
     adapter = SimpleNamespace(sessions={}, metrics=lambda: calls.append("metrics") or {})
     runtime = SimpleNamespace(close=lambda: calls.append("close"))
-    bundle = SimpleNamespace(model=None, chunking=None, manifest={"model_sha256": "a" * 64})
+    bundle = SimpleNamespace(
+        model=None,
+        chunking=None,
+        manifest={"model_sha256": "a" * 64, "semantic_v8_lineage_digest": "b" * 64},
+    )
     monkeypatch.setitem(main.__globals__, "ServedBundle", lambda *args, **kwargs: bundle)
     monkeypatch.setitem(main.__globals__, "MultiTrackGenerator", SimpleNamespace(of=lambda _: None))
     monkeypatch.setitem(main.__globals__, "MultiTrackRuntime", lambda *args, **kwargs: runtime)
-    monkeypatch.setitem(
-        main.__globals__, "NativeSemanticInferenceV8", lambda *args, **kwargs: adapter
-    )
+
+    def construct(*args, **kwargs):
+        assert kwargs["training_identity"] == "b" * 64
+        return adapter
+
+    monkeypatch.setitem(main.__globals__, "NativeSemanticInferenceV8", construct)
     monkeypatch.setattr(sys, "argv", [str(script), "--served", "unused"])
     monkeypatch.setattr(
         sys,

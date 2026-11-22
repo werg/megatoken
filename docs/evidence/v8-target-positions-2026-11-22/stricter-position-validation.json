@@ -1,0 +1,35 @@
+{
+  "schema": "semantic-v8-stricter-position-validation/1",
+  "status": "passed",
+  "auditCommit": "8eae121e86cd0cb2735a5bc4f1e3e82026d738f9",
+  "actualOptimizerCommit": "16b6a989c79d5e4a1910a03ccee73e8817b5a95b",
+  "actualLocalOptimizerCommit": "436b129d46cc3c4c4bf97bab3779e93803472656",
+  "optimizerUpdatesPerformed": 0,
+  "independentPreparedInventoriesRebuilt": 2,
+  "preparedManifestBindingsChecked": 2,
+  "actualPositionStatesValidated": 4,
+  "completePositionComparison": {
+    "independentPreparedPhysicalTargets": 4,
+    "observedPhysicalTargets": 4,
+    "missingPhysicalTargets": [],
+    "unexpectedPhysicalTargets": [],
+    "preparedOracleMismatches": [],
+    "independentOccurrenceMismatches": [],
+    "targetCensusWindowOrOccurrenceMismatches": [],
+    "targetCensusWithoutPositionReceipt": [],
+    "unmeasuredPhysicalTargets": [],
+    "positiveWeightPositionCountsMatch": true,
+    "exactOnePassPreparedTextPositions": true,
+    "routerInternalPositionCoverage": "unmeasured",
+    "learnedSuccess": null
+  },
+  "exactPriorStagePreserved": true,
+  "exactResumeParentPreserved": true,
+  "proofSha256": {
+    "controlled-complete-position-proof.json": "12b4bf161e3f6a84ecf527e3c2d81dcf421321bf0516867a70e7bb884f71c3f1",
+    "controlled-resume-position-proof.json": "05873476a9786fce33ff4a05e495868f16d0d1a47d2f55c59d3974073196d517"
+  },
+  "scope": "Stricter canonical objective validation of unchanged actual fixture receipts, with fresh prepared-record reconstruction; source/tokenizer boundaries remain injected",
+  "routerInternalPositionCoverage": "unmeasured",
+  "learnedSuccess": null
+}

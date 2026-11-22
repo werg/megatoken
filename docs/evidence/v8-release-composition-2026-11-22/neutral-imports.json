@@ -1,0 +1,1 @@
+{"status": "passed", "deniedModulePattern": "(?:semantic[^.]*_v[67]|native_v[67]|algorithm_v7)(?:$|\\.)", "legacyModulesReached": [], "optimizerUpdates": 0, "decoderForwardPasses": 0, "freshSourceReplay": 0, "scope": "Fresh imports of verifier, preparer, checkpoint/export loaders and ordinary trainer only; no full runtime or physical-source-absence qualification"}

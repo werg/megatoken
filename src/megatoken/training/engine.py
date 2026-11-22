@@ -22,7 +22,7 @@ import torch
 
 from megatoken.contracts import ROLE_TO_ID
 from megatoken.controls import build_control_payload
-from megatoken.data import PreparedCorpus, WindowConfig, stage_recipe
+from megatoken.data import PreparedCorpus, stage_recipe
 from megatoken.data.chunking import ChunkingConfig
 from megatoken.data.media_assets import MediaRecord
 from megatoken.io import content_hash, sha256_file, write_json
@@ -91,6 +91,7 @@ from megatoken.training.transducer_sync import (
     install_published,
     resume_transducer,
 )
+from megatoken.training.windows import window_config
 
 
 def ingest_records(
@@ -139,6 +140,15 @@ def prepare_batches(
             .get("semantic_execution", {})
             .get("schema")
         )
+        if episode.stream == "semantic_execution":
+            if semantic_version not in {
+                "semantic-execution/6",
+                "semantic-execution/7",
+                "semantic-execution/8",
+            }:
+                raise ValueError("Semantic training rejects a missing or unknown execution schema")
+            if semantic_version == "semantic-execution/6" and config.semantic_experiment is None:
+                raise ValueError("V6 semantic training requires its explicit admission policy")
         if semantic_version == "semantic-execution/7":
             from .semantic_v7 import validate_semantic_episode_v7
 
@@ -151,6 +161,39 @@ def prepare_batches(
                 max_history=model.config.max_history_chunks,
                 max_positions=model.config.max_capacity,
             )
+        elif semantic_version == "semantic-execution/8":
+            from .semantic_v8 import SemanticV8EpisodeAdmissionCache
+
+            if config.semantic_experiment is not None or config.semantic_v7_policy is not None:
+                raise ValueError("V8 data cannot use an older semantic training contract")
+            registry_path = next(
+                (
+                    Path(root) / "semantic-v8-families.json"
+                    for root in config.datasets
+                    if (Path(root) / "semantic-v8-families.json").is_file()
+                ),
+                None,
+            )
+            if registry_path is None:
+                raise ValueError("V8 training root lost its frozen source-family registry")
+            registry = json.loads(registry_path.read_text())
+            cache = getattr(model, "_semantic_v8_episode_admission_cache", None)
+            if cache is None:
+                cache = SemanticV8EpisodeAdmissionCache()
+                model._semantic_v8_episode_admission_cache = cache
+            cache.validate(
+                episode,
+                codec=model.codec,
+                policy=config.semantic_v8_policy,
+                registry=registry,
+                max_history=model.config.max_history_chunks,
+                max_positions=model.config.max_capacity,
+                expected_split=episode.lineage.frozen_split,
+            )
+        elif episode.stream == "semantic_execution" and (
+            config.semantic_v8_policy is not None or config.semantic_v7_policy is not None
+        ):
+            raise ValueError("Selected semantic policy does not accept this execution schema")
         elif config.semantic_experiment is not None:
             from .semantic_budget import validate_semantic_episode, validate_semantic_geometry
 
@@ -177,23 +220,13 @@ def prepare_batches(
             not config.allow_unverified_data
             and episode.stream in verified_streams
             and not episode.supervision.verified_success
+            and semantic_version != "semantic-execution/8"
         ):
             raise ValueError("Training stream requires independent verified success")
         if episode.stream == "long_verified_dependencies" and not episode.dependencies:
             raise ValueError("Long dependency stream requires causal source relationships")
         result.append(prepare_meridian_batch(model, item, NativeHistory.of(episode, model), config))
     return result
-
-
-def window_config(config: TrainConfig) -> WindowConfig:
-    """Optimizer window boundaries shared by training and held-out evaluation."""
-    return WindowConfig(
-        max_window_tokens=config.max_history_tokens,
-        max_decisions=config.scored_decisions,
-        max_records=config.max_window_records,
-        respect_dependencies=config.phase == "LC",
-        max_dependency_tokens=config.max_history_tokens,
-    )
 
 
 def batch_counters(batches: list[MeridianPreparedBatch]) -> Counters:
@@ -308,8 +341,17 @@ def _resume_compatible(old: dict[str, Any], config: TrainConfig, phase_transitio
             "semantic_experiment",
             "semantic_v7_policy",
         )
+    # Keep the active V8 policy and registry binding fixed across resume.
+    critical += ("semantic_v8_policy",)
+    content_bound_inputs = (
+        config.semantic_v8_policy is not None
+        and old.get("semantic_v8_policy") == config.semantic_v8_policy
+        and config.decoupled is None
+    )
     for key in critical:
-        if key not in old or old[key] != current[key]:
+        if key not in old or (
+            old[key] != current[key] and not (content_bound_inputs and key in {"codec", "datasets"})
+        ):
             raise ValueError(
                 f"Resume configuration changed {key}; use an explicit phase transition "
                 "only when the architecture/codec are unchanged"
@@ -320,19 +362,34 @@ def train(
     config: TrainConfig, *, resume: str | None = None, phase_transition: bool = False
 ) -> dict[str, Any]:
     from megatoken.data.recipes import validate_training_donors
-    from megatoken.training.semantic_budget import (
-        SemanticExperimentConfig,
-        SemanticExposure,
-        restore_semantic_training_state,
-        semantic_training_state,
-    )
 
-    experiment = (
-        SemanticExperimentConfig(**config.semantic_experiment)
-        if config.semantic_experiment
-        else None
-    )
-    cohort_digest = experiment.preflight(phase=config.phase) if experiment else None
+    if config.semantic_experiment:
+        from megatoken.training.semantic_budget import (
+            SemanticExperimentConfig,
+            SemanticExposure,
+            restore_semantic_training_state,
+            semantic_training_state,
+        )
+
+        experiment = SemanticExperimentConfig(**config.semantic_experiment)
+        cohort_digest = experiment.preflight(phase=config.phase)
+    else:
+        SemanticExposure = None
+        experiment = cohort_digest = None
+
+        def restore_semantic_training_state(payload, *, cohort_digest):
+            if cohort_digest is not None:
+                raise ValueError("A semantic cohort requires its experiment exposure state")
+            if {"semantic_exposure", "semantic_cohort_digest"}.intersection(payload):
+                raise ValueError(
+                    "A nonsemantic checkpoint cannot contain semantic experiment state"
+                )
+            return None
+
+        def semantic_training_state(exposure, *, cohort_digest):
+            if exposure is not None or cohort_digest is not None:
+                raise ValueError("A nonsemantic run cannot retain semantic experiment state")
+            return {}
 
     validate_training_donors(config)
     if phase_transition and not resume:
@@ -400,7 +457,12 @@ def train(
         model_config = load_model_config(config.model, **overrides)
         if config.generated_capacity > model_config.max_capacity:
             raise ValueError("generated_capacity exceeds the model's maximum output positions")
-        codec = load_codec(config.codec, vocab_size=model_config.vocab_size)
+        if config.semantic_v8_policy is not None:
+            from .semantic_v8 import load_semantic_v8_codec
+
+            codec = load_semantic_v8_codec(config.codec, vocab_size=model_config.vocab_size)
+        else:
+            codec = load_codec(config.codec, vocab_size=model_config.vocab_size)
         # Reject absent or causally unverified curriculum supply before loading
         # model weights, donor pipelines, optimizer masters or checkpoint tensors.
         windows_config = window_config(config)
@@ -431,6 +493,15 @@ def train(
                 raise ValueError(
                     "V7 prepared data differs from the explicitly frozen training registry"
                 )
+        from .semantic_v8 import preflight_semantic_training_v8
+
+        preflight_semantic_training_v8(
+            config.datasets,
+            codec=codec,
+            policy=config.semantic_v8_policy,
+            max_history=model_config.max_history_chunks,
+            max_positions=model_config.max_capacity,
+        )
         if experiment is not None:
             from .semantic_budget import validate_stage_supply
 
@@ -525,12 +596,41 @@ def train(
                     f"Active training objectives need installed media packs for: {', '.join(missing)}"
                 )
         packs_fingerprint = sha256_file(config.packs) if config.packs else None
+        prepared_manifests_v8 = None
+        if config.semantic_v8_policy is not None:
+            # Include every checked root, even roots with no training episodes.
+            # PreparedCorpus orders these by content, independent of paths.
+            prepared_manifests_v8 = []
+            for root in dataset.all_roots:
+                manifest = json.loads((root / "manifest.json").read_text())
+                fingerprint = manifest.get("fingerprint")
+                if fingerprint != content_hash(
+                    {key: value for key, value in manifest.items() if key != "fingerprint"}
+                ):
+                    raise ValueError("V8 prepared manifest changed after input validation")
+                prepared_manifests_v8.append(fingerprint)
+            if content_hash(prepared_manifests_v8) != dataset.identity:
+                raise ValueError("V8 prepared inputs changed after corpus validation")
         payload = None
         if resume:
-            payload, _ = load_checkpoint(resume, map_location="cpu")
+            payload, resumed_metadata = load_checkpoint(resume, map_location="cpu")
+            from megatoken.semantic_lineage_v8 import checkpoint_lineage_v8
+
+            resumed_lineage_v8 = checkpoint_lineage_v8(payload, resumed_metadata)
             _resume_compatible(payload["train_config"], config, phase_transition)
             if payload["codec_fingerprint"] != codec.fingerprint:
                 raise ValueError("Checkpoint codec identity differs")
+            if config.semantic_v8_policy is not None and not phase_transition:
+                current_chunking = ChunkingConfig.from_identity(dataset.chunking, codec).identity(
+                    codec
+                )
+                if (
+                    resumed_lineage_v8["preparedManifestFingerprints"] != prepared_manifests_v8
+                    or resumed_lineage_v8["preparedCorpusDigest"] != dataset.identity
+                    or resumed_lineage_v8["tokenizerIdentity"] != codec.fingerprint
+                    or resumed_lineage_v8["chunkingFingerprint"] != current_chunking["fingerprint"]
+                ):
+                    raise ValueError("V8 exact resume changed its admitted input contents")
             declared_model = ModelConfig.from_dict(payload["model_config"])
             # A named preset is a convenience for NEW runs. Its defaults may
             # evolve while a long-running experiment is executing. The saved
@@ -734,6 +834,23 @@ def train(
             )
         if config.eval_every:
             heldout = HeldOutEvaluator(config, codec, windows_config, require=True)
+        semantic_training_v8 = None
+        if config.semantic_v8_policy is not None:
+            from megatoken.semantic_lineage_v8 import build_training_lineage_v8
+
+            semantic_training_v8 = build_training_lineage_v8(
+                policy=config.semantic_v8_policy,
+                tokenizer_identity=codec.fingerprint,
+                prepared_manifests=prepared_manifests_v8,
+                corpus_identity=dataset.identity,
+                stream_identity=stream.fingerprint,
+                chunking=chunking_identity,
+            )
+            if payload is not None and not phase_transition:
+                from megatoken.semantic_lineage_v8 import checkpoint_lineage_v8
+
+                if checkpoint_lineage_v8(payload, resumed_metadata) != semantic_training_v8:
+                    raise ValueError("V8 resume changed its admitted data or training stream")
         if config.decoupled is not None:
             diloco = DecoupledWorker(
                 config.decoupled,
@@ -744,6 +861,8 @@ def train(
                 token_budget=phase.budget,
                 train_identity=training_identity(config),
                 dataset_fingerprint=dataset.identity,
+                semantic_v8_lineage=semantic_training_v8,
+                semantic_v8_policy=config.semantic_v8_policy,
             )
             diloco.attach_transducer(TransducerSync())
             if payload is None:
@@ -781,6 +900,50 @@ def train(
         else:
             # Initialization is identical; sampling/exploration is rank-specific.
             seed_everything(config.seed + data_rank, config.deterministic)
+        semantic_v8_target_exposure = None
+        semantic_v8_position_exposure = None
+        if config.semantic_v8_policy is not None:
+            from .positions_v8 import (
+                PositionWindowAudit,
+                advance_position_exposure,
+                installed_modality_ids,
+                position_exposure_report,
+                position_objective,
+                restore_position_exposure,
+            )
+            from .semantic_v8 import (
+                advance_semantic_v8_target_exposure,
+                merge_semantic_v8_target_exposures,
+                restore_semantic_v8_target_exposure,
+                semantic_v8_target_exposure_from_batches,
+                semantic_v8_target_exposure_report,
+                semantic_v8_target_step_summary,
+            )
+
+            registry_digest = config.semantic_v8_policy["registryDigest"]
+            semantic_v8_target_exposure = restore_semantic_v8_target_exposure(
+                payload,
+                registry_digest=registry_digest,
+                global_step=global_step,
+                phase_transition=phase_transition,
+            )
+            position_modalities = installed_modality_ids(model)
+            position_identity = position_objective(
+                config,
+                model_config,
+                codec,
+                position_modalities,
+                prepared_manifest_fingerprints=prepared_manifests_v8,
+            )
+            semantic_v8_position_exposure = restore_position_exposure(
+                payload,
+                registry_digest=registry_digest,
+                objective=position_identity,
+                global_step=global_step,
+                phase_transition=phase_transition,
+                checkpoint_metadata=resumed_metadata if payload is not None else None,
+            )
+
         if config.compile:
             # Compile the reusable tensor operators, not Python action tapes,
             # data cursors, or mutable runtime history management.
@@ -852,7 +1015,22 @@ def train(
                             "global_step": global_step,
                             "phase_consumed": consumed,
                             "counters": asdict(counters),
+                            **(
+                                {"semantic_training_v8": semantic_training_v8}
+                                if semantic_training_v8 is not None
+                                else {}
+                            ),
                             **semantic_training_state(exposure, cohort_digest=cohort_digest),
+                            **(
+                                {"semantic_v8_target_exposure": semantic_v8_target_exposure}
+                                if semantic_v8_target_exposure is not None
+                                else {}
+                            ),
+                            **(
+                                {"semantic_v8_position_exposure": semantic_v8_position_exposure}
+                                if semantic_v8_position_exposure is not None
+                                else {}
+                            ),
                         }
                     )
                     metadata = {
@@ -865,6 +1043,16 @@ def train(
                         "chunking_fingerprint": chunking_identity["fingerprint"],
                         "routing_version": model_config.routing_version,
                         "config_fingerprint": content_hash(asdict(config)),
+                        **(
+                            {"semantic_v8_lineage_digest": semantic_training_v8["digest"]}
+                            if semantic_training_v8 is not None
+                            else {}
+                        ),
+                        **(
+                            {"semantic_v8_position_digest": semantic_v8_position_exposure["digest"]}
+                            if semantic_v8_position_exposure is not None
+                            else {}
+                        ),
                     }
                     from .stream import source_sampling_report
 
@@ -929,9 +1117,31 @@ def train(
                     or (phase.meter == "Q" and global_selected["Q"] >= config.accumulate_events)
                 ):
                     break
+            weights = dict(config.loss_weights)
+            # The old per-operation router loss has been replaced.
+            weights["router_balance"] = 0.0
             preparation_error = None
+            local_target_exposure = None
             try:
                 batches = prepare_batches(model, selected, config)
+                position_audits = [None] * len(batches)
+                if semantic_v8_target_exposure is not None:
+                    local_target_exposure = semantic_v8_target_exposure_from_batches(
+                        batches,
+                        registry_digest=config.semantic_v8_policy["registryDigest"],
+                        effective_loss_weights=weights,
+                    )
+                    position_audits = [
+                        PositionWindowAudit(
+                            batch,
+                            codec=codec,
+                            config=config,
+                            model_config=model_config,
+                            modalities=position_modalities,
+                            objective=position_identity,
+                        )
+                        for batch in batches
+                    ]
             except Exception as error:
                 preparation_error = error
                 batches = []
@@ -968,11 +1178,25 @@ def train(
                 logger.log("unscored_source_block", skipped_rounds=empty_selection_rounds)
                 continue
             empty_selection_rounds = 0
+            target_exposure_step = None
+            target_exposure_candidate = None
+            target_exposure_receipt = None
+            if semantic_v8_target_exposure is not None:
+                target_exposure_step = merge_semantic_v8_target_exposures(
+                    context.all_gather_object(local_target_exposure),
+                    registry_digest=config.semantic_v8_policy["registryDigest"],
+                )
+                target_exposure_candidate = advance_semantic_v8_target_exposure(
+                    semantic_v8_target_exposure,
+                    target_exposure_step,
+                    optimizer_step=global_step + 1,
+                    registry_digest=config.semantic_v8_policy["registryDigest"],
+                )
+                target_exposure_receipt = semantic_v8_target_exposure_report(
+                    target_exposure_candidate
+                )
             global_work = Counters(**context.sum_counts(asdict(batch_counters(batches))))
             global_work.validate()
-            weights = dict(config.loss_weights)
-            # The old per-operation router loss has been replaced.
-            weights["router_balance"] = 0.0
             ledger = LossLedger(local_counts, global_counts, weights)
             # Per-window mean losses are divided by the windows of the whole transaction.
             window_scale = 1.0 / max(1, context.sum_counts({"windows": len(batches)})["windows"])
@@ -988,10 +1212,11 @@ def train(
             optimizer.set_lr(learning_rate)
             model.core.dispatch_metrics(reset=True)
             step_diagnostics: dict[str, float | torch.Tensor] = {}
+            router_internal_positions = None
             for router in routers.values():
                 router.balance_recorder = router_replay
             try:
-                for batch in batches:
+                for batch, position_audit in zip(batches, position_audits, strict=True):
                     diagnostics_batch = forward_meridian_batch(
                         model,
                         batch,
@@ -1006,12 +1231,34 @@ def train(
                         ),
                         transducer=transducer,
                         window_scale=window_scale,
+                        position_audit=position_audit,
                     )
                     for key, value in diagnostics_batch.items():
                         step_diagnostics[key] = step_diagnostics.get(key, 0.0) + value
                 ledger.finish()
                 # All ranks participate, including workers with zero eligible
                 # assignments. The model's version remains fixed until step().
+                local_router_positions = router_replay.internal_position_counts(routers=routers)
+                local_router_assignments = router_replay.internal_assignment_counts(routers=routers)
+                gathered_router_counts = context.all_gather_object(
+                    (local_router_positions, local_router_assignments)
+                )
+                if any(
+                    set(positions) != set(local_router_positions)
+                    or set(assignments) != set(local_router_assignments)
+                    for positions, assignments in gathered_router_counts
+                ):
+                    raise ValueError(
+                        "Distributed router position audits disagree on selector identity"
+                    )
+                router_internal_positions = {
+                    name: sum(positions[name] for positions, _ in gathered_router_counts)
+                    for name in local_router_positions
+                }
+                router_internal_assignments = {
+                    name: sum(assignments[name] for _, assignments in gathered_router_counts)
+                    for name in local_router_assignments
+                }
                 step_diagnostics.update(
                     router_replay.backward(
                         context,
@@ -1044,6 +1291,31 @@ def train(
                 for name, (value, count) in terms.items():
                     if count:
                         step_diagnostics[f"autoencode_{name}"] = float(value.detach()) / count
+            position_exposure_candidate = None
+            if semantic_v8_position_exposure is not None:
+                position_error = None
+                try:
+                    local_positions = [audit.finish() for audit in position_audits]
+                except Exception as error:
+                    position_error = error
+                    local_positions = []
+                gathered_positions = context.all_gather_object(
+                    (local_positions, None if position_error is None else str(position_error))
+                )
+                if any(error for _, error in gathered_positions):
+                    raise ValueError(
+                        "Distributed executed-position audit failed: "
+                        + next(error for _, error in gathered_positions if error)
+                    ) from position_error
+                position_exposure_candidate = advance_position_exposure(
+                    semantic_v8_position_exposure,
+                    [receipt for rows, _ in gathered_positions for receipt in rows],
+                    registry_digest=registry_digest,
+                    objective=position_identity,
+                    optimizer_step=global_step + 1,
+                    router_internal_positions=router_internal_positions,
+                    router_internal_assignments=router_internal_assignments,
+                )
             context.synchronize_gradients(optimizer.parameters)
             optimizer_started = time.perf_counter()
             step_metrics = optimizer.step(config.grad_clip)
@@ -1070,6 +1342,10 @@ def train(
             ready = diloco_metrics.pop("transducer_ready", None)
             if ready is not None:
                 install_published(transducer, diloco.transducer, ready[2], ready[1])
+            if target_exposure_candidate is not None:
+                semantic_v8_target_exposure = target_exposure_candidate
+            if position_exposure_candidate is not None:
+                semantic_v8_position_exposure = position_exposure_candidate
             model.core.set_model_version(global_step)
             local_sums = ledger.sums
             merged_sums = context.all_gather_object(local_sums)
@@ -1167,7 +1443,35 @@ def train(
                     experts=dispatch_summary(dispatch),
                     budget_overshoot=max(0, consumed - phase.budget),
                     **semantic_training_state(exposure, cohort_digest=cohort_digest),
+                    **(
+                        {
+                            "semantic_v8_target_exposure_step": semantic_v8_target_step_summary(
+                                target_exposure_step
+                            ),
+                            "semantic_v8_target_exposure_totals": {
+                                key: target_exposure_receipt[key]
+                                for key in (
+                                    "sourceCount",
+                                    "logicalTargetCount",
+                                    "physicalTargetRecordCount",
+                                    "scoredOccurrences",
+                                    "lossDenominators",
+                                )
+                            },
+                        }
+                        if target_exposure_receipt is not None
+                        else {}
+                    ),
                     **rates(global_work, elapsed),
+                    **(
+                        {
+                            "semantic_v8_position_exposure": position_exposure_report(
+                                semantic_v8_position_exposure
+                            )
+                        }
+                        if semantic_v8_position_exposure is not None
+                        else {}
+                    ),
                     **step_metrics,
                 )
             if (
@@ -1237,6 +1541,24 @@ def train(
             "checkpoint": last_checkpoint,
             "counters": asdict(counters),
             **semantic_training_state(exposure, cohort_digest=cohort_digest),
+            **(
+                {
+                    "semantic_v8_target_exposure": semantic_v8_target_exposure_report(
+                        semantic_v8_target_exposure
+                    )
+                }
+                if semantic_v8_target_exposure is not None
+                else {}
+            ),
+            **(
+                {
+                    "semantic_v8_position_exposure": position_exposure_report(
+                        semantic_v8_position_exposure
+                    )
+                }
+                if semantic_v8_position_exposure is not None
+                else {}
+            ),
         }
         if experiment is not None:
             result["experiment_budget"] = exposure.receipt(

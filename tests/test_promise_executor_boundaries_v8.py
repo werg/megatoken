@@ -204,19 +204,35 @@ class PromiseExecutorTests(unittest.TestCase):
                     restore(changed)
 
     def test_reference_resolution_is_refused_before_first_call_but_rejection_is_owned(self):
-        for target in ("object", "other-promise"):
-            state = executor_machine()
-            allocate(state, "object")
-            create_promise(state, "other-promise")
-            enter(state)
-            before = copy.deepcopy(state)
-            with self.assertRaisesRegex(ProtocolV8Error, "assimilation"):
-                resolve(state, ["ref", target])
-            self.assertEqual(state, before)
-            resolve(state, ["ref", target], "reject")
-            finish(state)
-            self.assertTrue(validate_state(restore(state)))
-            self.assertEqual(state["heap"]["promise"]["result"], ["ref", target])
+        state = executor_machine()
+        allocate(state, "object")
+        create_promise(state, "other-promise")
+        enter(state)
+        before = copy.deepcopy(state)
+        with self.assertRaisesRegex(ProtocolV8Error, "assimilation"):
+            resolve(state, ["ref", "object"])
+        self.assertEqual(state, before)
+        resolve(state, ["ref", "object"], "reject")
+        finish(state)
+        self.assertTrue(validate_state(restore(state)))
+        self.assertEqual(state["heap"]["promise"]["result"], ["ref", "object"])
+
+        state = executor_machine()
+        create_promise(state, "other-promise")
+        enter(state)
+        resolve(state, ["ref", "other-promise"])
+        self.assertEqual(state["heap"]["promise"]["state"], "pending")
+        apply_protocol_record(
+            state,
+            {
+                "kind": "promise.adopt.enqueue",
+                "promise": "promise",
+                "target": "other-promise",
+                "job": "adopt-job",
+            },
+        )
+        finish(state)
+        self.assertTrue(validate_state(restore(state)))
 
     def test_executor_inside_reaction_preserves_job_and_nested_helper_scope(self):
         state = executor_machine(active_job=True)

@@ -1,0 +1,163 @@
+{
+  "schema": "semantic-v8-target-current-contract-composition/1",
+  "native": {
+    "base": "4545ad50a40c8c4321e15517ebcbbee832c86eba",
+    "revision": "a780a6bbe91e5ca618e7781f8a1ed401f00ade0a",
+    "tree": "9906217abd23deafdccc05596604c37a87052e23",
+    "files": [
+      {
+        "path": "docs/SEMANTIC_V8_TARGET_EXPOSURE.md",
+        "mode": "100644",
+        "gitBlob": "06c1bef12946a6ca031ef44d3bb2e6707e1faf03",
+        "sha256": "14af05c8e4d3156febd9295891adb2da8b36d08dcc467ab22f091bd09bdc634a"
+      },
+      {
+        "path": "scripts/qualify_semantic_v8_lifecycle.py",
+        "mode": "100644",
+        "gitBlob": "f55ae759180ef8ad0463dcbbeba1056d45ebe605",
+        "sha256": "b240d397967a5ad90b21b1292098a62228144c3f6ac4181a599ec43604da215e"
+      },
+      {
+        "path": "scripts/qualify_semantic_v8_target_coverage.py",
+        "mode": "100644",
+        "gitBlob": "775b1b24b00a18db07fb33c8162b7d0a8912d103",
+        "sha256": "aed23b081ddeb944b6c2f982d7d8fc6eb0d7aed2ae14b553abee957d1d9f2f89"
+      },
+      {
+        "path": "scripts/qualify_semantic_v8_target_inventory.py",
+        "mode": "100644",
+        "gitBlob": "db027f8e1e54ba8f7acf7d3f632e24ee65b0b67e",
+        "sha256": "744d2b09bfc6fa1554202209d692e1e7400b0faeafd6d71fb8aeb97bbd997442"
+      },
+      {
+        "path": "src/megatoken/training/engine.py",
+        "mode": "100644",
+        "gitBlob": "ef27a6abd57f2e4082f61d5b09cc1888ce1d4322",
+        "sha256": "49474a8caec2420958048c283eb84bd116aec278648957072d5572fcd3ba40f7"
+      },
+      {
+        "path": "src/megatoken/training/semantic_v8.py",
+        "mode": "100644",
+        "gitBlob": "76e98613db8ab0f168a93eff611b7736edbe6109",
+        "sha256": "94b99b17f0346463ad71d7c8a000908633b8f27d5e6620b8ae147c93fea29056"
+      },
+      {
+        "path": "src/megatoken/training/target_inventory_v8.py",
+        "mode": "100644",
+        "gitBlob": "f5827f6b44238984d210e773c4a0f0e7181a6228",
+        "sha256": "1667a4fcc7f3cb0774e535d233ba4ec7fb83a7b77c8a5e2e3b6f453a4cb74f4d"
+      },
+      {
+        "path": "tests/test_semantic_v8_admission_cache.py",
+        "mode": "100644",
+        "gitBlob": "de637c14ed7926aa287fa173674141603d7e86bb",
+        "sha256": "09097ebac836e55d34b055f65b664fb4f574e5b5e6495a69570951c5211047d8"
+      },
+      {
+        "path": "tests/test_semantic_v8_target_inventory.py",
+        "mode": "100644",
+        "gitBlob": "6202bfaf3623c3fa7c6cb26777ea36d11217904b",
+        "sha256": "5eb0096609242f5d549208a6c53d29a93e4d24ca4501c7ff256d791036decf90"
+      }
+    ]
+  },
+  "producer": {
+    "base": "fb871032967b789eae69b71777eb53cd7fc9f312",
+    "revision": "1c1b7285105cba75032d01eb5ea6cd12a50bf177",
+    "tree": "5dd26c82631b440de48d26bb46a7653c593410a5",
+    "files": [
+      {
+        "path": ".github/workflows/semantic-v8-target-inventory.yml",
+        "mode": "100644",
+        "gitBlob": "a34dc56d62ddc75a1acc9e097e87eaffaac2d4a7",
+        "sha256": "95b02577f187014efffc3ff04c419001685c0c3acf637b7a7f0d32898ced9525"
+      },
+      {
+        "path": ".github/workflows/semantic-v8.yml",
+        "mode": "100644",
+        "gitBlob": "9ed7c0840920eb72047accf01329bc3872f4cad7",
+        "sha256": "321f27b936c88fe07bb676d4d00ab3848b4783fd1299edb7afa6a61981743182"
+      },
+      {
+        "path": "contracts/semantic-native-policy-v8.json",
+        "mode": "100644",
+        "gitBlob": "1da63dc8a6981308d0b6eec7e30df2e264384a9b",
+        "sha256": "0e2e153001787907d21eeffddb291f33138c4eff7e96b712040080b0d206a390"
+      },
+      {
+        "path": "test/qualify-support-lifecycle.test.js",
+        "mode": "100644",
+        "gitBlob": "9b1e34c1b221881fbfeb9a3247b03d9dcd1ca519",
+        "sha256": "42ce81e964a061c18b3e437b606575359b8cd82b9c0d621c81e4b069ef520302"
+      },
+      {
+        "path": "tools/qualify-ordinary-v8-lifecycle.mjs",
+        "mode": "100644",
+        "gitBlob": "7bcc868d1335e10a0691f76054ebc6c95ce0a6dc",
+        "sha256": "0bd5b7066a74d2a9de3c2c5fbcedcb27d35a0795ace644ac29a94f238f3218ae"
+      }
+    ]
+  },
+  "contractDigest": "f92c2b99bcd373eadaadf2fa425af6b866c4312a18c6ff62b74743c40ab19f3c",
+  "nativeControls": {
+    "cases": 71,
+    "failuresOrErrors": 0,
+    "skipped": 0
+  },
+  "producerControls": {
+    "cases": 5,
+    "failuresOrErrors": 0,
+    "skipped": 0
+  },
+  "runtime": {
+    "python": "3.12.14",
+    "torch": "2.10.0+cpu",
+    "node": "v24.22.3",
+    "device": "cpu"
+  },
+  "tokenizerSha256": "40fb9d7d7795b8bd305aeff39ce9963f3f450915b9553f2938e009be9a1fed60",
+  "dependencyLockSha256": "951a0286f32416f73e72b9fd05af80cf86ded5fbed16fbfde5ff0a2aef3fdc88",
+  "validation": [
+    "Ruff check passed for all8 scoped native implementation/test files",
+    "Ruff format --check reported8 files already formatted",
+    "Node CLI syntax passed",
+    "Both workflow YAML documents and every embedded Python stage parsed",
+    "Complete JUnit outputs have zero failures/errors/skips"
+  ],
+  "controlScope": "Native controls include real ordinary model/optimizer/resume behavior and actual pinned tokenizer checks; declared source/tokenizer audit injections in individual fixtures remain in place. Producer controls check frozen support ownership and CLI boundaries. These are implementation controls, not fresh source qualification or full-support optimization.",
+  "initialFailures": [
+    "The first local native invocation used the pytest console entry point with only src on PYTHONPATH; repository tests/scripts namespaces were not importable. The documented python -m pytest invocation corrected that collection boundary without editing tests.",
+    "The new producer worktree initially lacked its locked dependencies and could not import acorn. Matching npm-shrinkwrap dependencies were shared for controls, then the temporary symlink was removed before committing."
+  ],
+  "fullTargetCoverageRequiresExplicitSelection": true,
+  "routineOptimizerUpdateCounts": {
+    "lifecycle": 2,
+    "coverage": 0,
+    "total": 2
+  },
+  "dedicatedFullGate": {
+    "cliFlag": "--full-target-coverage",
+    "jobTimeoutMinutes": 180,
+    "targetStepTimeoutMs": 7200000,
+    "automaticBranch": "codex/v8-target-coverage-final-qualification-20261122",
+    "manualDispatchAllowed": true,
+    "requestedFlagRequired": true,
+    "qualifiedFlagRequired": true,
+    "exactNativeCensusRequired": true
+  },
+  "freshFullSupportFitLaunched": false,
+  "fullTargetCoverageQualified": false,
+  "learnedSuccess": null,
+  "retainedOldContractCampaign": {
+    "runId": 45009024141,
+    "producerRevision": "7c468f8f3d06e32e43e3ebb482137840bdce676d",
+    "consumerRevision": "a1d7f83dc46e4829ca4226e4040519cd5835f365",
+    "scope": "Independent still-running original-contract campaign; its result cannot qualify new-contract model/asset identity."
+  },
+  "promotionInstructions": [
+    "Compose the8 native implementation/test files and target-exposure documentation onto the final native head.",
+    "Copy the producer driver, CLI test and dedicated workflow. Apply only the4 bounded-support assertions to the evolving existing semantic-v8.yml.",
+    "Rebind the current policy consumerRevision to the integrated final native commit; preserve current contract, fixture, interoperability and tokenizer fields.",
+    "Hold a fresh full optimizer campaign until the next contract is stable."
+  ]
+}

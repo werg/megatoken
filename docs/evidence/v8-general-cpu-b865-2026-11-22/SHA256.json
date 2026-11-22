@@ -1,0 +1,32 @@
+{
+  "schema": "semantic-general-ci-evidence/1",
+  "consumerRevision": "b865b5f25f07b437075cc66e38c5bbfd14c5ae1c",
+  "executableRevision": "10847cbfd48ebedbc0368ade01744eb9b849e784",
+  "runId": 44966454098,
+  "logs": [
+    {
+      "python": "3.11",
+      "jobId": 137036553599,
+      "path": "cpu-311.log.gz.b64",
+      "decodedBytes": 81800,
+      "decodedSha256": "c076bc6c1d6ea09636ce70ba3c75e2b113d6a7d4d5c8d6e8cb46ecdbeb7a0d10",
+      "encodedSha256": "ada64c13a7b1b6e313024c84f4fe4e4972e512199ea5e59afef76bc3b784f689",
+      "passed": 3673,
+      "skipped": 83,
+      "warnings": 20
+    },
+    {
+      "python": "3.12",
+      "jobId": 137036553897,
+      "path": "cpu-312.log.gz.b64",
+      "decodedBytes": 84742,
+      "decodedSha256": "1d9cbb400698f8748cdd0688bcd6a3c870de383b98c517f66ff52a8f1c865ab1",
+      "encodedSha256": "52fbc3e68e5fa048a305d0e14d50fba33e6ed7e5d17293c0bb51c1edf10ca15c",
+      "passed": 3673,
+      "skipped": 83,
+      "warnings": 20
+    }
+  ],
+  "acceleratorLane": "skipped",
+  "scope": "Historical complete general CPU gates; does not qualify later transcript/physical training changes."
+}

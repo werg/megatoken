@@ -1,0 +1,13 @@
+{
+  "schema": "semantic-v8-router-audit-helper-correction/1",
+  "status": "initial read-only helper refused its own incomplete objective reconstruction",
+  "initialHelperSha256": "d4dfced80435b3c5a7df15013f22c7329b5dbb4108d74947f90eb5a61574165c",
+  "differences": {
+    "checkpoint_stages": {
+      "unqualifiedDefault": false,
+      "actualTrainingConfig": true
+    }
+  },
+  "reason": "The helper initially omitted the model expert-backend/checkpoint-stage overrides supplied by the real trainer; objective equality correctly refused. Runtime checkpoints and receipt bytes were untouched.",
+  "optimizerUpdates": 0
+}

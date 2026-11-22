@@ -1,0 +1,35 @@
+{
+  "controls": {
+    "changedCompletion": {
+      "authorityUnchanged": true,
+      "error": "V8 completion retry changed its original public cut, contexts or result",
+      "refused": true
+    },
+    "changedOriginalContexts": {
+      "authorityUnchanged": true,
+      "error": "V8 completion retry changed its original public cut, contexts or result",
+      "refused": true
+    },
+    "changedOriginalPublicCut": {
+      "authorityUnchanged": true,
+      "error": "V8 completion retry changed its original public cut, contexts or result",
+      "refused": true
+    },
+    "closedSessionExactRetry": {
+      "noSessionReopened": true,
+      "sameChildReceipt": true,
+      "savedAuthorityUnchanged": true,
+      "sessionRetained": false
+    },
+    "unknownInvocation": {
+      "authorityUnchanged": true,
+      "error": "V8 completion has no generated terminal record",
+      "refused": true
+    }
+  },
+  "hashes": {
+    "semantic_model_v8.py": "8bd7159fcd9f21477c75e390f399fe585382d0a6d20ee934b006e8bc6fed8361",
+    "semantic_orchestration_v8.py": "c377f0f774d5c4989e4690f26e2d3dc3a09cd0ef25002d054fed69e50e4ce358"
+  },
+  "scope": "model-free immutable receipt read; assembled saved state; no model checkpoint claim"
+}

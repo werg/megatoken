@@ -34,6 +34,10 @@
         "algorithm",
         "definitionDigest"
       ],
+      "optionalFields": [
+        "moduleNamespacePlan",
+        "moduleSchedulerPlan"
+      ],
       "sourceCorrespondence": "Independently rechecked producer evidence; public hashes alone do not certify source truth."
     },
     "entry": {
@@ -238,7 +242,7 @@
             "id"
           ]
         },
-        "meaning": "Existing checked selected-detailed/1 transitions, committed into the same shared machine."
+        "meaning": "Direct V8 detail codec over version-neutral typed selected transitions; no legacy wire conversion."
       },
       "protocol": {
         "schema": "semantic-protocol-record/1",
@@ -382,6 +386,80 @@
             "kind",
             "id",
             "completion"
+          ],
+          "module.scheduler.initialize": [
+            "kind",
+            "object",
+            "planDigest"
+          ],
+          "async.function": [
+            "kind",
+            "object"
+          ],
+          "async.call": [
+            "kind",
+            "promise",
+            "child",
+            "callee",
+            "receiver",
+            "arguments"
+          ],
+          "async.await": [
+            "kind",
+            "promise",
+            "invocation",
+            "awaited",
+            "continuation"
+          ],
+          "async.resume": [
+            "kind",
+            "promise",
+            "invocation",
+            "continuation",
+            "status",
+            "value"
+          ],
+          "async.complete": [
+            "kind",
+            "promise",
+            "invocation",
+            "completion"
+          ],
+          "cell.initialize": [
+            "kind",
+            "cell",
+            "loweredName",
+            "value"
+          ],
+          "cell.write": [
+            "kind",
+            "cell",
+            "loweredName",
+            "value"
+          ],
+          "namespace.create": [
+            "kind",
+            "namespaceId",
+            "moduleFile"
+          ],
+          "namespace.keys": [
+            "kind",
+            "namespaceId",
+            "names",
+            "resultId"
+          ],
+          "namespace.read": [
+            "kind",
+            "namespaceId",
+            "exportName",
+            "value"
+          ],
+          "namespace.descriptor": [
+            "kind",
+            "namespaceId",
+            "exportName",
+            "value",
+            "resultId"
           ],
           "memory.construct": [
             "kind",
@@ -577,6 +655,60 @@
             "error",
             "status",
             "value"
+          ],
+          "conversion.begin": [
+            "kind",
+            "id",
+            "goal",
+            "value"
+          ],
+          "conversion.lookup": [
+            "kind",
+            "id",
+            "key",
+            "descriptor",
+            "value",
+            "builtin"
+          ],
+          "conversion.getter.call": [
+            "kind",
+            "id",
+            "child"
+          ],
+          "conversion.getter.return": [
+            "kind",
+            "id",
+            "value"
+          ],
+          "conversion.call": [
+            "kind",
+            "id",
+            "child"
+          ],
+          "conversion.return": [
+            "kind",
+            "id",
+            "value"
+          ],
+          "conversion.builtin": [
+            "kind",
+            "id",
+            "result"
+          ],
+          "conversion.throw": [
+            "kind",
+            "id",
+            "value"
+          ],
+          "conversion.fault": [
+            "kind",
+            "id",
+            "error"
+          ],
+          "conversion.finish": [
+            "kind",
+            "id",
+            "result"
           ],
           "number.begin": [
             "kind",
@@ -802,6 +934,39 @@
             "promise",
             "invocation",
             "completion"
+          ],
+          "promise.adopt.enqueue": [
+            "kind",
+            "promise",
+            "target",
+            "job"
+          ],
+          "promise.adopt.enter": [
+            "kind",
+            "promise",
+            "target",
+            "job",
+            "forwarding"
+          ],
+          "promise.adopt.forward": [
+            "kind",
+            "promise",
+            "target",
+            "job",
+            "status",
+            "value"
+          ],
+          "promise.adopt.self": [
+            "kind",
+            "promise",
+            "error"
+          ],
+          "promise.reaction.complete": [
+            "kind",
+            "job",
+            "owner",
+            "promise",
+            "target"
           ]
         },
         "expressionKinds": [
@@ -834,15 +999,20 @@
         },
         "profile": "symbols-ordinary-properties/1",
         "extensions": [
+          "bound-module-scheduler/1",
+          "async-scoped-call/1",
+          "module-namespace-live-cells/1",
           "owned-binary-memory/1",
           "class-construction/1",
           "builtin-iterator/1",
           "ordinary-for-in/1",
           "promise-join/1",
+          "primitive-conversion/1",
           "number-conversion/1",
           "synchronous-generator/1",
           "ordinary-data-proxy/1",
-          "promise-executor/1"
+          "promise-executor/1",
+          "promise-adoption/1"
         ],
         "limits": {
           "symbols": 4096,
@@ -850,7 +1020,7 @@
           "calls": 64,
           "steps": 32768
         },
-        "meaning": "Checked Symbol identities, descriptors, receiver-aware access, scoped calls, construction, iterators, ordinary enumeration, generators, Number conversion, Promise joins and executors, Proxy traps and binary memory in the same authoritative heap."
+        "meaning": "Checked Symbol identities, descriptors, receiver-aware access, scoped calls, construction, iterators, ordinary enumeration, generators, Number and PropertyKey conversion, Promise joins and executors, Proxy traps and binary memory in the same authoritative heap."
       }
     },
     "algorithm": {
@@ -1623,6 +1793,210 @@
         }
       }
     },
+    "lifecycle": {
+      "executionVersion": "semantic-lifecycle/8",
+      "traceVersion": "semantic-trace/8",
+      "contextVersion": "semantic-context/8",
+      "continuationVersion": "semantic-continuation/8",
+      "profile": "selected-harness/8",
+      "checkpointVersion": "semantic-checkpoint/8",
+      "supervisionVersion": "semantic-supervision/8",
+      "records": {
+        "program": {
+          "mode": "observed",
+          "required": [
+            "programId",
+            "digest",
+            "entry",
+            "source",
+            "sites",
+            "functions",
+            "capabilities",
+            "dependencies",
+            "sourceMap",
+            "languageProfile",
+            "module",
+            "sourceMetadata"
+          ],
+          "optional": [
+            "randomSeed"
+          ]
+        },
+        "invocation": {
+          "mode": "observed",
+          "required": [
+            "programId",
+            "invocationId",
+            "realmId",
+            "triggerId",
+            "completionPolicy",
+            "realmPolicy",
+            "inputGraph",
+            "entry",
+            "sourceDigest",
+            "receiver",
+            "closureId",
+            "activation",
+            "parentInvocationId",
+            "taskRevision",
+            "deadline",
+            "bindings",
+            "ingressKey"
+          ],
+          "optional": []
+        },
+        "semantic": {
+          "mode": "generated",
+          "required": [
+            "invocationId",
+            "traceFormat",
+            "line"
+          ],
+          "optional": []
+        },
+        "handler": {
+          "mode": "observed",
+          "required": [
+            "subscriptionId",
+            "programId",
+            "realmId",
+            "trackId",
+            "realmPolicy",
+            "entry",
+            "queueLimit",
+            "closureId",
+            "lifetime",
+            "ownerInvocationId"
+          ],
+          "optional": []
+        },
+        "event": {
+          "mode": "observed",
+          "required": [
+            "subscriptionId",
+            "eventId",
+            "invocationId",
+            "triggerId",
+            "programId",
+            "realmId"
+          ],
+          "optional": []
+        },
+        "handler-close": {
+          "mode": "observed",
+          "required": [
+            "subscriptionId",
+            "discarded"
+          ],
+          "optional": []
+        },
+        "realm-close": {
+          "mode": "observed",
+          "required": [
+            "realmId",
+            "reason"
+          ],
+          "optional": []
+        },
+        "dispatch": {
+          "mode": "observed",
+          "required": [
+            "invocationId",
+            "effectId",
+            "key",
+            "attempt"
+          ],
+          "optional": [
+            "nativeAction"
+          ]
+        },
+        "result": {
+          "mode": "observed",
+          "required": [
+            "invocationId",
+            "effectId",
+            "status",
+            "result",
+            "line",
+            "errorOrigin"
+          ],
+          "optional": []
+        },
+        "source-evict": {
+          "mode": "observed",
+          "required": [
+            "programId",
+            "digest"
+          ],
+          "optional": []
+        },
+        "source-read": {
+          "mode": "observed",
+          "required": [
+            "programId",
+            "digest",
+            "source"
+          ],
+          "optional": []
+        },
+        "model-context": {
+          "mode": "observed",
+          "required": [
+            "invocationId",
+            "sourceReads"
+          ],
+          "optional": [
+            "selectedState",
+            "realmPrefixDigest",
+            "visibleThrough"
+          ]
+        },
+        "cancel": {
+          "mode": "observed",
+          "required": [
+            "invocationId",
+            "reason",
+            "uncertain"
+          ],
+          "optional": []
+        },
+        "reconcile": {
+          "mode": "observed",
+          "required": [
+            "invocationId",
+            "effectId",
+            "disposition",
+            "evidenceId"
+          ],
+          "optional": []
+        },
+        "callback-reattach": {
+          "mode": "observed",
+          "required": [
+            "subscriptionId",
+            "realmId",
+            "evidenceId"
+          ],
+          "optional": []
+        }
+      },
+      "selectedStateFields": [
+        "schema",
+        "heap",
+        "locals",
+        "captureAliases",
+        "stack",
+        "continuations",
+        "ready",
+        "callReturn",
+        "pending",
+        "completion",
+        "randomState"
+      ],
+      "intentRecord": "Original canonical V8 detail bytes",
+      "mixedReceipts": "Intent result sequence and owner sequence refer to the mixed public timeline and its owner track. Unjournaled native arrivals are absent from causal contexts.",
+      "recovery": "Replay acknowledged lifecycle records; restored dispatched work is uncertain and is never redispatched without explicit reconciliation."
+    },
     "contextFields": [
       "schema",
       "representation",
@@ -1668,12 +2042,52 @@
         "callFrames",
         "sequence",
         "construction",
+        "primitiveConversions",
         "numberConversions",
         "proxyCalls",
         "promiseExecutors"
       ],
       "initial": null,
       "heap": "Existing heap nodes with property, descriptor and private-element Maps serialized as entry arrays; Symbol keys remain tagged pairs.",
+      "asyncCalls": {
+        "profile": "async-scoped-call/1",
+        "schema": "semantic-async-call-state/1",
+        "fields": [
+          "schema",
+          "owner",
+          "invocation",
+          "callee",
+          "receiver",
+          "arguments",
+          "parent",
+          "phase",
+          "attached",
+          "continuations",
+          "resumeScope",
+          "completion"
+        ],
+        "storage": "Retained asyncCall metadata belongs to its internal execution Promise; asyncFunction marks its callable closure.",
+        "capabilities": "First await detaches the child and restores its caller scope. Later continuations resume in the realm FIFO with the same receiver, live capture cells, and execution Promise. Child completion settles that Promise or stages its exact owned-Promise adoption intent without completing its parent invocation.",
+        "boundaries": "Async Promise callbacks, callable thenables and implicit scheduler completion require separate profiles."
+      },
+      "moduleScheduler": {
+        "profile": "bound-module-scheduler/1",
+        "planSchema": "semantic-bound-module-scheduler-plan/1",
+        "heapFields": [
+          "kind",
+          "properties",
+          "plan",
+          "owner",
+          "state",
+          "records",
+          "settlements",
+          "sequence"
+        ],
+        "storage": "One logical module-scheduler heap node bound to the active observed program source, entry, acyclic module plan, exact driver functions and completion reaction source offsets.",
+        "initialization": "The first generated record initializes the fresh entry ledger using its exact active plan digest. The logical ledger cannot escape into guest values.",
+        "transitions": "Validated scoped calls, owned async awaits and resumes, exact completion reaction dispatch and synchronous driver completion derive module starts, dependency scheduling, settlement and failure propagation from the same shared frames, Promises, jobs and source record objects. No selected record supplies lifecycle facts.",
+        "boundaries": "Compact and algorithm routes, cyclic evaluation, namespace composition, dynamic import, cross-invocation retained ledgers and general production module admission require separate qualification. End requires every bounded module lifecycle to settle."
+      },
       "construction": {
         "schema": "semantic-construction-state/1",
         "fields": [
@@ -1799,10 +2213,12 @@
         "schema": "semantic-promise-join-state/1",
         "modes": [
           "all",
+          "allSettled",
           "race"
         ],
         "fields": [
           "schema",
+          "owner",
           "mode",
           "inputs",
           "jobs",
@@ -1825,7 +2241,55 @@
           "joinIndex",
           "readySequence"
         ],
-        "capabilities": "Ordered Promise dependencies, FIFO internal jobs, first settlement and explicit late no-op steps; fresh result arrays are named only when allocated."
+        "capabilities": "Invocation-owned Promise joins share the realm heap. A settlement publishes eligible dependencies across all retained invocations in registration order; an explicit queueMicrotask preserves enqueue order. Steps require the realm FIFO head and no competing active turn. First settlement and explicit late no-op steps preserve result identity. allSettled allocates one distinct ordinary status/value-or-reason object per input reaction, waits for every input and preserves input order and value aliases. Entries become ordinary mutable guest objects after fulfillment. Collecting joins reserve one array property for length."
+      },
+      "primitiveConversions": {
+        "profile": "primitive-conversion/1",
+        "schema": "semantic-primitive-conversion-state/1",
+        "fields": [
+          "schema",
+          "operations"
+        ],
+        "initial": null,
+        "operationFields": [
+          "id",
+          "parent",
+          "goal",
+          "input",
+          "index",
+          "phase",
+          "lookupKind",
+          "method",
+          "builtin",
+          "child",
+          "candidate",
+          "result",
+          "fault"
+        ],
+        "phases": [
+          "lookup",
+          "getter-call",
+          "getter-waiting",
+          "call",
+          "waiting",
+          "builtin",
+          "finish",
+          "fault",
+          "complete",
+          "abrupt"
+        ],
+        "goals": [
+          "Number",
+          "PropertyKey"
+        ],
+        "faults": {
+          "symbol-to-number": "Cannot convert a Symbol value to a number",
+          "exotic-not-callable": "Symbol.toPrimitive is not callable",
+          "exotic-nonprimitive": "Symbol.toPrimitive must return a primitive",
+          "ordinary-exhausted": "Cannot convert object to primitive value"
+        },
+        "capabilities": "Goal-derived live method order and hint, retained getter results, shared nested callback scopes, original abrupt identities, bounded ordinary builtin leaves and checked scalar conversion.",
+        "boundaries": "Intrinsic fault records are independently derived by replay; original-source admission still refuses them until its complete fault observation authority is qualified. Proxy conversion, dynamic builtin callbacks, compound/logical/update object keys and unbounded stringification remain explicit refusals."
       },
       "numberConversions": {
         "profile": "number-conversion/1",
@@ -1963,7 +2427,58 @@
           "promise",
           "mode"
         ],
-        "capabilities": "Synchronous source executor calls, stable resolving function identities, a shared first-call cell, retained resolvers, primitive or owned Promise resolution, and executor throw rejection. Thenables, self resolution and async executor bodies require separate profiles."
+        "capabilities": "Synchronous source executor calls, stable resolving function identities, a shared first-call cell, retained resolvers, primitive settlement or an exact owned-Promise adoption intent, and executor throw rejection. The first resolve consumes authority before either adoption job. Callable thenables and async executor bodies require separate profiles."
+      },
+      "promiseAdoption": {
+        "profile": "promise-adoption/1",
+        "schema": "semantic-promise-adoption-state/1",
+        "fields": [
+          "schema",
+          "owner",
+          "target",
+          "phase",
+          "cause",
+          "job",
+          "forwarding",
+          "error"
+        ],
+        "phases": [
+          "intent",
+          "queued",
+          "observing",
+          "completed",
+          "self"
+        ],
+        "causes": [
+          "resolver",
+          "async",
+          "reaction",
+          "source"
+        ],
+        "assimilationJobFields": [
+          "status",
+          "owner",
+          "closure",
+          "reaction",
+          "adoptionPromise",
+          "adoptionTarget",
+          "readySequence"
+        ],
+        "forwardingJobFields": [
+          "status",
+          "owner",
+          "promise",
+          "reaction",
+          "closure",
+          "rejectionClosure",
+          "target",
+          "sequence",
+          "adoptionPromise",
+          "adoptionTarget",
+          "readySequence"
+        ],
+        "capabilities": "Owned internal Promises with unchanged intrinsic then lookup use one existing realm FIFO. The original resolver or completed async/reaction frame binds an immediate resolution intent. Enqueue consumes that intent before any further record. The first job registers a forwarding dependency in registration order; a separate FIFO job forwards the settled target. First-call authority remains consumed throughout. Distinct mutual adoption cycles remain pending. Direct self resolution allocates a fresh declared TypeError identity at the self step, without either job. Source admission independently rebuilds each identity and source event.",
+        "boundaries": "Callable thenables, then getters, proxies, changed Promise properties/prototypes, async reaction activation and general Error reflection are outside this slice. A declared self error has ordinary name/message data properties; native Error descriptors, stack and prototype are not claimed equivalent. Original-source checks refuse any observable mismatch."
       },
       "binaryMemory": {
         "profile": "owned-binary-memory/1",
@@ -2025,7 +2540,7 @@
         "dataViewByteOrder": "explicit per operation",
         "capabilities": "Fixed ordinary buffers and fixed/growable shared buffers; scalar conversions; shared view identities; bounded single-agent atomic operations. No detach, transfer, host buffers or cross-agent scheduling."
       },
-      "lifecycle": "One fresh invocation without external host work. Declared ordinary catch/finally and loop cleanup use checked transfer detail. Declared Promise joins and executors may use internal Promise, await, resume, job and transfer detail; join steps require an empty stack and the FIFO ready head. External observations remain outside protocol profiles."
+      "lifecycle": "Protocol and ordinary detail share retained invocations, heap, locals and realm scheduler. Host requests, callbacks and observed results use the same checked lifecycle. Declared catch/finally, loop cleanup and Promise scheduler detail retain their independent profile boundaries. Join steps require an empty stack, the globally next ready owner and the owning invocation."
     },
     "checkpoint": {
       "fields": [
@@ -2033,16 +2548,104 @@
         "profile",
         "public",
         "regionCursor",
+        "ingressCursor",
         "selected",
         "integrity"
       ],
+      "optionalFields": [
+        "ingress",
+        "ingressLog"
+      ],
+      "ingressLogReceipt": {
+        "schema": "semantic-host-ingress-log-receipt/8",
+        "fields": [
+          "schema",
+          "streamId",
+          "position",
+          "id",
+          "bytes"
+        ],
+        "meaning": "Private write-ahead arrival chain head. Each registered or return-value callback arrival is captured before yielding, persisted and read back before queue mutation or delivery. Checkpoints refuse unresolved/failed writes and retain their acknowledged head. Restore requires an independently retained equal or later head; validates every source, public prefix, graph and arrival order before applying absent inputs. Delivered/discarded inputs are reconciled without redispatch; a later public boundary than the checkpoint refuses."
+      },
+      "callbackArrival": {
+        "schema": "semantic-callback-return-arrival/8",
+        "fields": [
+          "schema",
+          "sessionId",
+          "visibleThrough",
+          "prefixDigest",
+          "binding",
+          "event"
+        ],
+        "bindingFields": [
+          "ownerInvocationId",
+          "parentEffectId",
+          "programId",
+          "sourceDigest",
+          "realmId",
+          "trackId",
+          "taskRevision",
+          "deadline",
+          "closureId",
+          "closureCode",
+          "closureCaptures",
+          "effectDigest",
+          "retainedIds"
+        ],
+        "eventFields": [
+          "invocationId",
+          "arrivalSequence",
+          "inputGraph",
+          "receiverValue"
+        ],
+        "meaning": "Private return-value callback input bound to its original source, public prefix, supplied closure/captures and committed external parent. Receiver and arguments share one alias-preserving graph; introduced objects cannot overwrite retained identities. Queued arrivals reconstruct from the independent journal with shared registered-event/callback FIFO. Active and completed children must match public history. Neither an adapter Promise nor an external parent result is reconstructed or inferred."
+      },
+      "ingressReceipt": {
+        "schema": "semantic-host-ingress-receipt/8",
+        "fields": [
+          "schema",
+          "id",
+          "bytes"
+        ],
+        "meaning": "Private reference to immutable canonical pending-ingress snapshot bytes. Its SHA-256 content digest checks integrity against an independently retained expected receipt; it is not broker authentication."
+      },
+      "ingressSnapshot": {
+        "schema": "semantic-pending-host-ingress/8",
+        "fields": [
+          "schema",
+          "sessionId",
+          "visibleThrough",
+          "prefixDigest",
+          "nextIngressSequence",
+          "queues"
+        ],
+        "queueFields": [
+          "subscriptionId",
+          "binding",
+          "events"
+        ],
+        "eventFields": [
+          "eventId",
+          "arrivalSequence",
+          "completionPolicy",
+          "inputGraph"
+        ],
+        "meaning": "Private, bounded registered-event inputs bound to one exact public prefix and source-owned handler. Monotonic arrival sequences preserve eligible callback order within a retained realm; different realms remain independent. The sequence cursor and event graphs never enter model context."
+      },
+      "ingressCursor": "Private next host-event arrival sequence, persisted in generic selected-state and region checkpoints even when no pending snapshot is present.",
       "protocolSelected": {
         "schema": "semantic-protocol-continuation/1",
         "fields": [
           "schema",
-          "invocations"
+          "invocations",
+          "policy"
         ],
-        "meaning": "Exact shared states and activation statuses independently reconstructed from the complete public v8 history."
+        "policyFields": [
+          "maxGenerated",
+          "maxOutstanding",
+          "automaticDelivery"
+        ],
+        "meaning": "Exact shared states, activation statuses and host policy are independently reconstructed from the complete public V8 history. Pending registered events require the separately retained private ingress receipt and snapshot. Queued return-value callbacks require their independently retained journal and exact original input/parent binding. Pending unjournaled native ingress refuses checkpoint creation. Restore marks acknowledged outstanding work uncertain and existing subscriptions lost; only explicitly supplied services and reattachment may recover them. Completed callback return/throw is available for explicit parent reconciliation without recreating adapter continuations or redispatching effects."
       },
       "restore": "Validate public mixed replay and exact shared state. Restore existing intent/handler lifecycle without invoking adapters."
     },
@@ -2060,7 +2663,7 @@
       "default": "not promoted by engineering receipts alone"
     }
   },
-  "digest": "344f7e99aeed605a1965c70f0e0d8829707d6891437ba43dd743fa304cd777dc",
+  "digest": "fd1e64f60ad5b6bb9431db3cd34513a5bd34041cdf7e710a99c5df1205502bf4",
   "fixtureDigest": "56f7f36d3b25b3b11a208be3de337e637b9782e6759faea1e1ec107b0a90f0ce",
   "fixtures": [
     {
@@ -2085,7 +2688,7 @@
       "reason": "old artifacts require their original contract"
     }
   ],
-  "interoperabilityDigest": "ef962002482fbf7adb6698fc435535dfa202b12848907a29ee0e5fbb5683a7c7",
+  "interoperabilityDigest": "b004c2bde15007278d0c26189560ac0362530585f8b7d49d5b1999525fcce975",
   "interoperability": [
     {
       "id": "ordered-map",
@@ -2100,132 +2703,167 @@
     {
       "id": "causal-counter",
       "publicDigest": "c37a66e94edae5d7ca6f80be9bb46ccd8b31afa825074a88612c4b76645dbf4c",
-      "contextDigest": "112e1761435270b82947f142587d23d3c3b424d64f2fc50ab9973f99c54be310"
+      "contextDigest": "034c36e478d1f0fe063f95472d815cf3c34bbedd64a1b87b27f9e1956b953261"
     },
     {
       "id": "number-callback-cleanup",
-      "publicDigest": "caa05bbcd7bc85cde8901263fc6dee8008fb52ad1a827159a8977f4a839a6bd7",
-      "contextDigest": "dfbc7948643309ecf31ecd9d0ff1adce5de21e6d350426af2e4b64bcd130655a"
+      "publicDigest": "1a3e80e1f9ecac7c10c2c1b7a2f74a19bfe87f2efef7b901baf90857ed0d9b6d",
+      "contextDigest": "262eaf17fdeef6a64fc814eece9e861b8c3b8e7b3e573c2ef3b2c82f5853bb79"
     },
     {
       "id": "custom-iterator-close",
-      "publicDigest": "b7f126ce1de9b0596f74502afd5f7a81883f30a73a885b97f97d14c3a02c5bca",
-      "contextDigest": "01a5ecb69f45c8500d54940d3aa413d5241669f54de98cda34fc4ba110674634"
+      "publicDigest": "bc1769fa7d4f0ff2ae78085b1c1380fe77ea522d1c425529a4b600597e077de6",
+      "contextDigest": "b8b86ee728117d6454fabf97025655b08db1467bfc7017269daab110576d4ea1"
     },
     {
       "id": "iterable-binding-close",
-      "publicDigest": "379ce9087733a01ed47718cee54723bdf3804af5b77d52d10fc7cc0d8b4b78b2",
-      "contextDigest": "f47756b3e317b5fe201543a5e8faf21d5d78e255382eba4dce4a9cb675069eb3"
+      "publicDigest": "6aba4f7a76c8a91df57e18f376595bf5c13e48b8b68303e6b81f19baebd7bb36",
+      "contextDigest": "b8c69da5829ea9e222dc4f3f89147c715c4b222146d68b4d847404d6d285be04"
     },
     {
       "id": "protocol-machine",
       "schema": "semantic-protocol-fixtures/1",
-      "fixtureDigest": "5c8ca536f82d51dd77dd797b48abbfcb9b53344b18562f63d219bebb28d34744"
+      "fixtureDigest": "d74a0d17a074abe5997685a94d14b96a5bb2aa804c3d21b2f9e991649e68b3b7"
     },
     {
       "id": "iterator-machine",
       "schema": "semantic-protocol-fixtures/1",
-      "fixtureDigest": "af1ab22e69e91e12d694c4a1c381057360e8284b2b37eb82c0fcb6a4efa7071e"
+      "fixtureDigest": "9e8d6fe28deb6beb83c9a5a7aa9aea03772123adf9cfc66025b62a79d0c88cda"
     },
     {
       "id": "protocol-region:source-symbol-getter-arithmetic",
-      "publicDigest": "8ef59d81dd8326979a12b4708b6005f17773ee84ff5cddb779d0d79927c8c8fa",
-      "contextDigest": "b64e331dd9227885a2e7c5c1fe8f03912cb56e636b9a933ed1ccc28a595a8f4d"
+      "publicDigest": "0af6a72907ab6f224e345a3c84631fa4f59d2335c9c6fbcb2ab632d62d5f8b9f",
+      "contextDigest": "fa08397d0c52697794cc6e64ac92ba0487bdc881850b7af31b6e28fd055840ff"
     },
     {
       "id": "protocol-region:typed-views-shared-backing",
       "publicDigest": "bf88479ca947f7ae6250c493e458db1edac052b1ecd3ebdb8f8fe4f8b52e86d9",
-      "contextDigest": "e5969e47471b300424f46c1901b5d3407743d1e769f4cf328842216238d11c30"
+      "contextDigest": "6097d27410dc23c2d2d0820f7c0a700f47dbfe2fdfbdb2e88e5cca290534cfe4"
     },
     {
       "id": "protocol-region:source-derived-private-arithmetic",
-      "publicDigest": "430041e0644627ee81ba9e0a8fa1b6282fd7870b1637a330197aade3e4a6a34d",
-      "contextDigest": "ca65e9efa24e1744eea065e072d8a17d90e51f9d56a6acf7bfbcc31e52e1f99f"
+      "publicDigest": "801698f79a9c76008e553514885093cbe3408d44ce2c855bd044b651c362d6cc",
+      "contextDigest": "dacdc8fd7302676f185a47674d4694a0fe27b6615188448a419a4ef3b2ee42e6"
     },
     {
       "id": "protocol-region:builtin-iterator-mixed-arithmetic",
-      "publicDigest": "4c23306ead48399d7c166b310702a551b2b9b082e9b4d67c5bb9949c081dd8dd",
-      "contextDigest": "6ea8b7c3eb8f52e4a330c31a62a7b6e093c8eb707a7be29a4863ef3a307751c9"
+      "publicDigest": "e3318681a071869838fa570d678e1e0348b27307e10aab43806bfe059554c7f5",
+      "contextDigest": "5bb152745b025c2ee800af34b9591e4efc98b6442603b9c0fbe845783320fcd0"
     },
     {
       "id": "protocol-region:source-promise-all-reaction-arithmetic",
-      "publicDigest": "d8c09083779e5151b2b0428979b29047af92b370f496a7bba46e4bada20453cd",
-      "contextDigest": "b2b197a8ff29a98d5fa66136b5709cd751fbc2db681193ee058f211a19aa569c"
+      "publicDigest": "99ae88b7fcc6692a936deb0a50343593246c815ea33096815ee56afab4000bef",
+      "contextDigest": "17501da85dc6cce236fa4fb2877221e0093de47b0dbb123ac1ecfe6031de3b69"
     },
     {
       "id": "protocol-region:source-promise-join-rejection-finally",
       "publicDigest": "7d7365fa0f71e2301434f05bc1da3766e09f85588b76d12f94fc4380d5687001",
-      "contextDigest": "3fa9c55786017f220dca5a75dd6b7a53fdd28f8a592ed5ce34ffba051476cc62"
+      "contextDigest": "e9c76d3411c6ad616aef0c7f96bb5562c52f37560e009be083314c32bf2f0c30"
     },
     {
       "id": "protocol-region:source-number-private-arithmetic",
-      "publicDigest": "3543aa60cfb66b183eec2c0f5e80c9ba97b80ede177d517f6d0829c91ff4df7b",
-      "contextDigest": "83ac144618f1c4242d3fb60f9c958cc20e5d76341127ac9f7c621986523f0cbb"
+      "publicDigest": "de4dc283874e9a8cecc14d91c012bf295022cc2174a48e79cbb77734d8a3b953",
+      "contextDigest": "372445ba42b82b04e5f793cc1a30e4abefd98ecef069459584a654f1518a2b11"
     },
     {
       "id": "protocol-region:source-generator-cleanup-suspension",
       "publicDigest": "afd8010d455b42109bfd3bdc369a8011a6d2f463669125b19ba9cf0392cfd197",
-      "contextDigest": "9af058f65f09f808a76aa1c8c90871aa2c5e5a4b9ca06b895711c2b297960d59"
+      "contextDigest": "e37c4eefc1bd41b22fa106a93b341898c0b6b2148ef6410017dc755b9ef33da9"
     },
     {
       "id": "protocol-region:source-generator-delegated-cleanup",
       "publicDigest": "323a3c71c668543e26bd4eb026b003cdbc9546cfd779106461f22493d4753221",
-      "contextDigest": "6e02d196a798526b3e2267a27fc04acc96f0bc6247328dc9ec2d09af07642531"
+      "contextDigest": "bb73f3b91421c6a13c31edc0d1f46dfe2c448f102cf97b2c0e295021f3fdb9b7"
     },
     {
       "id": "protocol-region:source-proxy-traps-arithmetic",
-      "publicDigest": "494e988e8bcc34e561f193cbc51f63db15a53baeea4cf15d4c25f906201b5b73",
-      "contextDigest": "d85ab53565864d9e2e70ba243a55b8eb96fa765c7d3799f18b5bc04f26a883ee"
+      "publicDigest": "be378045ac8bb4d378f73a57f27032e373f282e012b7f562a878a295e5827b24",
+      "contextDigest": "c83407c1b123e983e2d12e5e82c8d352cba22ddd8cd116f99da0632ae9dcb961"
     },
     {
       "id": "protocol-region:source-base-initializer-throw",
       "publicDigest": "80f87fe2375a8e30ebdffa5e10643d69098523b172780e7ebfedc6b68012e777",
-      "contextDigest": "b6ee0279d62e10d84c534bc80bc72fd35736d5303a72ea9ffd516f0072572e49"
+      "contextDigest": "bfe4e1ed19c38999f20a05eff357f88560daef6ca5e3c72467d8f2429f9a09b9"
     },
     {
       "id": "protocol-region:source-derived-initializer-throw",
       "publicDigest": "308db677ef00a9bb681a3013e557b724db1c81d3995c279df5a33bdd09af52b6",
-      "contextDigest": "0bd104ee0ce69e9e2a66c78235f3d53608214dde126c51e2f63ad2214306b7d6"
+      "contextDigest": "9b5ef778ffbe66c0728a9e5917ef4d8b6fcc4d93ceb25f20423e63281c0a109f"
     },
     {
       "id": "protocol-region:source-promise-executor-first-call",
-      "publicDigest": "4ed6debf250dbc07e08e34048f3d3abd2bb7fd60e73882884272aa46004cf03f",
-      "contextDigest": "cd0ed811925bba84d976c3edb96cce4bf64436098533c77d7c890829bd01e082"
+      "publicDigest": "bd8fb032759ae0b2e9232f9c9fcb41aedcb817eeda2ec0cf580617b8572df2c8",
+      "contextDigest": "0ac497b926af426fa28486ce8b3286f4d73eda9656bd5f0e16bb4fd0b6568f4d"
     },
     {
       "id": "protocol-region:source-promise-executor-retained-resolution",
       "publicDigest": "4ebf7b919e5b2191d655b22b2d8fd89dad1f4ecee6f64058ff6c6fde23051811",
-      "contextDigest": "cfcfe519fe9a4a249f541d8245bbf2b764f982ef44f6e86f943fa66af1ba337b"
+      "contextDigest": "f74b44cdbc65a56e9be50edc610862684cb3ade9184241152ffff1315cf885f9"
     },
     {
       "id": "protocol-region:source-promise-executor-abrupt",
       "publicDigest": "2494dc360b6b178634186cdf30f8d227df99ddeeac8ca0a0f1bcff3bec2bbd39",
-      "contextDigest": "4165879acf7aa237c10b80a9a38ac604ad097fb13af15320e59cfddb032ff70b"
+      "contextDigest": "b00f44f4ac7f7d3c87fe38dcdb48eac2a885ac33cfb0e59f6a9747dee6ea1004"
     },
     {
       "id": "protocol-region:source-ordinary-constructor-prototype",
       "publicDigest": "982388a5895e9fc5b37de5ebf970d1f9293e5ca6643c2e128af30bfee7106dfc",
-      "contextDigest": "a94465d7a4819a3b07f2fb78913c48189f091e1521ab94c6d02f6402099247d5"
+      "contextDigest": "405a00717970ebaf1e0ba9a09dd4ac7c3ded89a084659f9f0fd456a82b086639"
     },
     {
       "id": "protocol-region:source-enumeration-map-callback",
       "publicDigest": "9b0ac56b147591d77ef3288f19d3b8e6d1a5bfd8a8b2cf942f96b030b9f881d2",
-      "contextDigest": "be7c7bd47da770aef4eb02641b90f33b551217b61eb7c8617508943059a1cbfc"
+      "contextDigest": "a543bc7f75cf6e9dc2d87efe2ca6a48578d33605a88827b1baccdc2cae49fdc8"
     },
     {
       "id": "protocol-region:generator-own-symbol-alias",
       "publicDigest": "9615d6b976e92697f24ef96fbc06ed29cf47b211f9b8dcbc50bb9cd737b7bc6e",
-      "contextDigest": "e0bbd3a516c4e8cb4e700fb920a0279ab93041b8afdfb3038dec24c85cbc8622"
+      "contextDigest": "1be8c0615a4c3d1e4afd8ece1888a92bf3c04b51a53eb6921d60e2fcb14bc06a"
     },
     {
       "id": "protocol-region:source-logical-left-operands",
-      "publicDigest": "6f244d4b5dd9bcd659bc2bb217c7acbf44371dfaa96427c8810c178540dda3d5",
-      "contextDigest": "c57574aa4588198534eaefcca1dbcbc2fce5a375d3e09cae70dac68bbf8b8410"
+      "publicDigest": "232b1a37f09d71f3ca77a3266f67e6e017395b90d88b22fc4f487158901eb0c7",
+      "contextDigest": "99eec5677d22021291316aaad36adf6571b8fffa86cd27c5a7c43e8a474fa045"
     },
     {
       "id": "protocol-region:source-for-in-own-keys",
       "publicDigest": "5a5961de79bb1d7f3ad2565dba08869aa815f6f1410fce0579cc07afa98f03b3",
-      "contextDigest": "e7b05ac9f3c806862ac5894b7169290f2071b07f283ef4b61ff2d9ed8a601950"
+      "contextDigest": "92eb19f1ac38a3253d4b626cb2c33207e4cc3228053830785a7c957ce6267c84"
+    },
+    {
+      "id": "protocol-region:source-promise-adoption-executor",
+      "publicDigest": "36d138193179ab2abe153499a3e59ca6fbad1aa3208b6531f4a5780294229778",
+      "contextDigest": "ffecb8f64b09f16b939addf6f1cd96a3676b187c35bea04bde3e8863f3f86b3a"
+    },
+    {
+      "id": "protocol-region:source-promise-adoption-async-return",
+      "publicDigest": "248276df4d76e30f9cee1f72741f3d3c8d5248955c907c0609ac7ae1587d7ebf",
+      "contextDigest": "6a43dcb23fe19b3389d4da82cb8ddc229f6450f4afc6be20f3bb6757f868a746"
+    },
+    {
+      "id": "protocol-region:source-promise-adoption-reaction-return",
+      "publicDigest": "fa2f7a1ef47377d8783bf75c76ae250b188c625a8a82c3151119c68e98bd8736",
+      "contextDigest": "ac6c0e3b2eae52e022936524778e8688315a6d0b3b800b900ba40cbe92b62abc"
+    },
+    {
+      "id": "protocol-host:join-host-join",
+      "publicDigest": "59abb5d8e0b7b0e7ed6af87d4369f90c5d95b61f5daa6c1c18a999dfb7b228e1",
+      "contextDigest": "ee1eaee30324938d9f224b6369c891571f42d0fd917888924a3b8a098800d246"
+    },
+    {
+      "id": "protocol-host:join-retained-callback",
+      "publicDigest": "b60b3a888793d220ae03535fc8e6286ceb8c79d4112752ded36a28c2ed363401",
+      "contextDigest": "cc2a15df122394ff76537905a42f9f20f0187e6c8336e473fa927385bbcec254"
+    },
+    {
+      "id": "protocol-host:callback-owned-join",
+      "publicDigest": "160e87a503e36397e15bc95cd2cda3ac87f961181df673d1734311ccb6ab0d9d",
+      "contextDigest": "a2a8792b8d26da8c2a324f8d990138a4d078356d41d2e8442439817f3578cecf"
+    },
+    {
+      "id": "protocol-host:callback-owned-join-awaited",
+      "publicDigest": "7a390eba215b3bf8e0922c0e5cd54fc56403b84e142612884e6f160f4910d950",
+      "contextDigest": "eae4e8e21657c3430573010861aacdbc4170a02c4449fea4d077a4b74efbd0e9"
     }
   ]
 }

@@ -1,0 +1,34 @@
+{
+  "README.md": {
+    "bytes": 2211,
+    "sha256": "f8763af4f9c74c0b1ea6b1dc2d9b57c03427fd3f678ae7800b075fdda606dd58"
+  },
+  "native-corrected.log.gz": {
+    "bytes": 101,
+    "sha256": "57d53364876686cb086bc03ad1b651d97f48c9159b4d6a90eb1f469882de2e8a"
+  },
+  "native-corrected.xml.gz": {
+    "bytes": 5836,
+    "sha256": "e6b9b1319613f880a351adc522acd649473d4bc23ca81f76e883f6e68e5c4432"
+  },
+  "native-import-order.log.gz": {
+    "bytes": 53,
+    "sha256": "b5ee19a251d87bb99ba0ecdfd9206f4f7b369e980f6578c74828f0393dcd7879"
+  },
+  "native-import-order.xml.gz": {
+    "bytes": 611,
+    "sha256": "bce194c135b41be232e419239e7616fd0399d24e816b0624488927e8ae0b71fb"
+  },
+  "native-initial-failure.log.gz": {
+    "bytes": 5280,
+    "sha256": "1fe21481a28f4ddb7d0edc078e2ed38f1e3ddffe03b39640f2dc2124efa5a215"
+  },
+  "native-initial-failure.xml.gz": {
+    "bytes": 8278,
+    "sha256": "a88db78d9746de66980eaf8e0a849cdfe948bf7a85744fa198759c8b1f59c2e0"
+  },
+  "qualification.json": {
+    "bytes": 1774,
+    "sha256": "3343c3d48362a09c5cdd33de6e93b8ad11e0bb86146b3afca2b2025857a28c64"
+  }
+}

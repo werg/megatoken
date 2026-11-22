@@ -68,6 +68,55 @@ def define(state, identity, key, value):
 
 
 class NumberProtocolTests(unittest.TestCase):
+    def test_retained_number_protocol_cannot_invent_function_prototype_stringification(self):
+        state = machine()
+        allocate(state, "prototype", "closure")
+        allocate(state, "input")
+        apply_protocol_record(
+            state,
+            {
+                "kind": "property.prototype",
+                "object": "input",
+                "prototype": ["ref", "prototype"],
+                "success": True,
+            },
+        )
+        apply(state, {"kind": "number.begin", "id": "n", "value": ["ref", "input"]})
+        apply(
+            state,
+            {
+                "kind": "number.select",
+                "id": "n",
+                "key": ["symbol", "well-known:toPrimitive"],
+                "method": ["undefined"],
+                "builtin": None,
+            },
+        )
+        apply(
+            state,
+            {
+                "kind": "number.select",
+                "id": "n",
+                "key": ["str", "valueOf"],
+                "method": ["undefined"],
+                "builtin": "Object.valueOf",
+            },
+        )
+        apply(state, {"kind": "number.builtin", "id": "n", "result": ["ref", "input"]})
+        before = copy.deepcopy(state)
+        with self.assertRaisesRegex(ProtocolV8Error, "function intrinsic prototype"):
+            apply(
+                state,
+                {
+                    "kind": "number.select",
+                    "id": "n",
+                    "key": ["str", "toString"],
+                    "method": ["undefined"],
+                    "builtin": "Object.toString",
+                },
+            )
+        self.assertEqual(state, before)
+
     def test_cleanup_scope_transfer_is_bounded_and_cannot_skip_number_conversion(self):
         from megatoken.data.protocol_v8 import (
             _external_machine,

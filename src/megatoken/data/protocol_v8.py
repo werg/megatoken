@@ -10,8 +10,12 @@ import copy
 import json
 import math
 
-from . import algorithm_v7 as v7
-from .algorithm_v7 import stable_algorithm_json
+from . import semantic_primitives as primitives
+from .async_call_v8 import FIELDS as ASYNC_CALL_FIELDS
+from .async_call_v8 import apply_record as apply_async_call_record
+from .async_call_v8 import assert_next as assert_async_call_next
+from .async_call_v8 import validate_record as validate_async_call_record
+from .async_call_v8 import validate_state as validate_async_call_state
 from .construction_v8 import FIELDS as CONSTRUCTION_FIELDS
 from .construction_v8 import apply_record as apply_construction_record
 from .construction_v8 import assert_next as assert_construction_next
@@ -34,11 +38,28 @@ from .memory_v8 import FIELDS as MEMORY_FIELDS
 from .memory_v8 import apply_record as apply_memory_record
 from .memory_v8 import validate_record as validate_memory_record
 from .memory_v8 import validate_state as validate_memory_state
+from .module_scheduler_machine_v8 import FIELDS as MODULE_SCHEDULER_FIELDS
+from .module_scheduler_machine_v8 import INITIALIZE as MODULE_SCHEDULER_INITIALIZE
+from .module_scheduler_machine_v8 import advance as advance_module_scheduler
+from .module_scheduler_machine_v8 import assert_next as assert_module_scheduler_next
+from .module_scheduler_machine_v8 import initialize as initialize_module_scheduler
+from .module_scheduler_machine_v8 import validate_record as validate_module_scheduler_record
+from .module_scheduler_machine_v8 import validate_state as validate_module_scheduler_state
 from .number_v8 import FIELDS as NUMBER_FIELDS
 from .number_v8 import apply_record as apply_number_record
 from .number_v8 import assert_next as assert_number_next
 from .number_v8 import validate_record as validate_number_record
 from .number_v8 import validate_state as validate_number_state
+from .primitive_conversion_v8 import FIELDS as PRIMITIVE_CONVERSION_FIELDS
+from .primitive_conversion_v8 import apply_record as apply_primitive_conversion_record
+from .primitive_conversion_v8 import assert_next as assert_primitive_conversion_next
+from .primitive_conversion_v8 import validate_record as validate_primitive_conversion_record
+from .primitive_conversion_v8 import validate_state as validate_primitive_conversion_state
+from .promise_adoption_v8 import FIELDS as PROMISE_ADOPTION_FIELDS
+from .promise_adoption_v8 import apply_record as apply_promise_adoption_record
+from .promise_adoption_v8 import assert_next as assert_promise_adoption_next
+from .promise_adoption_v8 import validate_record as validate_promise_adoption_record
+from .promise_adoption_v8 import validate_state as validate_promise_adoption_state
 from .promise_executor_v8 import FIELDS as PROMISE_EXECUTOR_FIELDS
 from .promise_executor_v8 import apply_record as apply_promise_executor_record
 from .promise_executor_v8 import assert_callable as assert_promise_executor_callable
@@ -53,8 +74,17 @@ from .proxy_v8 import apply_record as apply_proxy_record
 from .proxy_v8 import assert_next as assert_proxy_next
 from .proxy_v8 import validate_record as validate_proxy_record
 from .proxy_v8 import validate_state as validate_proxy_state
+from .semantic_json import stable_algorithm_json
 
 PREFIX = "protocol "
+NAMESPACE_RECORD_KINDS = {
+    "cell.initialize",
+    "cell.write",
+    "namespace.create",
+    "namespace.keys",
+    "namespace.read",
+    "namespace.descriptor",
+}
 SCHEMA = "semantic-protocol-record/1"
 STATE_SCHEMA = "semantic-protocol-state/1"
 WELL_KNOWN = (
@@ -88,6 +118,12 @@ FIELDS = {
         "lexicalReceiver",
     },
     "bind": {"kind", "name", "value"},
+    "cell.initialize": {"kind", "cell", "loweredName", "value"},
+    "cell.write": {"kind", "cell", "loweredName", "value"},
+    "namespace.create": {"kind", "namespaceId", "moduleFile"},
+    "namespace.keys": {"kind", "namespaceId", "names", "resultId"},
+    "namespace.read": {"kind", "namespaceId", "exportName", "value"},
+    "namespace.descriptor": {"kind", "namespaceId", "exportName", "value", "resultId"},
     "compute": {"kind", "expr", "result", "bind"},
     "choose": {"kind", "expr", "decision", "path"},
     "call": {"kind", "child", "callee", "receiver", "arguments"},
@@ -118,7 +154,9 @@ FIELDS.update(ITERATOR_FIELDS)
 FIELDS.update(ENUMERATION_FIELDS)
 FIELDS.update(PROMISE_JOIN_FIELDS)
 FIELDS.update(PROMISE_EXECUTOR_FIELDS)
+FIELDS.update(PROMISE_ADOPTION_FIELDS)
 FIELDS.update(NUMBER_FIELDS)
+FIELDS.update(PRIMITIVE_CONVERSION_FIELDS)
 FIELDS.update(GENERATOR_FIELDS)
 FIELDS.update(PROXY_FIELDS)
 
@@ -143,7 +181,7 @@ def validate_protocol_value(value):
             _fail("symbol value")
         _identity(value[1])
         return True
-    v7._validate_value(value)
+    primitives._validate_value(value)
     return True
 
 
@@ -239,14 +277,22 @@ def _expression(term, depth=0, budget=None):
 def validate_protocol_record(record):
     if type(record) is not dict or not isinstance(record.get("kind"), str):
         _fail("record kind must be a string")
+    if record["kind"] in MODULE_SCHEDULER_FIELDS:
+        return validate_module_scheduler_record(record)
+    if record["kind"] in ASYNC_CALL_FIELDS:
+        return validate_async_call_record(record)
     if record["kind"] in ENUMERATION_FIELDS:
         return validate_enumeration_record(record)
     if record["kind"] in PROMISE_EXECUTOR_FIELDS:
         return validate_promise_executor_record(record)
+    if record["kind"] in PROMISE_ADOPTION_FIELDS:
+        return validate_promise_adoption_record(record)
     if type(record) is dict and record.get("kind") in PROXY_FIELDS:
         return validate_proxy_record(record)
     if type(record) is dict and record.get("kind") in NUMBER_FIELDS:
         return validate_number_record(record)
+    if record["kind"] in PRIMITIVE_CONVERSION_FIELDS:
+        return validate_primitive_conversion_record(record)
     if type(record) is dict and record.get("kind") in GENERATOR_FIELDS:
         return validate_generator_record(record)
     if type(record) is dict and record.get("kind") in PROMISE_JOIN_FIELDS:
@@ -284,13 +330,13 @@ def validate_protocol_record(record):
     if type(record) is not dict or record.get("kind") not in FIELDS:
         _fail("record kind")
     _exact(record, FIELDS[record["kind"]], "record")
-    for key in ("id", "name", "object", "child", "invocation"):
+    for key in ("id", "name", "object", "child", "invocation", "namespaceId", "resultId"):
         if key in record:
             _identity(record[key])
     if "bind" in record and record["bind"] is not None:
         _identity(record["bind"])
     for key in ("value", "result", "decision", "receiver", "callee", "symbol"):
-        if key in record:
+        if key in record and not (record["kind"] == "namespace.descriptor" and key == "value"):
             validate_protocol_value(record[key])
     if "success" in record and type(record["success"]) is not bool:
         _fail("success boolean")
@@ -299,7 +345,40 @@ def validate_protocol_record(record):
     if record["kind"].startswith("property.") and "key" in record:
         validate_protocol_key(record["key"])
     kind = record["kind"]
-    if kind == "symbol.create":
+    if kind in ("cell.initialize", "cell.write"):
+        _identity(record["cell"])
+        _identity(record["loweredName"])
+        validate_protocol_value(record["value"])
+    elif kind == "namespace.create":
+        if not isinstance(record["moduleFile"], str):
+            _fail("namespace module file")
+    elif kind == "namespace.keys":
+        if not isinstance(record["names"], list) or any(
+            not isinstance(name, str) for name in record["names"]
+        ):
+            _fail("namespace key list")
+    elif kind == "namespace.read":
+        if not isinstance(record["exportName"], str):
+            _fail("namespace export name")
+        validate_protocol_value(record["value"])
+    elif kind == "namespace.descriptor":
+        if not isinstance(record["exportName"], str) or type(record["value"]) is not dict:
+            _fail("namespace descriptor")
+        descriptor = record["value"]
+        _exact(
+            descriptor, {"value", "writable", "enumerable", "configurable"}, "namespace descriptor"
+        )
+        validate_protocol_value(descriptor["value"])
+        if (
+            type(descriptor["writable"]) is not bool
+            or type(descriptor["enumerable"]) is not bool
+            or type(descriptor["configurable"]) is not bool
+            or descriptor["writable"] is not True
+            or descriptor["enumerable"] is not True
+            or descriptor["configurable"] is not False
+        ):
+            _fail("namespace descriptor flags")
+    elif kind == "symbol.create":
         validate_protocol_value(record["description"])
         if record["description"][0] not in ("str", "undefined"):
             _fail("symbol description")
@@ -426,6 +505,7 @@ def create_protocol_state():
         "sequence": 0,
         "construction": None,
         "numberConversions": None,
+        "primitiveConversions": None,
         "proxyCalls": None,
         "promiseExecutors": None,
     }
@@ -655,7 +735,7 @@ def _array_length(value):
     # ArraySetLength applies ToNumber/ToUint32 before comparing the values.
     # Abrupt conversions need an explicit throw record, not a false success flag.
     try:
-        number = v7._to_number(value)
+        number = primitives._to_number(value)
     except TypeError:
         _fail("array length coercion requires an explicit abrupt boundary")
     if not math.isfinite(number) or not 0 <= number <= 4294967295 or int(number) != number:
@@ -767,7 +847,7 @@ def _eval(machine, expr):
     op = expr["op"]
     if op == "logical-test":
         left = _eval(machine, expr["arg"])
-        truthy = left[0] == "symbol" or v7._truthy(left)
+        truthy = left[0] == "symbol" or primitives._truthy(left)
         skip_right = (
             not truthy
             if expr["operator"] == "&&"
@@ -803,7 +883,7 @@ def _eval(machine, expr):
             "typeof": "type_of",
             "void": "void",
         }
-        return _normalize_number(v7._operation(opmap[expr["operator"]], [a]))
+        return _normalize_number(primitives._operation(opmap[expr["operator"]], [a]))
     left = _eval(machine, expr["left"])
     right = _eval(machine, expr["right"])
     operator = expr["operator"]
@@ -838,7 +918,7 @@ def _eval(machine, expr):
         ">>": "shift_right",
         ">>>": "unsigned_shift_right",
     }
-    return _normalize_number(v7._operation(opmap[operator], [left, right]))
+    return _normalize_number(primitives._operation(opmap[operator], [left, right]))
 
 
 def _normalize_number(value):
@@ -860,14 +940,26 @@ def _apply(machine, record):
         _fail("property finish must consume child completion")
     if machine.get("completion") is not None:
         _fail("record after completion")
-    if not machine["stack"] and record["kind"] not in ("end", "promise.join.step"):
+    if not machine["stack"] and record["kind"] not in (
+        "end",
+        "promise.join.step",
+        "async.resume",
+        "promise.reaction.complete",
+        "promise.adopt.enqueue",
+        "promise.adopt.self",
+        "promise.adopt.enter",
+        "promise.adopt.forward",
+    ):
         _fail("active invocation required")
     kind = record["kind"]
     if not machine.get("_internalProtocolTransition"):
+        assert_async_call_next(machine, record)
         assert_number_next(machine, record)
+        assert_primitive_conversion_next(machine, record)
         assert_generator_next(machine, record)
         assert_proxy_next(machine, record)
         assert_promise_executor_next(machine, record)
+        assert_promise_adoption_next(machine, record)
         assert_promise_join_next(machine, record)
     if p.get("construction") is not None:
         assert_construction_next(machine, record)
@@ -883,6 +975,10 @@ def _apply(machine, record):
         if not apply_enumeration_record(machine, record):
             _fail("unsupported enumeration transition")
         return
+    if kind in ASYNC_CALL_FIELDS:
+        if not apply_async_call_record(machine, record):
+            _fail("unsupported async call transition")
+        return
     if kind in PROMISE_JOIN_FIELDS:
         if not apply_promise_join_record(machine, record):
             _fail("unsupported Promise join transition")
@@ -891,9 +987,17 @@ def _apply(machine, record):
         if not apply_promise_executor_record(machine, record):
             _fail("unsupported Promise executor transition")
         return
+    if kind in PROMISE_ADOPTION_FIELDS:
+        if not apply_promise_adoption_record(machine, record):
+            _fail("unsupported Promise adoption transition")
+        return
     if kind in NUMBER_FIELDS:
         if not apply_number_record(machine, record):
             _fail("unsupported Number transition")
+        return
+    if kind in PRIMITIVE_CONVERSION_FIELDS:
+        if not apply_primitive_conversion_record(machine, record):
+            _fail("unsupported primitive conversion transition")
         return
     if kind in GENERATOR_FIELDS:
         if not apply_generator_record(machine, record):
@@ -1023,7 +1127,7 @@ def _apply(machine, record):
         if kind == "choose":
             if record["path"] not in ("then", "else", "use-left", "evaluate-right"):
                 _fail("unsupported short-circuit path")
-            truthy = result[0] == "symbol" or v7._truthy(result)
+            truthy = result[0] == "symbol" or primitives._truthy(result)
             if record["path"] == "then" and not truthy or record["path"] == "else" and truthy:
                 _fail("false branch path")
             if record["path"] in ("use-left", "evaluate-right"):
@@ -1048,6 +1152,8 @@ def _apply(machine, record):
             _fail("owned callable required")
         if node.get("generatorFunction") is True and not machine.get("_internalProtocolTransition"):
             _fail("generator call requires its declared creation/resume protocol")
+        if node.get("asyncFunction") is True and not machine.get("_internalProtocolTransition"):
+            _fail("async callable requires its execution-Promise call protocol")
         if node.get("callable", {}).get("classConstructor"):
             _fail("class constructor cannot be called without construction")
         if any(capture["cell"] not in machine["locals"] for capture in node["captures"]):
@@ -1375,27 +1481,25 @@ def _external_machine(machine):
     return result
 
 
-def replay_protocol_case(case):
+def replay_protocol_case(case, *, namespace_plan=None):
     if not isinstance(case, dict) or not isinstance(case.get("lines"), list):
         _fail("protocol case shape")
-    machine = _internal_machine(case["initialState"])
+    state = copy.deepcopy(case["initialState"])
     for number, line in enumerate(case["lines"]):
         try:
-            record = decode_protocol_record(line)
+            decode_protocol_record(line)
         except ProtocolV8Error as error:
             raise ProtocolV8Error(f"protocol line {number}: {error}") from error
-        apply_protocol_record(machine, record)
+        state = apply_protocol_to_shared_state(state, line, namespace_plan=namespace_plan)
         if number + 1 in case.get("checkpoints", []):
-            serialized = json.loads(
-                json.dumps(_external_machine(machine), separators=(",", ":"), ensure_ascii=False)
-            )
-            machine = _internal_machine(serialized)
+            state = json.loads(json.dumps(state, separators=(",", ":"), ensure_ascii=False))
+            machine = _internal_machine(state)
             if machine["protocol"]["sequence"] != number + 1:
                 _fail("checkpoint sequence")
             validate_protocol_state(
                 machine["protocol"], machine["heap"], _external_machine(machine)
             )
-    return _external_machine(machine)
+    return state
 
 
 def validate_protocol_state(snapshot, heap_ids=(), shared_state=None):
@@ -1406,6 +1510,7 @@ def validate_protocol_state(snapshot, heap_ids=(), shared_state=None):
         "callFrames",
         "sequence",
         "numberConversions",
+        "primitiveConversions",
         "proxyCalls",
         "promiseExecutors",
     }
@@ -1551,6 +1656,12 @@ def validate_protocol_state(snapshot, heap_ids=(), shared_state=None):
             else {"heap": heap_nodes, "protocol": snapshot}
         )
         validate_construction_record_state(snapshot["construction"], construction_machine)
+    if snapshot["primitiveConversions"] is not None:
+        if shared_state is None:
+            _fail("primitive conversion validation requires complete shared state")
+        conversion_machine = _internal_machine(shared_state)
+        conversion_machine["protocol"] = snapshot
+        validate_primitive_conversion_state(conversion_machine)
     if shared_state is not None:
         active_machine = _internal_machine(shared_state)
         for binding, cell in active_machine.get("captureAliases", {}).items():
@@ -1610,22 +1721,122 @@ def validate_protocol_state(snapshot, heap_ids=(), shared_state=None):
         from .promise_executor_v8 import validate_state as validate_promise_executor_state
 
         validate_promise_executor_state(memory_machine)
+        validate_promise_adoption_state(memory_machine)
         validate_number_state(memory_machine)
         validate_generator_state(memory_machine)
+        validate_async_call_state(memory_machine)
+        validate_module_scheduler_state(memory_machine)
         validate_proxy_state(memory_machine)
     return True
 
 
-def apply_protocol_to_shared_state(shared_state, line):
+def _assert_no_generic_source_cell_write(machine, record, namespace_plan):
+    if namespace_plan is None or record["kind"] not in {"bind", "compute", "symbol.read"}:
+        return
+    from .module_namespace_state_v8 import verify_experimental_module_namespace_plan
+
+    verify_experimental_module_namespace_plan(namespace_plan)
+    source_cells = {
+        cell["id"]: cell
+        for cell in namespace_plan["cells"]
+        if any(
+            export["cell"] == cell["id"]
+            for namespace in namespace_plan["namespaces"]
+            for export in namespace["exports"]
+        )
+    }
+    aliases = machine.get("captureAliases", {})
+    protected = {
+        aliases.get(cell["loweredName"], cell["loweredName"]) for cell in source_cells.values()
+    }
+    protected.update(
+        aliases.get(namespace["namespaceName"], namespace["namespaceName"])
+        for namespace in namespace_plan["namespaces"]
+    )
+    target = record.get("name") if record["kind"] == "bind" else record.get("bind")
+    if target is not None and aliases.get(target, target) in protected:
+        _fail("namespace owner and source cells require their declared lifecycle records")
+
+
+def apply_protocol_to_shared_state(
+    shared_state, line, *, namespace_plan=None, module_scheduler_plan=None
+):
     """Apply a protocol/1 line to the v8 shared heap/locals/call stack."""
     record = decode_protocol_record(line)
     machine = _internal_machine(shared_state)
     if machine.get("protocol") is None:
         machine["protocol"] = create_protocol_state()
+    _assert_no_generic_source_cell_write(machine, record, namespace_plan)
     external = _external_machine(machine)
     validate_protocol_state(external["protocol"], external["heap"], external)
-    apply_protocol_record(machine, record)
-    return _external_machine(machine)
+
+    if module_scheduler_plan is not None or record["kind"] == MODULE_SCHEDULER_INITIALIZE:
+        try:
+            assert_module_scheduler_next(machine, record, module_scheduler_plan)
+        except ValueError as error:
+            _fail(str(error))
+
+    if record["kind"] not in NAMESPACE_RECORD_KINDS:
+        before = copy.deepcopy(external)
+        if record["kind"] == MODULE_SCHEDULER_INITIALIZE:
+            try:
+                initialize_module_scheduler(machine, record, module_scheduler_plan)
+                machine["protocol"]["sequence"] += 1
+            except ValueError as error:
+                _fail(str(error))
+        else:
+            apply_protocol_record(machine, record)
+        if module_scheduler_plan is not None:
+            try:
+                advance_module_scheduler(
+                    _internal_machine(before), machine, record, module_scheduler_plan
+                )
+            except ValueError as error:
+                _fail(str(error))
+        external_updated = _external_machine(machine)
+        if namespace_plan is not None:
+            from .module_namespace_machine_v8 import (
+                assert_experimental_module_namespace_state_unchanged,
+            )
+
+            assert_experimental_module_namespace_state_unchanged(
+                before, external_updated, namespace_plan
+            )
+        return external_updated
+
+    if namespace_plan is None:
+        _fail("source-derived namespace plan is required")
+    p = machine["protocol"]
+    if not machine.get("stack") or machine.get("completion") is not None or p["pendingCalls"]:
+        _fail("active invocation with no pending property child required for namespace transition")
+    if p["sequence"] >= 32768:
+        _fail("protocol step budget")
+    # Preserve the exact global ordering guards used by ordinary protocol records.
+    assert_number_next(machine, record)
+    assert_primitive_conversion_next(machine, record)
+    assert_generator_next(machine, record)
+    assert_async_call_next(machine, record)
+    assert_proxy_next(machine, record)
+    assert_promise_executor_next(machine, record)
+    assert_promise_adoption_next(machine, record)
+    assert_promise_join_next(machine, record)
+    if p.get("construction") is not None:
+        assert_construction_next(machine, record)
+
+    from .module_namespace_machine_v8 import (
+        apply_experimental_module_namespace_shared_transition,
+        validate_experimental_module_namespace_shared_state,
+    )
+
+    staged = apply_experimental_module_namespace_shared_transition(
+        _external_machine(machine), namespace_plan, record
+    )
+    updated = _internal_machine(staged)
+    updated["protocol"]["sequence"] = p["sequence"] + 1
+    external_updated = _external_machine(updated)
+    validate_protocol_state(updated["protocol"], updated["heap"], external_updated)
+    validate_experimental_module_namespace_shared_state(external_updated, namespace_plan)
+    return external_updated
 
 
 def validate_completion_detail(shared_state, kind, fields):
@@ -1730,20 +1941,49 @@ def validate_completion_detail(shared_state, kind, fields):
     return True
 
 
-def assert_detailed_record_compatible(shared_state, kind, fields):
+def _assert_no_detailed_source_cell_write(machine, kind, fields, namespace_plan):
+    if namespace_plan is None or kind not in {"bind", "compute"}:
+        return
+    from .module_namespace_state_v8 import verify_experimental_module_namespace_plan
+
+    verify_experimental_module_namespace_plan(namespace_plan)
+    aliases = machine.get("captureAliases", {})
+    protected = {
+        aliases.get(cell["loweredName"], cell["loweredName"])
+        for cell in namespace_plan["cells"]
+        if any(
+            export["cell"] == cell["id"]
+            for namespace in namespace_plan["namespaces"]
+            for export in namespace["exports"]
+        )
+    }
+    protected.update(
+        aliases.get(namespace["namespaceName"], namespace["namespaceName"])
+        for namespace in namespace_plan["namespaces"]
+    )
+    target = fields.get("name") if kind == "bind" else fields.get("bind")
+    if target is not None and aliases.get(target, target) in protected:
+        _fail("Detailed write to namespace owner/source cell bypasses lifecycle record")
+
+
+def assert_detailed_record_compatible(shared_state, kind, fields, *, namespace_plan=None):
     """Reject legacy detail that would bypass rich protocol property state."""
     validate_completion_detail(shared_state, kind, fields)
+    machine = _internal_machine(shared_state)
+    _assert_no_detailed_source_cell_write(machine, kind, fields, namespace_plan)
     protocol = shared_state.get("protocol")
     if protocol is None:
         return True
-    machine = _internal_machine(shared_state)
     if protocol["pendingCalls"] and protocol["pendingCalls"][-1]["child"] not in machine["stack"]:
         _fail("pending property completion requires protocol finish")
     assert_construction_next(machine, {"kind": kind, **fields})
     assert_number_next(machine, {"kind": kind, "fields": fields})
+    assert_primitive_conversion_next(machine, {"kind": kind, "fields": fields})
     assert_generator_next(machine, {"kind": kind, **fields})
+    assert_async_call_next(machine, {"kind": kind, **fields})
     assert_proxy_next(machine, {"kind": kind, **fields})
     assert_promise_executor_next(machine, {"kind": kind, **fields})
+    assert_promise_adoption_next(machine, {"kind": kind, **fields})
     assert_promise_join_next(machine, {"kind": kind, **fields})
 
     def rich(node):
@@ -1766,6 +2006,9 @@ def assert_detailed_record_compatible(shared_state, kind, fields):
             or node.get("kind") == "generator"
             or node.get("kind") == "enumerator"
             or node.get("generatorFunction") is True
+            or node.get("asyncFunction") is True
+            or "asyncCall" in node
+            or node.get("kind") == "module-scheduler"
             or node.get("kind") == "proxy"
             or node.get("promiseResolver")
         )
@@ -1803,6 +2046,8 @@ def assert_detailed_record_compatible(shared_state, kind, fields):
         target = machine["heap"].get(identity)
         if target and target.get("generatorFunction") is True:
             _fail("Detailed call bypasses generator creation/resume protocol")
+        if target and target.get("asyncFunction") is True:
+            _fail("Detailed call bypasses async execution-Promise protocol")
         if kind == "call" and target:
             assert_promise_executor_callable(machine, ["ref", identity])
     if shared_state["protocol"]["pendingCalls"] and kind == "end":
