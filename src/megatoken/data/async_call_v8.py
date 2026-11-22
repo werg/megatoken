@@ -362,6 +362,21 @@ def apply_record(machine, record):
                 "phase": "enqueue",
             },
         }
+        jobs[record["settlementJob"]] = {
+            "status": "reserved",
+            "owner": call["owner"],
+            "promise": None,
+            "reaction": "async-resolution-reserved",
+            "closure": None,
+            "rejectionClosure": None,
+            "target": record["promise"],
+            "sequence": None,
+            "asyncResolution": {
+                "promise": record["promise"],
+                "target": record["target"],
+                "phase": "reserved",
+            },
+        }
         machine.setdefault("ready", []).append(record["job"])
         store_rows(machine, "jobs", jobs)
         return True
@@ -369,6 +384,7 @@ def apply_record(machine, record):
         resolution = call.get("resolution")
         jobs = rows(machine.get("jobs", []))
         job = jobs.get(record["job"])
+        reserved = jobs.get(record["settlementJob"])
         target = machine["heap"].get(record["target"])
         _require(
             call["phase"] == "completed"
@@ -387,6 +403,12 @@ def apply_record(machine, record):
             and job["reaction"] == "async-resolution-enqueue"
             and job.get("asyncResolution")
             == {"promise": record["promise"], "target": record["target"], "phase": "enqueue"}
+            and reserved is not None
+            and reserved.get("owner") == call["owner"]
+            and reserved.get("status") == "reserved"
+            and reserved.get("reaction") == "async-resolution-reserved"
+            and reserved.get("asyncResolution")
+            == {"promise": record["promise"], "target": record["target"], "phase": "reserved"}
             and machine["ready"][:1] == [record["job"]]
             and not machine["stack"]
             and machine.get("activeJob") is None
@@ -843,10 +865,18 @@ def _validate_resolution_state(machine, identity, node, call):
         "retained async assimilation job differs",
     )
     if resolution["phase"] == "queued":
+        settlement = jobs.get(settlement_id)
         _require(
             assimilation.get("status") == "queued"
             and assimilation_id in ready
-            and settlement_id not in jobs
+            and settlement is not None
+            and settlement.get("owner") == call["owner"]
+            and settlement.get("status") == "reserved"
+            and settlement.get("reaction") == "async-resolution-reserved"
+            and settlement.get("target") == identity
+            and settlement.get("asyncResolution")
+            == {"promise": identity, "target": target_id, "phase": "reserved"}
+            and settlement_id not in ready
             and node["state"] == "pending"
             and node["result"] is None,
             "queued async assimilation job or unresolved Promise differs",

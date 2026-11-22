@@ -417,3 +417,79 @@ def test_resolution_jobs_reject_retargeting_skips_generic_dispatch_and_self_reso
         with pytest.raises(ProtocolV8Error):
             apply_protocol_record(machine, record)
         assert machine == before
+
+
+def test_future_settlement_identity_is_reserved_and_throwing_a_promise_is_not_adoption():
+    machine = promise_return_fixture(settled=False)
+    enqueue_resolution(machine)
+    before = copy.deepcopy(machine)
+    assert dict(machine["jobs"])["j2"]["status"] == "reserved"
+    with pytest.raises(NativeV8Error, match="duplicate job|async scoped call"):
+        detail(machine, "job", {"action": "enqueue", "job": "j2", "owner": "root"})
+    assert machine == before
+
+    call(machine, "second")
+    apply(
+        machine,
+        {
+            "kind": "async.complete",
+            "promise": "second",
+            "invocation": "second-body",
+            "completion": {"kind": "return", "value": ["ref", "target"]},
+        },
+    )
+    second = copy.deepcopy(machine)
+    with pytest.raises(ProtocolV8Error, match="job identities must be fresh"):
+        apply(
+            machine,
+            {
+                "kind": "async.resolve.enqueue",
+                "promise": "second",
+                "invocation": "second-body",
+                "target": "target",
+                "job": "j3",
+                "settlementJob": "j2",
+            },
+        )
+    assert machine == second
+    apply(
+        machine,
+        {
+            "kind": "async.resolve.enqueue",
+            "promise": "second",
+            "invocation": "second-body",
+            "target": "target",
+            "job": "j3",
+            "settlementJob": "j4",
+        },
+    )
+
+    jobs = dict(machine["jobs"])
+    jobs["j2"]["reaction"] = "unrelated"
+    machine["jobs"] = [[identity, row] for identity, row in jobs.items()]
+    corrupted = copy.deepcopy(machine)
+    with pytest.raises(ProtocolV8Error, match="subscription requires its exact FIFO enqueue job"):
+        subscribe_resolution(machine)
+    assert machine == corrupted
+    external = _external_machine(machine)
+    with pytest.raises(ProtocolV8Error, match="queued async assimilation"):
+        validate_protocol_state(external["protocol"], external["heap"], external)
+
+    machine = fixture()
+    call(machine)
+    apply(
+        machine,
+        {
+            "kind": "async.complete",
+            "promise": "first",
+            "invocation": "first-body",
+            "completion": {"kind": "throw", "value": ["ref", "input"]},
+        },
+    )
+    assert machine["heap"]["first"]["state"] == "rejected"
+    assert machine["heap"]["first"]["result"] == ["ref", "input"]
+    assert machine["heap"]["first"]["asyncCall"]["resolution"] is None
+    restored = _internal_machine(copy.deepcopy(_external_machine(machine)))
+    external = _external_machine(restored)
+    assert validate_protocol_state(external["protocol"], external["heap"], external)
+    assert restored["heap"]["first"]["asyncCall"]["resolution"] is None
