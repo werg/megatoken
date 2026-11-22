@@ -1,0 +1,99 @@
+<?xml version="1.0" encoding="utf-8"?><testsuites name="pytest tests"><testsuite name="pytest" errors="0" failures="1" skipped="0" tests="1" time="14.955" timestamp="2026-11-22T15:17:00.577941+01:00" hostname="07bf85b14210"><testcase classname="tests.test_semantic_v8_input_relocation" name="test_real_v8_next_update_survives_input_relocation_in_a_fresh_process" time="14.722"><failure message="AssertionError: Traceback (most recent call last):&#10;    File &quot;&lt;string&gt;&quot;, line 10, in &lt;module&gt;&#10;    File &quot;/workspace/scratch/05d92519587f/native-v8-relocatable-inputs/src/megatoken/training/engine.py&quot;, line 598, in train&#10;      _resume_compatible(payload[&quot;train_config&quot;], config, phase_transition)&#10;    File &quot;/workspace/scratch/05d92519587f/native-v8-relocatable-inputs/src/megatoken/training/engine.py&quot;, line 348, in _resume_compatible&#10;      raise ValueError(&#10;[+4 more lines; full report in element text]">tmp_path = PosixPath('/workspace/scratch/05d92519587f/relocation-red-tmp/test_real_v8_next_update_survi0')
+monkeypatch = &lt;_pytest.monkeypatch.MonkeyPatch object at 0x7f910a12cd10&gt;
+
+    def test_real_v8_next_update_survives_input_relocation_in_a_fresh_process(tmp_path, monkeypatch):
+        """Three actual updates: one initial and two independent continuations."""
+        from test_semantic_v8_training_policy import prepared_v8_fixture
+    
+        import megatoken.training.semantic_v8 as semantic_v8
+        from megatoken.training.engine import train
+    
+        torch.set_num_threads(1)
+        _, _codec, policy, prepared = prepared_v8_fixture(tmp_path)
+        tokenizer = tmp_path / "tokenizer.fixture"
+        tokenizer.write_bytes(b"explicit byte-fallback relocation fixture\n")
+        monkeypatch.setattr(semantic_v8, "load_semantic_v8_codec", fixture_codec)
+        config = TrainConfig(
+            purpose="diagnostic",
+            phase="SC",
+            model="tiny",
+            codec=str(tokenizer),
+            datasets=[str(prepared)],
+            output=str(tmp_path / "initial"),
+            device="cpu",
+            precision="fp32",
+            max_steps=1,
+            checkpoint_every=1,
+            keep_checkpoints=1,
+            microbatch_episodes=1,
+            accumulate_scored=1,
+            accumulate_ingested=1,
+            max_accumulation_windows=1,
+            allow_unverified_data=True,
+            semantic_v8_policy=policy,
+        )
+        first = train(config)
+        first_payload, first_metadata = load_checkpoint(first["checkpoint"])
+        assert first_payload["global_step"] == 1
+        baseline = train(replace(config, output=str(tmp_path / "baseline")), resume=first["checkpoint"])
+        baseline_payload, baseline_metadata = load_checkpoint(baseline["checkpoint"])
+        relocated = tmp_path / "relocated"
+        relocated.mkdir()
+        relocated_data = relocated / "prepared"
+        relocated_codec = relocated / "tokenizer.fixture"
+        shutil.copytree(prepared, relocated_data)
+        shutil.copyfile(tokenizer, relocated_codec)
+        moved = replace(
+            config,
+            codec=str(relocated_codec),
+            datasets=[str(relocated_data)],
+            output=str(relocated / "continuation"),
+        )
+        config_path = relocated / "resume.json"
+        config_path.write_text(json.dumps(asdict(moved)) + "\n")
+        # The resumed process cannot accidentally fall back to the original paths.
+        prepared.rename(tmp_path / "original-data-unavailable")
+        tokenizer.rename(tmp_path / "original-codec-unavailable")
+        assert not prepared.exists() and not tokenizer.exists()
+        code = """
+    import json, sys, torch
+    from tests.test_semantic_v8_input_relocation import fixture_codec
+    from megatoken.training.config import TrainConfig
+    from megatoken.training.engine import train
+    import megatoken.training.semantic_v8 as semantic_v8
+    torch.set_num_threads(1)
+    semantic_v8.load_semantic_v8_codec=fixture_codec
+    config=TrainConfig.from_dict(json.loads(open(sys.argv[1]).read()))
+    result=train(config,resume=sys.argv[2])
+    print(json.dumps({'checkpoint':result['checkpoint'],'global_step':result['global_step']}))
+    """
+        root = Path(__file__).resolve().parents[1]
+        environment = {
+            **os.environ,
+            "PYTHONPATH": os.pathsep.join((str(root / "src"), str(root))),
+            "OMP_NUM_THREADS": "1",
+            "MKL_NUM_THREADS": "1",
+        }
+        process = subprocess.run(
+            [sys.executable, "-c", code, str(config_path), first["checkpoint"]],
+            cwd=root,
+            env=environment,
+            capture_output=True,
+            text=True,
+            timeout=120,
+            check=False,
+        )
+        (tmp_path / "relocated-process.log").write_text(process.stdout + process.stderr)
+&gt;       assert process.returncode == 0, process.stdout + process.stderr
+E       AssertionError: Traceback (most recent call last):
+E           File "&lt;string&gt;", line 10, in &lt;module&gt;
+E           File "/workspace/scratch/05d92519587f/native-v8-relocatable-inputs/src/megatoken/training/engine.py", line 598, in train
+E             _resume_compatible(payload["train_config"], config, phase_transition)
+E           File "/workspace/scratch/05d92519587f/native-v8-relocatable-inputs/src/megatoken/training/engine.py", line 348, in _resume_compatible
+E             raise ValueError(
+E         ValueError: Resume configuration changed codec; use an explicit phase transition only when the architecture/codec are unchanged
+E         
+E       assert 1 == 0
+E        +  where 1 = CompletedProcess(args=['/workspace/scratch/05d92519587f/target-coverage-venv/bin/python', '-c', "\nimport json, sys, t...Resume configuration changed codec; use an explicit phase transition only when the architecture/codec are unchanged\n').returncode
+
+tests/test_semantic_v8_input_relocation.py:124: AssertionError</failure></testcase></testsuite></testsuites>

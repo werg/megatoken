@@ -1,0 +1,184 @@
+{
+  "schema": "semantic-v8-content-identity-independent-review/1",
+  "reviewedRevision": "b85a3301b6482bdf5a5a9ba79f7f356c5f824681",
+  "reviewedTree": "8c92b6c9278d9885430b276278563762dc95e660",
+  "runtime": {
+    "python": "3.12.14",
+    "torch": "2.10.0+cpu",
+    "pytest": "9.2.0"
+  },
+  "checks": [
+    {
+      "name": "pure identity and position objective perform no hidden file reads",
+      "status": "passed"
+    },
+    {
+      "name": "copied locators and reordered distinct manifest fingerprints retain identity",
+      "status": "passed"
+    },
+    {
+      "name": "physical configuration and supplied fingerprints remain unchanged",
+      "status": "passed"
+    },
+    {
+      "name": "codec content changes the content/objective identity",
+      "status": "passed"
+    },
+    {
+      "name": "prepared content changes the content/objective identity",
+      "status": "passed"
+    },
+    {
+      "name": "omitted root changes the content/objective identity",
+      "status": "passed"
+    },
+    {
+      "name": "extra empty root identity changes the content/objective identity",
+      "status": "passed"
+    },
+    {
+      "name": "seed changes the content/objective identity",
+      "status": "passed"
+    },
+    {
+      "name": "source policy changes the content/objective identity",
+      "status": "passed"
+    },
+    {
+      "name": "window semantics changes the content/objective identity",
+      "status": "passed"
+    },
+    {
+      "name": "empty fingerprints",
+      "status": "passed",
+      "refusal": "V8 objective requires exact codec and distinct prepared fingerprints"
+    },
+    {
+      "name": "duplicate fingerprints",
+      "status": "passed",
+      "refusal": "V8 objective requires exact codec and distinct prepared fingerprints"
+    },
+    {
+      "name": "uppercase fingerprint",
+      "status": "passed",
+      "refusal": "V8 objective requires exact codec and distinct prepared fingerprints"
+    },
+    {
+      "name": "non-string fingerprint",
+      "status": "passed",
+      "refusal": "V8 objective requires exact codec and distinct prepared fingerprints"
+    },
+    {
+      "name": "malformed codec fingerprint",
+      "status": "passed",
+      "refusal": "V8 objective requires exact codec and distinct prepared fingerprints"
+    },
+    {
+      "name": "matching ordinary V8 policy permits only the locator compatibility check",
+      "status": "passed"
+    },
+    {
+      "name": "missing original codec field cannot be excused by relocation",
+      "status": "passed",
+      "refusal": "Resume configuration changed codec; use an explicit phase transition only when the architecture/codec are unchanged"
+    },
+    {
+      "name": "non-V8 codec remains strict",
+      "status": "passed",
+      "refusal": "Resume configuration changed codec; use an explicit phase transition only when the architecture/codec are unchanged"
+    },
+    {
+      "name": "non-V8 datasets remains strict",
+      "status": "passed",
+      "refusal": "Resume configuration changed datasets; use an explicit phase transition only when the architecture/codec are unchanged"
+    },
+    {
+      "name": "decoupled V8 codec remains strict",
+      "status": "passed",
+      "refusal": "Resume configuration changed codec; use an explicit phase transition only when the architecture/codec are unchanged"
+    },
+    {
+      "name": "decoupled V8 datasets remains strict",
+      "status": "passed",
+      "refusal": "Resume configuration changed datasets; use an explicit phase transition only when the architecture/codec are unchanged"
+    },
+    {
+      "name": "window configuration still refuses exact resume",
+      "status": "passed",
+      "refusal": "Resume configuration changed max_window_records; use an explicit phase transition only when the architecture/codec are unchanged"
+    },
+    {
+      "name": "registry policy still refuses exact resume",
+      "status": "passed",
+      "refusal": "Resume configuration changed semantic_v8_policy; use an explicit phase transition only when the architecture/codec are unchanged"
+    },
+    {
+      "name": "historical path-bound position receipt is not adopted into the new objective",
+      "status": "passed",
+      "refusal": "V8 position audit: checkpoint position history is malformed, unsealed or bound to another objective"
+    },
+    {
+      "name": "refused historical position receipt remains unchanged",
+      "status": "passed"
+    },
+    {
+      "name": "new content-bound empty history retains exact checkpoint metadata binding",
+      "status": "passed"
+    },
+    {
+      "name": "wrong checkpoint position digest is rejected",
+      "status": "passed",
+      "refusal": "V8 position audit: checkpoint metadata does not bind its position history and optimizer step"
+    },
+    {
+      "name": "actual controlled 48-window collector output survives relocation with old root absent",
+      "status": "passed",
+      "optimizerUpdates": 0,
+      "sourceAdmission": "injected",
+      "planner": "injected"
+    },
+    {
+      "name": "actual collector digest agrees with position objective call site",
+      "status": "passed",
+      "trainingConfigDigest": "1a57fbd6460d53252ca913c921d9d2b0ea82ebec24f8641cee4d26f1e42c6547"
+    }
+  ],
+  "totals": {
+    "passed": 29,
+    "failed": 0,
+    "skipped": 0
+  },
+  "optimizerUpdates": 0,
+  "decoderForwardPasses": 0,
+  "controlledCollectorInvocations": 3,
+  "distinctControlledCollectorWindows": 48,
+  "controlledCollectorWindowTraversals": 144,
+  "fixtureBoundaries": "Collector admission, codec and planner are injected controlled boundaries; no real source/data or learned qualification",
+  "sources": {
+    "src/megatoken/training/engine.py": {
+      "bytes": 73773,
+      "sha256": "0d6843191d7cd7e90e4fe014188c1a3006e8ed1fb835c7d67a04878e1d9b4d2f"
+    },
+    "src/megatoken/training/positions_v8.py": {
+      "bytes": 65130,
+      "sha256": "d11fb8353182b96896d5d8b283438d5285daf9d8b76365d08a75f88099028c84"
+    },
+    "src/megatoken/training/target_inventory_v8.py": {
+      "bytes": 13258,
+      "sha256": "648c29548f870c3dbaae48f3f56b9ef152185d4c2f9302b4e83c602e960323ab"
+    },
+    "scripts/qualify_semantic_v8_target_inventory.py": {
+      "bytes": 13381,
+      "sha256": "6f2beb3014012e05ed06da378989990094e6b7a539d9a0b124cc47abc10ff124"
+    },
+    "tests/test_semantic_v8_target_inventory.py": {
+      "bytes": 17099,
+      "sha256": "5eb0096609242f5d549208a6c53d29a93e4d24ca4501c7ff256d791036decf90"
+    }
+  },
+  "probe": {
+    "bytes": 14124,
+    "sha256": "785ab9c0d7f886ae3b4bb48faa88192e5d0b7fe886c106783c88971c77f64e2d"
+  },
+  "learnedSuccess": null
+}

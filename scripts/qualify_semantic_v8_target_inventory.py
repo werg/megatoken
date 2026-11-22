@@ -26,7 +26,10 @@ from megatoken.training.semantic_v8 import (
     semantic_v8_target_step_summary,
 )
 from megatoken.training.stream import EpisodeWindow
-from megatoken.training.target_inventory_v8 import inventory_episode_source_id
+from megatoken.training.target_inventory_v8 import (
+    inventory_episode_source_id,
+    training_config_identity_v8,
+)
 
 
 def require(condition: bool, message: str) -> None:
@@ -43,16 +46,6 @@ def target_inventory(config_source, expected_source_ids_source=None):
         read_json(config_source) if isinstance(config_source, (str, Path)) else config_source
     )
     config = TrainConfig.from_dict(config_raw)
-    config_identity = asdict(config)
-    for non_objective in (
-        "output",
-        "max_steps",
-        "checkpoint_every",
-        "keep_checkpoints",
-        "log_every",
-        "device",
-    ):
-        config_identity.pop(non_objective, None)
     require(config.semantic_v8_policy is not None, "Inventory requires an explicit V8 policy")
     require(
         config.use_stage_mixture is False,
@@ -96,6 +89,11 @@ def target_inventory(config_source, expected_source_ids_source=None):
 
     prepared_root = Path(config.datasets[0]).resolve()
     manifest = read_json(prepared_root / "manifest.json")
+    config_identity = training_config_identity_v8(
+        config,
+        codec_fingerprint=codec.fingerprint,
+        prepared_manifest_fingerprints=[manifest["fingerprint"]],
+    )
     registry = read_json(prepared_root / "semantic-v8-families.json")
     require(
         registry.get("digest") == registry_digest,
