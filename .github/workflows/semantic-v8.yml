@@ -45,7 +45,7 @@ jobs:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           repository: werg/tracing-js-self
-          ref: ae870a10079e4b59d63b0155d31ae77b797bfbc8 # exact source-bound ledger, recovery and target-accounting composition
+          ref: d27cc201a1be81f1a7a74a15393b89ba2fd484ab # exact source-bound ledger, recovery and target-accounting composition
           path: tracing-js-self
           persist-credentials: false
       - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
