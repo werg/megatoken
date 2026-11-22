@@ -1433,7 +1433,7 @@ def replay_protocol_case(case, *, namespace_plan=None):
     state = copy.deepcopy(case["initialState"])
     for number, line in enumerate(case["lines"]):
         try:
-            record = decode_protocol_record(line)
+            decode_protocol_record(line)
         except ProtocolV8Error as error:
             raise ProtocolV8Error(f"protocol line {number}: {error}") from error
         state = apply_protocol_to_shared_state(state, line, namespace_plan=namespace_plan)
