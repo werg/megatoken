@@ -289,6 +289,8 @@ def apply_detail(machine, kind, fields, *, root, functions=()):
             job = jobs.get(identity)
             if not job or job.get("owner") != fields["owner"]:
                 _fail("job owner mismatch")
+            if job.get("asyncResolution"):
+                _fail("Promise-resolution jobs require their explicit FIFO protocol")
             if job.get("reaction") == "join":
                 _fail("join jobs require their explicit protocol step")
             if action == "dispatch":

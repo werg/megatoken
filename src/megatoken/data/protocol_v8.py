@@ -932,7 +932,14 @@ def _apply(machine, record):
         _fail("property finish must consume child completion")
     if machine.get("completion") is not None:
         _fail("record after completion")
-    if not machine["stack"] and record["kind"] not in ("end", "promise.join.step", "async.resume"):
+    if not machine["stack"] and record["kind"] not in (
+        "end",
+        "promise.join.step",
+        "async.resume",
+        "async.resolve.enqueue",
+        "async.resolve.subscribe",
+        "async.resolve.settle",
+    ):
         _fail("active invocation required")
     kind = record["kind"]
     if not machine.get("_internalProtocolTransition"):

@@ -29,6 +29,7 @@ STATE_FIELDS = {
     "continuations",
     "resumeScope",
     "completion",
+    "resolution",
 }
 FIELDS = {
     "async.function": {"kind", "object"},
@@ -36,7 +37,11 @@ FIELDS = {
     "async.await": {"kind", "promise", "invocation", "awaited", "continuation"},
     "async.resume": {"kind", "promise", "invocation", "continuation", "status", "value"},
     "async.complete": {"kind", "promise", "invocation", "completion"},
+    "async.resolve.enqueue": {"kind", "promise", "invocation", "target", "job", "settlementJob"},
+    "async.resolve.subscribe": {"kind", "promise", "invocation", "target", "job", "settlementJob"},
+    "async.resolve.settle": {"kind", "promise", "invocation", "target", "job", "status", "value"},
 }
+RESOLUTION_SCHEMA = "semantic-async-promise-resolution/1"
 
 
 def _fail(message):
@@ -92,6 +97,9 @@ def validate_record(record):
             validate_protocol_value(argument)
     elif record["kind"] == "async.resume":
         _require(record["status"] in ("fulfilled", "rejected"), "resume settlement")
+        validate_protocol_value(record["value"])
+    elif record["kind"] == "async.resolve.settle":
+        _require(record["status"] in ("fulfilled", "rejected"), "resolution settlement")
         validate_protocol_value(record["value"])
     elif record["kind"] == "async.complete":
         _completion(record["completion"], validate_protocol_value)
@@ -218,6 +226,7 @@ def apply_record(machine, record):
             "continuations": [],
             "resumeScope": None,
             "completion": None,
+            "resolution": None,
         }
         return True
     target = _execution(machine, record["promise"])
@@ -301,6 +310,157 @@ def apply_record(machine, record):
         )
         call["phase"] = "running"
         return True
+    if kind == "async.resolve.enqueue":
+        resolution = call.get("resolution")
+        target = machine["heap"].get(record["target"])
+        _require(
+            call["phase"] == "completed"
+            and resolution is not None
+            and resolution.get("schema") == RESOLUTION_SCHEMA
+            and resolution.get("phase") == "enqueue-pending"
+            and resolution.get("target") == record["target"]
+            and call["completion"]["kind"] == "return"
+            and call["completion"]["value"] == ["ref", record["target"]]
+            and target is not None
+            and target.get("kind") == "promise"
+            and target.get("external") is None
+            and record["target"] != record["promise"],
+            "Promise-resolution enqueue differs from the exact completed async return",
+        )
+        _require(
+            not _resolution_cycle(machine, record["promise"], record["target"]),
+            "Promise-resolution dependency cycle",
+        )
+        jobs = rows(machine.get("jobs", []))
+        continuations = rows(machine.get("continuations", []))
+        _require(
+            record["job"] != record["settlementJob"]
+            and record["job"] not in jobs
+            and record["settlementJob"] not in jobs
+            and record["job"] not in continuations
+            and record["settlementJob"] not in continuations,
+            "Promise-resolution job identities must be fresh",
+        )
+        scheduler = machine.setdefault("scheduler", {"registration": 0, "ready": 0})
+        resolution["assimilationJob"] = record["job"]
+        resolution["settlementJob"] = record["settlementJob"]
+        resolution["phase"] = "queued"
+        scheduler["ready"] += 1
+        jobs[record["job"]] = {
+            "status": "queued",
+            "owner": call["owner"],
+            "promise": None,
+            "reaction": "async-resolution-enqueue",
+            "closure": None,
+            "rejectionClosure": None,
+            "target": record["promise"],
+            "sequence": None,
+            "readySequence": scheduler["ready"],
+            "asyncResolution": {
+                "promise": record["promise"],
+                "target": record["target"],
+                "phase": "enqueue",
+            },
+        }
+        machine.setdefault("ready", []).append(record["job"])
+        store_rows(machine, "jobs", jobs)
+        return True
+    if kind == "async.resolve.subscribe":
+        resolution = call.get("resolution")
+        jobs = rows(machine.get("jobs", []))
+        job = jobs.get(record["job"])
+        target = machine["heap"].get(record["target"])
+        _require(
+            call["phase"] == "completed"
+            and resolution is not None
+            and resolution.get("schema") == RESOLUTION_SCHEMA
+            and resolution.get("phase") == "queued"
+            and resolution.get("target") == record["target"]
+            and resolution.get("assimilationJob") == record["job"]
+            and resolution.get("settlementJob") == record["settlementJob"]
+            and record["job"] != record["settlementJob"]
+            and call["completion"]["kind"] == "return"
+            and call["completion"]["value"] == ["ref", record["target"]]
+            and job is not None
+            and job["owner"] == call["owner"]
+            and job["status"] == "queued"
+            and job["reaction"] == "async-resolution-enqueue"
+            and job.get("asyncResolution")
+            == {"promise": record["promise"], "target": record["target"], "phase": "enqueue"}
+            and machine["ready"][:1] == [record["job"]]
+            and not machine["stack"]
+            and machine.get("activeJob") is None
+            and target is not None
+            and target.get("kind") == "promise"
+            and target.get("external") is None,
+            "Promise-resolution subscription requires its exact FIFO enqueue job",
+        )
+        machine["ready"].pop(0)
+        job["status"] = "completed"
+        resolution["phase"] = "subscribed"
+        scheduler = machine.setdefault("scheduler", {"registration": 0, "ready": 0})
+        scheduler["registration"] += 1
+        jobs[record["settlementJob"]] = {
+            "status": "waiting",
+            "owner": call["owner"],
+            "promise": record["target"],
+            "reaction": "async-resolution-settle",
+            "closure": None,
+            "rejectionClosure": None,
+            "target": record["promise"],
+            "sequence": scheduler["registration"],
+            "asyncResolution": {
+                "promise": record["promise"],
+                "target": record["target"],
+                "phase": "settle",
+            },
+        }
+        store_rows(machine, "jobs", jobs)
+        refresh_ready(machine)
+        return True
+    if kind == "async.resolve.settle":
+        resolution = call.get("resolution")
+        jobs = rows(machine.get("jobs", []))
+        job = jobs.get(record["job"])
+        target = machine["heap"].get(record["target"])
+        outer = _execution(machine, record["promise"])
+        _require(
+            call["phase"] == "completed"
+            and resolution is not None
+            and resolution.get("schema") == RESOLUTION_SCHEMA
+            and resolution.get("phase") == "subscribed"
+            and resolution.get("target") == record["target"]
+            and resolution.get("settlementJob") == record["job"]
+            and resolution.get("assimilationJob") != record["job"]
+            and job is not None
+            and job["owner"] == call["owner"]
+            and job["status"] == "queued"
+            and job["reaction"] == "async-resolution-settle"
+            and job["promise"] == record["target"]
+            and job["target"] == record["promise"]
+            and job.get("asyncResolution")
+            == {"promise": record["promise"], "target": record["target"], "phase": "settle"}
+            and machine["ready"][:1] == [record["job"]]
+            and not machine["stack"]
+            and machine.get("activeJob") is None
+            and target is not None
+            and target.get("kind") == "promise"
+            and target.get("external") is None
+            and target["state"] in ("fulfilled", "rejected")
+            and target["state"] == record["status"]
+            and target["result"] == record["value"]
+            and outer["state"] == "pending"
+            and outer.get("adopted") is None,
+            "Promise-resolution settlement requires its exact subscribed FIFO observer",
+        )
+        if record["status"] == "fulfilled":
+            assert_plain_resolution(machine, record["value"])
+        machine["ready"].pop(0)
+        job["status"] = "completed"
+        resolution["phase"] = "settled"
+        store_rows(machine, "jobs", jobs)
+        settle_promise(machine, record["promise"], record["status"], record["value"])
+        return True
     _require(
         call["phase"] == "running"
         and target["state"] == "pending"
@@ -309,17 +469,41 @@ def apply_record(machine, record):
         "completion requires the running unsettled async invocation",
     )
     _known(machine, record["completion"]["value"])
-    if record["completion"]["kind"] == "return":
-        assert_plain_resolution(machine, record["completion"]["value"])
+    returned = record["completion"]["value"]
+    adoption = (
+        record["completion"]["kind"] == "return"
+        and returned[0] == "ref"
+        and machine["heap"].get(returned[1], {}).get("kind") == "promise"
+    )
+    if record["completion"]["kind"] == "return" and not adoption:
+        assert_plain_resolution(machine, returned)
+    if adoption:
+        target = machine["heap"][returned[1]]
+        _require(
+            target.get("external") is None
+            and returned[1] != record["promise"]
+            and not _resolution_cycle(machine, record["promise"], returned[1]),
+            "async Promise return requires a distinct owned target without a resolution cycle",
+        )
     attached = call["attached"]
     _detach(machine, call)
     call["phase"], call["completion"] = "completed", copy.deepcopy(record["completion"])
-    settle_promise(
-        machine,
-        record["promise"],
-        "fulfilled" if record["completion"]["kind"] == "return" else "rejected",
-        record["completion"]["value"],
-    )
+    if adoption:
+        call["resolution"] = {
+            "schema": RESOLUTION_SCHEMA,
+            "target": returned[1],
+            "assimilationJob": None,
+            "settlementJob": None,
+            "phase": "enqueue-pending",
+        }
+    else:
+        call["resolution"] = None
+        settle_promise(
+            machine,
+            record["promise"],
+            "fulfilled" if record["completion"]["kind"] == "return" else "rejected",
+            record["completion"]["value"],
+        )
     if attached:
         machine["lastReturn"] = {"kind": "return", "value": ["ref", record["promise"]]}
     return True
@@ -337,6 +521,27 @@ def assert_next(machine, record):
             kind not in ("return", "throw", "await"),
             "async body requires its explicit continuation protocol",
         )
+    fields = record.get("fields", record)
+    if kind == "job":
+        jobs = rows(machine.get("jobs", []))
+        if jobs.get(fields.get("job"), {}).get("asyncResolution"):
+            _fail("async Promise-resolution jobs require their explicit FIFO protocol")
+    if kind == "async.complete" and fields.get("completion", {}).get("kind") == "return":
+        value = fields["completion"].get("value", [])
+        if value[:1] == ["ref"] and machine["heap"].get(value[1], {}).get("kind") == "promise":
+            call = machine["heap"].get(fields.get("promise"), {}).get("asyncCall", {})
+            _require(
+                call.get("phase") == "running" and active == [call.get("invocation")],
+                "async Promise return requires its exact active body",
+            )
+    if (
+        any(
+            (node["asyncCall"].get("resolution") or {}).get("phase") == "enqueue-pending"
+            for _, node in calls
+        )
+        and kind != "async.resolve.enqueue"
+    ):
+        _fail("completed Promise return requires its explicit assimilation enqueue")
     if kind == "resume":
         _require(
             not any(
@@ -388,7 +593,7 @@ def validate_state(machine):
             )
     continuations = rows(machine.get("continuations", []))
     frames = rows(machine.get("frameFunctions", {}))
-    for _identity, node in calls:
+    for identity, node in calls:
         call = node["asyncCall"]
         _exact(call, STATE_FIELDS, "retained async call")
         for field in ("owner", "invocation", "parent"):
@@ -432,15 +637,12 @@ def validate_state(machine):
         )
         if call["phase"] == "completed":
             _completion(call["completion"], lambda value: _known(machine, value))
-            _require(
-                node["state"]
-                == ("fulfilled" if call["completion"]["kind"] == "return" else "rejected")
-                and node["result"] == call["completion"]["value"],
-                "retained async completion differs from execution Promise",
-            )
+            _validate_resolution_state(machine, identity, node, call)
         else:
             _require(
-                node["state"] == "pending" and call["completion"] is None,
+                node["state"] == "pending"
+                and call["completion"] is None
+                and call["resolution"] is None,
                 "unfinished async execution Promise is settled",
             )
         if call["owner"] != _owner(machine):
@@ -528,12 +730,7 @@ def validate_state(machine):
                 )
             else:
                 _completion(call["completion"], lambda value: _known(machine, value))
-                _require(
-                    node["state"]
-                    == ("fulfilled" if call["completion"]["kind"] == "return" else "rejected")
-                    and node["result"] == call["completion"]["value"],
-                    "retained async completion differs from execution Promise",
-                )
+                _validate_resolution_state(machine, identity, node, call)
         if call["resumeScope"] is not None:
             saved = call["resumeScope"]
             _exact(saved, {"receiver", "aliases"}, "async idle scope")
@@ -550,4 +747,146 @@ def validate_state(machine):
                     "retained async idle alias",
                 )
                 aliases.add(pair[0])
+    jobs = rows(machine.get("jobs", []))
+    for job_id, job in jobs.items():
+        link = job.get("asyncResolution")
+        if link is None:
+            continue
+        resolution = (
+            machine["heap"].get(link.get("promise"), {}).get("asyncCall", {}).get("resolution")
+        )
+        _require(
+            resolution is not None
+            and job_id in (resolution.get("assimilationJob"), resolution.get("settlementJob")),
+            "orphan Promise-resolution job",
+        )
     return True
+
+
+def _resolution_cycle(machine, promise_id, target_id):
+    heap = machine["heap"]
+    seen = set()
+    cursor = target_id
+    while cursor and cursor not in seen:
+        if cursor == promise_id:
+            return True
+        seen.add(cursor)
+        resolution = heap.get(cursor, {}).get("asyncCall", {}).get("resolution")
+        cursor = (
+            resolution.get("target")
+            if resolution and resolution.get("phase") != "settled"
+            else None
+        )
+    return False
+
+
+def _validate_resolution_state(machine, identity, node, call):
+    from .promise_scheduler_v8 import assert_plain_resolution
+    from .protocol_v8 import _exact
+
+    completion = call["completion"]
+    value = completion["value"]
+    target_id = (
+        value[1]
+        if completion["kind"] == "return"
+        and value[:1] == ["ref"]
+        and machine["heap"].get(value[1], {}).get("kind") == "promise"
+        else None
+    )
+    resolution = call.get("resolution")
+    if target_id is None:
+        _require(
+            resolution is None
+            and node["state"] == ("fulfilled" if completion["kind"] == "return" else "rejected")
+            and node["result"] == value,
+            "retained async completion differs from execution Promise",
+        )
+        return
+    _exact(
+        resolution,
+        {"schema", "target", "assimilationJob", "settlementJob", "phase"},
+        "retained async Promise resolution",
+    )
+    _require(
+        resolution["schema"] == RESOLUTION_SCHEMA
+        and resolution["target"] == target_id
+        and target_id != identity
+        and resolution["phase"] in ("enqueue-pending", "queued", "subscribed", "settled")
+        and machine["heap"].get(target_id, {}).get("external") is None
+        and not _resolution_cycle(machine, identity, target_id),
+        "retained async Promise-resolution identity or phase differs",
+    )
+    jobs = rows(machine.get("jobs", []))
+    ready = machine.get("ready", [])
+    if resolution["phase"] == "enqueue-pending":
+        _require(
+            resolution["assimilationJob"] is None
+            and resolution["settlementJob"] is None
+            and node["state"] == "pending"
+            and node["result"] is None,
+            "pending async Promise-resolution enqueue changed its Promise",
+        )
+        return
+    assimilation_id = resolution["assimilationJob"]
+    settlement_id = resolution["settlementJob"]
+    assimilation = jobs.get(assimilation_id)
+    _require(
+        isinstance(assimilation_id, str)
+        and isinstance(settlement_id, str)
+        and assimilation_id != settlement_id
+        and assimilation is not None
+        and assimilation.get("owner") == call["owner"]
+        and assimilation.get("reaction") == "async-resolution-enqueue"
+        and assimilation.get("target") == identity
+        and assimilation.get("asyncResolution")
+        == {"promise": identity, "target": target_id, "phase": "enqueue"},
+        "retained async assimilation job differs",
+    )
+    if resolution["phase"] == "queued":
+        _require(
+            assimilation.get("status") == "queued"
+            and assimilation_id in ready
+            and settlement_id not in jobs
+            and node["state"] == "pending"
+            and node["result"] is None,
+            "queued async assimilation job or unresolved Promise differs",
+        )
+        return
+    _require(
+        assimilation.get("status") == "completed" and assimilation_id not in ready,
+        "retained async assimilation job is not completed",
+    )
+    settlement = jobs.get(settlement_id)
+    target = machine["heap"].get(target_id)
+    _require(
+        settlement is not None
+        and settlement.get("owner") == call["owner"]
+        and settlement.get("reaction") == "async-resolution-settle"
+        and settlement.get("promise") == target_id
+        and settlement.get("target") == identity
+        and settlement.get("asyncResolution")
+        == {"promise": identity, "target": target_id, "phase": "settle"},
+        "retained async settlement observer differs",
+    )
+    if resolution["phase"] == "subscribed":
+        _require(
+            node["state"] == "pending"
+            and node["result"] is None
+            and (
+                settlement.get("status") == "waiting" and settlement_id not in ready
+                if target["state"] == "pending"
+                else settlement.get("status") == "queued" and settlement_id in ready
+            ),
+            "retained async settlement observer disagrees with its target",
+        )
+        return
+    _require(
+        target["state"] != "pending"
+        and settlement.get("status") == "completed"
+        and settlement_id not in ready
+        and node["state"] == target["state"]
+        and node["result"] == target["result"],
+        "retained async Promise settlement differs from its exact target",
+    )
+    if target["state"] == "fulfilled":
+        assert_plain_resolution(machine, target["result"])

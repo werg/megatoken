@@ -4,10 +4,12 @@ import copy
 
 import pytest
 
+from megatoken.data.native_v8 import NativeV8Error, _apply_detail
 from megatoken.data.promise_scheduler_v8 import create_promise, settle_promise
 from megatoken.data.protocol_v8 import (
     ProtocolV8Error,
     _external_machine,
+    _internal_machine,
     apply_protocol_record,
     create_protocol_state,
     validate_protocol_state,
@@ -54,6 +56,15 @@ def fixture():
 
 def apply(machine, record):
     apply_protocol_record(machine, record)
+    external = _external_machine(machine)
+    assert validate_protocol_state(external["protocol"], external["heap"], external)
+
+
+def detail(machine, kind, fields):
+    external = _external_machine(machine)
+    _apply_detail(external, kind, fields, {}, root="root")
+    machine.clear()
+    machine.update(_internal_machine(external))
     external = _external_machine(machine)
     assert validate_protocol_state(external["protocol"], external["heap"], external)
 
@@ -222,3 +233,187 @@ def test_restore_refuses_changed_receiver_captures_or_execution_settlement():
     promise["state"], promise["result"] = "fulfilled", ["num", 3]
     with pytest.raises(ProtocolV8Error, match="unfinished async"):
         validate_protocol_state(forged["protocol"], forged["heap"], forged)
+
+
+def promise_return_fixture(*, settled=True):
+    machine = fixture()
+    create_promise(machine, "target")
+    if settled:
+        settle_promise(machine, "target", "fulfilled", ["num", 1])
+    call(machine)
+    apply(
+        machine,
+        {
+            "kind": "async.complete",
+            "promise": "first",
+            "invocation": "first-body",
+            "completion": {"kind": "return", "value": ["ref", "target"]},
+        },
+    )
+    return machine
+
+
+def enqueue_resolution(machine, job="j1", settlement="j2", target="target"):
+    apply(
+        machine,
+        {
+            "kind": "async.resolve.enqueue",
+            "promise": "first",
+            "invocation": "first-body",
+            "target": target,
+            "job": job,
+            "settlementJob": settlement,
+        },
+    )
+
+
+def subscribe_resolution(machine, job="j1", settlement="j2"):
+    apply(
+        machine,
+        {
+            "kind": "async.resolve.subscribe",
+            "promise": "first",
+            "invocation": "first-body",
+            "target": "target",
+            "job": job,
+            "settlementJob": settlement,
+        },
+    )
+
+
+def settle_resolution(machine, job="j2", status="fulfilled", value=None):
+    apply(
+        machine,
+        {
+            "kind": "async.resolve.settle",
+            "promise": "first",
+            "invocation": "first-body",
+            "target": "target",
+            "job": job,
+            "status": status,
+            "value": value or ["num", 1],
+        },
+    )
+
+
+def dispatch_complete(machine, job):
+    detail(machine, "job", {"action": "dispatch", "job": job, "owner": "root"})
+    detail(machine, "job", {"action": "complete", "job": job, "owner": "root"})
+
+
+def test_owned_async_promise_return_requires_three_exact_fifo_turns():
+    machine = promise_return_fixture()
+    assert machine["heap"]["first"]["state"] == "pending"
+    enqueue_resolution(machine)
+    detail(
+        machine, "promise", {"action": "react", "promise": "first", "job": "j3", "reaction": "then"}
+    )
+    detail(
+        machine,
+        "promise",
+        {"action": "react", "promise": "target", "job": "j4", "reaction": "then"},
+    )
+    detail(machine, "job", {"action": "enqueue", "job": "j5", "owner": "root"})
+    detail(machine, "await", {"invocation": "root", "promise": "first", "continuation": "c1"})
+    assert machine["ready"] == ["j1", "j4", "j5"]
+    subscribe_resolution(machine)
+    assert machine["heap"]["first"]["state"] == "pending"
+    assert machine["ready"] == ["j4", "j5", "j2"]
+    dispatch_complete(machine, "j4")
+    dispatch_complete(machine, "j5")
+    assert machine["ready"] == ["j2"]
+    settle_resolution(machine)
+    assert machine["heap"]["first"]["state"] == "fulfilled"
+    assert machine["heap"]["first"]["result"] == ["num", 1]
+    assert machine["ready"] == ["j3", "c1"]
+    validate_protocol_state(machine["protocol"], machine["heap"], _external_machine(machine))
+
+
+def test_pending_target_observer_and_settlement_preserve_registration_fifo():
+    machine = promise_return_fixture(settled=False)
+    enqueue_resolution(machine)
+    detail(
+        machine,
+        "promise",
+        {"action": "react", "promise": "target", "job": "j3", "reaction": "then"},
+    )
+    detail(
+        machine, "promise", {"action": "react", "promise": "first", "job": "j4", "reaction": "then"}
+    )
+    detail(machine, "await", {"invocation": "root", "promise": "first", "continuation": "c1"})
+    subscribe_resolution(machine)
+    assert dict(machine["jobs"])["j2"]["status"] == "waiting"
+    assert machine["ready"] == []
+    detail(machine, "promise", {"action": "resolve", "promise": "target", "value": ["num", 7]})
+    assert machine["ready"] == ["j3", "j2"]
+    dispatch_complete(machine, "j3")
+    settle_resolution(machine, value=["num", 7])
+    assert machine["heap"]["first"]["result"] == ["num", 7]
+    assert machine["ready"] == ["j4", "c1"]
+
+
+def test_resolution_jobs_reject_retargeting_skips_generic_dispatch_and_self_resolution():
+    machine = fixture()
+    call(machine)
+    before = copy.deepcopy(machine)
+    with pytest.raises(ProtocolV8Error, match="distinct owned target|cycle"):
+        apply_protocol_record(
+            machine,
+            {
+                "kind": "async.complete",
+                "promise": "first",
+                "invocation": "first-body",
+                "completion": {"kind": "return", "value": ["ref", "first"]},
+            },
+        )
+    assert machine == before
+
+    machine = promise_return_fixture()
+    before = copy.deepcopy(machine)
+    with pytest.raises(ProtocolV8Error, match="exact completed async return"):
+        enqueue_resolution(machine, "bad1", "bad2", "input")
+    assert machine == before
+    enqueue_resolution(machine)
+    before = copy.deepcopy(machine)
+    with pytest.raises(ProtocolV8Error, match="subscribed FIFO observer"):
+        settle_resolution(machine)
+    assert machine == before
+    detail(machine, "await", {"invocation": "root", "promise": "first", "continuation": "c1"})
+    before = copy.deepcopy(machine)
+    with pytest.raises(NativeV8Error, match="explicit FIFO protocol"):
+        detail(machine, "job", {"action": "dispatch", "job": "j1", "owner": "root"})
+    assert machine == before
+    subscribe_resolution(machine)
+    before = copy.deepcopy(machine)
+    for record in [
+        {
+            "kind": "async.resolve.settle",
+            "promise": "first",
+            "invocation": "first-body",
+            "target": "input",
+            "job": "j2",
+            "status": "fulfilled",
+            "value": ["num", 1],
+        },
+        {
+            "kind": "async.resolve.settle",
+            "promise": "first",
+            "invocation": "first-body",
+            "target": "target",
+            "job": "j2",
+            "status": "rejected",
+            "value": ["num", 1],
+        },
+        {
+            "kind": "async.resolve.settle",
+            "promise": "first",
+            "invocation": "wrong-body",
+            "target": "target",
+            "job": "j2",
+            "status": "fulfilled",
+            "value": ["num", 99],
+        },
+    ]:
+        with pytest.raises(ProtocolV8Error):
+            apply_protocol_record(machine, record)
+        assert machine == before
