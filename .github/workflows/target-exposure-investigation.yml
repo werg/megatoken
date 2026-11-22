@@ -19,7 +19,7 @@ jobs:
     env:
       OMP_NUM_THREADS: '1'
       MKL_NUM_THREADS: '1'
-      MEGATOKEN_TOKENIZER_JSON: ${{ runner.temp }}/target-exposure-tokenizer.json
+      MEGATOKEN_TOKENIZER_JSON: ${{ github.workspace }}/target-exposure-tokenizer.json
     steps:
       - uses: actions/checkout@v4
         with:
@@ -50,6 +50,7 @@ jobs:
         run: |
           python -m ruff check --fix src/megatoken/training/semantic_v8.py src/megatoken/training/engine.py tests/test_semantic_v8_target_exposure.py tests/test_semantic_v8_training_lifecycle.py
           python -m ruff format src/megatoken/training/semantic_v8.py src/megatoken/training/engine.py tests/test_semantic_v8_target_exposure.py tests/test_semantic_v8_training_lifecycle.py
+          git diff -- tests/test_semantic_v8_training_lifecycle.py
           python - <<'PY'
           import json
           from pathlib import Path
