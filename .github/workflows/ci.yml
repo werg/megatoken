@@ -24,7 +24,8 @@ permissions:
 
 concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
-  cancel-in-progress: true
+  # Preserve complete CPU matrix runs as evidence during incremental delivery.
+  cancel-in-progress: false
 
 jobs:
   cpu:

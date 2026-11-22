@@ -7,6 +7,7 @@ import argparse
 import hashlib
 import json
 import os
+import re
 import subprocess
 from pathlib import Path
 
@@ -35,6 +36,262 @@ _REPOSITORY_GIT_ENV = {
     "GIT_PREFIX",
     "GIT_SHALLOW_FILE",
 }
+
+_SOURCE_SESSION_SCHEMA = "semantic-session-region-evidence/1"
+_SOURCE_SESSION_ARTIFACT_SCHEMA = "semantic-session-source-evidence/1"
+_SOURCE_SESSION_COLLECTION_SCHEMA = "semantic-source-session-collection/1"
+_SOURCE_SESSION_PLAN_SCHEMA = "semantic-source-session-plan/1"
+_SOURCE_SESSION_COMPONENT_SCHEMAS = {
+    "semantic-region-evidence/1",
+    "semantic-protocol-region-evidence/1",
+    DIRECT_SOURCE_SCHEMA,
+}
+_SOURCE_SELECTION_ORIGINS = {"owned-interpreter-teacher", "certified_teacher"}
+
+
+def validate_source_session_shape(document):
+    """Validate the narrow source-session envelope before pinned source replay.
+
+    The producer recheck remains authoritative for each original reference and
+    the composed public projection. This guard verifies the exact nested wire
+    shape and digest relationships consumed by that recheck.
+    """
+    sidecar = document.get("sidecar") if isinstance(document, dict) else None
+    if not isinstance(sidecar, dict) or sidecar.get("schema") != _SOURCE_SESSION_SCHEMA:
+        raise ValueError("V8 source session has an unsupported outer evidence schema")
+    source_artifact = sidecar.get("sourceArtifact")
+    source_sidecar = source_artifact.get("sidecar") if isinstance(source_artifact, dict) else None
+    target = source_artifact.get("public") if isinstance(source_artifact, dict) else None
+    admission = sidecar.get("admission")
+    native_admission = sidecar.get("nativeAdmission")
+    if (
+        admission not in {"locally_verified", "admitted"}
+        or sidecar.get("referenceStatus") != "agreed"
+        or sidecar.get("representation") != "semantic-trace/8"
+        or sidecar.get("profile") != "compositional-regions/1"
+        or sidecar.get("selectionOrigin") != "owned-interpreter-teacher"
+        or sidecar.get("optimizerSteps") != 0
+        or sidecar.get("learningClaim") is not None
+        or (admission == "locally_verified" and native_admission is not None)
+        or (
+            admission == "admitted"
+            and (
+                not isinstance(native_admission, dict)
+                or native_admission.get("schema") != "semantic-native-admission/8"
+                or native_admission.get("admitted") is not True
+                or native_admission.get("publicDigest") != sidecar.get("publicDigest")
+                or native_admission.get("contextsDigest") != sidecar.get("contextDigest")
+                or native_admission.get("sourceArtifactDigest")
+                != sidecar.get("sourceArtifactDigest")
+            )
+        )
+        or sidecar.get("sourceArtifactDigest") != stable_algorithm_hash(source_artifact)
+        or sidecar.get("publicDigest") != stable_algorithm_hash(document.get("public"))
+        or sidecar.get("contextDigest") != stable_algorithm_hash(document.get("contexts"))
+    ):
+        raise ValueError("V8 source-session receipt does not bind its outer evidence")
+    if (
+        not isinstance(source_sidecar, dict)
+        or not isinstance(target, dict)
+        or source_sidecar.get("schema") != _SOURCE_SESSION_ARTIFACT_SCHEMA
+        or source_sidecar.get("admission") != "locally_verified"
+        or source_sidecar.get("referenceStatus") != "agreed"
+        or source_sidecar.get("selectionOrigin") != "owned-interpreter-teacher"
+        or source_sidecar.get("optimizerSteps") != 0
+        or source_sidecar.get("learningClaim") is not None
+        or target.get("schema") != "semantic-session-source-target/1"
+    ):
+        raise ValueError("V8 source-session nested source authority is malformed")
+
+    family = sidecar.get("sourceFamily")
+    if (
+        not isinstance(family, str)
+        or not family
+        or sidecar.get("family") != family
+        or source_sidecar.get("sourceFamily") != family
+        or source_sidecar.get("sourceLineage") != family
+    ):
+        raise ValueError("V8 source-session family binding is malformed")
+    collection = source_sidecar.get("collection")
+    plan = collection.get("plan") if isinstance(collection, dict) else None
+    components = collection.get("components") if isinstance(collection, dict) else None
+    calls = plan.get("calls") if isinstance(plan, dict) else None
+    if (
+        not isinstance(collection, dict)
+        or collection.get("schema") != _SOURCE_SESSION_COLLECTION_SCHEMA
+        or not isinstance(plan, dict)
+        or plan.get("schema") != _SOURCE_SESSION_PLAN_SCHEMA
+        or not isinstance(components, list)
+        or not 2 <= len(components) <= 16
+        or not isinstance(calls, list)
+        or len(components) != len(calls)
+        or any(not isinstance(call, dict) for call in calls)
+    ):
+        raise ValueError("V8 source-session plan or component count is invalid")
+
+    reference = source_sidecar.get("referenceInput")
+    source = reference.get("source") if isinstance(reference, dict) else None
+    entry = reference.get("entry") if isinstance(reference, dict) else None
+    if (
+        not isinstance(source, str)
+        or not source
+        or not isinstance(entry, str)
+        or not entry
+        or not isinstance(reference.get("invocations"), list)
+        or len(reference["invocations"]) != len(components)
+        or plan.get("family") != family
+        or plan.get("sourceDigest") != stable_algorithm_hash(source)
+        or plan.get("entry") != entry
+        or not isinstance(plan.get("sessionId"), str)
+        or not plan["sessionId"]
+        or type(plan.get("seed")) is not int
+        or plan["seed"] < 0
+        or (
+            plan.get("producerRevision") is not None
+            and (
+                not isinstance(plan.get("producerRevision"), str)
+                or re.fullmatch(r"[0-9a-f]{40}", plan["producerRevision"]) is None
+            )
+        )
+        or target.get("sourceDigest") != plan["sourceDigest"]
+        or target.get("entry") != entry
+        or target.get("componentPublicDigests") != [call.get("publicDigest") for call in calls]
+    ):
+        raise ValueError("V8 source-session source or reference binding is invalid")
+
+    provenance = source_sidecar.get("sourceProvenance")
+    if provenance != {"family": family, "sourceDigest": plan["sourceDigest"], "seed": plan["seed"]}:
+        raise ValueError("V8 source-session provenance differs from its collection plan")
+
+    program_fields = None
+    component_public_digests = []
+    for index, (component, call) in enumerate(zip(components, calls, strict=True)):
+        component_sidecar = component.get("sidecar") if isinstance(component, dict) else None
+        component_public = component.get("public") if isinstance(component, dict) else None
+        if (
+            not isinstance(component, dict)
+            or not isinstance(component_public, dict)
+            or component_public.get("schema") != "semantic-execution/8"
+            or not isinstance(component.get("contexts"), list)
+            or not isinstance(component_sidecar, dict)
+            or component_sidecar.get("schema") not in _SOURCE_SESSION_COMPONENT_SCHEMAS
+            or component_sidecar.get("admission") != "locally_verified"
+            or component_sidecar.get("referenceStatus") != "agreed"
+            or component_sidecar.get("optimizerSteps") != 0
+            or component_sidecar.get("learningClaim") is not None
+            or component_sidecar.get("nativeAdmission") is not None
+            or any(
+                key in component_sidecar
+                for key in ("datasetBinding", "splitIdentity", "orchestrationTranscript")
+            )
+            or component_sidecar.get("family") != family
+            or component_sidecar.get("sourceFamily") != family
+            or (
+                "selectionOrigin" in component_sidecar
+                and component_sidecar.get("selectionOrigin") not in _SOURCE_SELECTION_ORIGINS
+            )
+        ):
+            raise ValueError("V8 source-session component evidence is malformed")
+
+        if component_sidecar["schema"] == DIRECT_SOURCE_SCHEMA:
+            direct_source_identity_v8(component_sidecar)
+            component_source_sidecar = component_sidecar
+        else:
+            component_source_artifact = component_sidecar.get("sourceArtifact")
+            component_source_sidecar = (
+                component_source_artifact.get("sidecar")
+                if isinstance(component_source_artifact, dict)
+                else None
+            )
+            if (
+                not isinstance(component_source_sidecar, dict)
+                or component_sidecar.get("sourceArtifactDigest")
+                != stable_algorithm_hash(component_source_artifact)
+                or component_sidecar.get("publicDigest")
+                != stable_algorithm_hash(component.get("public"))
+                or component_sidecar.get("contextDigest")
+                != stable_algorithm_hash(component.get("contexts"))
+            ):
+                raise ValueError("V8 source-session component digest binding is invalid")
+        if not isinstance(component_source_sidecar, dict):
+            raise ValueError("V8 source-session component source authority is malformed")
+        origin = component_source_sidecar.get("selectionOrigin")
+        component_reference = component_source_sidecar.get("referenceInput")
+        if (
+            (
+                component_sidecar["schema"] == "semantic-region-evidence/1"
+                and origin not in _SOURCE_SELECTION_ORIGINS
+            )
+            or any(
+                "selectionOrigin" in evidence
+                and evidence["selectionOrigin"] not in _SOURCE_SELECTION_ORIGINS
+                for evidence in (component_sidecar, component_source_sidecar)
+            )
+            or not isinstance(component_reference, dict)
+            or component_reference.get("source") != source
+            or component_reference.get("entry") != entry
+            or component_source_sidecar.get("sourceFamily") != family
+            or reference["invocations"][index] != component_reference
+        ):
+            raise ValueError("V8 source-session component source is not the declared family source")
+
+        timeline = component_public.get("timeline")
+        if not isinstance(timeline, list) or any(
+            not isinstance(row, dict) or not isinstance(row.get("fields"), dict) for row in timeline
+        ):
+            raise ValueError("V8 source-session component timeline is missing")
+        programs = [row for row in timeline if row.get("kind") == "program"]
+        roots = [
+            row
+            for row in timeline
+            if row.get("kind") == "invocation"
+            and row.get("fields", {}).get("parentInvocationId") is None
+        ]
+        if len(programs) != 1 or len(roots) != 1:
+            raise ValueError("V8 source-session components need one observed program and root call")
+        program, root = programs[0], roots[0]
+        current_program = program["fields"]
+        root_fields = root["fields"]
+        if (
+            program.get("mode") != "observed"
+            or root.get("mode") != "observed"
+            or current_program.get("session") != plan["sessionId"]
+            or current_program.get("programId") != "program1"
+            or current_program.get("source") != source
+            or current_program.get("entry") != entry
+            or current_program.get("digest") != plan["sourceDigest"]
+            or root_fields.get("session") != plan["sessionId"]
+            or root_fields.get("programId") != "program1"
+            or root_fields.get("invocationId") != f"ingress{index + 1}"
+            or root_fields.get("track") != "worker1"
+            or root_fields.get("realmId") != f"realm{index + 1}"
+            or root_fields.get("realmPolicy") != "fresh"
+            or root_fields.get("triggerId") != f"outside{index + 1}"
+            or root_fields.get("activation") != "call"
+            or root_fields.get("inputGraph") is None
+        ):
+            raise ValueError("V8 source-session component root differs from its fixed source plan")
+        if program_fields is None:
+            program_fields = current_program
+        elif current_program != program_fields:
+            raise ValueError("V8 source-session immutable program declarations differ")
+        component_public_digest = stable_algorithm_hash(component_public)
+        component_context_digest = stable_algorithm_hash(component["contexts"])
+        component_public_digests.append(component_public_digest)
+        expected_call = {
+            "component": index,
+            "invocationId": root_fields["invocationId"],
+            "realmId": root_fields["realmId"],
+            "triggerId": root_fields["triggerId"],
+            "inputDigest": stable_algorithm_hash(root_fields["inputGraph"]),
+            "publicDigest": component_public_digest,
+            "contextsDigest": component_context_digest,
+        }
+        if call != expected_call:
+            raise ValueError("V8 source-session call digest differs from its original component")
+    if component_public_digests != target["componentPublicDigests"]:
+        raise ValueError("V8 source-session target differs from its component public artifacts")
+    return plan
 
 
 def _git_environment():
@@ -197,9 +454,12 @@ def main():
     if isinstance(sidecar, dict) and sidecar.get("schema") in (
         "semantic-region-evidence/1",
         "semantic-protocol-region-evidence/1",
+        _SOURCE_SESSION_SCHEMA,
         DIRECT_SOURCE_SCHEMA,
     ):
         direct = sidecar["schema"] == DIRECT_SOURCE_SCHEMA
+        if sidecar["schema"] == _SOURCE_SESSION_SCHEMA:
+            validate_source_session_shape(document)
         if direct:
             source_identity = direct_source_identity_v8(sidecar)
         if (

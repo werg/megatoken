@@ -1,0 +1,40 @@
+{
+  "schema": "v8-hosted-paired-evidence/1",
+  "date": "2026-11-22",
+  "producerRevision": "073870f0d6df912c79799956c09d5a5cc0c903a4",
+  "consumerRevision": "21572be70f7884397e513fd65099fda240526971",
+  "runId": 44972779393,
+  "logs": [
+    {
+      "jobId": 137055964889,
+      "archive": "native215-gallery-full.log.gz.b64",
+      "decodedBytes": 102513,
+      "decodedSha256": "5f4e6745c5bb35bbd3e32a5798aaf4e8b24a68663b21bda3b0ffc8f1882f8b56",
+      "archiveSha256": "2fadf412b22854da31c9f6b80d11e6159039acb4038e7230ea714f81048b2e64"
+    },
+    {
+      "jobId": 137055965060,
+      "archive": "native215-interoperability-full.log.gz.b64",
+      "decodedBytes": 116370,
+      "decodedSha256": "08d4d62b042094fbe29ad431e4d0ea2a8d3d975a1bd3b1a501d332f98089ba5a",
+      "archiveSha256": "02345051e17ad31014c921d7c7a9e1adee2766d66018c6343613de2269b153f3"
+    }
+  ],
+  "actionsArtifacts": [
+    {
+      "id": 14735460794,
+      "name": "semantic-v8-interoperability-native-evidence",
+      "bytes": 250551898,
+      "uploadReportedSha256": "ca92e243eda983e2a2d837074b3493192cabafa83a527cce2b64da8699c41c79",
+      "retentionDays": 30,
+      "downloadedOrIndependentlyRehashed": false
+    },
+    {
+      "id": 14734787760,
+      "name": "semantic-v8-gallery-native-evidence",
+      "bytes": 1130527,
+      "retentionDays": 30,
+      "downloadedOrIndependentlyRehashed": false
+    }
+  ]
+}

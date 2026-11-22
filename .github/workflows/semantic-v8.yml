@@ -45,7 +45,7 @@ jobs:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           repository: werg/tracing-js-self
-          ref: 073870f0d6df912c79799956c09d5a5cc0c903a4 # source-qualified orchestration teacher, logical work budgets and ordinary coordinator
+          ref: 3dca770952b1902f4681cd7cc0500a94b555a9ef # source-qualified teacher and composite coordinator recovery
           path: tracing-js-self
           persist-credentials: false
       - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
@@ -100,6 +100,8 @@ jobs:
           node --test --test-reporter=junit test/semantic-native-process-v8.test.js test/semantic-native-orchestration-transport-v8.test.js \
             test/semantic-selected-orchestration-v8.test.js \
             test/semantic-orchestration-training-v8.test.js test/semantic-native-v8.test.js \
+            test/semantic-selected-orchestration-checkpoint-v8.test.js \
+            test/semantic-native-orchestration-recovery-v8.test.js \
             2>&1 | tee "$RUNNER_TEMP/semantic-v8-transport-tests.xml"
           python - <<'PY'
           import os, xml.etree.ElementTree as ET
