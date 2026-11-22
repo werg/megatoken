@@ -1,0 +1,131 @@
+name: Native durable request and optimizer inventory controls
+
+on:
+  push:
+    branches: [codex/v8-recovery-inventory-validation-20261122]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: recovery-inventory-${{ github.ref }}-${{ github.sha }}
+  # Preserve the running full-population evidence during incremental delivery.
+  cancel-in-progress: false
+
+jobs:
+  foundation-controls:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 45
+    defaults:
+      run:
+        shell: bash
+    env:
+      OMP_NUM_THREADS: '1'
+      MKL_NUM_THREADS: '1'
+      PYTHONPATH: ${{ github.workspace }}/megatoken/src
+      TRACING_JS_SELF_ROOT: ${{ github.workspace }}/tracing-js-self
+      MEGATOKEN_NATIVE_SOURCE_PRODUCER: ${{ github.workspace }}/tracing-js-self
+      MEGATOKEN_TOKENIZER_JSON: ${{ github.workspace }}/semantic-v8-tokenizer.json
+      MEGATOKEN_ROOT: ${{ github.workspace }}/megatoken
+      MEGATOKEN_PYTHON: python
+      SEMANTIC_V8_NATIVE_POLICY: ${{ github.workspace }}/semantic-v8-policy.json
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+          path: megatoken
+          persist-credentials: false
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          repository: werg/tracing-js-self
+          ref: 550387918313393b49017397d47bd66e9d4b5e82 # exact namespace and service-recovery producer
+          path: tracing-js-self
+          persist-credentials: false
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
+        with:
+          node-version-file: tracing-js-self/.nvmrc
+      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
+        with:
+          python-version: '3.12.14'
+      - name: Install locked dependencies and the checked consumer
+        run: |
+          npm ci --prefix tracing-js-self --ignore-scripts --no-audit --no-fund
+          python -m pip install --require-hashes -r tracing-js-self/tools/native-consumer/requirements.lock
+          python -m pip install --no-deps --no-build-isolation -e ./megatoken
+      - name: Bind the production tokenizer and exact consumer under test
+        run: |
+          python - <<'PY'
+          import hashlib, json, os, re, shutil, subprocess
+          from pathlib import Path
+          from huggingface_hub import hf_hub_download
+          from megatoken.generation.codec import ByteCodec, LING_REPOSITORY, LING_REVISION, LING_TOKENIZER_SHA256
+          producer = Path(os.environ['TRACING_JS_SELF_ROOT'])
+          consumer = Path(os.environ['MEGATOKEN_ROOT'])
+          def snapshot(root):
+              revision = subprocess.check_output(['git', '-C', str(root), 'rev-parse', 'HEAD'], text=True).strip()
+              changes = subprocess.check_output(['git', '-C', str(root), 'status', '--porcelain', '--untracked-files=all'], text=True).strip()
+              if not re.fullmatch('[0-9a-f]{40}', revision) or changes:
+                  raise ValueError('Paired admission requires exact clean checkouts')
+              return {'revision': revision, 'tree': subprocess.check_output(['git', '-C', str(root), 'rev-parse', 'HEAD:'], text=True).strip()}
+          identity = {'producer': snapshot(producer), 'consumer': snapshot(consumer)}
+          tokenizer = Path(os.environ['MEGATOKEN_TOKENIZER_JSON'])
+          shutil.copyfile(hf_hub_download(LING_REPOSITORY, 'tokenizer.json', revision=LING_REVISION), tokenizer)
+          policy = json.loads((producer / 'contracts/semantic-native-policy-v8.json').read_text())
+          digest = hashlib.sha256(tokenizer.read_bytes()).hexdigest()
+          codec = ByteCodec.from_tokenizer_json(tokenizer, expected_sha256=LING_TOKENIZER_SHA256)
+          if policy['consumerRepository'] != 'werg/megatoken' or policy['tokenizerSha256'] != digest or digest != LING_TOKENIZER_SHA256 or policy['tokenizerIdentity'] != codec.fingerprint:
+              raise ValueError('Pinned tokenizer or consumer repository differs')
+          # Test this exact consumer without altering the clean producer or its
+          # contract, fixture, interoperability, and tokenizer requirements.
+          policy['consumerRevision'] = identity['consumer']['revision']
+          Path(os.environ['SEMANTIC_V8_NATIVE_POLICY']).write_text(json.dumps(policy, indent=2) + '\n')
+          identity['policy'] = policy
+          (Path(os.environ['RUNNER_TEMP']) / 'semantic-v8-identities.json').write_text(json.dumps(identity, indent=2) + '\n')
+          print(json.dumps(identity))
+          PY
+      - name: Emit canonical formatting without changing the checkout
+        working-directory: megatoken
+        shell: bash
+        run: |
+          python -m pip install ruff
+          python - <<'PY'
+          import json,subprocess,sys
+          from pathlib import Path
+          paths=["src/megatoken/semantic_request_journal_v8.py","tests/test_semantic_request_journal_v8.py","tests/fixtures/semantic_request_journal_worker_v8.py","scripts/qualify_semantic_v8_target_inventory.py","src/megatoken/training/target_inventory_v8.py","tests/test_semantic_v8_target_inventory.py","scripts/qualify_semantic_v8_lifecycle.py","scripts/qualify_semantic_v8_target_coverage.py"]
+          for name in paths:
+              path=Path(name)
+              original=path.read_text()
+              fixed=subprocess.run([sys.executable,'-m','ruff','check','--fix-only','--stdin-filename',name,'-'],input=original,text=True,capture_output=True,check=False)
+              candidate=fixed.stdout if fixed.stdout else original
+              formatted=subprocess.run([sys.executable,'-m','ruff','format','--stdin-filename',name,'-'],input=candidate,text=True,capture_output=True,check=True).stdout
+              if formatted!=original:
+                  print('FORMATTED_SOURCE_JSON '+json.dumps({'path':name,'content':formatted}))
+          PY
+          python -m ruff check src/megatoken/semantic_request_journal_v8.py tests/test_semantic_request_journal_v8.py tests/fixtures/semantic_request_journal_worker_v8.py scripts/qualify_semantic_v8_target_inventory.py src/megatoken/training/target_inventory_v8.py tests/test_semantic_v8_target_inventory.py scripts/qualify_semantic_v8_lifecycle.py scripts/qualify_semantic_v8_target_coverage.py
+          python -m ruff format --check src/megatoken/semantic_request_journal_v8.py tests/test_semantic_request_journal_v8.py tests/fixtures/semantic_request_journal_worker_v8.py scripts/qualify_semantic_v8_target_inventory.py src/megatoken/training/target_inventory_v8.py tests/test_semantic_v8_target_inventory.py scripts/qualify_semantic_v8_lifecycle.py scripts/qualify_semantic_v8_target_coverage.py
+          git diff --exit-code --
+      - name: Exercise durable request failures and ordinary optimizer boundaries
+        if: ${{ !cancelled() }}
+        working-directory: megatoken
+        shell: bash
+        run: |
+          set -o pipefail
+          python -m pytest -q tests/test_semantic_request_journal_v8.py tests/test_semantic_v8_target_inventory.py tests/test_semantic_v8_target_exposure.py tests/test_qualify_semantic_v8_lifecycle.py tests/test_qualify_semantic_v8_lifecycle_support.py tests/test_semantic_v8_training_lifecycle.py --junitxml="$RUNNER_TEMP/native-foundations.xml" 2>&1 | tee "$RUNNER_TEMP/native-foundations.log"
+          python - <<'PY'
+          import os,xml.etree.ElementTree as ET
+          from pathlib import Path
+          cases=list(ET.parse(Path(os.environ['RUNNER_TEMP'])/'native-foundations.xml').getroot().iter('testcase'))
+          if not cases or any(case.find(kind) is not None for case in cases for kind in ('failure','error','skipped')):
+              raise ValueError('Every durable-request and optimizer-inventory control must execute and pass')
+          print(f'{len(cases)} native durable-request and optimizer-inventory controls passed with zero skips')
+          PY
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: native-recovery-inventory-controls
+          retention-days: 30
+          if-no-files-found: warn
+          path: |
+            ${{ runner.temp }}/native-foundations.xml
+            ${{ runner.temp }}/native-foundations.log
+            ${{ runner.temp }}/semantic-v8-identities.json
