@@ -1,7 +1,9 @@
 """Independent prepared positions versus actual CE/gather selections, including forgery controls."""
 
+import json
 from copy import deepcopy
 from dataclasses import replace
+from types import SimpleNamespace
 
 import pytest
 import torch
@@ -10,10 +12,14 @@ from megatoken.data.schema import ByteSpan, PhysicalRecord
 from megatoken.data.semantic_json import stable_algorithm_hash
 from megatoken.generation import ActionSpec, ByteCodec, FacetedGenerator
 from megatoken.model import FacetedCore, ModelConfig
+from megatoken.training.config import TrainConfig
 from megatoken.training.positions_v8 import (
+    PositionWindowAudit,
     TextReadoutReceipt,
     advance_position_exposure,
+    compare_position_inventory,
     empty_position_exposure,
+    independent_position_inventory,
     independent_text_target,
     position_exposure_report,
     restore_position_exposure,
@@ -317,3 +323,284 @@ def test_actual_decoder_receipts_leave_losses_and_gradients_unchanged():
         model.decoder.teacher_raw(
             model.core, raw, shifted, position_sink=TextReadoutReceipt(oracle_for(), "prior")
         )
+
+
+def prepared_episode(records, *, source="source-1", tools="[]"):
+    return SimpleNamespace(
+        stream="semantic_execution",
+        lineage=SimpleNamespace(frozen_split="train"),
+        tools_json=tools,
+        records=records,
+        meridians=[
+            SimpleNamespace(
+                events=[
+                    SimpleNamespace(
+                        record_id=row.record_id,
+                        modality="text",
+                        settings_json="{}",
+                    )
+                    for row in records
+                ]
+            )
+        ],
+        supervision=SimpleNamespace(
+            annotations_json=json.dumps(
+                {
+                    "semantic_execution": {
+                        "schema": "semantic-execution/8",
+                        "sourceId": source,
+                        "datasetBinding": {
+                            "sourceId": source,
+                            "registryDigest": "a" * 64,
+                            "split": "train",
+                        },
+                    }
+                }
+            )
+        ),
+    )
+
+
+def prepared_inventory(episodes):
+    config = TrainConfig(
+        purpose="diagnostic",
+        phase="SC",
+        model="tiny",
+        codec="injected-test-tokenizer",
+        max_steps=1,
+        generated_capacity=8,
+        semantic_v8_policy={
+            "schema": "semantic-training-policy/8",
+            "producerRevision": "a" * 40,
+            "consumerRevision": "b" * 40,
+            "registryDigest": "a" * 64,
+        },
+    )
+    return independent_position_inventory(
+        episodes,
+        codec=ByteCodec.byte_fallback(),
+        config=config,
+        model_config=ModelConfig.tiny(),
+        modalities=[0],
+        prepared_manifest_fingerprint="b" * 64,
+        expected_source_ids=["source-1"],
+    )
+
+
+def state_and_presence(inventory):
+    sample = exposure()
+    sample["objectiveDigest"] = stable_algorithm_hash(inventory["objective"])
+    state = advance_position_exposure(
+        empty_position_exposure(registry_digest="a" * 64, objective=inventory["objective"]),
+        [sample],
+        registry_digest="a" * 64,
+        objective=inventory["objective"],
+        optimizer_step=1,
+    )
+    presence = {
+        name: deepcopy(state[name])
+        for name in (
+            "registryDigest",
+            "startingGlobalStep",
+            "lastGlobalStep",
+            "optimizerUpdates",
+            "sources",
+        )
+    }
+    return state, presence
+
+
+def test_independent_inventory_keeps_logical_and_physical_parts_and_ignores_observations():
+    parts = [
+        replace(record(), record_id=f"part-{index}", part_index=index, part_count=2)
+        for index in range(2)
+    ]
+    observation = replace(record(), record_id="observed", logical_id="observed", policy_mask=False)
+    inventory = prepared_inventory([prepared_episode([observation, *parts])])
+    assert inventory["logicalTargetCount"] == 1
+    assert inventory["physicalTargetRecordCount"] == 2
+    assert inventory["positiveWeightPositionCounts"]["lexical"] == 4
+    rows = inventory["sources"]["source-1"]["logicalTargets"]["logical-1"]["records"]
+    assert set(rows) == {"part-0", "part-1"}
+    assert rows["part-0"]["oracle"]["terminal"] is False
+    assert rows["part-1"]["oracle"]["terminal"] is True
+
+
+@pytest.mark.parametrize(
+    "mutation", [None, "omitted", "invented", "joint_shift", "joint_duplicate"]
+)
+def test_final_comparison_is_independent_of_planner_and_optimizer_agreement(mutation):
+    inventory = prepared_inventory([prepared_episode([record()])])
+    state, presence = state_and_presence(inventory)
+    rows = state["sources"]["source-1"]["logicalTargets"]["logical-1"]["records"]
+    if mutation == "omitted":
+        rows.clear()
+        presence["sources"]["source-1"]["logicalTargets"]["logical-1"]["records"].clear()
+    elif mutation == "invented":
+        invented = deepcopy(rows["physical-1"])
+        invented["receipt"]["physicalRecordId"] = "invented"
+        invented["receipt"]["oracle"]["physicalRecordId"] = "invented"
+        reseal(invented["receipt"]["oracle"])
+        rows["invented"] = invented
+    elif mutation == "joint_shift":
+        receipt = rows["physical-1"]["receipt"]
+        receipt["oracle"]["freeMask"] = [True, True, False, False]
+        reseal(receipt["oracle"])
+        for readout in receipt["readouts"].values():
+            readout["positions"] = [0, 1]
+            readout["mask"] = [True, True, False, False]
+        # Internal agreement and every denominator remain correct. Only the
+        # independently re-read prepared free spans expose the shifted mask.
+    elif mutation == "joint_duplicate":
+        rows["physical-1"]["scoredOccurrences"] = 2
+        presence["sources"]["source-1"]["logicalTargets"]["logical-1"]["records"]["physical-1"][
+            "scoredOccurrences"
+        ] = 2
+    reseal(state)
+    comparison = compare_position_inventory(
+        inventory, state, target_exposure=presence, global_step=1
+    )
+    assert comparison["exactOnePassPreparedTextPositions"] is (mutation is None)
+    if mutation == "joint_shift":
+        assert comparison["positiveWeightPositionCountsMatch"] is True
+        assert comparison["preparedOracleMismatches"] == [["source-1", "logical-1", "physical-1"]]
+    if mutation == "joint_duplicate":
+        assert comparison["independentOccurrenceMismatches"]
+
+
+def test_unsupported_structured_branch_never_receives_verified_position_credit():
+    inventory = prepared_inventory([prepared_episode([record()], tools='[{"name":"tool"}]')])
+    assert inventory["verifiedPhysicalTargets"] == 0
+    assert inventory["unmeasuredPhysicalTargets"] == 1
+    expected = inventory["sources"]["source-1"]["logicalTargets"]["logical-1"]["records"][
+        "physical-1"
+    ]
+    assert expected["oracle"] is None
+    assert "structured" in expected["reasons"][0]
+
+
+def test_observation_only_window_receives_no_position_credit_or_invented_targets():
+    observed = replace(record(), policy_mask=False)
+    episode = prepared_episode([observed])
+    item = SimpleNamespace(episode=episode, window=SimpleNamespace(index=0, start=0, end=1))
+    config = SimpleNamespace(semantic_v8_policy={"registryDigest": "a" * 64}, generated_capacity=8)
+    audit = PositionWindowAudit(
+        SimpleNamespace(windows=[item]),
+        codec=ByteCodec.byte_fallback(),
+        config=config,
+        model_config=ModelConfig.tiny(),
+        modalities=[0],
+        objective=objective(),
+    )
+    assert audit.finish()["records"] == []
+    with pytest.raises(ValueError, match="invented, observed or repeated"):
+        audit.step([SimpleNamespace(record=observed)])
+
+
+def test_full_controlled_corpus_executes_exact_independent_positions(tmp_path, monkeypatch):
+    """Actual bounded optimizer pass; fixture source/tokenizer admission is injected."""
+    import subprocess
+    import time
+    from dataclasses import asdict
+    from pathlib import Path
+
+    from test_semantic_v8_training_policy import prepared_v8_fixture
+
+    import megatoken.training.semantic_v8 as semantic_v8
+    from megatoken.data import PreparedCorpus, iter_windows
+    from megatoken.training.checkpoint import load_checkpoint
+    from megatoken.training.engine import train
+    from megatoken.training.windows import window_config
+
+    torch.set_num_threads(1)
+    _, codec, policy, prepared = prepared_v8_fixture(tmp_path)
+    monkeypatch.setattr(semantic_v8, "load_semantic_v8_codec", lambda _path, *, vocab_size: codec)
+    config = TrainConfig(
+        purpose="diagnostic",
+        phase="SC",
+        model="tiny",
+        codec="injected-tokenizer",
+        datasets=[str(prepared)],
+        output=str(tmp_path / "fit"),
+        device="cpu",
+        precision="fp32",
+        max_steps=1,
+        checkpoint_every=1,
+        keep_checkpoints=1,
+        microbatch_episodes=1,
+        accumulate_scored=1,
+        accumulate_ingested=1,
+        max_accumulation_windows=1,
+        allow_unverified_data=True,
+        semantic_v8_policy=policy,
+    )
+    with PreparedCorpus([prepared], split="train") as corpus:
+        episodes = [corpus.fetch(index)[0] for index in range(len(corpus))]
+    windows = [
+        window
+        for episode in episodes
+        for window in iter_windows(episode, codec, window_config(config))
+    ]
+    updates = sum(window.Q > 0 for window in windows)
+    assert 1 <= updates <= 8, "Keep the actual controlled position gate finite"
+    config = replace(config, max_steps=updates)
+    started = time.perf_counter()
+    result = train(config)
+    elapsed = time.perf_counter() - started
+    payload, metadata = load_checkpoint(result["checkpoint"])
+    manifest = json.loads((prepared / "manifest.json").read_text())
+    inventory = independent_position_inventory(
+        episodes,
+        codec=codec,
+        config=config,
+        model_config=ModelConfig.from_dict(payload["model_config"]),
+        modalities=[0],
+        prepared_manifest_fingerprint=manifest["fingerprint"],
+        expected_source_ids=["source-1"],
+    )
+    state = payload["semantic_v8_position_exposure"]
+    comparison = compare_position_inventory(
+        inventory,
+        state,
+        target_exposure=payload["semantic_v8_target_exposure"],
+        global_step=updates,
+    )
+    assert comparison["exactOnePassPreparedTextPositions"] is True
+    assert inventory["physicalTargetRecordCount"] == sum(
+        record.policy_mask for episode in episodes for record in episode.records
+    )
+    assert inventory["physicalTargetRecordCount"] == 4
+    assert metadata["semantic_v8_position_digest"] == state["digest"]
+    assert state["optimizerUpdates"] == result["global_step"] == updates
+    root = Path(__file__).resolve().parents[1]
+    report = {
+        "schema": "semantic-v8-controlled-position-evidence/1",
+        "sourceCommit": subprocess.check_output(
+            ["git", "rev-parse", "HEAD"], cwd=root, text=True
+        ).strip(),
+        "runtime": {
+            "torch": str(torch.__version__),
+            "device": "cpu",
+            "precision": "fp32",
+            "seed": config.seed,
+        },
+        "boundaries": {
+            "sourceAdmission": "injected fixture receipt",
+            "tokenizerAdmission": "injected byte-fallback fixture",
+            "sourcePopulation": "one controlled prepared fixture, not the 64-source support population",
+        },
+        "elapsedSeconds": elapsed,
+        "windowCount": len(windows),
+        "optimizerUpdates": updates,
+        "config": asdict(config),
+        "preparedManifestFingerprint": manifest["fingerprint"],
+        "checkpointMetadata": metadata,
+        "independentPreparedPositionInventory": inventory,
+        "optimizerPositionExposure": state,
+        "optimizerPositionSummary": position_exposure_report(state),
+        "targetExposure": payload["semantic_v8_target_exposure"],
+        "comparison": comparison,
+        "routerInternalPositionCoverage": "unmeasured",
+        "learnedSuccess": None,
+    }
+    (tmp_path / "position-proof.json").write_text(json.dumps(reseal(report), indent=2) + "\n")

@@ -7,15 +7,60 @@ import argparse
 import json
 from pathlib import Path
 
+from megatoken.data import PreparedCorpus
 from megatoken.data.semantic_json import stable_algorithm_hash
+from megatoken.loading import build_model, load_model_config
 from megatoken.semantic_lineage_v8 import checkpoint_lineage_v8
 from megatoken.training.checkpoint import load_checkpoint
-from megatoken.training.semantic_v8 import validate_semantic_v8_target_exposure
+from megatoken.training.config import TrainConfig
+from megatoken.training.positions_v8 import (
+    compare_position_inventory,
+    independent_position_inventory,
+    installed_modality_ids,
+    position_exposure_report,
+)
+from megatoken.training.semantic_v8 import (
+    load_semantic_v8_codec,
+    validate_semantic_v8_target_exposure,
+)
 from megatoken.training.target_inventory_v8 import compare_target_inventory
 
 
 def read_json(path: Path):
     return json.loads(path.read_text())
+
+
+def prepared_position_inventory(config_raw, *, source_ids, prepared_manifest_fingerprint):
+    """Read admitted physical data directly, separately from the window preflight."""
+    config = TrainConfig.from_dict(config_raw)
+    model_config = load_model_config(
+        config.model,
+        **{
+            **config.model_overrides,
+            "expert_backend": config.expert_backend,
+            "checkpoint_stages": config.gradient_checkpointing,
+        },
+    )
+    codec = load_semantic_v8_codec(config.codec, vocab_size=model_config.vocab_size)
+    model = build_model(
+        model_config,
+        codec,
+        device="cpu",
+        precision=config.precision,
+        packs=config.packs,
+    )
+    with PreparedCorpus(config.datasets, split="train") as corpus:
+        if corpus.codec_fingerprint != codec.fingerprint:
+            raise ValueError("Position inventory corpus tokenizer differs from the checkpoint")
+        return independent_position_inventory(
+            (corpus.fetch(index)[0] for index in range(len(corpus))),
+            codec=codec,
+            config=config,
+            model_config=model_config,
+            modalities=installed_modality_ids(model),
+            prepared_manifest_fingerprint=prepared_manifest_fingerprint,
+            expected_source_ids=source_ids,
+        )
 
 
 def main() -> int:
@@ -67,6 +112,25 @@ def main() -> int:
             f"{len(comparison['windowIndexMismatches'])} window-set mismatches, "
             f"{len(comparison['positiveWeightDenominatorMismatches'])} denominator mismatches"
         )
+    position_inventory = prepared_position_inventory(
+        checkpoint["train_config"],
+        source_ids=derived["sourceIds"],
+        prepared_manifest_fingerprint=prepared_manifest["fingerprint"],
+    )
+    position_state = checkpoint.get("semantic_v8_position_exposure")
+    position_comparison = compare_position_inventory(
+        position_inventory,
+        position_state,
+        target_exposure=state,
+        global_step=checkpoint["global_step"],
+    )
+    if metadata.get("semantic_v8_position_digest") != position_state["digest"]:
+        raise ValueError("Checkpoint metadata does not bind the executed position history")
+    if not position_comparison["exactOnePassPreparedTextPositions"]:
+        raise ValueError(
+            "Ordinary training differs from independently reconstructed prepared positions: "
+            + json.dumps(position_comparison, sort_keys=True, separators=(",", ":"))
+        )
     body = {
         "schema": "semantic-v8-ordinary-target-coverage/1",
         "consumerRevision": policy["consumerRevision"],
@@ -92,8 +156,13 @@ def main() -> int:
             "sources": state["sources"],
         },
         "comparison": comparison,
+        "independentPreparedPositionInventory": position_inventory,
+        "optimizerPositionExposure": position_state,
+        "optimizerPositionSummary": position_exposure_report(position_state),
+        "positionComparison": position_comparison,
         "targetPresenceCoverage": "complete: every positive-weight logical/physical target record contributed at least once",
-        "tokenOrMaskPositionCoverage": "unmeasured",
+        "tokenOrMaskPositionCoverage": "complete-for-prepared-text",
+        "routerInternalPositionCoverage": "unmeasured",
         "learnedSuccess": None,
     }
     if comparison["allPositiveWeightTargetsExposed"] is not True:

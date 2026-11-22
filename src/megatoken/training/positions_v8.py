@@ -1039,3 +1039,181 @@ def position_exposure_report(state):
         "otherObjectiveScope": "Routing regularizers, representation coordinates, media/structured-action masks and transducer/retrieval losses are not granted token-position credit by this audit",
         "learnedSuccess": None,
     }
+
+
+def independent_position_inventory(
+    episodes,
+    *,
+    codec,
+    config,
+    model_config,
+    modalities,
+    prepared_manifest_fingerprint,
+    expected_source_ids,
+):
+    """Enumerate physical prepared policy records without windows or loss plans.
+
+    One complete corpus pass requires each distinct physical target exactly once.
+    This independent multiplicity also catches a planner and execution path that
+    agree with each other while both repeating or dropping the same target.
+    """
+    registry = config.semantic_v8_policy["registryDigest"]
+    objective = position_objective(config, model_config, codec, modalities)
+    sources = {}
+    for episode in episodes:
+        source_id = inventory_episode_source_id(episode, registry_digest=registry)
+        _require(source_id not in sources, "independent corpus contains a duplicate source")
+        source = sources[source_id] = {"split": "train", "logicalTargets": {}}
+        for identity, target in independent_episode_targets(
+            episode,
+            codec=codec,
+            config=config,
+            model_config=model_config,
+            modalities=modalities,
+        ).items():
+            logical = source["logicalTargets"].setdefault(
+                target["logicalTargetId"], {"records": {}}
+            )
+            logical["records"][identity] = target
+    _require(
+        sorted(sources) == sorted(expected_source_ids)
+        and len(expected_source_ids) == len(set(expected_source_ids)),
+        "independent prepared source population differs from admitted training split",
+    )
+    records = [
+        row
+        for source in sources.values()
+        for target in source["logicalTargets"].values()
+        for row in target["records"].values()
+    ]
+    _require(bool(records), "independent prepared corpus contains no policy targets")
+    position_counts = dict.fromkeys(POSITION_LOSSES, 0)
+    for target in records:
+        if target["status"] == "verified":
+            count = sum(target["oracle"]["freeMask"])
+            for name, value in {
+                "lexical": count,
+                "reconstruction": count,
+                "structure": 4,
+                "terminal": 2,
+                "modality": 1,
+            }.items():
+                if objective["effectiveLossWeights"].get(name, 0) > 0:
+                    position_counts[name] += value
+    return _seal(
+        {
+            "schema": "semantic-v8-independent-prepared-positions/1",
+            "registryDigest": registry,
+            "preparedManifestFingerprint": prepared_manifest_fingerprint,
+            "objective": objective,
+            "sourceIds": sorted(sources),
+            "sourceCount": len(sources),
+            "logicalTargetCount": sum(len(source["logicalTargets"]) for source in sources.values()),
+            "physicalTargetRecordCount": len(records),
+            "verifiedPhysicalTargets": sum(row["status"] == "verified" for row in records),
+            "unmeasuredPhysicalTargets": sum(row["status"] == "unmeasured" for row in records),
+            "positiveWeightPositionCounts": position_counts,
+            "sources": sources,
+            "independentOf": ["target planner", "window iterator", "decoder", "optimizer receipts"],
+        }
+    )
+
+
+def _flat_position_rows(sources):
+    return {
+        (source_id, logical_id, record_id): record
+        for source_id, source in sources.items()
+        for logical_id, target in source["logicalTargets"].items()
+        for record_id, record in target["records"].items()
+    }
+
+
+def compare_position_inventory(inventory, state, *, target_exposure, global_step):
+    """Compare actual receipts with independently re-read prepared physical truth.
+
+    The caller constructs ``inventory`` afresh from the admitted prepared corpus;
+    it must never substitute an inventory copied from an optimizer checkpoint.
+    """
+    _require(
+        inventory["schema"] == "semantic-v8-independent-prepared-positions/1"
+        and _seal(inventory) == inventory,
+        "independent position inventory is malformed or unsealed",
+    )
+    validate_position_exposure(
+        state,
+        registry_digest=inventory["registryDigest"],
+        objective=inventory["objective"],
+    )
+    _require(
+        type(global_step) is int
+        and global_step >= 1
+        and state["startingGlobalStep"] == target_exposure["startingGlobalStep"] == 0
+        and state["lastGlobalStep"] == target_exposure["lastGlobalStep"] == global_step
+        and state["optimizerUpdates"] == target_exposure["optimizerUpdates"] == global_step
+        and target_exposure["registryDigest"] == inventory["registryDigest"],
+        "position and target histories do not bind the same fresh optimizer sequence",
+    )
+    expected = _flat_position_rows(inventory["sources"])
+    actual = _flat_position_rows(state["sources"])
+    presence = _flat_position_rows(target_exposure["sources"])
+    missing = sorted(expected.keys() - actual.keys())
+    unexpected = sorted(actual.keys() - expected.keys())
+    oracle_mismatches = []
+    occurrence_mismatches = []
+    target_census_mismatches = []
+    unmeasured = []
+    for key in sorted(expected.keys() | actual.keys()):
+        if key in expected and expected[key]["status"] != "verified":
+            unmeasured.append(key)
+        if key not in actual or key not in expected:
+            continue
+        row = actual[key]
+        receipt = row["receipt"]
+        actual_oracle = {field: receipt[field] for field in expected[key]}
+        if stable_algorithm_hash(actual_oracle) != stable_algorithm_hash(expected[key]):
+            oracle_mismatches.append(key)
+        if receipt["status"] != "verified" and key not in unmeasured:
+            unmeasured.append(key)
+        # The expected multiplicity is physical corpus membership, not a count
+        # supplied by the planner or by the actual decoder.
+        if row["scoredOccurrences"] != 1:
+            occurrence_mismatches.append([list(key), 1, row["scoredOccurrences"]])
+        target_row = presence.get(key)
+        if target_row is None or any(
+            row[field] != target_row[field] for field in ("windowIndices", "scoredOccurrences")
+        ):
+            target_census_mismatches.append(key)
+    target_census_extra = sorted(presence.keys() - actual.keys())
+    summary = position_exposure_report(state)
+    count_match = (
+        summary["positiveWeightPositionCounts"] == inventory["positiveWeightPositionCounts"]
+    )
+    complete = (
+        not any(
+            (
+                missing,
+                unexpected,
+                oracle_mismatches,
+                occurrence_mismatches,
+                target_census_mismatches,
+                target_census_extra,
+                unmeasured,
+            )
+        )
+        and count_match
+    )
+    return {
+        "independentPreparedPhysicalTargets": len(expected),
+        "observedPhysicalTargets": len(actual),
+        "missingPhysicalTargets": [list(key) for key in missing],
+        "unexpectedPhysicalTargets": [list(key) for key in unexpected],
+        "preparedOracleMismatches": [list(key) for key in oracle_mismatches],
+        "independentOccurrenceMismatches": occurrence_mismatches,
+        "targetCensusWindowOrOccurrenceMismatches": [list(key) for key in target_census_mismatches],
+        "targetCensusWithoutPositionReceipt": [list(key) for key in target_census_extra],
+        "unmeasuredPhysicalTargets": [list(key) for key in unmeasured],
+        "positiveWeightPositionCountsMatch": count_match,
+        "exactOnePassPreparedTextPositions": complete,
+        "routerInternalPositionCoverage": "unmeasured",
+        "learnedSuccess": None,
+    }

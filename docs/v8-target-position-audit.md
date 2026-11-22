@@ -65,6 +65,12 @@ audit does not establish that exposure or learned semantic quality.
   missing decisions and resealed malformed checkpoint metadata.
 - The ordinary tiny optimizer/checkpoint/fresh-process-resume test runs with the
   observer active; both saved and resumed histories contain actual receipts.
-- The full independent prepared-record population comparison and dedicated full
-  qualification driver are being completed. No new full 348-update run has been
-  launched for this audit yet.
+- The complete prepared-record comparison independently enumerates policy
+  targets without the window iterator or target planner. Each distinct physical
+  target must appear once in the actual receipts. Controls reject even a jointly
+  shifted prepared-plan/execution mask whose counts and repeated token labels
+  still agree, and a duplicated target that both older accounting paths repeat.
+- The dedicated full qualification driver requires the independent comparison;
+  historical target-only evidence cannot satisfy it. A separate bounded complete
+  four-target fixture execution is the next integration check. No new full
+  348-update run has been launched for this audit yet.
