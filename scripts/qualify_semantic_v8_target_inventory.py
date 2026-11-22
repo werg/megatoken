@@ -38,10 +38,19 @@ def read_json(path: Path):
 
 
 def target_inventory(config_source, expected_source_ids_source=None):
-    config_raw = read_json(config_source) if isinstance(config_source, (str, Path)) else config_source
+    config_raw = (
+        read_json(config_source) if isinstance(config_source, (str, Path)) else config_source
+    )
     config = TrainConfig.from_dict(config_raw)
     config_identity = asdict(config)
-    for non_objective in ("output", "max_steps", "checkpoint_every", "keep_checkpoints", "log_every", "device"):
+    for non_objective in (
+        "output",
+        "max_steps",
+        "checkpoint_every",
+        "keep_checkpoints",
+        "log_every",
+        "device",
+    ):
         config_identity.pop(non_objective, None)
     require(config.semantic_v8_policy is not None, "Inventory requires an explicit V8 policy")
     require(
@@ -123,9 +132,7 @@ def target_inventory(config_source, expected_source_ids_source=None):
                 "Prepared registry assigns a source to multiple splits",
             )
             split_by_id[source_id] = component["split"]
-    expected_train_ids = {
-        source_id for source_id, split in split_by_id.items() if split == "train"
-    }
+    expected_train_ids = {source_id for source_id, split in split_by_id.items() if split == "train"}
     split_counts = {
         split: sum(value == split for value in split_by_id.values())
         for split in ("train", "validation", "test")
@@ -193,8 +200,7 @@ def target_inventory(config_source, expected_source_ids_source=None):
                 update_window_count += int(any(any(batch.counts.values()) for batch in batches))
                 if any(any(batch.counts.values()) for batch in batches):
                     one_pass_meter_count += sum(
-                        getattr(batch_counters([batch]), config.schedule.meter)
-                        for batch in batches
+                        getattr(batch_counters([batch]), config.schedule.meter) for batch in batches
                     )
                 for batch in batches:
                     for step in batch.steps:
@@ -202,9 +208,7 @@ def target_inventory(config_source, expected_source_ids_source=None):
                             record = encoded.record
                             if not record.policy_mask:
                                 continue
-                            available_records.add(
-                                (source_id, record.logical_id, record.record_id)
-                            )
+                            available_records.add((source_id, record.logical_id, record.record_id))
                             for name, count in plan.denominators.items():
                                 if count:
                                     available_denominators[name] = (
@@ -291,9 +295,7 @@ def main() -> int:
                 "phaseBudget": result["phaseBudget"],
                 "onePassMeterCount": result["onePassMeterCount"],
                 "logicalTargetCount": result["positiveWeight"]["logicalTargetCount"],
-                "physicalTargetRecordCount": result["positiveWeight"][
-                    "physicalTargetRecordCount"
-                ],
+                "physicalTargetRecordCount": result["positiveWeight"]["physicalTargetRecordCount"],
                 "scoredOccurrences": result["positiveWeight"]["scoredOccurrences"],
                 "lossDenominators": result["positiveWeight"]["lossDenominators"],
                 "optimizerUpdates": 0,

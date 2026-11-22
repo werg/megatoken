@@ -5,13 +5,39 @@ from __future__ import annotations
 from megatoken.data.semantic_json import stable_algorithm_hash
 
 
-def validate_target_inventory(inventory, *, rederived_inventory, registry_digest, prepared_manifest_fingerprint,
-                              codec_fingerprint, training_config_digest, model_config_digest):
+def validate_target_inventory(
+    inventory,
+    *,
+    rederived_inventory,
+    registry_digest,
+    prepared_manifest_fingerprint,
+    codec_fingerprint,
+    training_config_digest,
+    model_config_digest,
+):
     required = {
-        "schema", "registryDigest", "sourceIds", "scoredSourceIds", "trainEpisodeCount",
-        "windowCount", "optimizerWindowCount", "phaseMeter", "phaseBudget", "onePassMeterCount", "preparedManifestFingerprint", "codecFingerprint",
-        "trainingConfigDigest", "modelConfigDigest", "windowConfig", "effectiveLossWeights",
-        "available", "positiveWeight", "sources", "optimizerUpdates", "learnedSuccess", "digest",
+        "schema",
+        "registryDigest",
+        "sourceIds",
+        "scoredSourceIds",
+        "trainEpisodeCount",
+        "windowCount",
+        "optimizerWindowCount",
+        "phaseMeter",
+        "phaseBudget",
+        "onePassMeterCount",
+        "preparedManifestFingerprint",
+        "codecFingerprint",
+        "trainingConfigDigest",
+        "modelConfigDigest",
+        "windowConfig",
+        "effectiveLossWeights",
+        "available",
+        "positiveWeight",
+        "sources",
+        "optimizerUpdates",
+        "learnedSuccess",
+        "digest",
     }
     if not isinstance(inventory, dict) or set(inventory) != required:
         raise ValueError("V8 target inventory has an invalid field set")
@@ -92,11 +118,13 @@ def validate_target_inventory(inventory, *, rederived_inventory, registry_digest
         or not isinstance(expected, dict)
         or expected.get("sourceCount") != len(inventory["sources"])
         or expected.get("logicalTargetCount")
-        != len({
-            (source_id, logical_id)
-            for source_id, source in inventory["sources"].items()
-            for logical_id in source["logicalTargets"]
-        })
+        != len(
+            {
+                (source_id, logical_id)
+                for source_id, source in inventory["sources"].items()
+                for logical_id in source["logicalTargets"]
+            }
+        )
         or expected.get("physicalTargetRecordCount") != len(expected_keys)
     ):
         raise ValueError("V8 positive-loss target inventory summary differs from its keys")
@@ -144,7 +172,11 @@ def compare_target_inventory(inventory, actual_sources, *, rederived_inventory, 
         actual_record = actual_records[key]
         if expected_record["scoredOccurrences"] != actual_record.get("scoredOccurrences"):
             occurrence_mismatches.append(
-                [list(key), expected_record["scoredOccurrences"], actual_record.get("scoredOccurrences")]
+                [
+                    list(key),
+                    expected_record["scoredOccurrences"],
+                    actual_record.get("scoredOccurrences"),
+                ]
             )
         if expected_record["windowIndices"] != actual_record.get("windowIndices"):
             window_mismatches.append(
@@ -152,7 +184,11 @@ def compare_target_inventory(inventory, actual_sources, *, rederived_inventory, 
             )
         if expected_record["lossDenominators"] != actual_record.get("lossDenominators"):
             denominator_mismatches.append(
-                [list(key), expected_record["lossDenominators"], actual_record.get("lossDenominators")]
+                [
+                    list(key),
+                    expected_record["lossDenominators"],
+                    actual_record.get("lossDenominators"),
+                ]
             )
     repeated = any(
         record.get("scoredOccurrences", 0) > len(record.get("windowIndices", []))
@@ -162,8 +198,11 @@ def compare_target_inventory(inventory, actual_sources, *, rederived_inventory, 
     )
     total = len(expected_keys)
     covered = total - len(missing)
-    exact_census = bool(total) and not missing and not unexpected and not (
-        occurrence_mismatches or window_mismatches or denominator_mismatches
+    exact_census = (
+        bool(total)
+        and not missing
+        and not unexpected
+        and not (occurrence_mismatches or window_mismatches or denominator_mismatches)
     )
     return {
         "schema": "semantic-v8-target-presence-comparison/1",
@@ -174,9 +213,9 @@ def compare_target_inventory(inventory, actual_sources, *, rederived_inventory, 
         "coveredPositiveWeightLogicalTargets": len(expected_logical & actual_logical),
         "missingPositiveWeightPhysicalTargets": [list(row) for row in missing],
         "unexpectedPhysicalTargets": [list(row) for row in unexpected],
-        "targetPresenceCoverage": 1.0 if total and not missing and not unexpected else (
-            covered / total if total else 0.0
-        ),
+        "targetPresenceCoverage": 1.0
+        if total and not missing and not unexpected
+        else (covered / total if total else 0.0),
         "allPositiveWeightTargetsExposed": bool(total) and not missing and not unexpected,
         "exactOnePassCensus": exact_census,
         "scoredOccurrenceMismatches": occurrence_mismatches,

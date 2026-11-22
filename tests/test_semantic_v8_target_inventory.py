@@ -37,7 +37,7 @@ def _inventory():
     body = {
         "schema": "semantic-v8-positive-loss-target-inventory/1",
         "registryDigest": REGISTRY,
-        "sourceIds": [f"source-a" if index == 0 else f"train-{index:02d}" for index in range(48)],
+        "sourceIds": ["source-a" if index == 0 else f"train-{index:02d}" for index in range(48)],
         "scoredSourceIds": ["source-a"],
         "trainEpisodeCount": 48,
         "windowCount": 120,
@@ -103,7 +103,9 @@ def _actual(*, extra=False):
 
 
 def test_exact_target_presence_passes_without_claiming_position_coverage():
-    result = compare_target_inventory(_inventory(), _actual(), rederived_inventory=_inventory(), **_identities())
+    result = compare_target_inventory(
+        _inventory(), _actual(), rederived_inventory=_inventory(), **_identities()
+    )
     assert result["allPositiveWeightTargetsExposed"] is True
     assert result["exactOnePassCensus"] is False
     assert result["targetPresenceCoverage"] == 1.0
@@ -113,7 +115,9 @@ def test_exact_target_presence_passes_without_claiming_position_coverage():
 
 
 def test_missing_inventory_targets_are_reported_without_inflating_coverage():
-    result = compare_target_inventory(_inventory(), {}, rederived_inventory=_inventory(), **_identities())
+    result = compare_target_inventory(
+        _inventory(), {}, rederived_inventory=_inventory(), **_identities()
+    )
     assert result["allPositiveWeightTargetsExposed"] is False
     assert result["targetPresenceCoverage"] == 0.0
     assert result["missingPositiveWeightPhysicalTargets"] == [
@@ -168,7 +172,9 @@ def test_repeated_window_occurrence_is_reported_separately_from_unique_target_co
     record = actual["source-a"]["logicalTargets"]["target-one"]["records"]["record-one"]
     record["windowIndices"] = [0]
     record["scoredOccurrences"] = 2
-    result = compare_target_inventory(_inventory(), actual, rederived_inventory=_inventory(), **_identities())
+    result = compare_target_inventory(
+        _inventory(), actual, rederived_inventory=_inventory(), **_identities()
+    )
     assert result["allPositiveWeightTargetsExposed"] is True
     assert result["exactOnePassCensus"] is False
     assert result["repeatedWindowExposureObserved"] is True
@@ -177,7 +183,9 @@ def test_repeated_window_occurrence_is_reported_separately_from_unique_target_co
 def test_rehashed_inventory_that_disagrees_with_rederived_planner_is_refused():
     value = _inventory()
     tampered = deepcopy(value)
-    tampered["sources"]["source-a"]["logicalTargets"]["target-one"]["records"]["record-one"]["lossDenominators"]["language_model"] = 99
+    tampered["sources"]["source-a"]["logicalTargets"]["target-one"]["records"]["record-one"][
+        "lossDenominators"
+    ]["language_model"] = 99
     body = {key: child for key, child in tampered.items() if key != "digest"}
     tampered["digest"] = stable_algorithm_hash(body)
     with pytest.raises(ValueError, match="re-derivation"):

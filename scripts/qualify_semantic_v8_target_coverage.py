@@ -5,7 +5,6 @@ from __future__ import annotations
 
 import argparse
 import json
-import sys
 from pathlib import Path
 
 from megatoken.data.semantic_json import stable_algorithm_hash
@@ -102,7 +101,10 @@ def main() -> int:
     body["digest"] = stable_algorithm_hash(body)
     args.output.parent.mkdir(parents=True, exist_ok=True)
     args.output.write_text(json.dumps(body, indent=2, allow_nan=False) + "\n")
-    print("V8_TARGET_COVERAGE_EVIDENCE_JSON " + json.dumps(body, sort_keys=True, separators=(",", ":")))
+    print(
+        "V8_TARGET_COVERAGE_EVIDENCE_JSON "
+        + json.dumps(body, sort_keys=True, separators=(",", ":"))
+    )
     return 0
 
 

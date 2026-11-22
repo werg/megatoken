@@ -1,0 +1,834 @@
+﻿2026-11-22T08:53:22.6637562Z Current runner version: '2.338.2'
+2026-11-22T08:53:22.6655635Z ##[group]Runner Image Provisioner
+2026-11-22T08:53:22.6656378Z Hosted Compute Agent
+2026-11-22T08:53:22.6656802Z Version: 20261111.635
+2026-11-22T08:53:22.6657319Z Commit: b8a594ea514ff44cadb5342986c68b1eac6e22ed
+2026-11-22T08:53:22.6657887Z Build Date: 2026-11-11T01:49:01Z
+2026-11-22T08:53:22.6658385Z Worker ID: {85d9198b-7b16-4377-93a6-f4dd567b235a}
+2026-11-22T08:53:22.6658922Z Region: us-west-2
+2026-11-22T08:53:22.6659364Z Cloud: AWS
+2026-11-22T08:53:22.6659746Z ##[endgroup]
+2026-11-22T08:53:22.6660801Z ##[group]Operating System
+2026-11-22T08:53:22.6661237Z Ubuntu
+2026-11-22T08:53:22.6661629Z 24.04.5
+2026-11-22T08:53:22.6661989Z LTS
+2026-11-22T08:53:22.6662386Z ##[endgroup]
+2026-11-22T08:53:22.6662793Z ##[group]Runner Image
+2026-11-22T08:53:22.6663216Z Image: ubuntu-24.04
+2026-11-22T08:53:22.6663647Z Version: 20261116.133.1
+2026-11-22T08:53:22.6664629Z Included Software: https://github.com/actions/runner-images/blob/ubuntu24/20261116.133/images/ubuntu/Ubuntu2404-Readme.md
+2026-11-22T08:53:22.6666149Z Image Release: https://github.com/actions/runner-images/releases/tag/ubuntu24%2F20261116.133
+2026-11-22T08:53:22.6666888Z ##[endgroup]
+2026-11-22T08:53:22.6667723Z ##[group]GITHUB_TOKEN Permissions
+2026-11-22T08:53:22.6669479Z Contents: read
+2026-11-22T08:53:22.6669980Z Metadata: read
+2026-11-22T08:53:22.6670378Z ##[endgroup]
+2026-11-22T08:53:22.6671863Z Secret source: Actions
+2026-11-22T08:53:22.6672534Z Cache mode: write
+2026-11-22T08:53:22.6673143Z Prepare workflow directory
+2026-11-22T08:53:22.7121013Z Prepare all required actions
+2026-11-22T08:53:22.7163734Z Getting action download info
+2026-11-22T08:53:23.0611705Z Download action repository 'actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1' (SHA:3d3c42e5aac5ba805825da76410c181273ba90b1)
+2026-11-22T08:53:25.0024956Z Download action repository 'actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020' (SHA:49933ea5288caeca8642d1e84afbd3f7d6820020)
+2026-11-22T08:53:25.1596202Z Download action repository 'actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97' (SHA:5fda3b95a4ea91299a34e894583c3862153e4b97)
+2026-11-22T08:53:25.3587699Z Download action repository 'actions/upload-artifact@v4' (SHA:ea165f8d65b6e75b540449e92b4886f43607fa02)
+2026-11-22T08:53:25.7224217Z Complete job name: foundation-controls
+2026-11-22T08:53:25.7761736Z ##[group]Run actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+2026-11-22T08:53:25.7762288Z with:
+2026-11-22T08:53:25.7762667Z   ref: 3caabf5544c935fa81fc20dbccac095f7e754d50
+2026-11-22T08:53:25.7762994Z   path: megatoken
+2026-11-22T08:53:25.7763264Z   persist-credentials: false
+2026-11-22T08:53:25.7763761Z   repository: werg/megatoken
+2026-11-22T08:53:25.7766133Z   token: ***
+2026-11-22T08:53:25.7766439Z   ssh-strict: true
+2026-11-22T08:53:25.7766704Z   ssh-user: git
+2026-11-22T08:53:25.7766952Z   clean: true
+2026-11-22T08:53:25.7767256Z   sparse-checkout-cone-mode: true
+2026-11-22T08:53:25.7767565Z   fetch-depth: 1
+2026-11-22T08:53:25.7767886Z   fetch-tags: false
+2026-11-22T08:53:25.7768175Z   show-progress: true
+2026-11-22T08:53:25.7768427Z   lfs: false
+2026-11-22T08:53:25.7768700Z   submodules: false
+2026-11-22T08:53:25.7768980Z   set-safe-directory: true
+2026-11-22T08:53:25.7769299Z   allow-unsafe-pr-checkout: false
+2026-11-22T08:53:25.7769778Z env:
+2026-11-22T08:53:25.7770342Z   OMP_NUM_THREADS: 1
+2026-11-22T08:53:25.7770611Z   MKL_NUM_THREADS: 1
+2026-11-22T08:53:25.7770951Z   PYTHONPATH: /home/runner/work/megatoken/megatoken/megatoken/src
+2026-11-22T08:53:25.7771437Z   TRACING_JS_SELF_ROOT: /home/runner/work/megatoken/megatoken/tracing-js-self
+2026-11-22T08:53:25.7771963Z   MEGATOKEN_NATIVE_SOURCE_PRODUCER: /home/runner/work/megatoken/megatoken/tracing-js-self
+2026-11-22T08:53:25.7772508Z   MEGATOKEN_TOKENIZER_JSON: /home/runner/work/megatoken/megatoken/semantic-v8-tokenizer.json
+2026-11-22T08:53:25.7773003Z   MEGATOKEN_ROOT: /home/runner/work/megatoken/megatoken/megatoken
+2026-11-22T08:53:25.7773412Z   MEGATOKEN_PYTHON: python
+2026-11-22T08:53:25.7773982Z   SEMANTIC_V8_NATIVE_POLICY: /home/runner/work/megatoken/megatoken/semantic-v8-policy.json
+2026-11-22T08:53:25.7774390Z ##[endgroup]
+2026-11-22T08:53:28.9286738Z Syncing repository: werg/megatoken
+2026-11-22T08:53:28.9288321Z ##[group]Getting Git version info
+2026-11-22T08:53:28.9288746Z Working directory is '/home/runner/work/megatoken/megatoken/megatoken'
+2026-11-22T08:53:28.9289314Z [command]/usr/bin/git version
+2026-11-22T08:53:29.1044881Z git version 2.56.1
+2026-11-22T08:53:29.1058821Z ##[endgroup]
+2026-11-22T08:53:29.1067897Z Temporarily overriding HOME='/home/runner/work/_temp/4a6b6772-0db5-47c9-9325-8a44daad79fd' before making global git config changes
+2026-11-22T08:53:29.1072348Z Adding repository directory to the temporary git global config as a safe directory
+2026-11-22T08:53:29.1076819Z [command]/usr/bin/git config --global --add safe.directory /home/runner/work/megatoken/megatoken/megatoken
+2026-11-22T08:53:29.1478482Z ##[group]Determining repository object format
+2026-11-22T08:53:29.1479802Z ##[endgroup]
+2026-11-22T08:53:29.1483415Z ##[group]Initializing the repository
+2026-11-22T08:53:29.1483850Z [command]/usr/bin/git init /home/runner/work/megatoken/megatoken/megatoken
+2026-11-22T08:53:29.1926732Z hint: Using 'master' as the name for the initial branch. This default branch name
+2026-11-22T08:53:29.1927681Z hint: will change to "main" in Git 3.0. To configure the initial branch name
+2026-11-22T08:53:29.1928270Z hint: to use in all of your new repositories, which will suppress this warning,
+2026-11-22T08:53:29.1928671Z hint: call:
+2026-11-22T08:53:29.1928951Z hint:
+2026-11-22T08:53:29.1929283Z hint: 	git config --global init.defaultBranch <name>
+2026-11-22T08:53:29.1929688Z hint:
+2026-11-22T08:53:29.1930037Z hint: Names commonly chosen instead of 'master' are 'main', 'trunk' and
+2026-11-22T08:53:29.1930523Z hint: 'development'. The just-created branch can be renamed via this command:
+2026-11-22T08:53:29.1930941Z hint:
+2026-11-22T08:53:29.1931196Z hint: 	git branch -m <name>
+2026-11-22T08:53:29.1931510Z hint:
+2026-11-22T08:53:29.1931884Z hint: Disable this message with "git config set advice.defaultBranchName false"
+2026-11-22T08:53:29.1933188Z Initialized empty Git repository in /home/runner/work/megatoken/megatoken/megatoken/.git/
+2026-11-22T08:53:29.1941860Z [command]/usr/bin/git remote add origin https://github.com/werg/megatoken
+2026-11-22T08:53:29.1990226Z ##[endgroup]
+2026-11-22T08:53:29.1990653Z ##[group]Disabling automatic garbage collection
+2026-11-22T08:53:29.1992584Z [command]/usr/bin/git config --local gc.auto 0
+2026-11-22T08:53:29.2015178Z ##[endgroup]
+2026-11-22T08:53:29.2015916Z ##[group]Setting up auth
+2026-11-22T08:53:29.2016270Z Removing SSH command configuration
+2026-11-22T08:53:29.2019177Z [command]/usr/bin/git config --local --name-only --get-regexp core\.sshCommand
+2026-11-22T08:53:29.2044899Z [command]/usr/bin/git submodule foreach --recursive sh -c "git config --local --name-only --get-regexp 'core\.sshCommand' && git config --local --unset-all 'core.sshCommand' || :"
+2026-11-22T08:53:29.4511197Z Removing HTTP extra header
+2026-11-22T08:53:29.4515238Z [command]/usr/bin/git config --local --name-only --get-regexp http\.https\:\/\/github\.com\/\.extraheader
+2026-11-22T08:53:29.4541937Z [command]/usr/bin/git submodule foreach --recursive sh -c "git config --local --name-only --get-regexp 'http\.https\:\/\/github\.com\/\.extraheader' && git config --local --unset-all 'http.https://github.com/.extraheader' || :"
+2026-11-22T08:53:29.4686933Z Removing includeIf entries pointing to credentials config files
+2026-11-22T08:53:29.4690685Z [command]/usr/bin/git config --local --name-only --get-regexp ^includeIf\.gitdir:
+2026-11-22T08:53:29.4713699Z [command]/usr/bin/git submodule foreach --recursive git config --local --show-origin --name-only --get-regexp remote.origin.url
+2026-11-22T08:53:29.4862772Z [command]/usr/bin/git config --file /home/runner/work/_temp/git-credentials-b009e0bb-9942-40c7-a3c3-fed66c36978f.config http.https://github.com/.extraheader AUTHORIZATION: basic ***
+2026-11-22T08:53:29.4890563Z [command]/usr/bin/git config --local includeIf.gitdir:/home/runner/work/megatoken/megatoken/megatoken/.git.path /home/runner/work/_temp/git-credentials-b009e0bb-9942-40c7-a3c3-fed66c36978f.config
+2026-11-22T08:53:29.4912416Z [command]/usr/bin/git config --local includeIf.gitdir:/home/runner/work/megatoken/megatoken/megatoken/.git/worktrees/*.path /home/runner/work/_temp/git-credentials-b009e0bb-9942-40c7-a3c3-fed66c36978f.config
+2026-11-22T08:53:29.4933887Z [command]/usr/bin/git config --local includeIf.gitdir:/github/workspace/megatoken/.git.path /github/runner_temp/git-credentials-b009e0bb-9942-40c7-a3c3-fed66c36978f.config
+2026-11-22T08:53:29.4956721Z [command]/usr/bin/git config --local includeIf.gitdir:/github/workspace/megatoken/.git/worktrees/*.path /github/runner_temp/git-credentials-b009e0bb-9942-40c7-a3c3-fed66c36978f.config
+2026-11-22T08:53:29.4975172Z ##[endgroup]
+2026-11-22T08:53:29.4975766Z ##[group]Fetching the repository
+2026-11-22T08:53:29.4980248Z [command]/usr/bin/git -c protocol.version=2 fetch --no-tags --prune --no-recurse-submodules --depth=1 origin 3caabf5544c935fa81fc20dbccac095f7e754d50
+2026-11-22T08:53:32.2795139Z From https://github.com/werg/megatoken
+2026-11-22T08:53:32.2795889Z  * branch            3caabf5544c935fa81fc20dbccac095f7e754d50 -> FETCH_HEAD
+2026-11-22T08:53:32.2804100Z [command]/usr/bin/git rev-parse --verify --quiet 3caabf5544c935fa81fc20dbccac095f7e754d50^{object}
+2026-11-22T08:53:32.2825286Z 3caabf5544c935fa81fc20dbccac095f7e754d50
+2026-11-22T08:53:32.2830401Z ##[endgroup]
+2026-11-22T08:53:32.2831194Z ##[group]Determining the checkout info
+2026-11-22T08:53:32.2831883Z ##[endgroup]
+2026-11-22T08:53:32.2832802Z [command]/usr/bin/git sparse-checkout disable
+2026-11-22T08:53:32.2895239Z [command]/usr/bin/git config --local --unset-all extensions.worktreeConfig
+2026-11-22T08:53:32.2915920Z ##[group]Checking out the ref
+2026-11-22T08:53:32.2918516Z [command]/usr/bin/git checkout --progress --force 3caabf5544c935fa81fc20dbccac095f7e754d50
+2026-11-22T08:53:32.4858453Z Note: switching to '3caabf5544c935fa81fc20dbccac095f7e754d50'.
+2026-11-22T08:53:32.4858724Z 
+2026-11-22T08:53:32.4858926Z You are in 'detached HEAD' state. You can look around, make experimental
+2026-11-22T08:53:32.4859371Z changes and commit them, and you can discard any commits you make in this
+2026-11-22T08:53:32.4860089Z state without impacting any branches by switching back to a branch.
+2026-11-22T08:53:32.4860411Z 
+2026-11-22T08:53:32.4860602Z If you want to create a new branch to retain commits you create, you may
+2026-11-22T08:53:32.4861001Z do so (now or later) by using -c with the switch command. Example:
+2026-11-22T08:53:32.4861229Z 
+2026-11-22T08:53:32.4861352Z   git switch -c <new-branch-name>
+2026-11-22T08:53:32.4861597Z 
+2026-11-22T08:53:32.4861729Z Or undo this operation with:
+2026-11-22T08:53:32.4861878Z 
+2026-11-22T08:53:32.4862007Z   git switch -
+2026-11-22T08:53:32.4862117Z 
+2026-11-22T08:53:32.4862323Z Turn off this advice by setting config variable advice.detachedHead to false
+2026-11-22T08:53:32.4862595Z 
+2026-11-22T08:53:32.4862804Z HEAD is now at 3caabf5 Require exact one-pass target census and measured optimizer budget
+2026-11-22T08:53:32.4890657Z ##[endgroup]
+2026-11-22T08:53:32.4927189Z [command]/usr/bin/git log -1 --format=%H
+2026-11-22T08:53:32.4947604Z 3caabf5544c935fa81fc20dbccac095f7e754d50
+2026-11-22T08:53:32.4953676Z ##[group]Removing auth
+2026-11-22T08:53:32.4953975Z Removing SSH command configuration
+2026-11-22T08:53:32.4956923Z [command]/usr/bin/git config --local --name-only --get-regexp core\.sshCommand
+2026-11-22T08:53:32.4984974Z [command]/usr/bin/git submodule foreach --recursive sh -c "git config --local --name-only --get-regexp 'core\.sshCommand' && git config --local --unset-all 'core.sshCommand' || :"
+2026-11-22T08:53:32.5128491Z Removing HTTP extra header
+2026-11-22T08:53:32.5130868Z [command]/usr/bin/git config --local --name-only --get-regexp http\.https\:\/\/github\.com\/\.extraheader
+2026-11-22T08:53:32.5154094Z [command]/usr/bin/git submodule foreach --recursive sh -c "git config --local --name-only --get-regexp 'http\.https\:\/\/github\.com\/\.extraheader' && git config --local --unset-all 'http.https://github.com/.extraheader' || :"
+2026-11-22T08:53:32.5296888Z Removing includeIf entries pointing to credentials config files
+2026-11-22T08:53:32.5299623Z [command]/usr/bin/git config --local --name-only --get-regexp ^includeIf\.gitdir:
+2026-11-22T08:53:32.5321769Z includeif.gitdir:/home/runner/work/megatoken/megatoken/megatoken/.git.path
+2026-11-22T08:53:32.5322509Z includeif.gitdir:/home/runner/work/megatoken/megatoken/megatoken/.git/worktrees/*.path
+2026-11-22T08:53:32.5323164Z includeif.gitdir:/github/workspace/megatoken/.git.path
+2026-11-22T08:53:32.5323612Z includeif.gitdir:/github/workspace/megatoken/.git/worktrees/*.path
+2026-11-22T08:53:32.5328441Z [command]/usr/bin/git config --local --get-all includeif.gitdir:/home/runner/work/megatoken/megatoken/megatoken/.git.path
+2026-11-22T08:53:32.5345957Z /home/runner/work/_temp/git-credentials-b009e0bb-9942-40c7-a3c3-fed66c36978f.config
+2026-11-22T08:53:32.5356981Z [command]/usr/bin/git config --local --unset includeif.gitdir:/home/runner/work/megatoken/megatoken/megatoken/.git.path \/home\/runner\/work\/_temp\/git\-credentials\-b009e0bb\-9942\-40c7\-a3c3\-fed66c36978f\.config
+2026-11-22T08:53:32.5380492Z [command]/usr/bin/git config --local --get-all includeif.gitdir:/home/runner/work/megatoken/megatoken/megatoken/.git/worktrees/*.path
+2026-11-22T08:53:32.5396932Z /home/runner/work/_temp/git-credentials-b009e0bb-9942-40c7-a3c3-fed66c36978f.config
+2026-11-22T08:53:32.5406678Z [command]/usr/bin/git config --local --unset includeif.gitdir:/home/runner/work/megatoken/megatoken/megatoken/.git/worktrees/*.path \/home\/runner\/work\/_temp\/git\-credentials\-b009e0bb\-9942\-40c7\-a3c3\-fed66c36978f\.config
+2026-11-22T08:53:32.5427316Z [command]/usr/bin/git config --local --get-all includeif.gitdir:/github/workspace/megatoken/.git.path
+2026-11-22T08:53:32.5443936Z /github/runner_temp/git-credentials-b009e0bb-9942-40c7-a3c3-fed66c36978f.config
+2026-11-22T08:53:32.5449125Z [command]/usr/bin/git config --local --unset includeif.gitdir:/github/workspace/megatoken/.git.path \/github\/runner_temp\/git\-credentials\-b009e0bb\-9942\-40c7\-a3c3\-fed66c36978f\.config
+2026-11-22T08:53:32.5472539Z [command]/usr/bin/git config --local --get-all includeif.gitdir:/github/workspace/megatoken/.git/worktrees/*.path
+2026-11-22T08:53:32.5490318Z /github/runner_temp/git-credentials-b009e0bb-9942-40c7-a3c3-fed66c36978f.config
+2026-11-22T08:53:32.5495068Z [command]/usr/bin/git config --local --unset includeif.gitdir:/github/workspace/megatoken/.git/worktrees/*.path \/github\/runner_temp\/git\-credentials\-b009e0bb\-9942\-40c7\-a3c3\-fed66c36978f\.config
+2026-11-22T08:53:32.5518952Z [command]/usr/bin/git submodule foreach --recursive git config --local --show-origin --name-only --get-regexp remote.origin.url
+2026-11-22T08:53:32.5659568Z Removing credentials config '/home/runner/work/_temp/git-credentials-b009e0bb-9942-40c7-a3c3-fed66c36978f.config'
+2026-11-22T08:53:32.5665197Z ##[endgroup]
+2026-11-22T08:53:32.5850551Z ##[group]Run actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+2026-11-22T08:53:32.5850883Z with:
+2026-11-22T08:53:32.5851164Z   repository: werg/tracing-js-self
+2026-11-22T08:53:32.5851464Z   ref: 550387918313393b49017397d47bd66e9d4b5e82
+2026-11-22T08:53:32.5851739Z   path: tracing-js-self
+2026-11-22T08:53:32.5851995Z   persist-credentials: false
+2026-11-22T08:53:32.5853988Z   token: ***
+2026-11-22T08:53:32.5854204Z   ssh-strict: true
+2026-11-22T08:53:32.5854441Z   ssh-user: git
+2026-11-22T08:53:32.5854651Z   clean: true
+2026-11-22T08:53:32.5854886Z   sparse-checkout-cone-mode: true
+2026-11-22T08:53:32.5855135Z   fetch-depth: 1
+2026-11-22T08:53:32.5855334Z   fetch-tags: false
+2026-11-22T08:53:32.5855849Z   show-progress: true
+2026-11-22T08:53:32.5856074Z   lfs: false
+2026-11-22T08:53:32.5856281Z   submodules: false
+2026-11-22T08:53:32.5856548Z   set-safe-directory: true
+2026-11-22T08:53:32.5856784Z   allow-unsafe-pr-checkout: false
+2026-11-22T08:53:32.5857177Z env:
+2026-11-22T08:53:32.5857445Z   OMP_NUM_THREADS: 1
+2026-11-22T08:53:32.5857686Z   MKL_NUM_THREADS: 1
+2026-11-22T08:53:32.5857969Z   PYTHONPATH: /home/runner/work/megatoken/megatoken/megatoken/src
+2026-11-22T08:53:32.5858365Z   TRACING_JS_SELF_ROOT: /home/runner/work/megatoken/megatoken/tracing-js-self
+2026-11-22T08:53:32.5858934Z   MEGATOKEN_NATIVE_SOURCE_PRODUCER: /home/runner/work/megatoken/megatoken/tracing-js-self
+2026-11-22T08:53:32.5859423Z   MEGATOKEN_TOKENIZER_JSON: /home/runner/work/megatoken/megatoken/semantic-v8-tokenizer.json
+2026-11-22T08:53:32.5859902Z   MEGATOKEN_ROOT: /home/runner/work/megatoken/megatoken/megatoken
+2026-11-22T08:53:32.5860217Z   MEGATOKEN_PYTHON: python
+2026-11-22T08:53:32.5860591Z   SEMANTIC_V8_NATIVE_POLICY: /home/runner/work/megatoken/megatoken/semantic-v8-policy.json
+2026-11-22T08:53:32.5860962Z ##[endgroup]
+2026-11-22T08:53:32.6489008Z Syncing repository: werg/tracing-js-self
+2026-11-22T08:53:32.6491077Z ##[group]Getting Git version info
+2026-11-22T08:53:32.6491755Z Working directory is '/home/runner/work/megatoken/megatoken/tracing-js-self'
+2026-11-22T08:53:32.6519476Z [command]/usr/bin/git version
+2026-11-22T08:53:32.6544838Z git version 2.56.1
+2026-11-22T08:53:32.6559668Z ##[endgroup]
+2026-11-22T08:53:32.6566380Z Temporarily overriding HOME='/home/runner/work/_temp/e2d68ada-7160-4d1d-addb-d9a21818e8cd' before making global git config changes
+2026-11-22T08:53:32.6567517Z Adding repository directory to the temporary git global config as a safe directory
+2026-11-22T08:53:32.6568625Z [command]/usr/bin/git config --global --add safe.directory /home/runner/work/megatoken/megatoken/tracing-js-self
+2026-11-22T08:53:32.6588097Z ##[group]Determining repository object format
+2026-11-22T08:53:32.6589180Z ##[endgroup]
+2026-11-22T08:53:32.6589679Z ##[group]Initializing the repository
+2026-11-22T08:53:32.6593232Z [command]/usr/bin/git init /home/runner/work/megatoken/megatoken/tracing-js-self
+2026-11-22T08:53:32.6616950Z hint: Using 'master' as the name for the initial branch. This default branch name
+2026-11-22T08:53:32.6617994Z hint: will change to "main" in Git 3.0. To configure the initial branch name
+2026-11-22T08:53:32.6618815Z hint: to use in all of your new repositories, which will suppress this warning,
+2026-11-22T08:53:32.6619406Z hint: call:
+2026-11-22T08:53:32.6620093Z hint:
+2026-11-22T08:53:32.6620491Z hint: 	git config --global init.defaultBranch <name>
+2026-11-22T08:53:32.6620896Z hint:
+2026-11-22T08:53:32.6621321Z hint: Names commonly chosen instead of 'master' are 'main', 'trunk' and
+2026-11-22T08:53:32.6621926Z hint: 'development'. The just-created branch can be renamed via this command:
+2026-11-22T08:53:32.6622381Z hint:
+2026-11-22T08:53:32.6622681Z hint: 	git branch -m <name>
+2026-11-22T08:53:32.6623009Z hint:
+2026-11-22T08:53:32.6623486Z hint: Disable this message with "git config set advice.defaultBranchName false"
+2026-11-22T08:53:32.6624220Z Initialized empty Git repository in /home/runner/work/megatoken/megatoken/tracing-js-self/.git/
+2026-11-22T08:53:32.6627584Z [command]/usr/bin/git remote add origin https://github.com/werg/tracing-js-self
+2026-11-22T08:53:32.6645153Z ##[endgroup]
+2026-11-22T08:53:32.6645983Z ##[group]Disabling automatic garbage collection
+2026-11-22T08:53:32.6648362Z [command]/usr/bin/git config --local gc.auto 0
+2026-11-22T08:53:32.6667315Z ##[endgroup]
+2026-11-22T08:53:32.6667807Z ##[group]Setting up auth
+2026-11-22T08:53:32.6668187Z Removing SSH command configuration
+2026-11-22T08:53:32.6671325Z [command]/usr/bin/git config --local --name-only --get-regexp core\.sshCommand
+2026-11-22T08:53:32.6693097Z [command]/usr/bin/git submodule foreach --recursive sh -c "git config --local --name-only --get-regexp 'core\.sshCommand' && git config --local --unset-all 'core.sshCommand' || :"
+2026-11-22T08:53:32.6849707Z Removing HTTP extra header
+2026-11-22T08:53:32.6853714Z [command]/usr/bin/git config --local --name-only --get-regexp http\.https\:\/\/github\.com\/\.extraheader
+2026-11-22T08:53:32.6884137Z [command]/usr/bin/git submodule foreach --recursive sh -c "git config --local --name-only --get-regexp 'http\.https\:\/\/github\.com\/\.extraheader' && git config --local --unset-all 'http.https://github.com/.extraheader' || :"
+2026-11-22T08:53:32.7024415Z Removing includeIf entries pointing to credentials config files
+2026-11-22T08:53:32.7026027Z [command]/usr/bin/git config --local --name-only --get-regexp ^includeIf\.gitdir:
+2026-11-22T08:53:32.7047395Z [command]/usr/bin/git submodule foreach --recursive git config --local --show-origin --name-only --get-regexp remote.origin.url
+2026-11-22T08:53:32.7202270Z [command]/usr/bin/git config --file /home/runner/work/_temp/git-credentials-74a61a51-d6bf-4ff6-a28e-1bb4e1e05893.config http.https://github.com/.extraheader AUTHORIZATION: basic ***
+2026-11-22T08:53:32.7233142Z [command]/usr/bin/git config --local includeIf.gitdir:/home/runner/work/megatoken/megatoken/tracing-js-self/.git.path /home/runner/work/_temp/git-credentials-74a61a51-d6bf-4ff6-a28e-1bb4e1e05893.config
+2026-11-22T08:53:32.7254454Z [command]/usr/bin/git config --local includeIf.gitdir:/home/runner/work/megatoken/megatoken/tracing-js-self/.git/worktrees/*.path /home/runner/work/_temp/git-credentials-74a61a51-d6bf-4ff6-a28e-1bb4e1e05893.config
+2026-11-22T08:53:32.7275726Z [command]/usr/bin/git config --local includeIf.gitdir:/github/workspace/tracing-js-self/.git.path /github/runner_temp/git-credentials-74a61a51-d6bf-4ff6-a28e-1bb4e1e05893.config
+2026-11-22T08:53:32.7297372Z [command]/usr/bin/git config --local includeIf.gitdir:/github/workspace/tracing-js-self/.git/worktrees/*.path /github/runner_temp/git-credentials-74a61a51-d6bf-4ff6-a28e-1bb4e1e05893.config
+2026-11-22T08:53:32.7316610Z ##[endgroup]
+2026-11-22T08:53:32.7317072Z ##[group]Fetching the repository
+2026-11-22T08:53:32.7321097Z [command]/usr/bin/git -c protocol.version=2 fetch --no-tags --prune --no-recurse-submodules --depth=1 origin 550387918313393b49017397d47bd66e9d4b5e82
+2026-11-22T08:54:01.3654761Z From https://github.com/werg/tracing-js-self
+2026-11-22T08:54:01.3655267Z  * branch            550387918313393b49017397d47bd66e9d4b5e82 -> FETCH_HEAD
+2026-11-22T08:54:01.3663174Z [command]/usr/bin/git rev-parse --verify --quiet 550387918313393b49017397d47bd66e9d4b5e82^{object}
+2026-11-22T08:54:01.3686354Z 550387918313393b49017397d47bd66e9d4b5e82
+2026-11-22T08:54:01.3688341Z ##[endgroup]
+2026-11-22T08:54:01.3688831Z ##[group]Determining the checkout info
+2026-11-22T08:54:01.3689432Z ##[endgroup]
+2026-11-22T08:54:01.3693078Z [command]/usr/bin/git sparse-checkout disable
+2026-11-22T08:54:01.3724270Z [command]/usr/bin/git config --local --unset-all extensions.worktreeConfig
+2026-11-22T08:54:01.3747719Z ##[group]Checking out the ref
+2026-11-22T08:54:01.3750922Z [command]/usr/bin/git checkout --progress --force 550387918313393b49017397d47bd66e9d4b5e82
+2026-11-22T08:54:02.3829420Z Updating files:  44% (1650/3703)
+2026-11-22T08:54:02.3853430Z Updating files:  45% (1667/3703)
+2026-11-22T08:54:02.3936691Z Updating files:  46% (1704/3703)
+2026-11-22T08:54:02.3974090Z Updating files:  47% (1741/3703)
+2026-11-22T08:54:02.4209127Z Updating files:  48% (1778/3703)
+2026-11-22T08:54:02.4231102Z Updating files:  49% (1815/3703)
+2026-11-22T08:54:02.4241793Z Updating files:  50% (1852/3703)
+2026-11-22T08:54:02.4248953Z Updating files:  51% (1889/3703)
+2026-11-22T08:54:02.4269948Z Updating files:  52% (1926/3703)
+2026-11-22T08:54:02.4305789Z Updating files:  53% (1963/3703)
+2026-11-22T08:54:02.4335098Z Updating files:  54% (2000/3703)
+2026-11-22T08:54:02.4369560Z Updating files:  55% (2037/3703)
+2026-11-22T08:54:02.4417406Z Updating files:  56% (2074/3703)
+2026-11-22T08:54:02.4427046Z Updating files:  57% (2111/3703)
+2026-11-22T08:54:02.4436207Z Updating files:  58% (2148/3703)
+2026-11-22T08:54:02.4441704Z Updating files:  59% (2185/3703)
+2026-11-22T08:54:02.4458144Z Updating files:  60% (2222/3703)
+2026-11-22T08:54:02.4468246Z Updating files:  61% (2259/3703)
+2026-11-22T08:54:02.4474834Z Updating files:  62% (2296/3703)
+2026-11-22T08:54:02.4481250Z Updating files:  63% (2333/3703)
+2026-11-22T08:54:02.4493568Z Updating files:  64% (2370/3703)
+2026-11-22T08:54:02.4507272Z Updating files:  65% (2407/3703)
+2026-11-22T08:54:02.4520544Z Updating files:  66% (2444/3703)
+2026-11-22T08:54:02.4530178Z Updating files:  67% (2482/3703)
+2026-11-22T08:54:02.4546943Z Updating files:  68% (2519/3703)
+2026-11-22T08:54:02.4551479Z Updating files:  69% (2556/3703)
+2026-11-22T08:54:02.4587037Z Updating files:  70% (2593/3703)
+2026-11-22T08:54:02.4603531Z Updating files:  71% (2630/3703)
+2026-11-22T08:54:02.4614315Z Updating files:  72% (2667/3703)
+2026-11-22T08:54:02.4624641Z Updating files:  73% (2704/3703)
+2026-11-22T08:54:02.4635875Z Updating files:  74% (2741/3703)
+2026-11-22T08:54:02.4651852Z Updating files:  75% (2778/3703)
+2026-11-22T08:54:02.4668688Z Updating files:  76% (2815/3703)
+2026-11-22T08:54:02.4683255Z Updating files:  77% (2852/3703)
+2026-11-22T08:54:02.4716597Z Updating files:  78% (2889/3703)
+2026-11-22T08:54:02.4734826Z Updating files:  79% (2926/3703)
+2026-11-22T08:54:02.4755480Z Updating files:  80% (2963/3703)
+2026-11-22T08:54:02.4779438Z Updating files:  81% (3000/3703)
+2026-11-22T08:54:02.4792771Z Updating files:  82% (3037/3703)
+2026-11-22T08:54:02.4808618Z Updating files:  83% (3074/3703)
+2026-11-22T08:54:02.4821598Z Updating files:  84% (3111/3703)
+2026-11-22T08:54:02.5049714Z Updating files:  85% (3148/3703)
+2026-11-22T08:54:02.5061153Z Updating files:  86% (3185/3703)
+2026-11-22T08:54:02.5073579Z Updating files:  87% (3222/3703)
+2026-11-22T08:54:02.5086533Z Updating files:  88% (3259/3703)
+2026-11-22T08:54:02.5104310Z Updating files:  89% (3296/3703)
+2026-11-22T08:54:02.5122907Z Updating files:  90% (3333/3703)
+2026-11-22T08:54:02.5141415Z Updating files:  91% (3370/3703)
+2026-11-22T08:54:02.5159664Z Updating files:  92% (3407/3703)
+2026-11-22T08:54:02.5167954Z Updating files:  93% (3444/3703)
+2026-11-22T08:54:02.5181716Z Updating files:  94% (3481/3703)
+2026-11-22T08:54:02.5192905Z Updating files:  95% (3518/3703)
+2026-11-22T08:54:02.5209561Z Updating files:  96% (3555/3703)
+2026-11-22T08:54:02.5228681Z Updating files:  97% (3592/3703)
+2026-11-22T08:54:02.5255011Z Updating files:  98% (3629/3703)
+2026-11-22T08:54:02.5267906Z Updating files:  99% (3666/3703)
+2026-11-22T08:54:02.5268277Z Updating files: 100% (3703/3703)
+2026-11-22T08:54:02.5268690Z Updating files: 100% (3703/3703), done.
+2026-11-22T08:54:02.5310616Z Note: switching to '550387918313393b49017397d47bd66e9d4b5e82'.
+2026-11-22T08:54:02.5310980Z 
+2026-11-22T08:54:02.5311372Z You are in 'detached HEAD' state. You can look around, make experimental
+2026-11-22T08:54:02.5311893Z changes and commit them, and you can discard any commits you make in this
+2026-11-22T08:54:02.5312397Z state without impacting any branches by switching back to a branch.
+2026-11-22T08:54:02.5312721Z 
+2026-11-22T08:54:02.5312999Z If you want to create a new branch to retain commits you create, you may
+2026-11-22T08:54:02.5313496Z do so (now or later) by using -c with the switch command. Example:
+2026-11-22T08:54:02.5313820Z 
+2026-11-22T08:54:02.5313952Z   git switch -c <new-branch-name>
+2026-11-22T08:54:02.5314396Z 
+2026-11-22T08:54:02.5314550Z Or undo this operation with:
+2026-11-22T08:54:02.5314734Z 
+2026-11-22T08:54:02.5314871Z   git switch -
+2026-11-22T08:54:02.5315000Z 
+2026-11-22T08:54:02.5315299Z Turn off this advice by setting config variable advice.detachedHead to false
+2026-11-22T08:54:02.5315852Z 
+2026-11-22T08:54:02.5316203Z HEAD is now at 5503879 test(v8): verify namespace artifact standalone refusal and exact paired admission
+2026-11-22T08:54:02.5384425Z ##[endgroup]
+2026-11-22T08:54:02.5421018Z [command]/usr/bin/git log -1 --format=%H
+2026-11-22T08:54:02.5440749Z 550387918313393b49017397d47bd66e9d4b5e82
+2026-11-22T08:54:02.5446442Z ##[group]Removing auth
+2026-11-22T08:54:02.5446793Z Removing SSH command configuration
+2026-11-22T08:54:02.5449448Z [command]/usr/bin/git config --local --name-only --get-regexp core\.sshCommand
+2026-11-22T08:54:02.5473868Z [command]/usr/bin/git submodule foreach --recursive sh -c "git config --local --name-only --get-regexp 'core\.sshCommand' && git config --local --unset-all 'core.sshCommand' || :"
+2026-11-22T08:54:02.5628294Z Removing HTTP extra header
+2026-11-22T08:54:02.5631549Z [command]/usr/bin/git config --local --name-only --get-regexp http\.https\:\/\/github\.com\/\.extraheader
+2026-11-22T08:54:02.5656311Z [command]/usr/bin/git submodule foreach --recursive sh -c "git config --local --name-only --get-regexp 'http\.https\:\/\/github\.com\/\.extraheader' && git config --local --unset-all 'http.https://github.com/.extraheader' || :"
+2026-11-22T08:54:02.5802684Z Removing includeIf entries pointing to credentials config files
+2026-11-22T08:54:02.5806070Z [command]/usr/bin/git config --local --name-only --get-regexp ^includeIf\.gitdir:
+2026-11-22T08:54:02.5823388Z includeif.gitdir:/home/runner/work/megatoken/megatoken/tracing-js-self/.git.path
+2026-11-22T08:54:02.5824188Z includeif.gitdir:/home/runner/work/megatoken/megatoken/tracing-js-self/.git/worktrees/*.path
+2026-11-22T08:54:02.5824730Z includeif.gitdir:/github/workspace/tracing-js-self/.git.path
+2026-11-22T08:54:02.5825291Z includeif.gitdir:/github/workspace/tracing-js-self/.git/worktrees/*.path
+2026-11-22T08:54:02.5829639Z [command]/usr/bin/git config --local --get-all includeif.gitdir:/home/runner/work/megatoken/megatoken/tracing-js-self/.git.path
+2026-11-22T08:54:02.5848353Z /home/runner/work/_temp/git-credentials-74a61a51-d6bf-4ff6-a28e-1bb4e1e05893.config
+2026-11-22T08:54:02.5854127Z [command]/usr/bin/git config --local --unset includeif.gitdir:/home/runner/work/megatoken/megatoken/tracing-js-self/.git.path \/home\/runner\/work\/_temp\/git\-credentials\-74a61a51\-d6bf\-4ff6\-a28e\-1bb4e1e05893\.config
+2026-11-22T08:54:02.5878219Z [command]/usr/bin/git config --local --get-all includeif.gitdir:/home/runner/work/megatoken/megatoken/tracing-js-self/.git/worktrees/*.path
+2026-11-22T08:54:02.5894413Z /home/runner/work/_temp/git-credentials-74a61a51-d6bf-4ff6-a28e-1bb4e1e05893.config
+2026-11-22T08:54:02.5904156Z [command]/usr/bin/git config --local --unset includeif.gitdir:/home/runner/work/megatoken/megatoken/tracing-js-self/.git/worktrees/*.path \/home\/runner\/work\/_temp\/git\-credentials\-74a61a51\-d6bf\-4ff6\-a28e\-1bb4e1e05893\.config
+2026-11-22T08:54:02.5928448Z [command]/usr/bin/git config --local --get-all includeif.gitdir:/github/workspace/tracing-js-self/.git.path
+2026-11-22T08:54:02.5945083Z /github/runner_temp/git-credentials-74a61a51-d6bf-4ff6-a28e-1bb4e1e05893.config
+2026-11-22T08:54:02.5950504Z [command]/usr/bin/git config --local --unset includeif.gitdir:/github/workspace/tracing-js-self/.git.path \/github\/runner_temp\/git\-credentials\-74a61a51\-d6bf\-4ff6\-a28e\-1bb4e1e05893\.config
+2026-11-22T08:54:02.5975970Z [command]/usr/bin/git config --local --get-all includeif.gitdir:/github/workspace/tracing-js-self/.git/worktrees/*.path
+2026-11-22T08:54:02.5992644Z /github/runner_temp/git-credentials-74a61a51-d6bf-4ff6-a28e-1bb4e1e05893.config
+2026-11-22T08:54:02.5998053Z [command]/usr/bin/git config --local --unset includeif.gitdir:/github/workspace/tracing-js-self/.git/worktrees/*.path \/github\/runner_temp\/git\-credentials\-74a61a51\-d6bf\-4ff6\-a28e\-1bb4e1e05893\.config
+2026-11-22T08:54:02.6024023Z [command]/usr/bin/git submodule foreach --recursive git config --local --show-origin --name-only --get-regexp remote.origin.url
+2026-11-22T08:54:02.6166829Z Removing credentials config '/home/runner/work/_temp/git-credentials-74a61a51-d6bf-4ff6-a28e-1bb4e1e05893.config'
+2026-11-22T08:54:02.6172564Z ##[endgroup]
+2026-11-22T08:54:02.6297461Z ##[group]Run actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020
+2026-11-22T08:54:02.6297890Z with:
+2026-11-22T08:54:02.6298116Z   node-version-file: tracing-js-self/.nvmrc
+2026-11-22T08:54:02.6298378Z   always-auth: false
+2026-11-22T08:54:02.6298614Z   check-latest: false
+2026-11-22T08:54:02.6300566Z   token: ***
+2026-11-22T08:54:02.6300796Z env:
+2026-11-22T08:54:02.6300997Z   OMP_NUM_THREADS: 1
+2026-11-22T08:54:02.6301198Z   MKL_NUM_THREADS: 1
+2026-11-22T08:54:02.6301501Z   PYTHONPATH: /home/runner/work/megatoken/megatoken/megatoken/src
+2026-11-22T08:54:02.6302011Z   TRACING_JS_SELF_ROOT: /home/runner/work/megatoken/megatoken/tracing-js-self
+2026-11-22T08:54:02.6302480Z   MEGATOKEN_NATIVE_SOURCE_PRODUCER: /home/runner/work/megatoken/megatoken/tracing-js-self
+2026-11-22T08:54:02.6302996Z   MEGATOKEN_TOKENIZER_JSON: /home/runner/work/megatoken/megatoken/semantic-v8-tokenizer.json
+2026-11-22T08:54:02.6303504Z   MEGATOKEN_ROOT: /home/runner/work/megatoken/megatoken/megatoken
+2026-11-22T08:54:02.6303821Z   MEGATOKEN_PYTHON: python
+2026-11-22T08:54:02.6304168Z   SEMANTIC_V8_NATIVE_POLICY: /home/runner/work/megatoken/megatoken/semantic-v8-policy.json
+2026-11-22T08:54:02.6304545Z ##[endgroup]
+2026-11-22T08:54:02.7295010Z Node version file is not JSON file
+2026-11-22T08:54:02.7296816Z Resolved tracing-js-self/.nvmrc as 24.22.3
+2026-11-22T08:54:02.8692005Z Found in cache @ /opt/hostedtoolcache/node/24.22.3/x64
+2026-11-22T08:54:02.8695972Z (node:2455) [DEP0040] DeprecationWarning: The `punycode` module is deprecated. Please use a userland alternative instead.
+2026-11-22T08:54:02.8696596Z (Use `node --trace-deprecation ...` to show where the warning was created)
+2026-11-22T08:54:02.8697273Z ##[group]Environment details
+2026-11-22T08:54:06.0986221Z node: v24.22.3
+2026-11-22T08:54:06.0986602Z npm: 11.19.1
+2026-11-22T08:54:06.0986975Z yarn: 1.22.22
+2026-11-22T08:54:06.0987548Z ##[endgroup]
+2026-11-22T08:54:06.1096114Z ##[group]Run actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97
+2026-11-22T08:54:06.1096548Z with:
+2026-11-22T08:54:06.1096811Z   python-version: 3.12.14
+2026-11-22T08:54:06.1097058Z   check-latest: false
+2026-11-22T08:54:06.1099066Z   token: ***
+2026-11-22T08:54:06.1099293Z   update-environment: true
+2026-11-22T08:54:06.1099550Z   allow-prereleases: false
+2026-11-22T08:54:06.1099830Z   freethreaded: false
+2026-11-22T08:54:06.1100051Z env:
+2026-11-22T08:54:06.1100264Z   OMP_NUM_THREADS: 1
+2026-11-22T08:54:06.1100484Z   MKL_NUM_THREADS: 1
+2026-11-22T08:54:06.1100799Z   PYTHONPATH: /home/runner/work/megatoken/megatoken/megatoken/src
+2026-11-22T08:54:06.1101213Z   TRACING_JS_SELF_ROOT: /home/runner/work/megatoken/megatoken/tracing-js-self
+2026-11-22T08:54:06.1101661Z   MEGATOKEN_NATIVE_SOURCE_PRODUCER: /home/runner/work/megatoken/megatoken/tracing-js-self
+2026-11-22T08:54:06.1102269Z   MEGATOKEN_TOKENIZER_JSON: /home/runner/work/megatoken/megatoken/semantic-v8-tokenizer.json
+2026-11-22T08:54:06.1102705Z   MEGATOKEN_ROOT: /home/runner/work/megatoken/megatoken/megatoken
+2026-11-22T08:54:06.1103062Z   MEGATOKEN_PYTHON: python
+2026-11-22T08:54:06.1103444Z   SEMANTIC_V8_NATIVE_POLICY: /home/runner/work/megatoken/megatoken/semantic-v8-policy.json
+2026-11-22T08:54:06.1103823Z ##[endgroup]
+2026-11-22T08:54:06.1981267Z ##[group]Installed versions
+2026-11-22T08:54:06.2681564Z Version 3.12.14 was not found in the local cache
+2026-11-22T08:54:06.9944014Z Version 3.12.14 is available for downloading
+2026-11-22T08:54:06.9945143Z Download from "https://github.com/actions/python-versions/releases/download/3.12.14-31661455385/python-3.12.14-linux-24.04-x64.tar.gz"
+2026-11-22T08:54:07.6681714Z Extract downloaded archive
+2026-11-22T08:54:07.6777861Z [command]/usr/bin/tar xz --warning=no-unknown-keyword --overwrite -C /home/runner/work/_temp/67a7deda-d5c7-4e05-8e45-156069851236 -f /home/runner/work/_temp/e8ad372d-18a4-48af-89c6-5db91c88d76f
+2026-11-22T08:54:09.3064649Z Execute installation script
+2026-11-22T08:54:09.3141911Z Check if Python hostedtoolcache folder exist...
+2026-11-22T08:54:09.3142426Z Create Python 3.12.14 folder
+2026-11-22T08:54:09.3150160Z Copy Python binaries to hostedtoolcache folder
+2026-11-22T08:54:09.5179991Z Create additional symlinks (Required for the UsePythonVersion Azure Pipelines task and the setup-python GitHub Action)
+2026-11-22T08:54:09.5208567Z Upgrading pip...
+2026-11-22T08:54:11.2472276Z Collecting pip
+2026-11-22T08:54:11.2852679Z Downloading pip-26.3-py3-none-any.whl.metadata (4.6 kB)
+2026-11-22T08:54:11.2962315Z Downloading pip-26.3-py3-none-any.whl (2.0 MB)
+2026-11-22T08:54:11.4054319Z ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━ 2.0/2.0 MB 20.3 MB/s eta 0:00:00
+2026-11-22T08:54:11.4652657Z Installing collected packages: pip
+2026-11-22T08:54:11.4653189Z Attempting uninstall: pip
+2026-11-22T08:54:11.4666838Z Found existing installation: pip 25.0.1
+2026-11-22T08:54:11.4839630Z Uninstalling pip-25.0.1:
+2026-11-22T08:54:11.4869076Z Successfully uninstalled pip-25.0.1
+2026-11-22T08:54:12.0943374Z Successfully installed pip-26.3
+2026-11-22T08:54:12.1443041Z Create complete file
+2026-11-22T08:54:12.1467856Z Successfully set up CPython (3.12.14)
+2026-11-22T08:54:12.1468331Z ##[endgroup]
+2026-11-22T08:54:12.1578315Z ##[group]Run npm ci --prefix tracing-js-self --ignore-scripts --no-audit --no-fund
+2026-11-22T08:54:12.1578891Z [36;1mnpm ci --prefix tracing-js-self --ignore-scripts --no-audit --no-fund[0m
+2026-11-22T08:54:12.1579434Z [36;1mpython -m pip install --require-hashes -r tracing-js-self/tools/native-consumer/requirements.lock[0m
+2026-11-22T08:54:12.1579938Z [36;1mpython -m pip install --no-deps --no-build-isolation -e ./megatoken[0m
+2026-11-22T08:54:12.4513172Z shell: /usr/bin/bash --noprofile --norc -e -o pipefail {0}
+2026-11-22T08:54:12.4513501Z env:
+2026-11-22T08:54:12.4513723Z   OMP_NUM_THREADS: 1
+2026-11-22T08:54:12.4513964Z   MKL_NUM_THREADS: 1
+2026-11-22T08:54:12.4514255Z   PYTHONPATH: /home/runner/work/megatoken/megatoken/megatoken/src
+2026-11-22T08:54:12.4514666Z   TRACING_JS_SELF_ROOT: /home/runner/work/megatoken/megatoken/tracing-js-self
+2026-11-22T08:54:12.4515191Z   MEGATOKEN_NATIVE_SOURCE_PRODUCER: /home/runner/work/megatoken/megatoken/tracing-js-self
+2026-11-22T08:54:12.4516011Z   MEGATOKEN_TOKENIZER_JSON: /home/runner/work/megatoken/megatoken/semantic-v8-tokenizer.json
+2026-11-22T08:54:12.4516461Z   MEGATOKEN_ROOT: /home/runner/work/megatoken/megatoken/megatoken
+2026-11-22T08:54:12.4516792Z   MEGATOKEN_PYTHON: python
+2026-11-22T08:54:12.4517155Z   SEMANTIC_V8_NATIVE_POLICY: /home/runner/work/megatoken/megatoken/semantic-v8-policy.json
+2026-11-22T08:54:12.4517573Z   pythonLocation: /opt/hostedtoolcache/Python/3.12.14/x64
+2026-11-22T08:54:12.4517945Z   PKG_CONFIG_PATH: /opt/hostedtoolcache/Python/3.12.14/x64/lib/pkgconfig
+2026-11-22T08:54:12.4518330Z   Python_ROOT_DIR: /opt/hostedtoolcache/Python/3.12.14/x64
+2026-11-22T08:54:12.4518709Z   Python2_ROOT_DIR: /opt/hostedtoolcache/Python/3.12.14/x64
+2026-11-22T08:54:12.4519061Z   Python3_ROOT_DIR: /opt/hostedtoolcache/Python/3.12.14/x64
+2026-11-22T08:54:12.4519402Z   LD_LIBRARY_PATH: /opt/hostedtoolcache/Python/3.12.14/x64/lib
+2026-11-22T08:54:12.4519699Z ##[endgroup]
+2026-11-22T08:54:14.2943189Z 
+2026-11-22T08:54:14.2944054Z added 4 packages in 2s
+2026-11-22T08:54:15.0534977Z Looking in indexes: https://pypi.org/simple, https://download.pytorch.org/whl/cpu
+2026-11-22T08:54:15.3068155Z Collecting anyio==4.16.0 (from -r tracing-js-self/tools/native-consumer/requirements.lock (line 9))
+2026-11-22T08:54:15.3557932Z   Downloading anyio-4.16.0-py3-none-any.whl (134 kB)
+2026-11-22T08:54:15.4793691Z Collecting attrs==26.1.0 (from -r tracing-js-self/tools/native-consumer/requirements.lock (line 13))
+2026-11-22T08:54:15.4868761Z   Downloading attrs-26.1.0-py3-none-any.whl (67 kB)
+2026-11-22T08:54:15.5168339Z Collecting certifi==2026.10.23 (from -r tracing-js-self/tools/native-consumer/requirements.lock (line 19))
+2026-11-22T08:54:15.5242451Z   Downloading certifi-2026.10.23-py3-none-any.whl (135 kB)
+2026-11-22T08:54:15.7677258Z Collecting click==8.5.1 (from -r tracing-js-self/tools/native-consumer/requirements.lock (line 25))
+2026-11-22T08:54:15.7754907Z   Downloading click-8.5.1-py3-none-any.whl (126 kB)
+2026-11-22T08:54:15.8855048Z Collecting editables==0.6 (from -r tracing-js-self/tools/native-consumer/requirements.lock (line 29))
+2026-11-22T08:54:15.8931379Z   Downloading editables-0.6-py3-none-any.whl (5.4 kB)
+2026-11-22T08:54:15.9370238Z Collecting filelock==4.2.12 (from -r tracing-js-self/tools/native-consumer/requirements.lock (line 33))
+2026-11-22T08:54:15.9444729Z   Downloading filelock-4.2.12-py3-none-any.whl (222 kB)
+2026-11-22T08:54:16.0000198Z Collecting fsspec==2026.9.0 (from -r tracing-js-self/tools/native-consumer/requirements.lock (line 39))
+2026-11-22T08:54:16.0077293Z   Downloading fsspec-2026.9.0-py3-none-any.whl (221 kB)
+2026-11-22T08:54:16.1278900Z Collecting h11==0.16.0 (from -r tracing-js-self/tools/native-consumer/requirements.lock (line 45))
+2026-11-22T08:54:16.1353366Z   Downloading h11-0.16.0-py3-none-any.whl (37 kB)
+2026-11-22T08:54:16.2407273Z Collecting hatchling==1.33.0 (from -r tracing-js-self/tools/native-consumer/requirements.lock (line 49))
+2026-11-22T08:54:16.2484132Z   Downloading hatchling-1.33.0-py3-none-any.whl (78 kB)
+2026-11-22T08:54:16.3770654Z Collecting hf-xet==1.8.0 (from -r tracing-js-self/tools/native-consumer/requirements.lock (line 53))
+2026-11-22T08:54:16.3845277Z   Downloading hf_xet-1.8.0-cp38-abi3-manylinux2014_x86_64.manylinux_2_17_x86_64.whl (4.3 MB)
+2026-11-22T08:54:16.5223945Z      ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━ 4.3/4.3 MB 33.0 MB/s  0:00:00
+2026-11-22T08:54:16.7856763Z Collecting httpcore==1.0.9 (from -r tracing-js-self/tools/native-consumer/requirements.lock (line 72))
+2026-11-22T08:54:16.7933718Z   Downloading httpcore-1.0.9-py3-none-any.whl (78 kB)
+2026-11-22T08:54:16.8932131Z Collecting httpx==0.28.1 (from -r tracing-js-self/tools/native-consumer/requirements.lock (line 76))
+2026-11-22T08:54:16.9008000Z   Downloading httpx-0.28.1-py3-none-any.whl (73 kB)
+2026-11-22T08:54:17.0130166Z Collecting huggingface-hub==1.33.0 (from -r tracing-js-self/tools/native-consumer/requirements.lock (line 80))
+2026-11-22T08:54:17.0209092Z   Downloading huggingface_hub-1.33.0-py3-none-any.whl (846 kB)
+2026-11-22T08:54:17.0376191Z      ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━ 846.4/846.4 kB 46.5 MB/s  0:00:00
+2026-11-22T08:54:17.0675090Z Collecting idna==3.20 (from -r tracing-js-self/tools/native-consumer/requirements.lock (line 86))
+2026-11-22T08:54:17.0744972Z   Downloading idna-3.20-py3-none-any.whl (69 kB)
+2026-11-22T08:54:17.1777893Z Collecting iniconfig==2.3.1 (from -r tracing-js-self/tools/native-consumer/requirements.lock (line 92))
+2026-11-22T08:54:17.1853117Z   Downloading iniconfig-2.3.1-py3-none-any.whl (7.6 kB)
+2026-11-22T08:54:17.2084061Z Collecting jinja2==3.1.6 (from -r tracing-js-self/tools/native-consumer/requirements.lock (line 96))
+2026-11-22T08:54:17.2162347Z   Downloading jinja2-3.1.6-py3-none-any.whl (134 kB)
+2026-11-22T08:54:17.3265636Z Collecting jsonschema==4.26.0 (from -r tracing-js-self/tools/native-consumer/requirements.lock (line 100))
+2026-11-22T08:54:17.3343972Z   Downloading jsonschema-4.26.0-py3-none-any.whl (90 kB)
+2026-11-22T08:54:17.4367499Z Collecting jsonschema-specifications==2025.9.1 (from -r tracing-js-self/tools/native-consumer/requirements.lock (line 104))
+2026-11-22T08:54:17.4442604Z   Downloading jsonschema_specifications-2025.9.1-py3-none-any.whl (18 kB)
+2026-11-22T08:54:17.5472573Z Collecting markdown-it-py==4.0.0 (from -r tracing-js-self/tools/native-consumer/requirements.lock (line 108))
+2026-11-22T08:54:17.5546087Z   Downloading markdown_it_py-4.0.0-py3-none-any.whl (87 kB)
+2026-11-22T08:54:17.6087739Z Collecting markupsafe==3.0.4 (from -r tracing-js-self/tools/native-consumer/requirements.lock (line 112))
+2026-11-22T08:54:17.6162498Z   Downloading markupsafe-3.0.4-cp312-cp312-manylinux2014_x86_64.manylinux_2_17_x86_64.manylinux_2_28_x86_64.whl (22 kB)
+2026-11-22T08:54:17.7177278Z Collecting mdurl==0.1.2 (from -r tracing-js-self/tools/native-consumer/requirements.lock (line 265))
+2026-11-22T08:54:17.7257410Z   Downloading mdurl-0.1.2-py3-none-any.whl (10.0 kB)
+2026-11-22T08:54:17.7503251Z Collecting mpmath==1.3.0 (from -r tracing-js-self/tools/native-consumer/requirements.lock (line 269))
+2026-11-22T08:54:17.7580216Z   Downloading mpmath-1.3.0-py3-none-any.whl (536 kB)
+2026-11-22T08:54:17.7681502Z      ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━ 536.2/536.2 kB 44.6 MB/s  0:00:00
+2026-11-22T08:54:17.8037676Z Collecting networkx==3.7 (from -r tracing-js-self/tools/native-consumer/requirements.lock (line 273))
+2026-11-22T08:54:17.8116734Z   Downloading networkx-3.7-py3-none-any.whl (2.1 MB)
+2026-11-22T08:54:17.8435783Z      ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━ 2.1/2.1 MB 66.1 MB/s  0:00:00
+2026-11-22T08:54:18.1689362Z Collecting numpy==2.5.5 (from -r tracing-js-self/tools/native-consumer/requirements.lock (line 277))
+2026-11-22T08:54:18.1768382Z   Downloading numpy-2.5.5-cp312-cp312-manylinux_2_27_x86_64.manylinux_2_28_x86_64.whl (15.7 MB)
+2026-11-22T08:54:18.3072582Z      ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━ 15.7/15.7 MB 121.3 MB/s  0:00:00
+2026-11-22T08:54:18.3459619Z Collecting packaging==26.3 (from -r tracing-js-self/tools/native-consumer/requirements.lock (line 345))
+2026-11-22T08:54:18.3536229Z   Downloading packaging-26.3-py3-none-any.whl (129 kB)
+2026-11-22T08:54:18.6055096Z Collecting pathspec==1.1.1 (from -r tracing-js-self/tools/native-consumer/requirements.lock (line 352))
+2026-11-22T08:54:18.6136885Z   Downloading pathspec-1.1.1-py3-none-any.whl (57 kB)
+2026-11-22T08:54:18.7216983Z Collecting pluggy==1.7.0 (from -r tracing-js-self/tools/native-consumer/requirements.lock (line 356))
+2026-11-22T08:54:18.7293410Z   Downloading pluggy-1.7.0-py3-none-any.whl (27 kB)
+2026-11-22T08:54:18.9950818Z Collecting pygments==2.21.0 (from -r tracing-js-self/tools/native-consumer/requirements.lock (line 362))
+2026-11-22T08:54:19.0026804Z   Downloading pygments-2.21.0-py3-none-any.whl (1.3 MB)
+2026-11-22T08:54:19.0100985Z      ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━ 1.3/1.3 MB 175.5 MB/s  0:00:00
+2026-11-22T08:54:19.1296548Z Collecting pytest==8.4.2 (from -r tracing-js-self/tools/native-consumer/requirements.lock (line 366))
+2026-11-22T08:54:19.1374168Z   Downloading pytest-8.4.2-py3-none-any.whl (365 kB)
+2026-11-22T08:54:19.2568035Z Collecting pyyaml==6.0.3 (from -r tracing-js-self/tools/native-consumer/requirements.lock (line 370))
+2026-11-22T08:54:19.2642404Z   Downloading pyyaml-6.0.3-cp312-cp312-manylinux2014_x86_64.manylinux_2_17_x86_64.manylinux_2_28_x86_64.whl (807 kB)
+2026-11-22T08:54:19.2697932Z      ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━ 807.9/807.9 kB 137.8 MB/s  0:00:00
+2026-11-22T08:54:19.3770837Z Collecting referencing==0.37.0 (from -r tracing-js-self/tools/native-consumer/requirements.lock (line 447))
+2026-11-22T08:54:19.3848197Z   Downloading referencing-0.37.0-py3-none-any.whl (26 kB)
+2026-11-22T08:54:19.7560852Z Collecting rpds-py==2026.9.1 (from -r tracing-js-self/tools/native-consumer/requirements.lock (line 453))
+2026-11-22T08:54:19.7636882Z   Downloading rpds_py-2026.9.1-cp312-cp312-manylinux_2_17_x86_64.manylinux2014_x86_64.whl (371 kB)
+2026-11-22T08:54:20.1352576Z Collecting safetensors==0.8.0 (from -r tracing-js-self/tools/native-consumer/requirements.lock (line 585))
+2026-11-22T08:54:20.1432897Z   Downloading safetensors-0.8.0-cp310-abi3-manylinux_2_17_x86_64.manylinux2014_x86_64.whl (516 kB)
+2026-11-22T08:54:20.3298788Z Collecting sympy==1.14.0 (from -r tracing-js-self/tools/native-consumer/requirements.lock (line 604))
+2026-11-22T08:54:20.3374646Z   Downloading sympy-1.14.0-py3-none-any.whl (6.3 MB)
+2026-11-22T08:54:20.4563346Z      ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━ 6.3/6.3 MB 51.8 MB/s  0:00:00
+2026-11-22T08:54:20.7174376Z Collecting tokenizers==0.23.3 (from -r tracing-js-self/tools/native-consumer/requirements.lock (line 608))
+2026-11-22T08:54:20.7255752Z   Downloading tokenizers-0.23.3-cp310-abi3-manylinux_2_17_x86_64.manylinux2014_x86_64.whl (3.4 MB)
+2026-11-22T08:54:20.8652110Z      ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━ 3.4/3.4 MB 22.8 MB/s  0:00:00
+2026-11-22T08:54:21.0133582Z Collecting tomlkit==0.15.2 (from -r tracing-js-self/tools/native-consumer/requirements.lock (line 634))
+2026-11-22T08:54:21.0209390Z   Downloading tomlkit-0.15.2-py3-none-any.whl (52 kB)
+2026-11-22T08:54:21.4268509Z Collecting torch==2.10.0+cpu (from -r tracing-js-self/tools/native-consumer/requirements.lock (line 638))
+2026-11-22T08:54:21.4819150Z   Downloading torch-2.10.0%2Bcpu-cp312-cp312-manylinux_2_28_x86_64.whl (188.9 MB)
+2026-11-22T08:54:23.2371477Z      ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━ 188.9/188.9 MB 108.4 MB/s  0:00:01
+2026-11-22T08:54:23.5536610Z Collecting tqdm==4.70.1 (from -r tracing-js-self/tools/native-consumer/requirements.lock (line 678))
+2026-11-22T08:54:23.5615195Z   Downloading tqdm-4.70.1-py3-none-any.whl (80 kB)
+2026-11-22T08:54:23.6951950Z Collecting tree-sitter==0.25.2 (from -r tracing-js-self/tools/native-consumer/requirements.lock (line 682))
+2026-11-22T08:54:23.7028500Z   Downloading tree_sitter-0.25.2-cp312-cp312-manylinux2014_x86_64.manylinux_2_17_x86_64.manylinux_2_28_x86_64.whl (635 kB)
+2026-11-22T08:54:23.7100558Z      ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━ 635.4/635.4 kB 87.3 MB/s  0:00:00
+2026-11-22T08:54:23.8144220Z Collecting tree-sitter-c-sharp==0.23.5 (from -r tracing-js-self/tools/native-consumer/requirements.lock (line 722))
+2026-11-22T08:54:23.8225123Z   Downloading tree_sitter_c_sharp-0.23.5-cp310-abi3-manylinux1_x86_64.manylinux_2_28_x86_64.manylinux_2_5_x86_64.whl (358 kB)
+2026-11-22T08:54:23.9280134Z Collecting tree-sitter-embedded-template==0.25.0 (from -r tracing-js-self/tools/native-consumer/requirements.lock (line 735))
+2026-11-22T08:54:23.9357424Z   Downloading tree_sitter_embedded_template-0.25.0-cp310-abi3-manylinux1_x86_64.manylinux_2_28_x86_64.manylinux_2_5_x86_64.whl (18 kB)
+2026-11-22T08:54:24.0542305Z Collecting tree-sitter-language-pack==0.13.0 (from -r tracing-js-self/tools/native-consumer/requirements.lock (line 748))
+2026-11-22T08:54:24.0656508Z   Downloading tree_sitter_language_pack-0.13.0-cp310-abi3-manylinux2014_x86_64.whl (20.0 MB)
+2026-11-22T08:54:24.1523599Z      ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━ 20.0/20.0 MB 233.3 MB/s  0:00:00
+2026-11-22T08:54:24.2749929Z Collecting tree-sitter-yaml==0.7.2 (from -r tracing-js-self/tools/native-consumer/requirements.lock (line 756))
+2026-11-22T08:54:24.2827496Z   Downloading tree_sitter_yaml-0.7.2-cp310-abi3-manylinux1_x86_64.manylinux_2_28_x86_64.manylinux_2_5_x86_64.whl (91 kB)
+2026-11-22T08:54:24.3954994Z Collecting trove-classifiers==2026.9.21.13 (from -r tracing-js-self/tools/native-consumer/requirements.lock (line 769))
+2026-11-22T08:54:24.4030223Z   Downloading trove_classifiers-2026.9.21.13-py3-none-any.whl (14 kB)
+2026-11-22T08:54:24.4307838Z Collecting typing-extensions==4.16.0 (from -r tracing-js-self/tools/native-consumer/requirements.lock (line 773))
+2026-11-22T08:54:24.4384162Z   Downloading typing_extensions-4.16.0-py3-none-any.whl (45 kB)
+2026-11-22T08:54:24.5447418Z Collecting uniseg==0.10.1 (from -r tracing-js-self/tools/native-consumer/requirements.lock (line 781))
+2026-11-22T08:54:24.5528243Z   Downloading uniseg-0.10.1-py3-none-any.whl (8.2 MB)
+2026-11-22T08:54:24.5904432Z      ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━ 8.2/8.2 MB 223.3 MB/s  0:00:00
+2026-11-22T08:54:24.6511199Z Collecting setuptools==84.2.1 (from -r tracing-js-self/tools/native-consumer/requirements.lock (line 787))
+2026-11-22T08:54:24.6589030Z   Downloading setuptools-84.2.1-py3-none-any.whl (876 kB)
+2026-11-22T08:54:24.6631779Z      ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━ 876.3/876.3 kB 240.0 MB/s  0:00:00
+2026-11-22T08:54:24.8783119Z Installing collected packages: trove-classifiers, mpmath, uniseg, typing-extensions, tree-sitter-yaml, tree-sitter-embedded-template, tree-sitter-c-sharp, tree-sitter, tqdm, tomlkit, sympy, setuptools, safetensors, rpds-py, pyyaml, pygments, pluggy, pathspec, packaging, numpy, networkx, mdurl, markupsafe, iniconfig, idna, hf-xet, h11, fsspec, filelock, editables, click, certifi, attrs, tree-sitter-language-pack, referencing, pytest, markdown-it-py, jinja2, httpcore, hatchling, anyio, torch, jsonschema-specifications, httpx, jsonschema, huggingface-hub, tokenizers
+2026-11-22T08:54:41.0463482Z 
+2026-11-22T08:54:41.0492873Z Successfully installed anyio-4.16.0 attrs-26.1.0 certifi-2026.10.23 click-8.5.1 editables-0.6 filelock-4.2.12 fsspec-2026.9.0 h11-0.16.0 hatchling-1.33.0 hf-xet-1.8.0 httpcore-1.0.9 httpx-0.28.1 huggingface-hub-1.33.0 idna-3.20 iniconfig-2.3.1 jinja2-3.1.6 jsonschema-4.26.0 jsonschema-specifications-2025.9.1 markdown-it-py-4.0.0 markupsafe-3.0.4 mdurl-0.1.2 mpmath-1.3.0 networkx-3.7 numpy-2.5.5 packaging-26.3 pathspec-1.1.1 pluggy-1.7.0 pygments-2.21.0 pytest-8.4.2 pyyaml-6.0.3 referencing-0.37.0 rpds-py-2026.9.1 safetensors-0.8.0 setuptools-84.2.1 sympy-1.14.0 tokenizers-0.23.3 tomlkit-0.15.2 torch-2.10.0+cpu tqdm-4.70.1 tree-sitter-0.25.2 tree-sitter-c-sharp-0.23.5 tree-sitter-embedded-template-0.25.0 tree-sitter-language-pack-0.13.0 tree-sitter-yaml-0.7.2 trove-classifiers-2026.9.21.13 typing-extensions-4.16.0 uniseg-0.10.1
+2026-11-22T08:54:41.8878729Z Obtaining file:///home/runner/work/megatoken/megatoken/megatoken
+2026-11-22T08:54:41.8887510Z   Checking if build backend supports build_editable: started
+2026-11-22T08:54:41.9164995Z   Checking if build backend supports build_editable: finished with status 'done'
+2026-11-22T08:54:41.9169579Z   Preparing editable metadata (pyproject.toml): started
+2026-11-22T08:54:42.0415339Z   Preparing editable metadata (pyproject.toml): finished with status 'done'
+2026-11-22T08:54:42.0462788Z Building wheels for collected packages: megatoken
+2026-11-22T08:54:42.0468038Z   Building editable for megatoken (pyproject.toml): started
+2026-11-22T08:54:42.0744365Z   Building editable for megatoken (pyproject.toml): finished with status 'done'
+2026-11-22T08:54:42.0747837Z   Created wheel for megatoken: filename=megatoken-0.1.0-py3-none-any.whl size=8427 sha256=e7ebc3c7f8a1a51ae6f73c62b6918c0d9215358aa527a206e9f2bb5d034e4ea1
+2026-11-22T08:54:42.0748911Z   Stored in directory: /tmp/pip-ephem-wheel-cache-cqjngzeq/wheels/bc/cf/a3/dfbb31d802c709d98e757c75ef1b7c37961ecd2f04ad10b669
+2026-11-22T08:54:42.0769518Z Successfully built megatoken
+2026-11-22T08:54:42.0903724Z Installing collected packages: megatoken
+2026-11-22T08:54:42.2087087Z Successfully installed megatoken-0.1.0
+2026-11-22T08:54:42.2570810Z ##[group]Run python - <<'PY'
+2026-11-22T08:54:42.2571139Z [36;1mpython - <<'PY'[0m
+2026-11-22T08:54:42.2571427Z [36;1mimport hashlib, json, os, re, shutil, subprocess[0m
+2026-11-22T08:54:42.2571772Z [36;1mfrom pathlib import Path[0m
+2026-11-22T08:54:42.2572054Z [36;1mfrom huggingface_hub import hf_hub_download[0m
+2026-11-22T08:54:42.2572511Z [36;1mfrom megatoken.generation.codec import ByteCodec, LING_REPOSITORY, LING_REVISION, LING_TOKENIZER_SHA256[0m
+2026-11-22T08:54:42.2572970Z [36;1mproducer = Path(os.environ['TRACING_JS_SELF_ROOT'])[0m
+2026-11-22T08:54:42.2573327Z [36;1mconsumer = Path(os.environ['MEGATOKEN_ROOT'])[0m
+2026-11-22T08:54:42.2573606Z [36;1mdef snapshot(root):[0m
+2026-11-22T08:54:42.2573987Z [36;1m    revision = subprocess.check_output(['git', '-C', str(root), 'rev-parse', 'HEAD'], text=True).strip()[0m
+2026-11-22T08:54:42.2574664Z [36;1m    changes = subprocess.check_output(['git', '-C', str(root), 'status', '--porcelain', '--untracked-files=all'], text=True).strip()[0m
+2026-11-22T08:54:42.2575186Z [36;1m    if not re.fullmatch('[0-9a-f]{40}', revision) or changes:[0m
+2026-11-22T08:54:42.2575786Z [36;1m        raise ValueError('Paired admission requires exact clean checkouts')[0m
+2026-11-22T08:54:42.2576324Z [36;1m    return {'revision': revision, 'tree': subprocess.check_output(['git', '-C', str(root), 'rev-parse', 'HEAD:'], text=True).strip()}[0m
+2026-11-22T08:54:42.2577060Z [36;1midentity = {'producer': snapshot(producer), 'consumer': snapshot(consumer)}[0m
+2026-11-22T08:54:42.2577457Z [36;1mtokenizer = Path(os.environ['MEGATOKEN_TOKENIZER_JSON'])[0m
+2026-11-22T08:54:42.2578166Z [36;1mshutil.copyfile(hf_hub_download(LING_REPOSITORY, 'tokenizer.json', revision=LING_REVISION), tokenizer)[0m
+2026-11-22T08:54:42.2578739Z [36;1mpolicy = json.loads((producer / 'contracts/semantic-native-policy-v8.json').read_text())[0m
+2026-11-22T08:54:42.2579164Z [36;1mdigest = hashlib.sha256(tokenizer.read_bytes()).hexdigest()[0m
+2026-11-22T08:54:42.2579609Z [36;1mcodec = ByteCodec.from_tokenizer_json(tokenizer, expected_sha256=LING_TOKENIZER_SHA256)[0m
+2026-11-22T08:54:42.2580299Z [36;1mif policy['consumerRepository'] != 'werg/megatoken' or policy['tokenizerSha256'] != digest or digest != LING_TOKENIZER_SHA256 or policy['tokenizerIdentity'] != codec.fingerprint:[0m
+2026-11-22T08:54:42.2580964Z [36;1m    raise ValueError('Pinned tokenizer or consumer repository differs')[0m
+2026-11-22T08:54:42.2581412Z [36;1m# Test this exact consumer without altering the clean producer or its[0m
+2026-11-22T08:54:42.2581798Z [36;1m# contract, fixture, interoperability, and tokenizer requirements.[0m
+2026-11-22T08:54:42.2582212Z [36;1mpolicy['consumerRevision'] = identity['consumer']['revision'][0m
+2026-11-22T08:54:42.2582653Z [36;1mPath(os.environ['SEMANTIC_V8_NATIVE_POLICY']).write_text(json.dumps(policy, indent=2) + '\n')[0m
+2026-11-22T08:54:42.2583056Z [36;1midentity['policy'] = policy[0m
+2026-11-22T08:54:42.2583491Z [36;1m(Path(os.environ['RUNNER_TEMP']) / 'semantic-v8-identities.json').write_text(json.dumps(identity, indent=2) + '\n')[0m
+2026-11-22T08:54:42.2583941Z [36;1mprint(json.dumps(identity))[0m
+2026-11-22T08:54:42.2584198Z [36;1mPY[0m
+2026-11-22T08:54:42.2612038Z shell: /usr/bin/bash --noprofile --norc -e -o pipefail {0}
+2026-11-22T08:54:42.2612348Z env:
+2026-11-22T08:54:42.2612562Z   OMP_NUM_THREADS: 1
+2026-11-22T08:54:42.2612806Z   MKL_NUM_THREADS: 1
+2026-11-22T08:54:42.2613109Z   PYTHONPATH: /home/runner/work/megatoken/megatoken/megatoken/src
+2026-11-22T08:54:42.2613550Z   TRACING_JS_SELF_ROOT: /home/runner/work/megatoken/megatoken/tracing-js-self
+2026-11-22T08:54:42.2613991Z   MEGATOKEN_NATIVE_SOURCE_PRODUCER: /home/runner/work/megatoken/megatoken/tracing-js-self
+2026-11-22T08:54:42.2614469Z   MEGATOKEN_TOKENIZER_JSON: /home/runner/work/megatoken/megatoken/semantic-v8-tokenizer.json
+2026-11-22T08:54:42.2614913Z   MEGATOKEN_ROOT: /home/runner/work/megatoken/megatoken/megatoken
+2026-11-22T08:54:42.2615240Z   MEGATOKEN_PYTHON: python
+2026-11-22T08:54:42.2615870Z   SEMANTIC_V8_NATIVE_POLICY: /home/runner/work/megatoken/megatoken/semantic-v8-policy.json
+2026-11-22T08:54:42.2616282Z   pythonLocation: /opt/hostedtoolcache/Python/3.12.14/x64
+2026-11-22T08:54:42.2616664Z   PKG_CONFIG_PATH: /opt/hostedtoolcache/Python/3.12.14/x64/lib/pkgconfig
+2026-11-22T08:54:42.2617052Z   Python_ROOT_DIR: /opt/hostedtoolcache/Python/3.12.14/x64
+2026-11-22T08:54:42.2617406Z   Python2_ROOT_DIR: /opt/hostedtoolcache/Python/3.12.14/x64
+2026-11-22T08:54:42.2617739Z   Python3_ROOT_DIR: /opt/hostedtoolcache/Python/3.12.14/x64
+2026-11-22T08:54:42.2618122Z   LD_LIBRARY_PATH: /opt/hostedtoolcache/Python/3.12.14/x64/lib
+2026-11-22T08:54:42.2618408Z ##[endgroup]
+2026-11-22T08:54:43.8105026Z Warning: You are sending unauthenticated requests to the HF Hub. Please set a HF_TOKEN to enable higher rate limits and faster downloads.
+2026-11-22T08:54:45.5419302Z {"producer": {"revision": "550387918313393b49017397d47bd66e9d4b5e82", "tree": "c2e3ad495c958eabbcf3d516818f9a5d3fde475e"}, "consumer": {"revision": "3caabf5544c935fa81fc20dbccac095f7e754d50", "tree": "9058cb88043cbf42c649d911c9fcc171706772d4"}, "policy": {"schema": "semantic-native-policy/8", "consumerRepository": "werg/megatoken", "consumerRevision": "3caabf5544c935fa81fc20dbccac095f7e754d50", "contractDigest": "0df031301d75122edad5f0efbbbe041ddbe90ebaac3cf2d6e6705540acd71a47", "fixtureDigest": "56f7f36d3b25b3b11a208be3de337e637b9782e6759faea1e1ec107b0a90f0ce", "tokenizerIdentity": "7f52faca2fe82273a889023defd2f1a6fd6080a21096ec77e97f4798a0a370b2", "tokenizerSha256": "40fb9d7d7795b8bd305aeff39ce9963f3f450915b9553f2938e009be9a1fed60", "interoperabilityDigest": "f5c2d5fd15ad3b84e9b17de771d2f72a58f3c7dee4969ded8a7eb9c3c449f661"}}
+2026-11-22T08:54:45.6154953Z ##[group]Run python -m pip install ruff
+2026-11-22T08:54:45.6155688Z [36;1mpython -m pip install ruff[0m
+2026-11-22T08:54:45.6156085Z [36;1mpython - <<'PY'[0m
+2026-11-22T08:54:45.6156402Z [36;1mimport json,subprocess,sys[0m
+2026-11-22T08:54:45.6156814Z [36;1mfrom pathlib import Path[0m
+2026-11-22T08:54:45.6158429Z [36;1mpaths=["src/megatoken/semantic_request_journal_v8.py","tests/test_semantic_request_journal_v8.py","tests/fixtures/semantic_request_journal_worker_v8.py","scripts/qualify_semantic_v8_target_inventory.py","src/megatoken/training/target_inventory_v8.py","tests/test_semantic_v8_target_inventory.py","scripts/qualify_semantic_v8_lifecycle.py","scripts/qualify_semantic_v8_target_coverage.py"][0m
+2026-11-22T08:54:45.6160104Z [36;1mfor name in paths:[0m
+2026-11-22T08:54:45.6160478Z [36;1m    path=Path(name)[0m
+2026-11-22T08:54:45.6160826Z [36;1m    original=path.read_text()[0m
+2026-11-22T08:54:45.6161784Z [36;1m    fixed=subprocess.run([sys.executable,'-m','ruff','check','--fix-only','--stdin-filename',name,'-'],input=original,text=True,capture_output=True,check=False)[0m
+2026-11-22T08:54:45.6162668Z [36;1m    candidate=fixed.stdout if fixed.stdout else original[0m
+2026-11-22T08:54:45.6163726Z [36;1m    formatted=subprocess.run([sys.executable,'-m','ruff','format','--stdin-filename',name,'-'],input=candidate,text=True,capture_output=True,check=True).stdout[0m
+2026-11-22T08:54:45.6164562Z [36;1m    if formatted!=original:[0m
+2026-11-22T08:54:45.6165150Z [36;1m        print('FORMATTED_SOURCE_JSON '+json.dumps({'path':name,'content':formatted}))[0m
+2026-11-22T08:54:45.6165877Z [36;1mPY[0m
+2026-11-22T08:54:45.6167510Z [36;1mpython -m ruff check src/megatoken/semantic_request_journal_v8.py tests/test_semantic_request_journal_v8.py tests/fixtures/semantic_request_journal_worker_v8.py scripts/qualify_semantic_v8_target_inventory.py src/megatoken/training/target_inventory_v8.py tests/test_semantic_v8_target_inventory.py scripts/qualify_semantic_v8_lifecycle.py scripts/qualify_semantic_v8_target_coverage.py[0m
+2026-11-22T08:54:45.6170683Z [36;1mpython -m ruff format --check src/megatoken/semantic_request_journal_v8.py tests/test_semantic_request_journal_v8.py tests/fixtures/semantic_request_journal_worker_v8.py scripts/qualify_semantic_v8_target_inventory.py src/megatoken/training/target_inventory_v8.py tests/test_semantic_v8_target_inventory.py scripts/qualify_semantic_v8_lifecycle.py scripts/qualify_semantic_v8_target_coverage.py[0m
+2026-11-22T08:54:45.6172396Z [36;1mgit diff --exit-code --[0m
+2026-11-22T08:54:45.6210521Z shell: /usr/bin/bash --noprofile --norc -e -o pipefail {0}
+2026-11-22T08:54:45.6211122Z env:
+2026-11-22T08:54:45.6211446Z   OMP_NUM_THREADS: 1
+2026-11-22T08:54:45.6211749Z   MKL_NUM_THREADS: 1
+2026-11-22T08:54:45.6212200Z   PYTHONPATH: /home/runner/work/megatoken/megatoken/megatoken/src
+2026-11-22T08:54:45.6212807Z   TRACING_JS_SELF_ROOT: /home/runner/work/megatoken/megatoken/tracing-js-self
+2026-11-22T08:54:45.6213510Z   MEGATOKEN_NATIVE_SOURCE_PRODUCER: /home/runner/work/megatoken/megatoken/tracing-js-self
+2026-11-22T08:54:45.6214267Z   MEGATOKEN_TOKENIZER_JSON: /home/runner/work/megatoken/megatoken/semantic-v8-tokenizer.json
+2026-11-22T08:54:45.6214932Z   MEGATOKEN_ROOT: /home/runner/work/megatoken/megatoken/megatoken
+2026-11-22T08:54:45.6215661Z   MEGATOKEN_PYTHON: python
+2026-11-22T08:54:45.6216196Z   SEMANTIC_V8_NATIVE_POLICY: /home/runner/work/megatoken/megatoken/semantic-v8-policy.json
+2026-11-22T08:54:45.6216864Z   pythonLocation: /opt/hostedtoolcache/Python/3.12.14/x64
+2026-11-22T08:54:45.6217434Z   PKG_CONFIG_PATH: /opt/hostedtoolcache/Python/3.12.14/x64/lib/pkgconfig
+2026-11-22T08:54:45.6218193Z   Python_ROOT_DIR: /opt/hostedtoolcache/Python/3.12.14/x64
+2026-11-22T08:54:45.6218723Z   Python2_ROOT_DIR: /opt/hostedtoolcache/Python/3.12.14/x64
+2026-11-22T08:54:45.6219205Z   Python3_ROOT_DIR: /opt/hostedtoolcache/Python/3.12.14/x64
+2026-11-22T08:54:45.6219773Z   LD_LIBRARY_PATH: /opt/hostedtoolcache/Python/3.12.14/x64/lib
+2026-11-22T08:54:45.6220325Z ##[endgroup]
+2026-11-22T08:54:46.6538686Z Collecting ruff
+2026-11-22T08:54:46.7058066Z   Downloading ruff-0.17.6-py3-none-manylinux_2_17_x86_64.manylinux2014_x86_64.whl.metadata (20 kB)
+2026-11-22T08:54:46.7203616Z Downloading ruff-0.17.6-py3-none-manylinux_2_17_x86_64.manylinux2014_x86_64.whl (10.6 MB)
+2026-11-22T08:54:46.8038083Z    ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━ 10.6/10.6 MB 165.9 MB/s  0:00:00
+2026-11-22T08:54:46.8549530Z Installing collected packages: ruff
+2026-11-22T08:54:46.9672447Z Successfully installed ruff-0.17.6
+2026-11-22T08:54:47.2229201Z FORMATTED_SOURCE_JSON {"path": "scripts/qualify_semantic_v8_target_inventory.py", "content": "#!/usr/bin/env python3\n\"\"\"Inventory positive-weight V8 target windows from the ordinary native planner.\n\nThis is a read-only preflight: it prepares the exact train windows and native\nloss plans, but does not execute backward or change model weights.\n\"\"\"\n\nfrom __future__ import annotations\n\nimport argparse\nimport json\nimport os\nfrom dataclasses import asdict\nfrom pathlib import Path\n\nfrom megatoken.data import PreparedCorpus, iter_windows\nfrom megatoken.data.semantic_json import stable_algorithm_hash\nfrom megatoken.loading import build_model, load_model_config\nfrom megatoken.training.config import TrainConfig\nfrom megatoken.training.engine import batch_counters, prepare_batches, window_config\nfrom megatoken.training.semantic_v8 import (\n    load_semantic_v8_codec,\n    merge_semantic_v8_target_exposures,\n    preflight_semantic_training_v8,\n    semantic_v8_target_exposure_from_batches,\n    semantic_v8_target_step_summary,\n)\nfrom megatoken.training.stream import EpisodeWindow\n\n\ndef require(condition: bool, message: str) -> None:\n    if not condition:\n        raise ValueError(message)\n\n\ndef read_json(path: Path):\n    return json.loads(path.read_text())\n\n\ndef target_inventory(config_source, expected_source_ids_source=None):\n    config_raw = (\n        read_json(config_source) if isinstance(config_source, (str, Path)) else config_source\n    )\n    config = TrainConfig.from_dict(config_raw)\n    config_identity = asdict(config)\n    for non_objective in (\n        \"output\",\n        \"max_steps\",\n        \"checkpoint_every\",\n        \"keep_checkpoints\",\n        \"log_every\",\n        \"device\",\n    ):\n        config_identity.pop(non_objective, None)\n    require(config.semantic_v8_policy is not None, \"Inventory requires an explicit V8 policy\")\n    require(\n        config.use_stage_mixture is False,\n        \"Inventory currently requires the exact flat V8 support stream\",\n    )\n    require(\n        config.microbatch_episodes == 1\n        and config.max_accumulation_windows == 1\n        and config.decoupled is None\n        and os.environ.get(\"WORLD_SIZE\", \"1\") == \"1\",\n        \"Inventory requires one synchronous, ordinary optimizer window per update\",\n    )\n    require(\n        len(config.datasets) == 1,\n        \"Inventory requires one immutable prepared support root\",\n    )\n\n    overrides = {\n        **config.model_overrides,\n        \"expert_backend\": config.expert_backend,\n        \"checkpoint_stages\": config.gradient_checkpointing,\n    }\n    model_config = load_model_config(config.model, **overrides)\n    codec = load_semantic_v8_codec(config.codec, vocab_size=model_config.vocab_size)\n    require(\n        config.generated_capacity <= model_config.max_capacity,\n        \"Configured generated capacity exceeds model\",\n    )\n    supply = preflight_semantic_training_v8(\n        config.datasets,\n        codec=codec,\n        policy=config.semantic_v8_policy,\n        max_history=model_config.max_history_chunks,\n        max_positions=model_config.max_capacity,\n    )\n    registry_digest = config.semantic_v8_policy[\"registryDigest\"]\n    require(\n        supply[\"registryDigest\"] == registry_digest,\n        \"Prepared support registry differs from policy\",\n    )\n\n    prepared_root = Path(config.datasets[0]).resolve()\n    manifest = read_json(prepared_root / \"manifest.json\")\n    registry = read_json(prepared_root / \"semantic-v8-families.json\")\n    require(\n        registry.get(\"digest\") == registry_digest,\n        \"Prepared registry digest differs from V8 policy\",\n    )\n    registry_ids = {row[\"id\"] for row in registry[\"sources\"]}\n    if expected_source_ids_source is not None:\n        inventory = (\n            read_json(expected_source_ids_source)\n            if isinstance(expected_source_ids_source, (str, Path))\n            else {\n                \"sourceIds\": list(expected_source_ids_source),\n                \"schema\": \"semantic-v8-source-population/1\",\n                \"registryDigest\": registry_digest,\n            }\n        )\n        expected_ids = inventory.get(\"sourceIds\")\n        require(\n            inventory.get(\"schema\") == \"semantic-v8-source-population/1\"\n            and inventory.get(\"registryDigest\") == registry_digest\n            and isinstance(expected_ids, list)\n            and len(expected_ids) == 64\n            and len(set(expected_ids)) == 64\n            and set(expected_ids) == registry_ids,\n            \"Support source inventory is invalid or differs from the prepared registry\",\n        )\n    else:\n        expected_ids = sorted(registry_ids)\n    expected_ids = set(expected_ids)\n    split_by_id = {}\n    for component in registry[\"components\"]:\n        for source_id in component[\"sourceIds\"]:\n            require(\n                source_id not in split_by_id,\n                \"Prepared registry assigns a source to multiple splits\",\n            )\n            split_by_id[source_id] = component[\"split\"]\n    expected_train_ids = {source_id for source_id, split in split_by_id.items() if split == \"train\"}\n    split_counts = {\n        split: sum(value == split for value in split_by_id.values())\n        for split in (\"train\", \"validation\", \"test\")\n    }\n    require(\n        len(expected_ids) == 64\n        and split_counts == {\"train\": 48, \"validation\": 12, \"test\": 4}\n        and set(split_by_id) == expected_ids,\n        \"Inventory requires the exact 64-source, 48/12/4 registry\",\n    )\n\n    model = build_model(\n        model_config,\n        codec,\n        device=\"cpu\",\n        precision=config.precision,\n        packs=config.packs,\n    )\n    effective_weights = dict(config.loss_weights)\n    effective_weights[\"router_balance\"] = 0.0\n    windows_config = window_config(config)\n    exposures = []\n    observed_sources = set()\n    observed_windows = set()\n    update_window_count = 0\n    one_pass_meter_count = 0\n    available_records = set()\n    available_denominators = {}\n    train_episode_count = 0\n    with PreparedCorpus(config.datasets, split=\"train\") as corpus:\n        require(\n            corpus.codec_fingerprint == codec.fingerprint,\n            \"Prepared corpus tokenizer differs\",\n        )\n        require(\n            len(corpus) == len(expected_train_ids),\n            \"Prepared training episode count differs from the frozen source split\",\n        )\n        for index in range(len(corpus)):\n            episode, assets = corpus.fetch(index)\n            source_id = episode.lineage.source_id\n            require(\n                source_id in expected_train_ids,\n                \"Prepared training episode is outside the frozen train source inventory\",\n            )\n            require(\n                source_id not in observed_sources,\n                \"Prepared support has a duplicate training source\",\n            )\n            require(\n                episode.lineage.frozen_split == \"train\",\n                \"Inventory enumerated a nontraining episode\",\n            )\n            observed_sources.add(source_id)\n            train_episode_count += 1\n            for window in iter_windows(episode, codec, windows_config):\n                window_key = (source_id, window.index)\n                require(\n                    window_key not in observed_windows,\n                    \"Native window iterator duplicated a window\",\n                )\n                observed_windows.add(window_key)\n                item = EpisodeWindow(episode=episode, window=window, assets=assets)\n                batches = prepare_batches(model, [item], config)\n                update_window_count += int(any(any(batch.counts.values()) for batch in batches))\n                if any(any(batch.counts.values()) for batch in batches):\n                    one_pass_meter_count += sum(\n                        getattr(batch_counters([batch]), config.schedule.meter) for batch in batches\n                    )\n                for batch in batches:\n                    for step in batch.steps:\n                        for encoded, plan in zip(step.records, step.plans, strict=True):\n                            record = encoded.record\n                            if not record.policy_mask:\n                                continue\n                            available_records.add((source_id, record.logical_id, record.record_id))\n                            for name, count in plan.denominators.items():\n                                if count:\n                                    available_denominators[name] = (\n                                        available_denominators.get(name, 0) + count\n                                    )\n                exposures.append(\n                    semantic_v8_target_exposure_from_batches(\n                        batches,\n                        registry_digest=registry_digest,\n                        effective_loss_weights=effective_weights,\n                    )\n                )\n    require(\n        observed_sources == expected_train_ids,\n        \"Prepared support omitted or substituted a frozen training source\",\n    )\n    require(observed_windows, \"Prepared support has no train windows\")\n    phase_meter, phase_budget = config.schedule.meter, config.schedule.budget\n    require(\n        phase_meter == \"P\" and one_pass_meter_count <= phase_budget,\n        \"Measured one-pass window meter exceeds or differs from the exact phase budget\",\n    )\n\n    merged = merge_semantic_v8_target_exposures(exposures, registry_digest=registry_digest)\n    scored_sources = merged[\"sources\"]\n    positive_weight = semantic_v8_target_step_summary(merged)\n    body = {\n        \"schema\": \"semantic-v8-positive-loss-target-inventory/1\",\n        \"registryDigest\": registry_digest,\n        \"sourceIds\": sorted(expected_train_ids),\n        \"scoredSourceIds\": sorted(scored_sources),\n        \"trainEpisodeCount\": train_episode_count,\n        \"windowCount\": len(observed_windows),\n        \"optimizerWindowCount\": update_window_count,\n        \"phaseMeter\": phase_meter,\n        \"phaseBudget\": phase_budget,\n        \"onePassMeterCount\": one_pass_meter_count,\n        \"preparedManifestFingerprint\": manifest[\"fingerprint\"],\n        \"codecFingerprint\": codec.fingerprint,\n        \"trainingConfigDigest\": stable_algorithm_hash(config_identity),\n        \"modelConfigDigest\": stable_algorithm_hash(model_config.to_dict()),\n        \"windowConfig\": asdict(windows_config),\n        \"effectiveLossWeights\": effective_weights,\n        \"available\": {\n            \"policyTargetRecordCount\": len(available_records),\n            \"lossDenominators\": dict(sorted(available_denominators.items())),\n        },\n        \"positiveWeight\": {\n            key: positive_weight[key]\n            for key in (\n                \"sourceCount\",\n                \"logicalTargetCount\",\n                \"physicalTargetRecordCount\",\n                \"scoredOccurrences\",\n                \"lossDenominators\",\n            )\n        },\n        \"sources\": scored_sources,\n        \"optimizerUpdates\": 0,\n        \"learnedSuccess\": None,\n    }\n    return {**body, \"digest\": stable_algorithm_hash(body)}\n\n\ndef main() -> int:\n    parser = argparse.ArgumentParser(description=__doc__)\n    parser.add_argument(\"--config\", type=Path, required=True)\n    parser.add_argument(\"--expected-source-ids\", type=Path)\n    parser.add_argument(\"--output\", type=Path, required=True)\n    args = parser.parse_args()\n    result = target_inventory(args.config, args.expected_source_ids)\n    args.output.parent.mkdir(parents=True, exist_ok=True)\n    args.output.write_text(json.dumps(result, indent=2, allow_nan=False) + \"\\n\")\n    print(\n        json.dumps(\n            {\n                \"output\": str(args.output.resolve()),\n                \"digest\": result[\"digest\"],\n                \"registryDigest\": result[\"registryDigest\"],\n                \"sourceCount\": result[\"positiveWeight\"][\"sourceCount\"],\n                \"windowCount\": result[\"windowCount\"],\n                \"optimizerWindowCount\": result[\"optimizerWindowCount\"],\n                \"phaseMeter\": result[\"phaseMeter\"],\n                \"phaseBudget\": result[\"phaseBudget\"],\n                \"onePassMeterCount\": result[\"onePassMeterCount\"],\n                \"logicalTargetCount\": result[\"positiveWeight\"][\"logicalTargetCount\"],\n                \"physicalTargetRecordCount\": result[\"positiveWeight\"][\"physicalTargetRecordCount\"],\n                \"scoredOccurrences\": result[\"positiveWeight\"][\"scoredOccurrences\"],\n                \"lossDenominators\": result[\"positiveWeight\"][\"lossDenominators\"],\n                \"optimizerUpdates\": 0,\n                \"learnedSuccess\": None,\n            },\n            sort_keys=True,\n        )\n    )\n    return 0\n\n\nif __name__ == \"__main__\":\n    raise SystemExit(main())\n"}
+2026-11-22T08:54:47.2580975Z FORMATTED_SOURCE_JSON {"path": "src/megatoken/training/target_inventory_v8.py", "content": "\"\"\"Bounded comparison for positive-loss target inventory and optimizer census.\"\"\"\n\nfrom __future__ import annotations\n\nfrom megatoken.data.semantic_json import stable_algorithm_hash\n\n\ndef validate_target_inventory(\n    inventory,\n    *,\n    rederived_inventory,\n    registry_digest,\n    prepared_manifest_fingerprint,\n    codec_fingerprint,\n    training_config_digest,\n    model_config_digest,\n):\n    required = {\n        \"schema\",\n        \"registryDigest\",\n        \"sourceIds\",\n        \"scoredSourceIds\",\n        \"trainEpisodeCount\",\n        \"windowCount\",\n        \"optimizerWindowCount\",\n        \"phaseMeter\",\n        \"phaseBudget\",\n        \"onePassMeterCount\",\n        \"preparedManifestFingerprint\",\n        \"codecFingerprint\",\n        \"trainingConfigDigest\",\n        \"modelConfigDigest\",\n        \"windowConfig\",\n        \"effectiveLossWeights\",\n        \"available\",\n        \"positiveWeight\",\n        \"sources\",\n        \"optimizerUpdates\",\n        \"learnedSuccess\",\n        \"digest\",\n    }\n    if not isinstance(inventory, dict) or set(inventory) != required:\n        raise ValueError(\"V8 target inventory has an invalid field set\")\n    sources = inventory.get(\"sources\")\n    if not isinstance(sources, dict):\n        raise ValueError(\"V8 target inventory sources must be an object\")\n    for source in sources.values():\n        if not isinstance(source, dict) or not isinstance(source.get(\"logicalTargets\"), dict):\n            raise ValueError(\"V8 target inventory has malformed source target rows\")\n        for target in source[\"logicalTargets\"].values():\n            if not isinstance(target, dict) or not isinstance(target.get(\"records\"), dict):\n                raise ValueError(\"V8 target inventory has malformed logical target rows\")\n            for record in target[\"records\"].values():\n                if not isinstance(record, dict):\n                    raise ValueError(\"V8 target inventory has malformed physical target rows\")\n                indices = record.get(\"windowIndices\")\n                if (\n                    not isinstance(indices, list)\n                    or any(type(index) is not int or index < 0 for index in indices)\n                    or indices != sorted(set(indices))\n                ):\n                    raise ValueError(\"V8 target inventory has duplicate or invalid window indices\")\n    if not isinstance(rederived_inventory, dict) or inventory != rederived_inventory:\n        raise ValueError(\"V8 target inventory differs from exact native planner re-derivation\")\n    body = {key: value for key, value in inventory.items() if key != \"digest\"}\n    if (\n        inventory[\"schema\"] != \"semantic-v8-positive-loss-target-inventory/1\"\n        or inventory[\"registryDigest\"] != registry_digest\n        or inventory[\"preparedManifestFingerprint\"] != prepared_manifest_fingerprint\n        or inventory[\"codecFingerprint\"] != codec_fingerprint\n        or inventory[\"trainingConfigDigest\"] != training_config_digest\n        or inventory[\"modelConfigDigest\"] != model_config_digest\n        or inventory[\"digest\"] != stable_algorithm_hash(body)\n        or inventory[\"optimizerUpdates\"] != 0\n        or inventory[\"learnedSuccess\"] is not None\n        or type(inventory[\"windowCount\"]) is not int\n        or inventory[\"windowCount\"] < 1\n        or type(inventory[\"optimizerWindowCount\"]) is not int\n        or not 1 <= inventory[\"optimizerWindowCount\"] <= inventory[\"windowCount\"]\n        or inventory[\"phaseMeter\"] != \"P\"\n        or type(inventory[\"phaseBudget\"]) is not int\n        or inventory[\"phaseBudget\"] < 1\n        or type(inventory[\"onePassMeterCount\"]) is not int\n        or not 0 <= inventory[\"onePassMeterCount\"] <= inventory[\"phaseBudget\"]\n        or type(inventory[\"trainEpisodeCount\"]) is not int\n        or inventory[\"trainEpisodeCount\"] != len(inventory[\"sourceIds\"])\n        or len(inventory[\"sourceIds\"]) != 48\n        or len(set(inventory[\"sourceIds\"])) != 48\n        or inventory[\"sourceIds\"] != sorted(inventory[\"sourceIds\"])\n        or inventory[\"scoredSourceIds\"] != sorted(inventory[\"sources\"])\n        or not set(inventory[\"scoredSourceIds\"]) <= set(inventory[\"sourceIds\"])\n    ):\n        raise ValueError(\"V8 target inventory identity, count or seal is invalid\")\n    if (\n        not isinstance(inventory[\"sourceIds\"], list)\n        or any(not isinstance(item, str) or not item for item in inventory[\"sourceIds\"])\n        or not isinstance(inventory[\"scoredSourceIds\"], list)\n        or len(set(inventory[\"scoredSourceIds\"])) != len(inventory[\"scoredSourceIds\"])\n    ):\n        raise ValueError(\"V8 target inventory source IDs are malformed or duplicated\")\n    expected = inventory[\"positiveWeight\"]\n    expected_keys = {\n        (source_id, logical_id, record_id)\n        for source_id, source in inventory[\"sources\"].items()\n        for logical_id, target in source[\"logicalTargets\"].items()\n        for record_id in target[\"records\"]\n    }\n    if (\n        any(source.get(\"split\") != \"train\" for source in inventory[\"sources\"].values())\n        or any(\n            not isinstance(record.get(\"windowIndices\"), list)\n            or record[\"windowIndices\"] != sorted(set(record[\"windowIndices\"]))\n            or any(type(index) is not int or index < 0 for index in record[\"windowIndices\"])\n            for source in inventory[\"sources\"].values()\n            for target in source[\"logicalTargets\"].values()\n            for record in target[\"records\"].values()\n        )\n        or not isinstance(expected, dict)\n        or expected.get(\"sourceCount\") != len(inventory[\"sources\"])\n        or expected.get(\"logicalTargetCount\")\n        != len(\n            {\n                (source_id, logical_id)\n                for source_id, source in inventory[\"sources\"].items()\n                for logical_id in source[\"logicalTargets\"]\n            }\n        )\n        or expected.get(\"physicalTargetRecordCount\") != len(expected_keys)\n    ):\n        raise ValueError(\"V8 positive-loss target inventory summary differs from its keys\")\n    return expected_keys\n\n\ndef compare_target_inventory(inventory, actual_sources, *, rederived_inventory, **identities):\n    \"\"\"Compare target presence only; token/position-level coverage is not retained.\"\"\"\n    expected_keys = validate_target_inventory(\n        inventory, rederived_inventory=rederived_inventory, **identities\n    )\n    if not isinstance(actual_sources, dict):\n        raise ValueError(\"Optimizer target exposure has no source map\")\n    actual_keys = {\n        (source_id, logical_id, record_id)\n        for source_id, source in actual_sources.items()\n        for logical_id, target in source[\"logicalTargets\"].items()\n        for record_id in target[\"records\"]\n    }\n    missing = sorted(expected_keys - actual_keys)\n    unexpected = sorted(actual_keys - expected_keys)\n    if unexpected:\n        raise ValueError(\n            f\"Optimizer census contains {len(unexpected)} physical target keys outside the rederived inventory\"\n        )\n    expected_logical = {(source_id, logical_id) for source_id, logical_id, _ in expected_keys}\n    actual_logical = {(source_id, logical_id) for source_id, logical_id, _ in actual_keys}\n    expected_records = {\n        (source_id, logical_id, record_id): record\n        for source_id, source in inventory[\"sources\"].items()\n        for logical_id, target in source[\"logicalTargets\"].items()\n        for record_id, record in target[\"records\"].items()\n    }\n    actual_records = {\n        (source_id, logical_id, record_id): record\n        for source_id, source in actual_sources.items()\n        for logical_id, target in source[\"logicalTargets\"].items()\n        for record_id, record in target[\"records\"].items()\n    }\n    occurrence_mismatches = []\n    window_mismatches = []\n    denominator_mismatches = []\n    for key in sorted(expected_keys & actual_keys):\n        expected_record = expected_records[key]\n        actual_record = actual_records[key]\n        if expected_record[\"scoredOccurrences\"] != actual_record.get(\"scoredOccurrences\"):\n            occurrence_mismatches.append(\n                [\n                    list(key),\n                    expected_record[\"scoredOccurrences\"],\n                    actual_record.get(\"scoredOccurrences\"),\n                ]\n            )\n        if expected_record[\"windowIndices\"] != actual_record.get(\"windowIndices\"):\n            window_mismatches.append(\n                [list(key), expected_record[\"windowIndices\"], actual_record.get(\"windowIndices\")]\n            )\n        if expected_record[\"lossDenominators\"] != actual_record.get(\"lossDenominators\"):\n            denominator_mismatches.append(\n                [\n                    list(key),\n                    expected_record[\"lossDenominators\"],\n                    actual_record.get(\"lossDenominators\"),\n                ]\n            )\n    repeated = any(\n        record.get(\"scoredOccurrences\", 0) > len(record.get(\"windowIndices\", []))\n        for source in actual_sources.values()\n        for target in source[\"logicalTargets\"].values()\n        for record in target[\"records\"].values()\n    )\n    total = len(expected_keys)\n    covered = total - len(missing)\n    exact_census = (\n        bool(total)\n        and not missing\n        and not unexpected\n        and not (occurrence_mismatches or window_mismatches or denominator_mismatches)\n    )\n    return {\n        \"schema\": \"semantic-v8-target-presence-comparison/1\",\n        \"inventoryDigest\": inventory[\"digest\"],\n        \"expectedPositiveWeightPhysicalTargets\": total,\n        \"coveredPositiveWeightPhysicalTargets\": covered,\n        \"expectedPositiveWeightLogicalTargets\": len(expected_logical),\n        \"coveredPositiveWeightLogicalTargets\": len(expected_logical & actual_logical),\n        \"missingPositiveWeightPhysicalTargets\": [list(row) for row in missing],\n        \"unexpectedPhysicalTargets\": [list(row) for row in unexpected],\n        \"targetPresenceCoverage\": 1.0\n        if total and not missing and not unexpected\n        else (covered / total if total else 0.0),\n        \"allPositiveWeightTargetsExposed\": bool(total) and not missing and not unexpected,\n        \"exactOnePassCensus\": exact_census,\n        \"scoredOccurrenceMismatches\": occurrence_mismatches,\n        \"windowIndexMismatches\": window_mismatches,\n        \"positiveWeightDenominatorMismatches\": denominator_mismatches,\n        \"repeatedWindowExposureObserved\": repeated,\n        \"tokenOrMaskPositionCoverage\": \"unmeasured\",\n        \"learnedSuccess\": None,\n    }\n"}
+2026-11-22T08:54:47.3281556Z FORMATTED_SOURCE_JSON {"path": "tests/test_semantic_v8_target_inventory.py", "content": "\"\"\"Exact positive-loss inventory and optimizer target-presence comparison controls.\"\"\"\n\nfrom copy import deepcopy\n\nimport pytest\n\nfrom megatoken.data.semantic_json import stable_algorithm_hash\nfrom megatoken.training.target_inventory_v8 import (\n    compare_target_inventory,\n    validate_target_inventory,\n)\n\nREGISTRY = \"a\" * 64\nMANIFEST = \"b\" * 64\nCODEC = \"c\" * 64\nTRAINING = \"d\" * 64\nMODEL = \"e\" * 64\n\n\ndef _inventory():\n    sources = {\n        \"source-a\": {\n            \"split\": \"train\",\n            \"logicalTargets\": {\n                \"target-one\": {\n                    \"records\": {\n                        \"record-one\": {\n                            \"windowIndices\": [0, 1],\n                            \"lossDenominators\": {\"language_model\": 8},\n                            \"scoredOccurrences\": 2,\n                        }\n                    }\n                }\n            },\n        }\n    }\n    body = {\n        \"schema\": \"semantic-v8-positive-loss-target-inventory/1\",\n        \"registryDigest\": REGISTRY,\n        \"sourceIds\": [\"source-a\" if index == 0 else f\"train-{index:02d}\" for index in range(48)],\n        \"scoredSourceIds\": [\"source-a\"],\n        \"trainEpisodeCount\": 48,\n        \"windowCount\": 120,\n        \"optimizerWindowCount\": 100,\n        \"phaseMeter\": \"P\",\n        \"phaseBudget\": 200000000,\n        \"onePassMeterCount\": 5000,\n        \"preparedManifestFingerprint\": MANIFEST,\n        \"codecFingerprint\": CODEC,\n        \"trainingConfigDigest\": TRAINING,\n        \"modelConfigDigest\": MODEL,\n        \"windowConfig\": {},\n        \"effectiveLossWeights\": {\"language_model\": 1.0},\n        \"available\": {\"policyTargetRecordCount\": 1, \"lossDenominators\": {\"language_model\": 8}},\n        \"positiveWeight\": {\n            \"sourceCount\": 1,\n            \"logicalTargetCount\": 1,\n            \"physicalTargetRecordCount\": 1,\n            \"scoredOccurrences\": 2,\n            \"lossDenominators\": {\"language_model\": 8},\n        },\n        \"sources\": sources,\n        \"optimizerUpdates\": 0,\n        \"learnedSuccess\": None,\n    }\n    return {**body, \"digest\": stable_algorithm_hash(body)}\n\n\ndef _identities():\n    return {\n        \"registry_digest\": REGISTRY,\n        \"prepared_manifest_fingerprint\": MANIFEST,\n        \"codec_fingerprint\": CODEC,\n        \"training_config_digest\": TRAINING,\n        \"model_config_digest\": MODEL,\n    }\n\n\ndef _actual(*, extra=False):\n    rows = {\n        \"source-a\": {\n            \"split\": \"train\",\n            \"logicalTargets\": {\n                \"target-one\": {\n                    \"records\": {\n                        \"record-one\": {\n                            \"windowIndices\": [0],\n                            \"scoredOccurrences\": 1,\n                        }\n                    }\n                }\n            },\n        }\n    }\n    if extra:\n        rows[\"source-b\"] = {\n            \"split\": \"train\",\n            \"logicalTargets\": {\n                \"unlisted\": {\"records\": {\"forged\": {\"windowIndices\": [0], \"scoredOccurrences\": 1}}}\n            },\n        }\n    return rows\n\n\ndef test_exact_target_presence_passes_without_claiming_position_coverage():\n    result = compare_target_inventory(\n        _inventory(), _actual(), rederived_inventory=_inventory(), **_identities()\n    )\n    assert result[\"allPositiveWeightTargetsExposed\"] is True\n    assert result[\"exactOnePassCensus\"] is False\n    assert result[\"targetPresenceCoverage\"] == 1.0\n    assert result[\"tokenOrMaskPositionCoverage\"] == \"unmeasured\"\n    assert result[\"repeatedWindowExposureObserved\"] is False\n    assert result[\"learnedSuccess\"] is None\n\n\ndef test_missing_inventory_targets_are_reported_without_inflating_coverage():\n    result = compare_target_inventory(\n        _inventory(), {}, rederived_inventory=_inventory(), **_identities()\n    )\n    assert result[\"allPositiveWeightTargetsExposed\"] is False\n    assert result[\"targetPresenceCoverage\"] == 0.0\n    assert result[\"missingPositiveWeightPhysicalTargets\"] == [\n        [\"source-a\", \"target-one\", \"record-one\"]\n    ]\n\n\ndef test_unexpected_optimizer_target_is_integrity_failure():\n    with pytest.raises(ValueError, match=\"outside the rederived inventory\"):\n        compare_target_inventory(\n            _inventory(), _actual(extra=True), rederived_inventory=_inventory(), **_identities()\n        )\n\n\n@pytest.mark.parametrize(\n    \"field\",\n    [\n        \"registryDigest\",\n        \"preparedManifestFingerprint\",\n        \"codecFingerprint\",\n        \"trainingConfigDigest\",\n        \"modelConfigDigest\",\n    ],\n)\ndef test_inventory_bound_to_other_run_identity_is_refused(field):\n    keys = {\n        \"registryDigest\": \"registry_digest\",\n        \"preparedManifestFingerprint\": \"prepared_manifest_fingerprint\",\n        \"codecFingerprint\": \"codec_fingerprint\",\n        \"trainingConfigDigest\": \"training_config_digest\",\n        \"modelConfigDigest\": \"model_config_digest\",\n    }\n    identities = _identities()\n    identities[keys[field]] = \"f\" * 64\n    with pytest.raises(ValueError, match=\"identity\"):\n        validate_target_inventory(_inventory(), rederived_inventory=_inventory(), **identities)\n\n\ndef test_rehashed_forged_target_keys_still_fail_count_invariant():\n    value = deepcopy(_inventory())\n    value[\"sources\"][\"source-a\"][\"logicalTargets\"][\"target-two\"] = {\n        \"records\": {\"record-two\": {\"windowIndices\": [0], \"scoredOccurrences\": 1}}\n    }\n    body = {key: child for key, child in value.items() if key != \"digest\"}\n    value[\"digest\"] = stable_algorithm_hash(body)\n    with pytest.raises(ValueError, match=\"re-derivation\"):\n        validate_target_inventory(value, rederived_inventory=_inventory(), **_identities())\n\n\ndef test_repeated_window_occurrence_is_reported_separately_from_unique_target_coverage():\n    actual = _actual()\n    record = actual[\"source-a\"][\"logicalTargets\"][\"target-one\"][\"records\"][\"record-one\"]\n    record[\"windowIndices\"] = [0]\n    record[\"scoredOccurrences\"] = 2\n    result = compare_target_inventory(\n        _inventory(), actual, rederived_inventory=_inventory(), **_identities()\n    )\n    assert result[\"allPositiveWeightTargetsExposed\"] is True\n    assert result[\"exactOnePassCensus\"] is False\n    assert result[\"repeatedWindowExposureObserved\"] is True\n\n\ndef test_rehashed_inventory_that_disagrees_with_rederived_planner_is_refused():\n    value = _inventory()\n    tampered = deepcopy(value)\n    tampered[\"sources\"][\"source-a\"][\"logicalTargets\"][\"target-one\"][\"records\"][\"record-one\"][\n        \"lossDenominators\"\n    ][\"language_model\"] = 99\n    body = {key: child for key, child in tampered.items() if key != \"digest\"}\n    tampered[\"digest\"] = stable_algorithm_hash(body)\n    with pytest.raises(ValueError, match=\"re-derivation\"):\n        validate_target_inventory(tampered, rederived_inventory=value, **_identities())\n\n\ndef test_inventory_omitting_train_source_or_duplicate_source_id_is_refused():\n    value = _inventory()\n    missing = deepcopy(value)\n    missing[\"sourceIds\"] = missing[\"sourceIds\"][:-1]\n    body = {key: child for key, child in missing.items() if key != \"digest\"}\n    missing[\"digest\"] = stable_algorithm_hash(body)\n    with pytest.raises(ValueError, match=\"identity, count\"):\n        validate_target_inventory(missing, rederived_inventory=missing, **_identities())\n\n    duplicate = deepcopy(value)\n    duplicate[\"sourceIds\"][-1] = duplicate[\"sourceIds\"][0]\n    body = {key: child for key, child in duplicate.items() if key != \"digest\"}\n    duplicate[\"digest\"] = stable_algorithm_hash(body)\n    with pytest.raises(ValueError, match=\"identity, count\"):\n        validate_target_inventory(duplicate, rederived_inventory=duplicate, **_identities())\n\n\ndef test_duplicate_window_ids_in_inventory_are_refused():\n    value = deepcopy(_inventory())\n    record = value[\"sources\"][\"source-a\"][\"logicalTargets\"][\"target-one\"][\"records\"][\"record-one\"]\n    record[\"windowIndices\"] = [0, 0]\n    body = {key: child for key, child in value.items() if key != \"digest\"}\n    value[\"digest\"] = stable_algorithm_hash(body)\n    with pytest.raises(ValueError, match=\"duplicate or invalid window indices\"):\n        validate_target_inventory(value, rederived_inventory=value, **_identities())\n\n\ndef test_exact_occurrence_windows_and_denominators_prove_one_pass_census():\n    actual = _actual()\n    record = actual[\"source-a\"][\"logicalTargets\"][\"target-one\"][\"records\"][\"record-one\"]\n    record.update(\n        windowIndices=[0, 1],\n        scoredOccurrences=2,\n        lossDenominators={\"language_model\": 8},\n    )\n    result = compare_target_inventory(\n        _inventory(),\n        actual,\n        rederived_inventory=_inventory(),\n        **_identities(),\n    )\n    assert result[\"allPositiveWeightTargetsExposed\"] is True\n    assert result[\"exactOnePassCensus\"] is True\n    assert result[\"scoredOccurrenceMismatches\"] == []\n    assert result[\"windowIndexMismatches\"] == []\n    assert result[\"positiveWeightDenominatorMismatches\"] == []\n\n\ndef test_all_keys_can_be_present_while_occurrence_census_still_differs():\n    actual = _actual()\n    record = actual[\"source-a\"][\"logicalTargets\"][\"target-one\"][\"records\"][\"record-one\"]\n    record.update(\n        windowIndices=[0, 1],\n        scoredOccurrences=3,\n        lossDenominators={\"language_model\": 12},\n    )\n    result = compare_target_inventory(\n        _inventory(),\n        actual,\n        rederived_inventory=_inventory(),\n        **_identities(),\n    )\n    assert result[\"allPositiveWeightTargetsExposed\"] is True\n    assert result[\"exactOnePassCensus\"] is False\n    assert result[\"scoredOccurrenceMismatches\"] == [\n        [[\"source-a\", \"target-one\", \"record-one\"], 2, 3]\n    ]\n"}
+2026-11-22T08:54:47.3319137Z FORMATTED_SOURCE_JSON {"path": "scripts/qualify_semantic_v8_target_coverage.py", "content": "#!/usr/bin/env python3\n\"\"\"Verify ordinary training exposed every positive-loss V8 target in an inventory.\"\"\"\n\nfrom __future__ import annotations\n\nimport argparse\nimport json\nfrom pathlib import Path\n\nfrom megatoken.data.semantic_json import stable_algorithm_hash\nfrom megatoken.semantic_lineage_v8 import checkpoint_lineage_v8\nfrom megatoken.training.checkpoint import load_checkpoint\nfrom megatoken.training.semantic_v8 import validate_semantic_v8_target_exposure\nfrom megatoken.training.target_inventory_v8 import compare_target_inventory\n\n\ndef read_json(path: Path):\n    return json.loads(path.read_text())\n\n\ndef main() -> int:\n    parser = argparse.ArgumentParser(description=__doc__)\n    parser.add_argument(\"--checkpoint\", type=Path, required=True)\n    parser.add_argument(\"--prepared\", type=Path, required=True)\n    parser.add_argument(\"--expected-source-ids\", type=Path, required=True)\n    parser.add_argument(\"--inventory\", type=Path, required=True)\n    parser.add_argument(\"--output\", type=Path, required=True)\n    args = parser.parse_args()\n\n    from qualify_semantic_v8_target_inventory import target_inventory\n\n    checkpoint, metadata = load_checkpoint(args.checkpoint, map_location=\"cpu\")\n    lineage = checkpoint_lineage_v8(checkpoint, metadata)\n    policy = checkpoint[\"train_config\"].get(\"semantic_v8_policy\")\n    if not isinstance(policy, dict):\n        raise ValueError(\"Coverage checkpoint has no explicit V8 policy\")\n    registry_digest = policy[\"registryDigest\"]\n    prepared_manifest = read_json(args.prepared / \"manifest.json\")\n    derived = target_inventory(checkpoint[\"train_config\"], args.expected_source_ids)\n    supplied = read_json(args.inventory)\n    state = validate_semantic_v8_target_exposure(\n        checkpoint.get(\"semantic_v8_target_exposure\"),\n        registry_digest=registry_digest,\n    )\n    comparison = compare_target_inventory(\n        supplied,\n        state[\"sources\"],\n        rederived_inventory=derived,\n        registry_digest=registry_digest,\n        prepared_manifest_fingerprint=prepared_manifest[\"fingerprint\"],\n        codec_fingerprint=prepared_manifest[\"codec_fingerprint\"],\n        training_config_digest=derived[\"trainingConfigDigest\"],\n        model_config_digest=derived[\"modelConfigDigest\"],\n    )\n    if state[\"startingGlobalStep\"] != 0 or state[\"optimizerUpdates\"] != checkpoint[\"global_step\"]:\n        raise ValueError(\"Coverage checkpoint does not retain a fresh complete optimizer census\")\n    if checkpoint[\"global_step\"] != derived[\"optimizerWindowCount\"]:\n        raise ValueError(\n            \"Coverage training stopped before the one-pass optimizer-update bound: \"\n            f\"expected {derived['optimizerWindowCount']}, got {checkpoint['global_step']}\"\n        )\n    if not comparison[\"exactOnePassCensus\"]:\n        raise ValueError(\n            \"Ordinary training differs from the exact one-pass target census: \"\n            f\"{len(comparison['missingPositiveWeightPhysicalTargets'])} missing keys, \"\n            f\"{len(comparison['scoredOccurrenceMismatches'])} occurrence mismatches, \"\n            f\"{len(comparison['windowIndexMismatches'])} window-set mismatches, \"\n            f\"{len(comparison['positiveWeightDenominatorMismatches'])} denominator mismatches\"\n        )\n    body = {\n        \"schema\": \"semantic-v8-ordinary-target-coverage/1\",\n        \"consumerRevision\": policy[\"consumerRevision\"],\n        \"checkpointStateSha256\": metadata[\"state_sha256\"],\n        \"globalStep\": checkpoint[\"global_step\"],\n        \"trainingLineage\": lineage,\n        \"preparedManifestFingerprint\": prepared_manifest[\"fingerprint\"],\n        \"inventory\": {\n            \"digest\": derived[\"digest\"],\n            \"windowCount\": derived[\"windowCount\"],\n            \"optimizerWindowCount\": derived[\"optimizerWindowCount\"],\n            \"phaseMeter\": derived[\"phaseMeter\"],\n            \"phaseBudget\": derived[\"phaseBudget\"],\n            \"onePassMeterCount\": derived[\"onePassMeterCount\"],\n            \"sourceIds\": derived[\"sourceIds\"],\n            \"available\": derived[\"available\"],\n            \"positiveWeight\": derived[\"positiveWeight\"],\n        },\n        \"optimizerTargetExposure\": {\n            \"digest\": state[\"digest\"],\n            \"previousDigest\": state[\"previousDigest\"],\n            \"sourceCount\": len(state[\"sources\"]),\n            \"sources\": state[\"sources\"],\n        },\n        \"comparison\": comparison,\n        \"targetPresenceCoverage\": \"complete: every positive-weight logical/physical target record contributed at least once\",\n        \"tokenOrMaskPositionCoverage\": \"unmeasured\",\n        \"learnedSuccess\": None,\n    }\n    if comparison[\"allPositiveWeightTargetsExposed\"] is not True:\n        raise ValueError(\"Exact one-pass census is missing one or more target keys\")\n    body[\"digest\"] = stable_algorithm_hash(body)\n    args.output.parent.mkdir(parents=True, exist_ok=True)\n    args.output.write_text(json.dumps(body, indent=2, allow_nan=False) + \"\\n\")\n    print(\n        \"V8_TARGET_COVERAGE_EVIDENCE_JSON \"\n        + json.dumps(body, sort_keys=True, separators=(\",\", \":\"))\n    )\n    return 0\n\n\nif __name__ == \"__main__\":\n    raise SystemExit(main())\n"}
+2026-11-22T08:54:47.3494631Z F401 [*] `sys` imported but unused
+2026-11-22T08:54:47.3495160Z  --> scripts/qualify_semantic_v8_target_coverage.py:8:8
+2026-11-22T08:54:47.3495745Z   |
+2026-11-22T08:54:47.3496277Z 6 | import argparse
+2026-11-22T08:54:47.3496572Z 7 | import json
+2026-11-22T08:54:47.3496916Z 8 | import sys
+2026-11-22T08:54:47.3497193Z   |        ^^^
+2026-11-22T08:54:47.3497460Z 9 | from pathlib import Path
+2026-11-22T08:54:47.3497758Z   |
+2026-11-22T08:54:47.3498071Z help: Remove unused import: `sys`
+2026-11-22T08:54:47.3498390Z   |
+2026-11-22T08:54:47.3498644Z 7 | import json
+2026-11-22T08:54:47.3498907Z   - import sys
+2026-11-22T08:54:47.3499399Z 8 | from pathlib import Path
+2026-11-22T08:54:47.3499682Z   |
+2026-11-22T08:54:47.3499796Z 
+2026-11-22T08:54:47.3500001Z F541 [*] f-string without any placeholders
+2026-11-22T08:54:47.3500411Z   --> tests/test_semantic_v8_target_inventory.py:40:23
+2026-11-22T08:54:47.3500722Z    |
+2026-11-22T08:54:47.3501271Z 38 |         "schema": "semantic-v8-positive-loss-target-inventory/1",
+2026-11-22T08:54:47.3501755Z 39 |         "registryDigest": REGISTRY,
+2026-11-22T08:54:47.3502428Z 40 |         "sourceIds": [f"source-a" if index == 0 else f"train-{index:02d}" for index in range(48)],
+2026-11-22T08:54:47.3502814Z    |                       ^^^^^^^^^^^
+2026-11-22T08:54:47.3503171Z 41 |         "scoredSourceIds": ["source-a"],
+2026-11-22T08:54:47.3503514Z 42 |         "trainEpisodeCount": 48,
+2026-11-22T08:54:47.3503766Z    |
+2026-11-22T08:54:47.3504027Z help: Remove extraneous `f` prefix
+2026-11-22T08:54:47.3504267Z    |
+2026-11-22T08:54:47.3504523Z 39 |         "registryDigest": REGISTRY,
+2026-11-22T08:54:47.3504950Z    -         "sourceIds": [f"source-a" if index == 0 else f"train-{index:02d}" for index in range(48)],
+2026-11-22T08:54:47.3505726Z 40 +         "sourceIds": ["source-a" if index == 0 else f"train-{index:02d}" for index in range(48)],
+2026-11-22T08:54:47.3506222Z 41 |         "scoredSourceIds": ["source-a"],
+2026-11-22T08:54:47.3506465Z    |
+2026-11-22T08:54:47.3506604Z 
+2026-11-22T08:54:47.3506686Z Found 2 errors.
+2026-11-22T08:54:47.3506967Z [*] 2 fixable with `--fix`.
+2026-11-22T08:54:47.3515743Z ##[error]Process completed with exit code 1.
+2026-11-22T08:54:47.3556422Z ##[group]Run set -o pipefail
+2026-11-22T08:54:47.3556758Z [36;1mset -o pipefail[0m
+2026-11-22T08:54:47.3557805Z [36;1mpython -m pytest -q tests/test_semantic_request_journal_v8.py tests/test_semantic_v8_target_inventory.py tests/test_semantic_v8_target_exposure.py tests/test_qualify_semantic_v8_lifecycle.py tests/test_qualify_semantic_v8_lifecycle_support.py tests/test_semantic_v8_training_lifecycle.py --junitxml="$RUNNER_TEMP/native-foundations.xml" 2>&1 | tee "$RUNNER_TEMP/native-foundations.log"[0m
+2026-11-22T08:54:47.3558905Z [36;1mpython - <<'PY'[0m
+2026-11-22T08:54:47.3559161Z [36;1mimport os,xml.etree.ElementTree as ET[0m
+2026-11-22T08:54:47.3559466Z [36;1mfrom pathlib import Path[0m
+2026-11-22T08:54:47.3559877Z [36;1mcases=list(ET.parse(Path(os.environ['RUNNER_TEMP'])/'native-foundations.xml').getroot().iter('testcase'))[0m
+2026-11-22T08:54:47.3560546Z [36;1mif not cases or any(case.find(kind) is not None for case in cases for kind in ('failure','error','skipped')):[0m
+2026-11-22T08:54:47.3561111Z [36;1m    raise ValueError('Every durable-request and optimizer-inventory control must execute and pass')[0m
+2026-11-22T08:54:47.3561666Z [36;1mprint(f'{len(cases)} native durable-request and optimizer-inventory controls passed with zero skips')[0m
+2026-11-22T08:54:47.3562083Z [36;1mPY[0m
+2026-11-22T08:54:47.3588882Z shell: /usr/bin/bash --noprofile --norc -e -o pipefail {0}
+2026-11-22T08:54:47.3589190Z env:
+2026-11-22T08:54:47.3589447Z   OMP_NUM_THREADS: 1
+2026-11-22T08:54:47.3589669Z   MKL_NUM_THREADS: 1
+2026-11-22T08:54:47.3589944Z   PYTHONPATH: /home/runner/work/megatoken/megatoken/megatoken/src
+2026-11-22T08:54:47.3590435Z   TRACING_JS_SELF_ROOT: /home/runner/work/megatoken/megatoken/tracing-js-self
+2026-11-22T08:54:47.3590894Z   MEGATOKEN_NATIVE_SOURCE_PRODUCER: /home/runner/work/megatoken/megatoken/tracing-js-self
+2026-11-22T08:54:47.3591405Z   MEGATOKEN_TOKENIZER_JSON: /home/runner/work/megatoken/megatoken/semantic-v8-tokenizer.json
+2026-11-22T08:54:47.3591840Z   MEGATOKEN_ROOT: /home/runner/work/megatoken/megatoken/megatoken
+2026-11-22T08:54:47.3592146Z   MEGATOKEN_PYTHON: python
+2026-11-22T08:54:47.3592738Z   SEMANTIC_V8_NATIVE_POLICY: /home/runner/work/megatoken/megatoken/semantic-v8-policy.json
+2026-11-22T08:54:47.3593158Z   pythonLocation: /opt/hostedtoolcache/Python/3.12.14/x64
+2026-11-22T08:54:47.3593503Z   PKG_CONFIG_PATH: /opt/hostedtoolcache/Python/3.12.14/x64/lib/pkgconfig
+2026-11-22T08:54:47.3593906Z   Python_ROOT_DIR: /opt/hostedtoolcache/Python/3.12.14/x64
+2026-11-22T08:54:47.3594232Z   Python2_ROOT_DIR: /opt/hostedtoolcache/Python/3.12.14/x64
+2026-11-22T08:54:47.3594560Z   Python3_ROOT_DIR: /opt/hostedtoolcache/Python/3.12.14/x64
+2026-11-22T08:54:47.3594905Z   LD_LIBRARY_PATH: /opt/hostedtoolcache/Python/3.12.14/x64/lib
+2026-11-22T08:54:47.3595178Z ##[endgroup]
+2026-11-22T08:55:17.3002094Z ......................................................                   [100%]
+2026-11-22T08:55:17.3002983Z ------ generated xml file: /home/runner/work/_temp/native-foundations.xml ------
+2026-11-22T08:55:17.3003485Z 54 passed in 28.63s
+2026-11-22T08:55:17.6584703Z 54 native durable-request and optimizer-inventory controls passed with zero skips
+2026-11-22T08:55:17.6660333Z ##[group]Run actions/upload-artifact@v4
+2026-11-22T08:55:17.6660594Z with:
+2026-11-22T08:55:17.6660824Z   name: native-recovery-inventory-controls
+2026-11-22T08:55:17.6661084Z   retention-days: 30
+2026-11-22T08:55:17.6661293Z   if-no-files-found: warn
+2026-11-22T08:55:17.6661853Z   path: /home/runner/work/_temp/native-foundations.xml
+/home/runner/work/_temp/native-foundations.log
+/home/runner/work/_temp/semantic-v8-identities.json
+
+2026-11-22T08:55:17.6662381Z   compression-level: 6
+2026-11-22T08:55:17.6662601Z   overwrite: false
+2026-11-22T08:55:17.6662809Z   include-hidden-files: false
+2026-11-22T08:55:17.6663024Z env:
+2026-11-22T08:55:17.6663252Z   OMP_NUM_THREADS: 1
+2026-11-22T08:55:17.6663448Z   MKL_NUM_THREADS: 1
+2026-11-22T08:55:17.6663718Z   PYTHONPATH: /home/runner/work/megatoken/megatoken/megatoken/src
+2026-11-22T08:55:17.6664129Z   TRACING_JS_SELF_ROOT: /home/runner/work/megatoken/megatoken/tracing-js-self
+2026-11-22T08:55:17.6664659Z   MEGATOKEN_NATIVE_SOURCE_PRODUCER: /home/runner/work/megatoken/megatoken/tracing-js-self
+2026-11-22T08:55:17.6665136Z   MEGATOKEN_TOKENIZER_JSON: /home/runner/work/megatoken/megatoken/semantic-v8-tokenizer.json
+2026-11-22T08:55:17.6665725Z   MEGATOKEN_ROOT: /home/runner/work/megatoken/megatoken/megatoken
+2026-11-22T08:55:17.6666056Z   MEGATOKEN_PYTHON: python
+2026-11-22T08:55:17.6666399Z   SEMANTIC_V8_NATIVE_POLICY: /home/runner/work/megatoken/megatoken/semantic-v8-policy.json
+2026-11-22T08:55:17.6666831Z   pythonLocation: /opt/hostedtoolcache/Python/3.12.14/x64
+2026-11-22T08:55:17.6667238Z   PKG_CONFIG_PATH: /opt/hostedtoolcache/Python/3.12.14/x64/lib/pkgconfig
+2026-11-22T08:55:17.6667607Z   Python_ROOT_DIR: /opt/hostedtoolcache/Python/3.12.14/x64
+2026-11-22T08:55:17.6667950Z   Python2_ROOT_DIR: /opt/hostedtoolcache/Python/3.12.14/x64
+2026-11-22T08:55:17.6668268Z   Python3_ROOT_DIR: /opt/hostedtoolcache/Python/3.12.14/x64
+2026-11-22T08:55:17.6668616Z   LD_LIBRARY_PATH: /opt/hostedtoolcache/Python/3.12.14/x64/lib
+2026-11-22T08:55:17.6668909Z ##[endgroup]
+2026-11-22T08:55:17.7858409Z (node:2726) [DEP0040] DeprecationWarning: The `punycode` module is deprecated. Please use a userland alternative instead.
+2026-11-22T08:55:17.7859284Z (Use `node --trace-deprecation ...` to show where the warning was created)
+2026-11-22T08:55:17.7907338Z Multiple search paths detected. Calculating the least common ancestor of all paths
+2026-11-22T08:55:17.7928476Z The least common ancestor is /home/runner/work/_temp. This will be the root directory of the artifact
+2026-11-22T08:55:17.7929565Z With the provided path, there will be 3 files uploaded
+2026-11-22T08:55:17.7930244Z Artifact name is valid!
+2026-11-22T08:55:17.7930651Z Root directory input is valid!
+2026-11-22T08:55:18.3971517Z Beginning upload of artifact content to blob storage
+2026-11-22T08:55:18.4130465Z (node:2726) [DEP0169] DeprecationWarning: `url.parse()` behavior is not standardized and prone to errors that have security implications. Use the WHATWG URL API instead. CVEs are not issued for `url.parse()` vulnerabilities.
+2026-11-22T08:55:18.7476322Z Uploaded bytes 2665
+2026-11-22T08:55:18.8373299Z Finished uploading artifact content to blob storage!
+2026-11-22T08:55:18.8373995Z SHA256 digest of uploaded artifact zip is e855521196fe365930c8bc95d449588ce53f2a133681e69f0cdca3436fa4f850
+2026-11-22T08:55:18.8374742Z Finalizing artifact upload
+2026-11-22T08:55:19.2306447Z Artifact native-recovery-inventory-controls.zip successfully finalized. Artifact ID 14747332323
+2026-11-22T08:55:19.2307558Z Artifact native-recovery-inventory-controls has been successfully uploaded! Final size is 2665 bytes. Artifact ID is 14747332323
+2026-11-22T08:55:19.2327158Z Artifact download URL: https://github.com/werg/megatoken/actions/runs/45004851065/artifacts/14747332323
+2026-11-22T08:55:19.2577288Z Post job cleanup.
+2026-11-22T08:55:19.3219066Z [command]/usr/bin/git version
+2026-11-22T08:55:19.3249183Z git version 2.56.1
+2026-11-22T08:55:19.3271478Z Temporarily overriding HOME='/home/runner/work/_temp/9a197b44-ada7-4f54-9a83-3d9bfc9731bd' before making global git config changes
+2026-11-22T08:55:19.3272511Z Adding repository directory to the temporary git global config as a safe directory
+2026-11-22T08:55:19.3274701Z [command]/usr/bin/git config --global --add safe.directory /home/runner/work/megatoken/megatoken/tracing-js-self
+2026-11-22T08:55:19.3298552Z Removing SSH command configuration
+2026-11-22T08:55:19.3302935Z [command]/usr/bin/git config --local --name-only --get-regexp core\.sshCommand
+2026-11-22T08:55:19.3329396Z [command]/usr/bin/git submodule foreach --recursive sh -c "git config --local --name-only --get-regexp 'core\.sshCommand' && git config --local --unset-all 'core.sshCommand' || :"
+2026-11-22T08:55:19.3500974Z Removing HTTP extra header
+2026-11-22T08:55:19.3504163Z [command]/usr/bin/git config --local --name-only --get-regexp http\.https\:\/\/github\.com\/\.extraheader
+2026-11-22T08:55:19.3527781Z [command]/usr/bin/git submodule foreach --recursive sh -c "git config --local --name-only --get-regexp 'http\.https\:\/\/github\.com\/\.extraheader' && git config --local --unset-all 'http.https://github.com/.extraheader' || :"
+2026-11-22T08:55:19.3675842Z Removing includeIf entries pointing to credentials config files
+2026-11-22T08:55:19.3680082Z [command]/usr/bin/git config --local --name-only --get-regexp ^includeIf\.gitdir:
+2026-11-22T08:55:19.3701204Z [command]/usr/bin/git submodule foreach --recursive git config --local --show-origin --name-only --get-regexp remote.origin.url
+2026-11-22T08:55:19.3967208Z Post job cleanup.
+2026-11-22T08:55:19.4581373Z [command]/usr/bin/git version
+2026-11-22T08:55:19.4624193Z git version 2.56.1
+2026-11-22T08:55:19.4697710Z Temporarily overriding HOME='/home/runner/work/_temp/1dda8fa9-432f-4038-8e6a-f891ec6d4eb5' before making global git config changes
+2026-11-22T08:55:19.4698804Z Adding repository directory to the temporary git global config as a safe directory
+2026-11-22T08:55:19.4699761Z [command]/usr/bin/git config --global --add safe.directory /home/runner/work/megatoken/megatoken/megatoken
+2026-11-22T08:55:19.4700978Z Removing SSH command configuration
+2026-11-22T08:55:19.4701581Z [command]/usr/bin/git config --local --name-only --get-regexp core\.sshCommand
+2026-11-22T08:55:19.4733285Z [command]/usr/bin/git submodule foreach --recursive sh -c "git config --local --name-only --get-regexp 'core\.sshCommand' && git config --local --unset-all 'core.sshCommand' || :"
+2026-11-22T08:55:19.4914616Z Removing HTTP extra header
+2026-11-22T08:55:19.4918435Z [command]/usr/bin/git config --local --name-only --get-regexp http\.https\:\/\/github\.com\/\.extraheader
+2026-11-22T08:55:19.4941567Z [command]/usr/bin/git submodule foreach --recursive sh -c "git config --local --name-only --get-regexp 'http\.https\:\/\/github\.com\/\.extraheader' && git config --local --unset-all 'http.https://github.com/.extraheader' || :"
+2026-11-22T08:55:19.5096019Z Removing includeIf entries pointing to credentials config files
+2026-11-22T08:55:19.5101472Z [command]/usr/bin/git config --local --name-only --get-regexp ^includeIf\.gitdir:
+2026-11-22T08:55:19.5127539Z [command]/usr/bin/git submodule foreach --recursive git config --local --show-origin --name-only --get-regexp remote.origin.url
+2026-11-22T08:55:19.5418140Z Cleaning up orphan processes
+2026-11-22T08:55:19.5650841Z ##[warning]Node.js 20 is deprecated. The following actions target Node.js 20 but are being forced to run on Node.js 24: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020, actions/upload-artifact@v4. For more information see: https://github.blog/changelog/2025-09-19-deprecation-of-node-20-on-github-actions-runners/
