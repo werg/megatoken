@@ -37,6 +37,27 @@ def read_json(path: Path):
     return json.loads(path.read_text())
 
 
+def _available_target_records(batches, source_id):
+    """Count every observed policy target; count only existing objective plans."""
+    records = set()
+    denominators = {}
+    for batch in batches:
+        for step in batch.steps:
+            for encoded in step.records:
+                record = encoded.record
+                if record.policy_mask:
+                    records.add((source_id, record.logical_id, record.record_id))
+            if not step.plans:
+                continue
+            for encoded, plan in zip(step.records, step.plans, strict=True):
+                if not encoded.record.policy_mask:
+                    continue
+                for name, count in plan.denominators.items():
+                    if count:
+                        denominators[name] = denominators.get(name, 0) + count
+    return records, denominators
+
+
 def _prepared_v8_source_identity(episode, registry, registry_digest):
     """Recover source ID from the validated V8 dataset annotation.
 
@@ -249,18 +270,10 @@ def target_inventory(config_source, expected_source_ids_source=None):
                     one_pass_meter_count += sum(
                         getattr(batch_counters([batch]), config.schedule.meter) for batch in batches
                     )
-                for batch in batches:
-                    for step in batch.steps:
-                        for encoded, plan in zip(step.records, step.plans, strict=True):
-                            record = encoded.record
-                            if not record.policy_mask:
-                                continue
-                            available_records.add((source_id, record.logical_id, record.record_id))
-                            for name, count in plan.denominators.items():
-                                if count:
-                                    available_denominators[name] = (
-                                        available_denominators.get(name, 0) + count
-                                    )
+                window_records, window_denominators = _available_target_records(batches, source_id)
+                available_records.update(window_records)
+                for name, count in window_denominators.items():
+                    available_denominators[name] = available_denominators.get(name, 0) + count
                 exposures.append(
                     semantic_v8_target_exposure_from_batches(
                         batches,

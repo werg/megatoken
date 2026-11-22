@@ -11,7 +11,10 @@ from megatoken.training.target_inventory_v8 import (
     compare_target_inventory,
     validate_target_inventory,
 )
-from scripts.qualify_semantic_v8_target_inventory import _prepared_v8_source_identity
+from scripts.qualify_semantic_v8_target_inventory import (
+    _available_target_records,
+    _prepared_v8_source_identity,
+)
 
 REGISTRY = "a" * 64
 MANIFEST = "b" * 64
@@ -83,6 +86,40 @@ def test_prepared_source_identity_rejects_changed_binding_or_split(binding_sourc
     episode, registry = _prepared_episode(binding_source_id=binding_source_id, split=split)
     with pytest.raises(ValueError, match="identity differ"):
         _prepared_v8_source_identity(episode, registry, REGISTRY)
+
+
+def test_available_target_inventory_counts_unplanned_records_without_loss_denominators():
+    empty_record = SimpleNamespace(
+        policy_mask=True, logical_id="unplanned", record_id="record-empty"
+    )
+    planned_record = SimpleNamespace(
+        policy_mask=True, logical_id="target-one", record_id="record-one"
+    )
+    empty = SimpleNamespace(records=[SimpleNamespace(record=empty_record)], plans=[])
+    planned = SimpleNamespace(
+        records=[SimpleNamespace(record=planned_record)],
+        plans=[SimpleNamespace(denominators={"language_model": 3})],
+    )
+    records, denominators = _available_target_records(
+        [SimpleNamespace(steps=[empty, planned])], "source-a"
+    )
+    assert records == {
+        ("source-a", "unplanned", "record-empty"),
+        ("source-a", "target-one", "record-one"),
+    }
+    assert denominators == {"language_model": 3}
+
+
+def test_available_target_inventory_refuses_nonempty_misaligned_plans():
+    encoded = SimpleNamespace(
+        record=SimpleNamespace(policy_mask=True, logical_id="target", record_id="record")
+    )
+    step = SimpleNamespace(
+        records=[encoded, encoded],
+        plans=[SimpleNamespace(denominators={"language_model": 1})],
+    )
+    with pytest.raises(ValueError, match="zip"):
+        _available_target_records([SimpleNamespace(steps=[step])], "source-a")
 
 
 def _inventory():
