@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import math
 import re
 from dataclasses import replace
 from pathlib import Path
@@ -14,6 +15,421 @@ from megatoken.data.semantic_contract_v8 import (
 )
 from megatoken.data.semantic_json import stable_algorithm_hash
 from megatoken.generation.codec import LING_TOKENIZER_SHA256
+
+
+
+V8_TARGET_EXPOSURE_SCHEMA = "semantic-v8-optimizer-target-exposure/1"
+
+
+def empty_semantic_v8_target_exposure(registry_digest, *, starting_global_step=0):
+    if not isinstance(registry_digest, str) or re.fullmatch(r"[0-9a-f]{64}", registry_digest) is None:
+        raise ValueError("V8 target exposure requires the pinned family registry digest")
+    if type(starting_global_step) is not int or starting_global_step < 0:
+        raise ValueError("V8 target exposure starting step must be a nonnegative integer")
+    return _seal_semantic_v8_target_exposure(
+        {
+            "schema": V8_TARGET_EXPOSURE_SCHEMA,
+            "registryDigest": registry_digest,
+            "startingGlobalStep": starting_global_step,
+            "lastGlobalStep": starting_global_step,
+            "optimizerUpdates": 0,
+            "sources": {},
+        }
+    )
+
+
+def _seal_semantic_v8_target_exposure(state):
+    value = {key: child for key, child in state.items() if key != "digest"}
+    return {**value, "digest": stable_algorithm_hash(value)}
+
+
+def restore_semantic_v8_target_exposure(
+    payload, *, registry_digest, global_step, phase_transition=False
+):
+    """Restore exact census history or begin only at an explicit non-V8 stage boundary."""
+    if type(global_step) is not int or global_step < 0:
+        raise ValueError("V8 target-exposure restore step must be a nonnegative integer")
+    if payload is None:
+        return empty_semantic_v8_target_exposure(
+            registry_digest, starting_global_step=global_step
+        )
+    previous = payload.get("train_config", {}).get("semantic_v8_policy")
+    saved = payload.get("semantic_v8_target_exposure")
+    if previous is not None and saved is None:
+        raise ValueError("V8 resume checkpoint is missing its target-exposure history")
+    if previous is None:
+        if not phase_transition:
+            raise ValueError("Starting a V8 target-exposure census requires a fresh stage")
+        if saved is not None:
+            raise ValueError("A non-V8 checkpoint cannot carry V8 target-exposure state")
+        return empty_semantic_v8_target_exposure(
+            registry_digest, starting_global_step=global_step
+        )
+    state = validate_semantic_v8_target_exposure(saved, registry_digest=registry_digest)
+    if state["lastGlobalStep"] != global_step:
+        raise ValueError("V8 target-exposure resume state differs from checkpoint step")
+    return state
+
+
+def validate_semantic_v8_target_exposure(state, *, registry_digest):
+    required = {
+        "schema",
+        "registryDigest",
+        "startingGlobalStep",
+        "lastGlobalStep",
+        "optimizerUpdates",
+        "sources",
+        "digest",
+    }
+    if (
+        not isinstance(state, dict)
+        or set(state) != required
+        or state.get("schema") != V8_TARGET_EXPOSURE_SCHEMA
+        or state.get("registryDigest") != registry_digest
+        or type(state.get("startingGlobalStep")) is not int
+        or type(state.get("lastGlobalStep")) is not int
+        or type(state.get("optimizerUpdates")) is not int
+        or state["startingGlobalStep"] < 0
+        or state["lastGlobalStep"] < state["startingGlobalStep"]
+        or state["optimizerUpdates"] != state["lastGlobalStep"] - state["startingGlobalStep"]
+        or not isinstance(state.get("sources"), dict)
+        or state.get("digest")
+        != stable_algorithm_hash({key: child for key, child in state.items() if key != "digest"})
+    ):
+        raise ValueError("V8 optimizer target-exposure state is malformed or changed registry")
+    for source_id, source in state["sources"].items():
+        if (
+            not isinstance(source_id, str)
+            or not source_id
+            or not isinstance(source, dict)
+            or set(source) != {"split", "logicalTargets"}
+            or source["split"] != "train"
+            or not isinstance(source["logicalTargets"], dict)
+        ):
+            raise ValueError("V8 target-exposure source identity is malformed")
+        for logical_id, target in source["logicalTargets"].items():
+            if (
+                not isinstance(logical_id, str)
+                or not logical_id
+                or not isinstance(target, dict)
+                or set(target) != {"records"}
+                or not isinstance(target["records"], dict)
+            ):
+                raise ValueError("V8 target-exposure logical target is malformed")
+            for record_id, record in target["records"].items():
+                if (
+                    not isinstance(record_id, str)
+                    or not record_id
+                    or not isinstance(record, dict)
+                    or set(record)
+                    != {
+                        "windowIndices",
+                        "lossDenominators",
+                        "scoredOccurrences",
+                        "optimizerUpdates",
+                        "firstGlobalStep",
+                        "lastGlobalStep",
+                    }
+                    or not isinstance(record["windowIndices"], list)
+                    or any(type(index) is not int or index < 0 for index in record["windowIndices"])
+                    or len(record["windowIndices"]) != len(set(record["windowIndices"]))
+                    or not isinstance(record["lossDenominators"], dict)
+                    or any(
+                        not isinstance(name, str)
+                        or type(count) is not int
+                        or count < 0
+                        for name, count in record["lossDenominators"].items()
+                    )
+                    or not any(record["lossDenominators"].values())
+                    or type(record["scoredOccurrences"]) is not int
+                    or record["scoredOccurrences"] < 1
+                    or type(record["optimizerUpdates"]) is not int
+                    or record["optimizerUpdates"] < 1
+                    or record["optimizerUpdates"] > record["scoredOccurrences"]
+                    or type(record["firstGlobalStep"]) is not int
+                    or type(record["lastGlobalStep"]) is not int
+                    or not state["startingGlobalStep"]
+                    < record["firstGlobalStep"]
+                    <= record["lastGlobalStep"]
+                    <= state["lastGlobalStep"]
+                    or record["optimizerUpdates"] > state["optimizerUpdates"]
+                ):
+                    raise ValueError("V8 target-exposure physical record is malformed")
+    return state
+
+
+def _validate_semantic_v8_target_occurrence(occurrence, registry_digest):
+    fields = {
+        "sourceId",
+        "registryDigest",
+        "split",
+        "logicalTargetId",
+        "physicalRecordId",
+        "windowIndex",
+        "lossDenominators",
+    }
+    if (
+        not isinstance(occurrence, dict)
+        or set(occurrence) != fields
+        or occurrence.get("registryDigest") != registry_digest
+        or occurrence.get("split") != "train"
+        or any(
+            not isinstance(occurrence.get(key), str) or not occurrence[key]
+            for key in ("sourceId", "logicalTargetId", "physicalRecordId")
+        )
+        or type(occurrence.get("windowIndex")) is not int
+        or occurrence["windowIndex"] < 0
+        or not isinstance(occurrence.get("lossDenominators"), dict)
+        or any(
+            not isinstance(name, str) or type(count) is not int or count < 0
+            for name, count in occurrence["lossDenominators"].items()
+        )
+        or not any(occurrence["lossDenominators"].values())
+    ):
+        raise ValueError("V8 target-exposure occurrence is malformed or not loss-bearing")
+    return occurrence
+
+
+def semantic_v8_target_exposure_from_batches(
+    batches, *, registry_digest, effective_loss_weights
+):
+    """Collect exact loss-bearing source targets from ordinary prepared Meridian batches."""
+    occurrences = []
+    if not isinstance(effective_loss_weights, dict) or any(
+        not isinstance(name, str)
+        or isinstance(weight, bool)
+        or not isinstance(weight, (int, float))
+        or not math.isfinite(weight)
+        or weight < 0
+        for name, weight in effective_loss_weights.items()
+    ):
+        raise ValueError("V8 optimizer target exposure has invalid effective loss weights")
+    for batch in batches:
+        if len(batch.windows) != 1:
+            raise ValueError("V8 target exposure requires one episode per prepared meridian batch")
+        item = batch.windows[0]
+        episode = item.episode
+        annotations = json.loads(episode.supervision.annotations_json)
+        semantic = annotations.get("semantic_execution", {})
+        binding = semantic.get("datasetBinding")
+        source_id = semantic.get("sourceId")
+        split = episode.lineage.frozen_split
+        if (
+            episode.stream != "semantic_execution"
+            or semantic.get("schema") != "semantic-execution/8"
+            or not isinstance(binding, dict)
+            or binding.get("registryDigest") != registry_digest
+            or binding.get("sourceId") != source_id
+            or binding.get("split") != split
+            or split != "train"
+            or not isinstance(source_id, str)
+            or not source_id
+        ):
+            raise ValueError("V8 optimizer target has a changed source, registry or split binding")
+        for step in batch.steps:
+            if not step.plans:
+                continue
+            for encoded, plan in zip(step.records, step.plans, strict=True):
+                record = encoded.record
+                if not record.policy_mask:
+                    raise ValueError("V8 optimizer plan exposes a record outside the target mask")
+                denominators = plan.denominators
+                if (
+                    not isinstance(denominators, dict)
+                    or any(type(value) is not int or value < 0 for value in denominators.values())
+                ):
+                    raise ValueError("V8 optimizer plan has invalid loss denominators")
+                positive = {
+                    name: count
+                    for name, count in denominators.items()
+                    if count
+                    and name != "router_balance"
+                    and effective_loss_weights.get(name, 0) > 0
+                }
+                if not positive:
+                    continue
+                occurrence = {
+                    "sourceId": source_id,
+                    "registryDigest": registry_digest,
+                    "split": split,
+                    "logicalTargetId": record.logical_id,
+                    "physicalRecordId": record.record_id,
+                    "windowIndex": item.window.index,
+                    "lossDenominators": positive,
+                }
+                occurrences.append(
+                    _validate_semantic_v8_target_occurrence(occurrence, registry_digest)
+                )
+    return {
+        "schema": V8_TARGET_EXPOSURE_SCHEMA,
+        "registryDigest": registry_digest,
+        "occurrences": occurrences,
+    }
+
+
+def merge_semantic_v8_target_exposures(exposures, *, registry_digest):
+    """Aggregate every scored occurrence while separately deduplicating target coverage."""
+    merged = {"schema": V8_TARGET_EXPOSURE_SCHEMA, "registryDigest": registry_digest, "sources": {}}
+    for exposure in exposures:
+        if (
+            not isinstance(exposure, dict)
+            or exposure.get("schema") != V8_TARGET_EXPOSURE_SCHEMA
+            or exposure.get("registryDigest") != registry_digest
+            or not isinstance(exposure.get("occurrences"), list)
+        ):
+            raise ValueError("Distributed V8 target exposure changed its registry")
+        for occurrence in exposure["occurrences"]:
+            row = _validate_semantic_v8_target_occurrence(occurrence, registry_digest)
+            source = merged["sources"].setdefault(
+                row["sourceId"], {"split": row["split"], "logicalTargets": {}}
+            )
+            if source["split"] != row["split"]:
+                raise ValueError("Distributed V8 target source changed split")
+            logical = source["logicalTargets"].setdefault(
+                row["logicalTargetId"], {"records": {}}
+            )
+            record = logical["records"].setdefault(
+                row["physicalRecordId"],
+                {
+                    "windowIndices": [],
+                    "lossDenominators": {},
+                    "scoredOccurrences": 0,
+                },
+            )
+            record["windowIndices"] = sorted(
+                set(record["windowIndices"]) | {row["windowIndex"]}
+            )
+            record["scoredOccurrences"] += 1
+            for name, count in row["lossDenominators"].items():
+                record["lossDenominators"][name] = (
+                    record["lossDenominators"].get(name, 0) + count
+                )
+    return merged
+
+
+def advance_semantic_v8_target_exposure(state, step_exposure, *, optimizer_step, registry_digest):
+    validate_semantic_v8_target_exposure(state, registry_digest=registry_digest)
+    if (
+        type(optimizer_step) is not int
+        or optimizer_step != state["lastGlobalStep"] + 1
+        or step_exposure.get("schema") != V8_TARGET_EXPOSURE_SCHEMA
+        or step_exposure.get("registryDigest") != registry_digest
+    ):
+        raise ValueError("V8 target exposure can advance only after the next optimizer update")
+    updated = json.loads(json.dumps(state))
+    updated["lastGlobalStep"] = optimizer_step
+    updated["optimizerUpdates"] += 1
+    for source_id, source in step_exposure["sources"].items():
+        if source.get("split") != "train":
+            raise ValueError("V8 target exposure can only advance with training sources")
+        dest_source = updated["sources"].setdefault(
+            source_id, {"split": "train", "logicalTargets": {}}
+        )
+        if dest_source["split"] != source["split"]:
+            raise ValueError("V8 target exposure source changed split")
+        for logical_id, target in source["logicalTargets"].items():
+            dest_target = dest_source["logicalTargets"].setdefault(
+                logical_id, {"records": {}}
+            )
+            for record_id, current in target["records"].items():
+                old = dest_target["records"].get(record_id)
+                if old is None:
+                    dest_target["records"][record_id] = {
+                        "windowIndices": list(current["windowIndices"]),
+                        "lossDenominators": dict(current["lossDenominators"]),
+                        "scoredOccurrences": current["scoredOccurrences"],
+                        "optimizerUpdates": 1,
+                        "firstGlobalStep": optimizer_step,
+                        "lastGlobalStep": optimizer_step,
+                    }
+                    continue
+                old["windowIndices"] = sorted(
+                    set(old["windowIndices"]) | set(current["windowIndices"])
+                )
+                old["lossDenominators"] = {
+                    name: old["lossDenominators"].get(name, 0)
+                    + current["lossDenominators"].get(name, 0)
+                    for name in set(old["lossDenominators"]) | set(current["lossDenominators"])
+                }
+                old["scoredOccurrences"] += current["scoredOccurrences"]
+                old["optimizerUpdates"] += 1
+                old["lastGlobalStep"] = optimizer_step
+    result = _seal_semantic_v8_target_exposure(updated)
+    return validate_semantic_v8_target_exposure(result, registry_digest=registry_digest)
+
+
+def semantic_v8_target_exposure_report(state):
+    source_rows = {}
+    loss_denominators = {}
+    scored_occurrences = 0
+    for source_id, source in sorted(state["sources"].items()):
+        targets = source["logicalTargets"]
+        source_rows[source_id] = {
+            "split": source["split"],
+            "logicalTargetIds": sorted(targets),
+            "physicalTargetRecords": {
+                logical_id: {
+                    record_id: dict(record)
+                    for record_id, record in sorted(target["records"].items())
+                }
+                for logical_id, target in sorted(targets.items())
+            },
+        }
+        for target in targets.values():
+            for record in target["records"].values():
+                scored_occurrences += record["scoredOccurrences"]
+                for name, value in record["lossDenominators"].items():
+                    loss_denominators[name] = loss_denominators.get(name, 0) + value
+    logical_count = sum(len(source["logicalTargets"]) for source in state["sources"].values())
+    physical_count = sum(
+        len(target["records"])
+        for source in state["sources"].values()
+        for target in source["logicalTargets"].values()
+    )
+    return {
+        "schema": V8_TARGET_EXPOSURE_SCHEMA,
+        "registryDigest": state["registryDigest"],
+        "startingGlobalStep": state["startingGlobalStep"],
+        "lastGlobalStep": state["lastGlobalStep"],
+        "optimizerUpdates": state["optimizerUpdates"],
+        "sourceCount": len(state["sources"]),
+        "logicalTargetCount": logical_count,
+        "physicalTargetRecordCount": physical_count,
+        "scoredOccurrences": scored_occurrences,
+        "lossDenominators": loss_denominators,
+        "sources": source_rows,
+        "digest": state["digest"],
+    }
+
+
+def semantic_v8_target_step_summary(step_exposure):
+    logical_ids = {
+        (source_id, logical_id)
+        for source_id, source in step_exposure["sources"].items()
+        for logical_id in source["logicalTargets"]
+    }
+    physical_ids = {
+        (source_id, logical_id, record_id)
+        for source_id, source in step_exposure["sources"].items()
+        for logical_id, target in source["logicalTargets"].items()
+        for record_id in target["records"]
+    }
+    denominators = {}
+    occurrences = 0
+    for source in step_exposure["sources"].values():
+        for target in source["logicalTargets"].values():
+            for record in target["records"].values():
+                occurrences += record["scoredOccurrences"]
+                for name, count in record["lossDenominators"].items():
+                    denominators[name] = denominators.get(name, 0) + count
+    return {
+        "sourceCount": len(step_exposure["sources"]),
+        "logicalTargetCount": len(logical_ids),
+        "physicalTargetRecordCount": len(physical_ids),
+        "scoredOccurrences": occurrences,
+        "lossDenominators": denominators,
+    }
+
 
 
 def validate_semantic_training_policy_v8(policy):

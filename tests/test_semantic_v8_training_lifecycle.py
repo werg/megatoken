@@ -73,6 +73,13 @@ def test_v8_normal_update_checkpoint_fresh_process_resume(tmp_path, monkeypatch)
         weights_only=True,
     )
     assert payload["global_step"] == 1
+    exposure = payload["semantic_v8_target_exposure"]
+    assert exposure["optimizerUpdates"] == 1
+    assert exposure["registryDigest"] == registry["digest"]
+    assert set(exposure["sources"]) == {"source-1"}
+    assert exposure["sources"]["source-1"]["split"] == "train"
+    assert exposure["sources"]["source-1"]["logicalTargets"]
+    assert first["semantic_v8_target_exposure"]["physicalTargetRecordCount"] > 0
     assert max(int(state["step"]) for state in payload["optimizer"]["moments"].values()) == 1
 
     config_path = tmp_path / "resume-config.json"
@@ -104,7 +111,8 @@ semantic_v8.load_semantic_v8_codec=lambda _path, *, vocab_size: ByteCodec.byte_f
 config=TrainConfig.from_dict(json.loads(open(sys.argv[1]).read()))
 result=train(config,resume=sys.argv[2])
 assert not blocked.intersection(sys.modules)
-print(json.dumps({'global_step':result['global_step'],'termination':result['termination']}))
+print(json.dumps({'global_step':result['global_step'],'termination':result['termination'],
+ 'semantic_v8_target_exposure':result['semantic_v8_target_exposure']}))
 """
     environment = dict(os.environ, OMP_NUM_THREADS="1", MKL_NUM_THREADS="1")
     completed = subprocess.run(
@@ -119,6 +127,9 @@ print(json.dumps({'global_step':result['global_step'],'termination':result['term
     assert completed.returncode == 0, completed.stderr
     result = json.loads(completed.stdout.strip().splitlines()[-1])
     assert result["global_step"] == 2
+    assert result["semantic_v8_target_exposure"]["optimizerUpdates"] == 2
+    assert result["semantic_v8_target_exposure"]["lastGlobalStep"] == 2
+    assert result["semantic_v8_target_exposure"]["sources"]["source-1"]["split"] == "train"
 
     forged_payload = {
         **payload,

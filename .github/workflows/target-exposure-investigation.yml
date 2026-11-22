@@ -1,0 +1,69 @@
+name: V8 optimizer target exposure controls
+
+on:
+  push:
+    branches: [codex/v8-target-exposure-validation-20261122]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: v8-target-exposure-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  controls:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 25
+    env:
+      OMP_NUM_THREADS: '1'
+      MKL_NUM_THREADS: '1'
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.sha }}
+          persist-credentials: false
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12.14'
+      - name: Install the tested CPU reference and ordinary training dependencies
+        run: |
+          python -m pip install torch==2.10.0 --index-url https://download.pytorch.org/whl/cpu
+          python -m pip install -e '.[train,data,cache,storage,dev]'
+      - name: Format candidate and retain exact tested source
+        run: |
+          python -m ruff check --fix src/megatoken/training/semantic_v8.py src/megatoken/training/engine.py tests/test_semantic_v8_target_exposure.py tests/test_semantic_v8_training_lifecycle.py
+          python -m ruff format src/megatoken/training/semantic_v8.py src/megatoken/training/engine.py tests/test_semantic_v8_target_exposure.py tests/test_semantic_v8_training_lifecycle.py
+          python - <<'PY'
+          import json
+          from pathlib import Path
+          for path in ('src/megatoken/training/semantic_v8.py', 'src/megatoken/training/engine.py',
+                       'tests/test_semantic_v8_target_exposure.py', 'tests/test_semantic_v8_training_lifecycle.py'):
+              print('FORMATTED_SOURCE_JSON ' + json.dumps({'path': path, 'content': Path(path).read_text()}))
+          PY
+      - name: Verify weighted target coverage and ordinary checkpoint resume
+        shell: bash
+        run: |
+          set -o pipefail
+          python -m ruff check src/megatoken/training/semantic_v8.py src/megatoken/training/engine.py tests/test_semantic_v8_target_exposure.py tests/test_semantic_v8_training_lifecycle.py
+          python -m ruff format --check src/megatoken/training/semantic_v8.py src/megatoken/training/engine.py tests/test_semantic_v8_target_exposure.py tests/test_semantic_v8_training_lifecycle.py
+          python -m pytest -q tests/test_semantic_v8_target_exposure.py tests/test_semantic_v8_training_lifecycle.py tests/test_semantic_v8_training_policy.py tests/test_semantic_v8_lineage.py tests/test_semantic_launch_v8.py --junitxml="$RUNNER_TEMP/target-exposure-controls.xml" 2>&1 | tee "$RUNNER_TEMP/target-exposure-controls.log"
+          python - <<'PY'
+          import os
+          from pathlib import Path
+          import xml.etree.ElementTree as ET
+          cases = list(ET.parse(Path(os.environ['RUNNER_TEMP']) / 'target-exposure-controls.xml').getroot().iter('testcase'))
+          if not cases or any(case.find(kind) is not None for case in cases for kind in ('failure', 'error', 'skipped')):
+              raise ValueError('All target-exposure and ordinary lifecycle controls must execute and pass')
+          print(f'{len(cases)} target-exposure and ordinary lifecycle controls passed with zero skips')
+          PY
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: v8-target-exposure-controls
+          retention-days: 30
+          if-no-files-found: error
+          path: |
+            ${{ runner.temp }}/target-exposure-controls.xml
+            ${{ runner.temp }}/target-exposure-controls.log
