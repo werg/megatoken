@@ -9,8 +9,10 @@ from __future__ import annotations
 
 import base64
 import copy
+from dataclasses import asdict
 import fcntl
 import hashlib
+import json
 import os
 import re
 import stat
@@ -624,9 +626,10 @@ class DurableNativeCommitBridge:
             operation = new_orchestration.get("operations", [])[-1:]
             if (
                 operation
+                and set(operation[0]) == {"kind", "track", "randomBefore"}
                 and operation[0].get("kind") == "bootstrap"
                 and operation[0].get("track") == request["childTrack"]
-                and type(operation[0].get("randomBefore")) is dict
+                and _same(operation[0].get("randomBefore"), before.get("randomState"))
                 and _same(
                     {**new_orchestration, "operations": new_orchestration["operations"][:-1]},
                     old_orchestration,
@@ -647,10 +650,26 @@ class DurableNativeCommitBridge:
             "track": response.get("result", {}).get("track"),
             "bootstrapped": True,
         }
+        created = create_response.get("result", {}).get("track")
+        # The durable response must describe the same reserved child from the
+        # create result, with only the host bootstrap fields permitted to change.
+        # Do not let a rehashed response invent a different parent, execution
+        # owner, capability set, purpose or lifecycle state.
+        returned_track = expected["track"]
+        track_matches = False
+        if type(created) is dict and type(returned_track) is dict:
+            expected_track_response = {
+                **created,
+                "bootstrap_ready": True,
+                "status": returned_track.get("status"),
+            }
+            track_matches = (
+                returned_track.get("status") in {"active", "waiting"}
+                and _same(returned_track, expected_track_response)
+            )
         if (
             not _same(response, {"id": request["id"], "ok": True, "result": expected})
-            or expected["track"].get("address") != request["childTrack"]
-            or expected["track"].get("bootstrap_ready") is not True
+            or not track_matches
         ):
             _fail("bootstrap response differs from the exact postcheckpoint child state")
 
@@ -758,6 +777,10 @@ class DurableNativeCommitBridge:
         createRequestBase64,
         createPreCheckpointDigest,
     ):
+        # Enforce process fencing even for a duplicate completed-slot read.
+        # The RPC wrapper performs the same check, but this public bridge entry
+        # point must not hand out a receipt after lease loss or uncertain work.
+        self.assert_operation("durable-bootstrap-child")
         identity, raw, request, frame, create_identity, create_raw, create_request, create_frame = (
             self._bootstrap_input(
                 identity,
@@ -787,7 +810,7 @@ class DurableNativeCommitBridge:
                     "Bootstrap outcome is unknown; native bootstrap cannot be retried"
                 )
             if existing["status"] == "completed":
-                value, response_raw, _ = self._bootstrap_envelope(
+                value, response_raw, response = self._bootstrap_envelope(
                     existing["result_bytes"],
                     request,
                     raw,
@@ -800,6 +823,15 @@ class DurableNativeCommitBridge:
                 )
                 if not _same(self.adapter.checkpoint(), value["postCheckpoint"]):
                     _fail("whole live adapter differs from saved bootstrap poststate")
+                work = self.adapter.sessions.get(request["session"])
+                description = (
+                    None if work is None else work.runtime.tracks.tracks.get(request["childTrack"])
+                )
+                if description is None or not _same(
+                    response.get("result", {}).get("track"),
+                    json.loads(json.dumps(asdict(description), allow_nan=False)),
+                ):
+                    _fail("completed bootstrap response differs from its live child track")
                 self._recoverable = (copy.deepcopy(identity), frame)
                 self._started = True
                 return self._bootstrap_receipt(

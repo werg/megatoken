@@ -611,6 +611,97 @@ def test_durable_bootstrap_child_recovers_lost_reply_by_full_reexecution(tmp_pat
             assert len(list((tmp_path / "journal").glob("*/*.intent.json"))) == 2
 
 
+@pytest.mark.parametrize("tamper", ["parent", "execution", "status", "randomBefore"])
+def test_rehashed_completed_bootstrap_response_must_match_live_child_track(tmp_path, tamper):
+    """A completed slot may not smuggle a response detached from its true poststate."""
+    from tests.test_semantic_v8_orchestration import (
+        chosen,
+        create_arguments,
+        open_coordinator,
+        real_runtime,
+    )
+
+    with real_runtime() as (open_adapter, _decoder):
+        adapter = open_adapter()
+        opened = open_coordinator(adapter)
+        selected = chosen(adapter, opened, "track_create", create_arguments(opened))
+        with execution_lease(tmp_path / "owner", session=opened["session"]) as lease:
+            journal = DurableNativeRequestJournal(tmp_path / "journal")
+            bridge = DurableNativeCommitBridge(adapter, journal, lease)
+            create_receipt, create_request, create_args = _durable_child_create(
+                adapter, opened, selected, bridge
+            )
+            child = json.loads(base64.b64decode(create_receipt["responseBase64"]))["result"][
+                "track"
+            ]["address"]
+            args = _bootstrap_args(adapter, opened, child, create_request, create_args)
+            original = bridge.durable_bootstrap_child(**args)
+
+            outcome_path = next((tmp_path / "journal").glob("*/*.outcome.json"))
+            outcome = json.loads(outcome_path.read_text())
+            stored = json.loads(base64.b64decode(outcome["result_b64"]))
+            response_bytes = base64.b64decode(stored["responseBase64"])
+            response = json.loads(response_bytes)
+            returned = response["result"]["track"]
+            if tamper == "parent":
+                returned["parent"] = "forged-parent"
+            elif tamper == "execution":
+                returned["execution"]["invocation_id"] = "forged-invocation"
+            elif tamper == "status":
+                returned["status"] = "waiting" if returned["status"] == "active" else "active"
+            else:
+                post = stored["postCheckpoint"]
+                operation = post["sessions"][opened["session"]]["orchestration"]["operations"][-1]
+                operation["randomBefore"] = {"forged": True}
+                post["digest"] = stable_algorithm_hash(
+                    {key: value for key, value in post.items() if key != "digest"}
+                )
+            stored["responseBase64"] = base64.b64encode(_canonical(response) + b"\n").decode()
+            stored_bytes = _canonical(stored)
+            outcome["result_b64"] = base64.b64encode(stored_bytes).decode()
+            outcome["result_sha256"] = hashlib.sha256(stored_bytes).hexdigest()
+            outcome_path.write_bytes(_canonical(outcome))
+
+            with pytest.raises(
+                NativeRequestJournalError,
+                match="exact receipt" if tamper == "randomBefore" else "bootstrap response",
+            ):
+                bridge.durable_bootstrap_child(**args)
+            if tamper != "randomBefore":
+                # The test changes only journal response bytes. The live native
+                # checkpoint is still the exact successful bootstrap poststate.
+                assert adapter.checkpoint() == original["postCheckpoint"]
+
+
+def test_direct_completed_bootstrap_read_respects_bridge_fence(tmp_path):
+    from tests.test_semantic_v8_orchestration import (
+        chosen,
+        create_arguments,
+        open_coordinator,
+        real_runtime,
+    )
+
+    with real_runtime() as (open_adapter, _decoder):
+        adapter = open_adapter()
+        opened = open_coordinator(adapter)
+        selected = chosen(adapter, opened, "track_create", create_arguments(opened))
+        with execution_lease(tmp_path / "owner", session=opened["session"]) as lease:
+            bridge = DurableNativeCommitBridge(
+                adapter, DurableNativeRequestJournal(tmp_path / "journal"), lease
+            )
+            create_receipt, create_request, create_args = _durable_child_create(
+                adapter, opened, selected, bridge
+            )
+            child = json.loads(base64.b64decode(create_receipt["responseBase64"]))["result"][
+                "track"
+            ]["address"]
+            args = _bootstrap_args(adapter, opened, child, create_request, create_args)
+            bridge.durable_bootstrap_child(**args)
+            bridge.fenced = True
+            with pytest.raises(NativeRequestJournalError, match="fenced"):
+                bridge.durable_bootstrap_child(**args)
+
+
 def test_unknown_bootstrap_intent_is_never_redispatched_or_create_recovered(tmp_path):
     from tests.test_semantic_v8_orchestration import (
         chosen,
