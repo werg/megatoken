@@ -591,6 +591,7 @@ class DurableNativeCommitBridge:
             "attempts",
             "closedSessions",
             "openings",
+            "randomState",
         ):
             if not _same(before.get(field), checkpoint.get(field)):
                 _fail("child bootstrap changed whole-adapter " + field)
