@@ -45,7 +45,7 @@ jobs:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           repository: werg/tracing-js-self
-          ref: a494f007f7373fa4d96b76be88c5610fb815d6e8 # source conversion, live admission and descriptor ownership qualified together
+          ref: 14e3c07e390c9b847051d1fead27acd889987bb5 # ordinary coordinator transport, source authority and durable service cancellation
           path: tracing-js-self
           persist-credentials: false
       - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
@@ -94,6 +94,19 @@ jobs:
         run: |
           npm run semantic:v8:contract --prefix tracing-js-self 2>&1 | tee "$RUNNER_TEMP/semantic-v8-contract.log"
           cmp tracing-js-self/contracts/semantic-execution-v8.json megatoken/src/megatoken/data/contracts/semantic-execution-v8.json
+      - name: Check the paired ordinary coordinator transport
+        working-directory: tracing-js-self
+        run: |
+          node --test --test-reporter=junit test/semantic-native-process-v8.test.js test/semantic-native-orchestration-transport-v8.test.js \
+            2>&1 | tee "$RUNNER_TEMP/semantic-v8-transport-tests.xml"
+          python - <<'PY'
+          import os, xml.etree.ElementTree as ET
+          from pathlib import Path
+          cases = list(ET.parse(Path(os.environ['RUNNER_TEMP']) / 'semantic-v8-transport-tests.xml').getroot().iter('testcase'))
+          if not cases or any(case.find(kind) is not None for case in cases for kind in ('failure', 'error', 'skipped')):
+              raise ValueError('Every paired V8 transport control, including the Python contract check, must run and pass')
+          print(f'{len(cases)} paired transport controls passed with zero skips')
+          PY
       - name: Check independent replay and malformed restoration boundaries
         working-directory: megatoken
         run: |
@@ -158,6 +171,7 @@ jobs:
             ${{ runner.temp }}/semantic-v8-contract.log
             ${{ runner.temp }}/semantic-v8-tests.xml
             ${{ runner.temp }}/semantic-v8-tests.log
+            ${{ runner.temp }}/semantic-v8-transport-tests.xml
             ${{ runner.temp }}/semantic-v8-qualification.log
             ${{ runner.temp }}/semantic-v8-costs.log
             ${{ runner.temp }}/v8-admitted/
