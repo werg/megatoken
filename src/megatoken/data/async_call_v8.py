@@ -309,17 +309,32 @@ def apply_record(machine, record):
         "completion requires the running unsettled async invocation",
     )
     _known(machine, record["completion"]["value"])
+    adoption_target = None
     if record["completion"]["kind"] == "return":
-        assert_plain_resolution(machine, record["completion"]["value"])
+        value = record["completion"]["value"]
+        if value[0] == "ref" and machine["heap"].get(value[1], {}).get("kind") == "promise":
+            adoption_target = value[1]
+        else:
+            assert_plain_resolution(machine, value)
     attached = call["attached"]
     _detach(machine, call)
     call["phase"], call["completion"] = "completed", copy.deepcopy(record["completion"])
-    settle_promise(
-        machine,
-        record["promise"],
-        "fulfilled" if record["completion"]["kind"] == "return" else "rejected",
-        record["completion"]["value"],
-    )
+    if adoption_target is not None:
+        from .promise_adoption_v8 import stage_intent
+
+        stage_intent(
+            machine,
+            record["promise"],
+            adoption_target,
+            {"kind": "async", "invocation": record["invocation"]},
+        )
+    else:
+        settle_promise(
+            machine,
+            record["promise"],
+            "fulfilled" if record["completion"]["kind"] == "return" else "rejected",
+            record["completion"]["value"],
+        )
     if attached:
         machine["lastReturn"] = {"kind": "return", "value": ["ref", record["promise"]]}
     return True
@@ -432,12 +447,41 @@ def validate_state(machine):
         )
         if call["phase"] == "completed":
             _completion(call["completion"], lambda value: _known(machine, value))
-            _require(
-                node["state"]
-                == ("fulfilled" if call["completion"]["kind"] == "return" else "rejected")
-                and node["result"] == call["completion"]["value"],
-                "retained async completion differs from execution Promise",
+            result = call["completion"]["value"]
+            adoption = node.get("adoption") or {}
+            target_is_promise = (
+                call["completion"]["kind"] == "return"
+                and result[0] == "ref"
+                and machine["heap"].get(result[1], {}).get("kind") == "promise"
             )
+            if target_is_promise:
+                _require(
+                    adoption.get("target") == result[1]
+                    and adoption.get("cause") == {"kind": "async", "invocation": call["invocation"]}
+                    and adoption.get("phase") in ("intent", "queued", "observing", "completed", "self"),
+                    "retained async Promise result lacks adoption authority",
+                )
+                if adoption.get("phase") == "completed":
+                    target = machine["heap"][result[1]]
+                    _require(
+                        node["state"] == target["state"] and node["result"] == target["result"],
+                        "retained async adoption differs from target settlement",
+                    )
+                elif adoption.get("phase") == "self":
+                    _require(
+                        result[1] == _identity and node["state"] == "rejected"
+                        and node["result"] == ["ref", adoption.get("error")],
+                        "retained async self-resolution differs from its TypeError",
+                    )
+                else:
+                    _require(node["state"] == "pending", "pending async adoption settled early")
+            else:
+                _require(
+                    node["state"]
+                    == ("fulfilled" if call["completion"]["kind"] == "return" else "rejected")
+                    and node["result"] == result,
+                    "retained async completion differs from execution Promise",
+                )
         else:
             _require(
                 node["state"] == "pending" and call["completion"] is None,
@@ -528,12 +572,41 @@ def validate_state(machine):
                 )
             else:
                 _completion(call["completion"], lambda value: _known(machine, value))
-                _require(
-                    node["state"]
-                    == ("fulfilled" if call["completion"]["kind"] == "return" else "rejected")
-                    and node["result"] == call["completion"]["value"],
-                    "retained async completion differs from execution Promise",
+                value = call["completion"]["value"]
+                adoption = node.get("adoption") or {}
+                adopts_promise = (
+                    call["completion"]["kind"] == "return"
+                    and value[0] == "ref"
+                    and machine["heap"].get(value[1], {}).get("kind") == "promise"
                 )
+                if adopts_promise:
+                    _require(
+                        adoption.get("target") == value[1]
+                        and adoption.get("cause") == {"kind": "async", "invocation": call["invocation"]}
+                        and adoption.get("phase") in ("intent", "queued", "observing", "completed", "self"),
+                        "retained async completion lacks adoption authority",
+                    )
+                    if adoption.get("phase") == "completed":
+                        target = machine["heap"][value[1]]
+                        _require(
+                            node["state"] == target["state"] and node["result"] == target["result"],
+                            "retained async adoption differs from target settlement",
+                        )
+                    elif adoption.get("phase") == "self":
+                        _require(
+                            value[1] == _identity and node["state"] == "rejected"
+                            and node["result"] == ["ref", adoption.get("error")],
+                            "retained async self-resolution differs from its TypeError",
+                        )
+                    else:
+                        _require(node["state"] == "pending", "async adoption settled before forwarding")
+                else:
+                    _require(
+                        node["state"]
+                        == ("fulfilled" if call["completion"]["kind"] == "return" else "rejected")
+                        and node["result"] == value,
+                        "retained async completion differs from execution Promise",
+                    )
         if call["resumeScope"] is not None:
             saved = call["resumeScope"]
             _exact(saved, {"receiver", "aliases"}, "async idle scope")

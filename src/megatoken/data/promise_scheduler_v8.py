@@ -111,7 +111,7 @@ def refresh_ready(machine):
             node.get("kind") == "promise" and node.get("adopted")
             for node in machine["heap"].values()
         ):
-            _fail("Promise adoption requires explicit assimilation jobs")
+            _fail("legacy adoption lock has no assimilation authority")
         eligible = []
         for identity, continuation in continuations.items():
             if (

@@ -124,6 +124,33 @@ def test_first_await_returns_execution_promise_and_restores_caller_scope():
     assert machine["ready"] == ["first-await"]
 
 
+def test_async_returned_promise_remains_pending_until_fifo_forwarding_job():
+    machine = fixture()
+    create_promise(machine, "source")
+    settle_promise(machine, "source", "fulfilled", ["num", 23])
+    call(machine)
+    apply(
+        machine,
+        {
+            "kind": "async.complete",
+            "promise": "first",
+            "invocation": "first-body",
+            "completion": {"kind": "return", "value": ["ref", "source"]},
+        },
+    )
+    assert machine["heap"]["first"]["state"] == "pending"
+    apply(machine, {"kind": "promise.adopt.enqueue", "promise": "first", "target": "source", "job": "adopt"})
+    machine["stack"] = []
+    apply(machine, {"kind": "promise.adopt.enter", "promise": "first", "target": "source", "job": "adopt", "forwarding": "forward"})
+    assert machine["ready"] == ["forward"]
+    apply(
+        machine,
+        {"kind": "promise.adopt.forward", "promise": "first", "target": "source", "job": "forward", "status": "fulfilled", "value": ["num", 23]},
+    )
+    assert machine["heap"]["first"]["state"] == "fulfilled"
+    assert machine["heap"]["first"]["result"] == ["num", 23]
+
+
 def test_detached_resume_keeps_live_cells_and_completion_does_not_replace_root():
     machine = fixture()
     call(machine)
