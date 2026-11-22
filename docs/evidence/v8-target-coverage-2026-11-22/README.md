@@ -74,3 +74,15 @@ and exact source/native/tokenizer identity report are retained with the `nativea
 prefix. The original artifact is `14748548491`, archive SHA-256
 `17b62d0edc16aecaee4f779b7804f50b8657e2d6b04eb4f29f3ea89b65c93cd7`.
 This focused gate is separate from the actual complete 348-window optimizer pass.
+
+A further completeness control derives all policy-masked physical targets directly
+from the admitted prepared episodes, independently of the window iterator and loss
+planner. Their exact source/logical/physical identity set must equal the planned
+set. This closes a hole where the planner and later optimizer census could both
+drop the same target and still agree. The actual retained corpus has 720 prepared
+training policy targets and the same 720 planned targets, with no omissions or
+inventions. Twenty-three inventory controls pass with zero skips, including
+counterexamples that drop a real prepared target or plan an unprepared target.
+The full controls log and JUnit are retained with the `prepared-target-inventory-`
+prefix. This additional refusal check does not change valid inventory JSON or
+the training objective; it does not itself establish any optimizer exposure.

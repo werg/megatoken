@@ -69,6 +69,10 @@ split binding. The prepared lineage adapter name is shared by many programs and
 is not a program identity. Observed records with no loss plan earn no target credit.
 The report separates all planned windows from windows that make an optimizer update,
 and independently measures the complete pass against the configured phase budget.
+It also derives every policy-masked physical target directly from the complete
+prepared episodes and requires that exact set in the plans. A window iterator or
+planner cannot silently omit a prepared target and shrink both sides of the later
+coverage comparison. Observations without policy masks are excluded from that set.
 
 A separate fresh ordinary training invocation uses the same objective and inputs,
 with `max_steps` set to `optimizerWindowCount` from that inventory. Writing the final

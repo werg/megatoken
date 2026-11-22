@@ -160,6 +160,7 @@ def target_inventory(config_source, expected_source_ids_source=None):
     observed_windows = set()
     update_window_count = 0
     one_pass_meter_count = 0
+    prepared_policy_records = set()
     available_records = set()
     available_denominators = {}
     train_episode_count = 0
@@ -189,6 +190,14 @@ def target_inventory(config_source, expected_source_ids_source=None):
             )
             observed_sources.add(source_id)
             train_episode_count += 1
+            # Derive the target universe independently of the window iterator
+            # and loss planner. Otherwise both inventory and optimizer census
+            # could agree after silently dropping the same prepared target.
+            prepared_policy_records.update(
+                (source_id, record.logical_id, record.record_id)
+                for record in episode.records
+                if record.policy_mask
+            )
             for window in iter_windows(episode, codec, windows_config):
                 window_key = (source_id, window.index)
                 require(
@@ -229,6 +238,10 @@ def target_inventory(config_source, expected_source_ids_source=None):
         "Prepared support omitted or substituted a frozen training source",
     )
     require(observed_windows, "Prepared support has no train windows")
+    require(
+        prepared_policy_records == available_records,
+        "Native plans omitted or invented a prepared policy target record",
+    )
     phase_meter, phase_budget = config.schedule.meter, config.schedule.budget
     require(
         phase_meter == "P" and one_pass_meter_count <= phase_budget,

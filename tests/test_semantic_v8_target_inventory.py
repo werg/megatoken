@@ -73,8 +73,9 @@ def test_inventory_never_promotes_validation_episode_or_falls_back_to_adapter_li
         inventory_episode_source_id(episode, registry_digest=REGISTRY)
 
 
-def test_complete_inventory_keeps_program_identity_and_ignores_observation_only_plans(
-    tmp_path, monkeypatch
+@pytest.mark.parametrize("target_mutation", [None, "omitted", "invented"])
+def test_complete_inventory_keeps_program_identity_and_exact_prepared_targets(
+    tmp_path, monkeypatch, target_mutation
 ):
     # The source admission and batch planner are controlled boundaries here. The
     # complete inventory traversal and actual optimizer-census extraction execute.
@@ -98,6 +99,15 @@ def test_complete_inventory_keeps_program_identity_and_ignores_observation_only_
     (tmp_path / "manifest.json").write_text(json.dumps({"fingerprint": MANIFEST}))
     (tmp_path / "semantic-v8-families.json").write_text(json.dumps(registry))
     episodes = [_prepared_episode(source=source) for source in ids[:48]]
+    for episode in episodes:
+        episode.records = [
+            SimpleNamespace(policy_mask=True, logical_id="logical", record_id="physical"),
+            SimpleNamespace(policy_mask=False, logical_id="observation", record_id="observed"),
+        ]
+    if target_mutation == "omitted":
+        episodes[0].records.append(
+            SimpleNamespace(policy_mask=True, logical_id="omitted", record_id="never-planned")
+        )
 
     class Corpus:
         codec_fingerprint = CODEC
@@ -118,16 +128,23 @@ def test_complete_inventory_keeps_program_identity_and_ignores_observation_only_
             return episodes[index], None
 
     def prepare(_model, items, _config):
-        record = SimpleNamespace(policy_mask=True, logical_id="logical", record_id="physical")
-        encoded = SimpleNamespace(record=record)
+        episode = items[0].episode
+        planned_records = [episode.records[0]]
+        if target_mutation == "invented" and episode is episodes[0]:
+            planned_records.append(
+                SimpleNamespace(policy_mask=True, logical_id="invented", record_id="unprepared")
+            )
         return [
             SimpleNamespace(
                 windows=items,
                 counts={"lexical": 1},
                 steps=[
-                    SimpleNamespace(records=[encoded], plans=[]),
+                    SimpleNamespace(records=[SimpleNamespace(record=episode.records[1])], plans=[]),
                     SimpleNamespace(
-                        records=[encoded], plans=[SimpleNamespace(denominators={"lexical": 1})]
+                        records=[SimpleNamespace(record=record) for record in planned_records],
+                        plans=[
+                            SimpleNamespace(denominators={"lexical": 1}) for _ in planned_records
+                        ],
                     ),
                 ],
             )
@@ -156,26 +173,28 @@ def test_complete_inventory_keeps_program_identity_and_ignores_observation_only_
     monkeypatch.setattr(module, "prepare_batches", prepare)
     monkeypatch.setattr(module, "batch_counters", lambda _batches: SimpleNamespace(P=1))
     monkeypatch.delenv("WORLD_SIZE", raising=False)
-    result = module.target_inventory(
-        {
-            "purpose": "diagnostic",
-            "phase": "SE",
-            "model": "tiny",
-            "codec": "controlled",
-            "datasets": [str(tmp_path)],
-            "max_steps": 1,
-            "generated_capacity": 128,
-            "microbatch_episodes": 1,
-            "max_accumulation_windows": 1,
-            "semantic_v8_policy": {
-                "schema": "semantic-training-policy/8",
-                "producerRevision": "1" * 40,
-                "consumerRevision": "2" * 40,
-                "registryDigest": REGISTRY,
-            },
+    config = {
+        "purpose": "diagnostic",
+        "phase": "SE",
+        "model": "tiny",
+        "codec": "controlled",
+        "datasets": [str(tmp_path)],
+        "max_steps": 1,
+        "generated_capacity": 128,
+        "microbatch_episodes": 1,
+        "max_accumulation_windows": 1,
+        "semantic_v8_policy": {
+            "schema": "semantic-training-policy/8",
+            "producerRevision": "1" * 40,
+            "consumerRevision": "2" * 40,
+            "registryDigest": REGISTRY,
         },
-        ids,
-    )
+    }
+    if target_mutation is not None:
+        with pytest.raises(ValueError, match="omitted or invented a prepared policy target"):
+            module.target_inventory(config, ids)
+        return
+    result = module.target_inventory(config, ids)
     assert result["scoredSourceIds"] == ids[:48]
     assert (
         result["windowCount"] == result["optimizerWindowCount"] == result["onePassMeterCount"] == 48
