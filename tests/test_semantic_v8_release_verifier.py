@@ -373,6 +373,17 @@ def test_real_controlled_checkpoint_export_and_resealed_weight_refusal(tmp_path,
         manifest["semantic_v8_lineage_digest"] = lineage["digest"]
         manifest_path.write_text(json.dumps(manifest))
 
+    config_forgery = tmp_path / "served-config-forgery"
+    shutil.copytree(served, config_forgery)
+    config_path = config_forgery / "model_config.json"
+    exported_config = json.loads(config_path.read_text())
+    assert exported_config["checkpoint_stages"] is False
+    exported_config["checkpoint_stages"] = 0
+    config_path.write_text(json.dumps(exported_config))
+    reseal_served(config_forgery, "config_sha256", "model_config.json", "configSha256")
+    with pytest.raises(ValueError, match="Served configuration"):
+        release.served_consistency({**paths, "served": config_forgery}, payload, metadata)
+
     bank_forgery = tmp_path / "served-bank-forgery"
     shutil.copytree(served, bank_forgery)
     bank = torch.load(bank_forgery / "transducer.pt", weights_only=True)
