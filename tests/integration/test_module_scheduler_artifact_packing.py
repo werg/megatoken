@@ -11,6 +11,7 @@ import json
 import os
 import subprocess
 import sys
+import time
 from collections import Counter
 from pathlib import Path
 
@@ -23,10 +24,17 @@ from megatoken.generation.codec import LING_TOKENIZER_SHA256, ByteCodec
 
 
 def run(command, cwd, timeout):
+    started = time.monotonic()
+    print("MODULE_ARTIFACT_STAGE_BEGIN " + Path(command[1]).name, flush=True)
     result = subprocess.run(
         command, cwd=cwd, text=True, capture_output=True, timeout=timeout, check=False
     )
     assert result.returncode == 0, result.stdout[-4000:] + "\n" + result.stderr[-4000:]
+    print(
+        "MODULE_ARTIFACT_STAGE_END "
+        + json.dumps({"command": Path(command[1]).name, "seconds": time.monotonic() - started}),
+        flush=True,
+    )
     return result
 
 
@@ -93,11 +101,14 @@ def test_original_module_scheduler_artifact_is_rechecked_and_physically_packed(t
     assert report["counts"]["attempted"] == report["counts"]["admitted"] == 1
     assert report["counts"].get("refused", 0) == 0
     assert report["optimizerSteps"] == 0 and report["learningClaim"] is None
+    assert report["maxPositions"] == 8192 and report["maxHistory"] == 1024
     with PreparedDataset(prepared_path, split=None) as prepared:
         assert len(prepared) == 1
         episode = prepared[0]
     semantic = json.loads(episode.supervision.annotations_json)["semantic_execution"]
     assert semantic["admission"] == "admitted" and semantic["modelExecutionOutcome"] == "unmeasured"
+    assert semantic["sourceAdmission"]["producerRevision"] == revision(producer)
+    assert semantic["nativeAdmission"]["consumerRevision"] == revision(consumer)
     assert all(
         semantic["sourceAdmission"][key] is True
         for key in ("sourceValidated", "projectionValidated", "replayValidated")
@@ -139,7 +150,8 @@ def test_original_module_scheduler_artifact_is_rechecked_and_physically_packed(t
         iter_windows(episode, codec, WindowConfig(max_window_tokens=8192, max_decisions=4))
     )
     encoded = [row for window in windows for row in window.records]
-    assert len(encoded) == len(episode.records)
+    assert [row.record.record_id for row in encoded] == [row.record_id for row in episode.records]
+    assert all(window.D <= 8192 for window in windows)
     assert all(row.tokens <= 8192 for row in encoded)
     assert all(row.P == 0 for row in encoded if not row.record.policy_mask)
     selected = [row for row in encoded if row.record.policy_mask]
@@ -186,6 +198,7 @@ def test_original_module_scheduler_artifact_is_rechecked_and_physically_packed(t
         "allPhysicalRecordsWithin8192Tokens": True,
         "criticalTargetCounts": dict(sorted(counts.items())),
         "packedWindows": len(windows),
+        "maxPackedWindowTokens": max(window.D for window in windows),
         "totalScoredPositions": sum(row.P for row in selected),
         "selectedTokenAndMaskDigest": hashlib.sha256(
             json.dumps(
