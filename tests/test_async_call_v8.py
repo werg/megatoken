@@ -368,6 +368,23 @@ def test_resolution_jobs_reject_retargeting_skips_generic_dispatch_and_self_reso
         )
     assert machine == before
 
+    machine = fixture()
+    create_promise(machine, "external-target")
+    machine["heap"]["external-target"]["external"] = "effect1"
+    call(machine)
+    before = copy.deepcopy(machine)
+    with pytest.raises(ProtocolV8Error, match="distinct owned target"):
+        apply(
+            machine,
+            {
+                "kind": "async.complete",
+                "promise": "first",
+                "invocation": "first-body",
+                "completion": {"kind": "return", "value": ["ref", "external-target"]},
+            },
+        )
+    assert machine == before
+
     machine = promise_return_fixture()
     before = copy.deepcopy(machine)
     with pytest.raises(ProtocolV8Error, match="exact completed async return"):
