@@ -13,6 +13,8 @@ from megatoken.data.native_v8 import prepare_native_v8_training
 from megatoken.generation.codec import ByteCodec
 from megatoken.multitrack_runtime import TrackSession
 from megatoken.semantic_model_v8 import NativeSelectionV8Error, NativeSemanticInferenceV8
+from megatoken.semantic_request_bridge_v8 import CheckpointBoundNativeRequestBridge
+from megatoken.semantic_request_journal_v8 import DurableNativeRequestJournal
 from tests.test_prediction_prefix_v8 import examples, prefix
 
 
@@ -617,6 +619,74 @@ class NativeServingV8Tests(unittest.TestCase):
             for session in list(adapter.sessions):
                 adapter.cancel(session=session, reason="test-complete")
             runtime.close()
+
+
+    def test_committed_request_readback_restores_only_verified_poststate(self):
+        import tempfile
+
+        target = self.target()
+        fragments = [(target[:20], False), (target[20:], True)]
+        adapter, _runtime = self.setup_adapter(fragments)
+        selection = self.request(adapter)
+        session = selection["selection"]["session"]
+        before, contexts, context = prefix(self.example, 0)
+        public = copy.deepcopy(self.example["public"])
+        public["timeline"] = public["timeline"][: context["visibleThrough"] + 1]
+        native_identity = {
+            "schema": "semantic-native-request-identity/1",
+            "session_id": session,
+            "stream_id": "bridge-test",
+            "session_generation": 1,
+            "ordinal": 1,
+            "operation": "commit",
+            "model_identity": {
+                "checkpoint": "a" * 64,
+                "tokenizer": adapter.codec.fingerprint,
+            },
+        }
+        request = {
+            "id": "commit-rpc-1",
+            "op": "commit",
+            "nativeRequest": native_identity,
+            "session": session,
+            "public": public,
+            "contexts": contexts + [context],
+            "invocationId": context["invocationId"],
+            "record": selection["record"],
+            "selection": selection["selection"],
+        }
+        raw = json.dumps(request, separators=(",", ":")).encode()
+
+        def commit(exact):
+            checked = json.loads(exact)
+            result = adapter.commit(
+                session=checked["session"],
+                public=checked["public"],
+                contexts=checked["contexts"],
+                invocationId=checked["invocationId"],
+                record=checked["record"],
+                selection=checked["selection"],
+            )
+            return json.dumps(
+                {"id": checked["id"], "ok": True, "result": result},
+                separators=(",", ":"),
+            ).encode()
+
+        with tempfile.TemporaryDirectory() as directory:
+            bridge = CheckpointBoundNativeRequestBridge(
+                DurableNativeRequestJournal(directory)
+            )
+            original_response = bridge.execute_commit(adapter, native_identity, raw, commit)
+            fresh, _fresh_runtime = self.setup_adapter(fragments)
+            restored_response = bridge.execute_commit(
+                fresh,
+                native_identity,
+                raw,
+                lambda _: self.fail("completed native commit was redispatched"),
+            )
+            self.assertEqual(restored_response, original_response)
+            self.assertEqual(fresh.checkpoint(), adapter.checkpoint())
+            self.assertEqual(fresh.attempts[-1]["status"], "committed")
 
 
 if __name__ == "__main__":
