@@ -1,0 +1,490 @@
+{
+  "public": {
+    "schema": "semantic-execution/8",
+    "traceFormat": "semantic-trace/8",
+    "contextFormat": "semantic-context/8",
+    "representation": "mixed",
+    "profile": "compositional-regions/1",
+    "timeline": [
+      {
+        "sequence": 1,
+        "mode": "observed",
+        "kind": "program",
+        "fields": {
+          "session": "source-reread-census",
+          "track": "host",
+          "programId": "program1",
+          "digest": "c7c64085f8a6bb9264e040417e21dbb4ce20dba4066cad52e102b005185946be",
+          "entry": "run",
+          "source": "\"use strict\";function run(){return 7;}",
+          "sites": [
+            {
+              "id": "s1",
+              "start": 0,
+              "end": 12,
+              "role": "Literal"
+            },
+            {
+              "id": "s2",
+              "start": 13,
+              "end": 38,
+              "role": "FunctionDeclaration"
+            },
+            {
+              "id": "s3",
+              "start": 22,
+              "end": 25,
+              "role": "Identifier"
+            },
+            {
+              "id": "s4",
+              "start": 28,
+              "end": 37,
+              "role": "ReturnStatement"
+            },
+            {
+              "id": "s5",
+              "start": 35,
+              "end": 36,
+              "role": "Literal"
+            }
+          ],
+          "functions": [
+            {
+              "start": 13,
+              "end": 38,
+              "name": "run",
+              "params": []
+            }
+          ],
+          "capabilities": [],
+          "dependencies": [],
+          "sourceMap": null,
+          "languageProfile": "owned-javascript/1",
+          "module": false,
+          "sourceMetadata": null,
+          "regionProgram": {
+            "schema": "semantic-region-program/1",
+            "traceFormat": "semantic-trace/8",
+            "profile": "compositional-regions/1",
+            "source": "\"use strict\";function run(){return 7;}",
+            "entry": "run",
+            "sourceDigest": "c7c64085f8a6bb9264e040417e21dbb4ce20dba4066cad52e102b005185946be",
+            "regions": [
+              {
+                "id": "r0",
+                "owner": "run",
+                "kind": "compact",
+                "profile": "local-primitive-block/1",
+                "inputs": [],
+                "outputs": [],
+                "operations": [
+                  {
+                    "kind": "return",
+                    "term": {
+                      "op": "literal",
+                      "value": [
+                        "num",
+                        7
+                      ]
+                    }
+                  }
+                ],
+                "effects": {
+                  "reads": [],
+                  "writes": [],
+                  "calls": [],
+                  "mayThrow": true,
+                  "maySuspend": false,
+                  "allocates": false,
+                  "identityEscapes": false,
+                  "cleanup": false,
+                  "propertyAccess": false
+                },
+                "completion": "return",
+                "obligations": [],
+                "digest": "cc9ca6f443c7b3e1357cbe62ff415023b0827ff86a65945c304e5bac32d62825"
+              }
+            ],
+            "algorithm": {
+              "schema": "semantic-algorithm/2",
+              "profile": "ecmascript-pure-regions/1",
+              "inputs": [],
+              "steps": [
+                {
+                  "kind": "compute",
+                  "id": "v0",
+                  "term": {
+                    "op": "literal",
+                    "value": [
+                      "num",
+                      7
+                    ]
+                  }
+                },
+                {
+                  "kind": "return",
+                  "value": {
+                    "op": "ref",
+                    "id": "v0"
+                  }
+                }
+              ]
+            },
+            "definitionDigest": "cddec815913d3ea7d19632b3c1f11c2ad563b823eff7c980c6bcd44693ad92c1"
+          }
+        }
+      },
+      {
+        "sequence": 2,
+        "mode": "observed",
+        "kind": "invocation",
+        "fields": {
+          "session": "source-reread-census",
+          "track": "worker1",
+          "programId": "program1",
+          "invocationId": "invocation1",
+          "realmId": "realm1",
+          "triggerId": "entry1",
+          "completionPolicy": "call-return",
+          "realmPolicy": "fresh",
+          "inputGraph": {
+            "roots": [],
+            "objects": []
+          },
+          "entry": "run",
+          "sourceDigest": "c7c64085f8a6bb9264e040417e21dbb4ce20dba4066cad52e102b005185946be",
+          "receiver": [
+            "undefined"
+          ],
+          "closureId": null,
+          "activation": "call",
+          "parentInvocationId": null,
+          "taskRevision": 1,
+          "deadline": null,
+          "bindings": {},
+          "ingressKey": "entry1"
+        }
+      },
+      {
+        "sequence": 3,
+        "mode": "observed",
+        "kind": "source-evict",
+        "fields": {
+          "session": "source-reread-census",
+          "track": "worker1",
+          "programId": "program1",
+          "digest": "c7c64085f8a6bb9264e040417e21dbb4ce20dba4066cad52e102b005185946be"
+        }
+      },
+      {
+        "sequence": 4,
+        "mode": "observed",
+        "kind": "source-read",
+        "fields": {
+          "session": "source-reread-census",
+          "track": "worker1",
+          "programId": "program1",
+          "digest": "c7c64085f8a6bb9264e040417e21dbb4ce20dba4066cad52e102b005185946be",
+          "source": "\"use strict\";function run(){return 7;}"
+        }
+      },
+      {
+        "sequence": 5,
+        "mode": "generated",
+        "kind": "semantic",
+        "fields": {
+          "session": "source-reread-census",
+          "track": "worker1",
+          "invocationId": "invocation1",
+          "line": "detail {\"fields\":{\"value\":[\"num\",7]},\"kind\":\"return\"}"
+        }
+      },
+      {
+        "sequence": 6,
+        "mode": "generated",
+        "kind": "semantic",
+        "fields": {
+          "session": "source-reread-census",
+          "track": "worker1",
+          "invocationId": "invocation1",
+          "line": "detail {\"fields\":{\"kind\":\"return\"},\"kind\":\"end\"}"
+        }
+      }
+    ]
+  },
+  "contexts": [
+    {
+      "schema": "semantic-context/8",
+      "representation": "mixed",
+      "profile": "compositional-regions/1",
+      "invocationId": "invocation1",
+      "programs": [
+        {
+          "id": "program1",
+          "program": {
+            "schema": "semantic-region-program/1",
+            "traceFormat": "semantic-trace/8",
+            "profile": "compositional-regions/1",
+            "source": "\"use strict\";function run(){return 7;}",
+            "entry": "run",
+            "sourceDigest": "c7c64085f8a6bb9264e040417e21dbb4ce20dba4066cad52e102b005185946be",
+            "regions": [
+              {
+                "id": "r0",
+                "owner": "run",
+                "kind": "compact",
+                "profile": "local-primitive-block/1",
+                "inputs": [],
+                "outputs": [],
+                "operations": [
+                  {
+                    "kind": "return",
+                    "term": {
+                      "op": "literal",
+                      "value": [
+                        "num",
+                        7
+                      ]
+                    }
+                  }
+                ],
+                "effects": {
+                  "reads": [],
+                  "writes": [],
+                  "calls": [],
+                  "mayThrow": true,
+                  "maySuspend": false,
+                  "allocates": false,
+                  "identityEscapes": false,
+                  "cleanup": false,
+                  "propertyAccess": false
+                },
+                "completion": "return",
+                "obligations": [],
+                "digest": "cc9ca6f443c7b3e1357cbe62ff415023b0827ff86a65945c304e5bac32d62825"
+              }
+            ],
+            "algorithm": {
+              "schema": "semantic-algorithm/2",
+              "profile": "ecmascript-pure-regions/1",
+              "inputs": [],
+              "steps": [
+                {
+                  "kind": "compute",
+                  "id": "v0",
+                  "term": {
+                    "op": "literal",
+                    "value": [
+                      "num",
+                      7
+                    ]
+                  }
+                },
+                {
+                  "kind": "return",
+                  "value": {
+                    "op": "ref",
+                    "id": "v0"
+                  }
+                }
+              ]
+            },
+            "definitionDigest": "cddec815913d3ea7d19632b3c1f11c2ad563b823eff7c980c6bcd44693ad92c1"
+          }
+        }
+      ],
+      "input": {
+        "graph": {
+          "objects": [],
+          "roots": []
+        }
+      },
+      "state": {
+        "heap": [],
+        "locals": [],
+        "stack": [
+          "invocation1"
+        ],
+        "effects": [],
+        "jobs": [],
+        "ready": [],
+        "randomState": null,
+        "pending": null,
+        "lastReturn": null,
+        "completion": null,
+        "receiver": [
+          "undefined"
+        ],
+        "captureAliases": [],
+        "continuations": [],
+        "reactionSequence": 0,
+        "blockedSync": null,
+        "callReturn": null,
+        "activeJob": null,
+        "scheduler": {
+          "registration": 0,
+          "ready": 0
+        },
+        "frameFunctions": [
+          [
+            "invocation1",
+            "run"
+          ]
+        ],
+        "jobErrors": [],
+        "protocol": null
+      },
+      "regionCursor": {
+        "active": null,
+        "consumed": []
+      },
+      "obligations": {
+        "intents": [],
+        "handlers": [],
+        "callbacks": [],
+        "closureQueue": []
+      },
+      "visibleThrough": 4,
+      "prefixDigest": "ab72a2c6324d554f036f25faa1ea5e9d4013e0947c0bc0ed8ca9a07594bd7c95"
+    },
+    {
+      "schema": "semantic-context/8",
+      "representation": "mixed",
+      "profile": "compositional-regions/1",
+      "invocationId": "invocation1",
+      "programs": [
+        {
+          "id": "program1",
+          "program": {
+            "schema": "semantic-region-program/1",
+            "traceFormat": "semantic-trace/8",
+            "profile": "compositional-regions/1",
+            "source": "\"use strict\";function run(){return 7;}",
+            "entry": "run",
+            "sourceDigest": "c7c64085f8a6bb9264e040417e21dbb4ce20dba4066cad52e102b005185946be",
+            "regions": [
+              {
+                "id": "r0",
+                "owner": "run",
+                "kind": "compact",
+                "profile": "local-primitive-block/1",
+                "inputs": [],
+                "outputs": [],
+                "operations": [
+                  {
+                    "kind": "return",
+                    "term": {
+                      "op": "literal",
+                      "value": [
+                        "num",
+                        7
+                      ]
+                    }
+                  }
+                ],
+                "effects": {
+                  "reads": [],
+                  "writes": [],
+                  "calls": [],
+                  "mayThrow": true,
+                  "maySuspend": false,
+                  "allocates": false,
+                  "identityEscapes": false,
+                  "cleanup": false,
+                  "propertyAccess": false
+                },
+                "completion": "return",
+                "obligations": [],
+                "digest": "cc9ca6f443c7b3e1357cbe62ff415023b0827ff86a65945c304e5bac32d62825"
+              }
+            ],
+            "algorithm": {
+              "schema": "semantic-algorithm/2",
+              "profile": "ecmascript-pure-regions/1",
+              "inputs": [],
+              "steps": [
+                {
+                  "kind": "compute",
+                  "id": "v0",
+                  "term": {
+                    "op": "literal",
+                    "value": [
+                      "num",
+                      7
+                    ]
+                  }
+                },
+                {
+                  "kind": "return",
+                  "value": {
+                    "op": "ref",
+                    "id": "v0"
+                  }
+                }
+              ]
+            },
+            "definitionDigest": "cddec815913d3ea7d19632b3c1f11c2ad563b823eff7c980c6bcd44693ad92c1"
+          }
+        }
+      ],
+      "input": {
+        "graph": {
+          "objects": [],
+          "roots": []
+        }
+      },
+      "state": {
+        "heap": [],
+        "locals": [],
+        "stack": [],
+        "effects": [],
+        "jobs": [],
+        "ready": [],
+        "randomState": null,
+        "pending": {
+          "kind": "return",
+          "value": [
+            "num",
+            7
+          ]
+        },
+        "lastReturn": null,
+        "completion": null,
+        "receiver": [
+          "undefined"
+        ],
+        "captureAliases": [],
+        "continuations": [],
+        "reactionSequence": 0,
+        "blockedSync": null,
+        "callReturn": null,
+        "activeJob": null,
+        "scheduler": {
+          "registration": 0,
+          "ready": 0
+        },
+        "frameFunctions": [
+          [
+            "invocation1",
+            "run"
+          ]
+        ],
+        "jobErrors": [],
+        "protocol": null
+      },
+      "regionCursor": {
+        "active": null,
+        "consumed": []
+      },
+      "obligations": {
+        "intents": [],
+        "handlers": [],
+        "callbacks": [],
+        "closureQueue": []
+      },
+      "visibleThrough": 5,
+      "prefixDigest": "58929987836b58a814233c766fa5b9fcd48bf59b01034545acde135fe7f018ff"
+    }
+  ]
+}

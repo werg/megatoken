@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import json
 import re
-from collections import Counter
+from collections import Counter, defaultdict
 from dataclasses import replace
 from pathlib import Path
 
@@ -21,6 +21,7 @@ from megatoken.io import write_json
 
 from .chunking import ChunkingConfig
 from .dedup import DedupConfig, DedupStore
+from .detailed_v8 import parse_record
 from .storage import export_prepared
 
 
@@ -169,7 +170,7 @@ def _native_admission(
 
 
 def semantic_behaviors_v8(episode):
-    """Derive the small stage coverage vocabulary from V8 public records."""
+    """Derive stage coverage only from source-bound V8 public records."""
     annotations = json.loads(episode.supervision.annotations_json)
     semantic = annotations.get("semantic_execution", {})
     if semantic.get("schema") != "semantic-execution/8":
@@ -178,23 +179,283 @@ def semantic_behaviors_v8(episode):
     if not isinstance(artifact, dict) or not isinstance(artifact.get("public"), dict):
         raise ValueError("V8 behavior census requires retained public records")
     rows = artifact["public"].get("timeline", [])
-    kinds = [row["kind"] for row in rows]
-    fields = [row["fields"] for row in rows]
+    if not isinstance(rows, list):
+        raise ValueError("V8 behavior census requires a public timeline")
+
+    program_rows = defaultdict(list)
+    invocation_rows = defaultdict(list)
+    generated = []
+    generated_rows = []
+    for row in rows:
+        if not isinstance(row, dict) or not isinstance(row.get("fields"), dict):
+            raise ValueError("V8 behavior census requires typed public rows")
+        kind, fields = row.get("kind"), row["fields"]
+        if kind == "program":
+            program_rows[fields.get("programId")].append((row, fields))
+        elif kind == "invocation":
+            invocation_rows[fields.get("invocationId")].append((row, fields))
+        if row.get("mode") == "generated":
+            generated_rows.append(row)
+        if kind == "semantic" and row.get("mode") == "generated":
+            line = fields.get("line")
+            # A V8 timeline can carry compact region, algorithm, or protocol
+            # records as well as detailed records. Only detailed records use
+            # this parser; other canonical families remain valid evidence but
+            # do not carry the await/request wire kinds counted below.
+            if not isinstance(line, str) or not line.startswith("detail "):
+                continue
+            try:
+                record_kind, record_fields = parse_record(line, role="generated")
+            except (TypeError, ValueError):
+                # Invalid source-admitted artifacts are rejected by admission;
+                # a noncanonical line cannot establish behavior coverage here.
+                continue
+            generated.append((row, record_kind, record_fields))
+
+    # Duplicate source or invocation identities are invalid for admitted V8
+    # data. Ignore them here as an additional fail-closed guard when this
+    # helper is called independently of prepared-corpus validation.
+    programs = {
+        identity: rows_for_program[0]
+        for identity, rows_for_program in program_rows.items()
+        if isinstance(identity, str) and len(rows_for_program) == 1
+    }
+    invocations = {
+        identity: invocation_rows_for_id[0]
+        for identity, invocation_rows_for_id in invocation_rows.items()
+        if isinstance(identity, str) and len(invocation_rows_for_id) == 1
+    }
+
+    # Admission checks the complete source, context and native replay. The
+    # census still binds each behavior to the exact published source and call
+    # identity so that a detached row cannot establish coverage on its own.
+    def sequence(row):
+        value = row.get("sequence")
+        return value if type(value) is int and value > 0 else None
+
+    def track(fields):
+        value = fields.get("track")
+        return value if isinstance(value, str) and value else None
+
+    def session(fields):
+        value = fields.get("session")
+        return value if isinstance(value, str) and value else None
+
+    source_bound_programs = {}
+    for identity, (row, fields) in programs.items():
+        if (
+            row.get("mode") == "observed"
+            and sequence(row) is not None
+            and session(fields) is not None
+            and isinstance(fields.get("source"), str)
+            and isinstance(fields.get("digest"), str)
+            and stable_algorithm_hash(fields["source"]) == fields["digest"]
+        ):
+            source_bound_programs[identity] = (row, fields)
+    bound_invocations = {}
+    for identity, (row, fields) in invocations.items():
+        program_pair = source_bound_programs.get(fields.get("programId"))
+        if program_pair is None:
+            continue
+        program_row, program = program_pair
+        if (
+            row.get("mode") == "observed"
+            and sequence(row) is not None
+            and sequence(program_row) < sequence(row)
+            and session(row["fields"]) is not None
+            and session(row["fields"]) == session(program)
+            and track(row["fields"]) is not None
+            and fields.get("sourceDigest") == program.get("digest")
+        ):
+            bound_invocations[identity] = (row, fields)
+
     behaviors = {"semantic_v8"}
-    if "program" in kinds and "invocation" in kinds:
+    if programs and bound_invocations:
         behaviors.add("semantic_code_invocation")
-    if "request" in kinds:
-        behaviors.add("semantic_tool_feedback")
-    if "await" in kinds or "resume" in kinds:
-        behaviors.add("semantic_async")
-    if any(row.get("activation") == "callback" for row in fields):
+
+    # Repeated invocation means separate root calls to the same immutable
+    # program. Callback activations and child calls have their own coverage
+    # labels and cannot inflate this count.
+    root_calls = defaultdict(set)
+    for identity, (row, fields) in bound_invocations.items():
+        if fields.get("activation") == "call" and fields.get("parentInvocationId") is None:
+            root_calls[
+                (
+                    session(row["fields"]),
+                    fields.get("programId"),
+                    fields.get("sourceDigest"),
+                )
+            ].add(identity)
+    if any(len(identities) > 1 for identities in root_calls.values()):
+        behaviors.add("semantic_repeated_invocation")
+
+    # `parentInvocationId` describes the JavaScript call tree, not task
+    # orchestration. The production child requirement stays absent here until
+    # its create, join, and completion receipts are persisted with these rows.
+
+    # V8's generated operations are typed detail records inside `semantic`
+    # rows. Match await/resume by their continuation and invocation identities
+    # rather than looking for top-level envelope kinds that V8 never emits.
+    awaits = {}
+    for row, kind, fields in generated:
+        invocation_id = row["fields"].get("invocationId")
+        bound = bound_invocations.get(invocation_id)
+        if bound is None:
+            continue
+        invocation_row, _ = bound
+        if (
+            row.get("mode") != "generated"
+            or session(row["fields"]) != session(invocation_row["fields"])
+            or track(row["fields"]) != track(invocation_row["fields"])
+            or fields.get("invocation") != invocation_id
+            or sequence(row) is None
+            or sequence(row) <= sequence(invocation_row)
+        ):
+            continue
+        if kind == "await":
+            awaits[
+                (track(row["fields"]), invocation_id, fields.get("continuation"))
+            ] = row
+        elif kind == "resume":
+            key = (track(row["fields"]), invocation_id, fields.get("continuation"))
+            prior = awaits.get(key)
+            if prior is not None and sequence(prior) < sequence(row):
+                behaviors.add("semantic_async")
+
+    # Tool feedback needs the generated request, its exact observed result,
+    # then more generated work on the same invocation and track.
+    for request_row, kind, fields in generated:
+        if kind != "request":
+            continue
+        effect_id = fields.get("effect")
+        invocation_id = fields.get("invocation")
+        bound = bound_invocations.get(invocation_id)
+        if bound is None:
+            continue
+        invocation_row, _ = bound
+        request_track = track(request_row["fields"])
+        request_sequence = sequence(request_row)
+        if (
+            not isinstance(effect_id, str)
+            or not isinstance(invocation_id, str)
+            or request_row["fields"].get("invocationId") != invocation_id
+            or request_row.get("mode") != "generated"
+            or session(request_row["fields"]) != session(invocation_row["fields"])
+            or request_track != track(invocation_row["fields"])
+            or request_sequence is None
+            or request_sequence <= sequence(invocation_row)
+        ):
+            continue
+        result_rows = [
+            row
+            for row in rows
+            if row.get("kind") == "result"
+            and row.get("mode") == "observed"
+            and session(row.get("fields", {})) == session(invocation_row["fields"])
+            and track(row.get("fields", {})) == request_track
+            and sequence(row) is not None
+            and sequence(row) > request_sequence
+            and row.get("fields", {}).get("effectId") == effect_id
+            and row.get("fields", {}).get("invocationId") == invocation_id
+        ]
+        if any(
+            generated_row.get("mode") == "generated"
+            and session(generated_row.get("fields", {})) == session(invocation_row["fields"])
+            and track(generated_row.get("fields", {})) == request_track
+            and sequence(generated_row) is not None
+            and sequence(generated_row) > sequence(result_row)
+            and generated_row.get("fields", {}).get("invocationId") == invocation_id
+            for result_row in result_rows
+            for generated_row in generated_rows
+        ):
+            behaviors.add("semantic_tool_feedback")
+            break
+
+    if any(fields.get("activation") == "callback" for _, fields in bound_invocations.values()):
         behaviors.add("semantic_callback")
-    if any(row.get("activation") == "module-init" for row in fields):
+    if any(
+        fields.get("activation") == "module-init"
+        and source_bound_programs.get(fields.get("programId"), {}).get("module") is True
+        for _, fields in bound_invocations.values()
+    ):
         behaviors.add("semantic_initialization")
-    if "cancel" in kinds:
+    if any(
+        row.get("mode") == "observed"
+        and row["kind"] == "cancel"
+        and row["fields"].get("invocationId") in bound_invocations
+        and session(row["fields"])
+        == session(bound_invocations[row["fields"]["invocationId"]][0]["fields"])
+        for row in rows
+    ):
         behaviors.add("semantic_cancel")
-    if "reconcile" in kinds or "callback-reattach" in kinds:
+    if any(
+        row.get("mode") == "observed"
+        and row["kind"] == "reconcile"
+        and row["fields"].get("invocationId") in bound_invocations
+        and session(row["fields"])
+        == session(bound_invocations[row["fields"]["invocationId"]][0]["fields"])
+        or row.get("mode") == "observed"
+        and row["kind"] == "callback-reattach"
+        and any(
+            session(row["fields"]) == session(invocation[0]["fields"])
+            for invocation in bound_invocations.values()
+        )
+        for row in rows
+    ):
         behaviors.add("semantic_recovery")
+
+    # A checked reread is an observed eviction/read pair for one already
+    # invoked source on the same track. Both digest and exact source bytes must
+    # match the immutable program publication. Unpaired, cross-track, or
+    # substituted reads are not coverage evidence.
+    invoked_tracks = defaultdict(list)
+    for row, fields in bound_invocations.values():
+        invoked_tracks[
+            (
+                session(row["fields"]),
+                track(row["fields"]),
+                fields.get("programId"),
+                fields.get("sourceDigest"),
+            )
+        ].append(sequence(row))
+    evicted = {}
+    for row in rows:
+        kind, fields = row["kind"], row["fields"]
+        if kind not in {"source-evict", "source-read"}:
+            continue
+        program_pair = source_bound_programs.get(fields.get("programId"))
+        if program_pair is None:
+            continue
+        program_row, program = program_pair
+        row_sequence = sequence(row)
+        key = (
+            fields.get("session"),
+            track(fields),
+            fields.get("programId"),
+            fields.get("digest"),
+        )
+        if (
+            row.get("mode") != "observed"
+            or row_sequence is None
+            or row_sequence <= sequence(program_row)
+            or fields.get("digest") != program.get("digest")
+            or stable_algorithm_hash(program.get("source")) != program.get("digest")
+            or not any(
+                invoked_sequence < row_sequence
+                for invoked_sequence in invoked_tracks.get(key, ())
+            )
+        ):
+            continue
+        if kind == "source-evict":
+            evicted[key] = row_sequence
+        elif (
+            key in evicted
+            and evicted[key] < row_sequence
+            and fields.get("source") == program.get("source")
+        ):
+            behaviors.add("semantic_source_reread")
+            del evicted[key]
+
     return behaviors
 
 
