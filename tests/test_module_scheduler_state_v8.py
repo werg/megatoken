@@ -71,7 +71,11 @@ def _await_facts(file, frame, execution, promise, status="pending", job=None):
 
 
 def _complete(plan, state, file, n):
-    frame, promise, job = f"f{n}", f"p{n}", f"j{n}"
+    frame, promise, job = (
+        f"f{n}",
+        f"p{n}" if next(row for row in plan["modules"] if row["file"] == file)["hasTLA"] else None,
+        f"j{n}",
+    )
     state = apply_module_scheduler_action_v8(
         plan,
         state,
@@ -89,7 +93,15 @@ def _complete(plan, state, file, n):
             "jobId": job,
         },
         {
-            "frames": {},
+            "frames": {
+                frame: {
+                    "id": frame,
+                    "moduleFile": file,
+                    "executionPromiseId": promise,
+                    "status": "completed",
+                    "completion": {"type": "return", "value": None},
+                }
+            },
             "promises": {promise: {"id": promise, "status": "fulfilled", "value": None}},
             "jobs": {
                 job: {
@@ -97,7 +109,9 @@ def _complete(plan, state, file, n):
                     "promiseId": promise,
                     "frameId": frame,
                     "status": "fulfilled",
-                    "kind": "module-execution-settle",
+                    "kind": "module-execution-settle"
+                    if promise is not None
+                    else "module-synchronous-complete",
                     "moduleFile": file,
                     "value": None,
                 }
@@ -326,7 +340,7 @@ def test_plan_rejects_cycle_and_tampered_digest():
 def test_early_and_duplicate_completion_are_refused_without_mutation():
     plan = build_module_scheduler_plan_v8(META)
     initial = create_module_scheduler_state_v8(plan)
-    frame, execution, job = "shared-frame", "shared-exec", "shared-job"
+    frame, execution, job = "shared-frame", None, "shared-job"
     pending = _facts("shared.js", frame, execution)
     with pytest.raises(ValueError, match="module settlement"):
         apply_module_scheduler_action_v8(

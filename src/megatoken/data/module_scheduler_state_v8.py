@@ -1,4 +1,4 @@
-"""Experimental async module DAG state validator; not wired to admission."""
+"""Source-bound async module DAG state; public/data admission is a separate gate."""
 
 from __future__ import annotations
 
@@ -217,8 +217,7 @@ def _verify_state(plan, state):
                     "completedDependencies",
                 },
             )
-            or row.get("status")
-            not in {"waiting", "running", "suspended", "fulfilled", "rejected", "failed-await"}
+            or row.get("status") not in {"waiting", "running", "suspended", "fulfilled", "rejected"}
             or not isinstance(row.get("completedDependencies"), list)
             or len(set(row["completedDependencies"])) != len(row["completedDependencies"])
             or any(file not in module["dependencies"] for file in row["completedDependencies"])
@@ -234,13 +233,21 @@ def _verify_state(plan, state):
                 or row["startOrder"] < 0
                 or row["startOrder"] >= state["nextStartOrder"]
                 or not _id(row["frameId"])
-                or not _id(row["executionPromiseId"])
+                or (
+                    not _id(row["executionPromiseId"])
+                    if module["hasTLA"]
+                    else row["executionPromiseId"] is not None
+                )
                 or row["frameId"] in frames
-                or row["executionPromiseId"] in executions
+                or (
+                    row["executionPromiseId"] is not None
+                    and row["executionPromiseId"] in executions
+                )
             ):
                 _fail("module identity state")
             frames.add(row["frameId"])
-            executions.add(row["executionPromiseId"])
+            if row["executionPromiseId"] is not None:
+                executions.add(row["executionPromiseId"])
             orders.append(row["startOrder"])
         elif row["frameId"] is not None or row["executionPromiseId"] is not None:
             _fail("unstarted identity")
@@ -268,17 +275,6 @@ def _verify_state(plan, state):
             or row["failure"] is not None
         ):
             _fail("suspended module state")
-        if row["status"] == "failed-await" and (
-            not started
-            or row["pendingDependencies"] != 0
-            or row["awaited"] is not None
-            or not _exact(row["failure"], {"moduleFile", "promiseId", "jobId"})
-            or row["failure"]["moduleFile"] != module["file"]
-            or not _id(row["failure"]["promiseId"])
-            or not _id(row["failure"]["jobId"])
-            or row["completionJobId"] is not None
-        ):
-            _fail("failed await state")
         if row["status"] == "fulfilled" and (
             not started
             or row["pendingDependencies"] != 0
@@ -291,7 +287,13 @@ def _verify_state(plan, state):
             row["awaited"] is not None
             or not _exact(row["failure"], {"moduleFile", "promiseId", "jobId"})
             or row["failure"]["moduleFile"] not in {item["file"] for item in plan["modules"]}
-            or not _id(row["failure"]["promiseId"])
+            or (
+                not _id(row["failure"]["promiseId"])
+                if next(
+                    item for item in plan["modules"] if item["file"] == row["failure"]["moduleFile"]
+                )["hasTLA"]
+                else row["failure"]["promiseId"] is not None
+            )
             or not _id(row["failure"]["jobId"])
             or not _id(row["completionJobId"])
             or row["completionJobId"] != row["failure"]["jobId"]
@@ -386,7 +388,11 @@ def apply_module_scheduler_action_v8(plan, state, action, facts=None):
             or row["status"] != "waiting"
             or row["pendingDependencies"] != 0
             or not _id(action["frameId"])
-            or not _id(action["executionPromiseId"])
+            or (
+                not _id(action["executionPromiseId"])
+                if source["hasTLA"]
+                else action["executionPromiseId"] is not None
+            )
         ):
             _fail("module start")
         if any(
@@ -402,12 +408,20 @@ def apply_module_scheduler_action_v8(plan, state, action, facts=None):
             or frame.get("executionPromiseId") != action["executionPromiseId"]
             or any(
                 item["frameId"] == action["frameId"]
-                or item["executionPromiseId"] == action["executionPromiseId"]
+                or (
+                    action["executionPromiseId"] is not None
+                    and item["executionPromiseId"] == action["executionPromiseId"]
+                )
                 for item in next_state["modules"].values()
             )
-            or not isinstance(promise, Mapping)
-            or promise.get("id") != action["executionPromiseId"]
-            or promise.get("status") != "pending"
+            or (
+                source["hasTLA"]
+                and (
+                    not isinstance(promise, Mapping)
+                    or promise.get("id") != action["executionPromiseId"]
+                    or promise.get("status") != "pending"
+                )
+            )
         ):
             _fail("module execution frame/promise identity")
         row.update(
@@ -441,9 +455,9 @@ def apply_module_scheduler_action_v8(plan, state, action, facts=None):
         if (
             not isinstance(promise, Mapping)
             or promise.get("id") != action["promiseId"]
-            or promise.get("status") != "pending"
+            or promise.get("status") not in {"pending", "fulfilled", "rejected"}
         ):
-            _fail("expected existing pending promise")
+            _fail("expected existing await promise")
         row["awaited"] = {"promiseId": action["promiseId"]}
         row["status"] = "suspended"
     elif kind == "module.resume":
@@ -471,27 +485,15 @@ def apply_module_scheduler_action_v8(plan, state, action, facts=None):
             "rejected",
         }:
             _fail("awaited promise is unsettled")
-        promise, job = _settled_job(facts, action, promise["status"])
-        if promise["status"] == "rejected":
-            row["status"] = "failed-await"
-            row["failure"] = {
-                "moduleFile": action["file"],
-                "promiseId": promise["id"],
-                "jobId": job["id"],
-            }
-        else:
-            if (
-                "value" not in promise
-                or "value" not in job
-                or _canonical(promise["value"]) != _canonical(job["value"])
-            ):
-                _fail("promise/job outcome mismatch")
-            row["status"] = "running"
+        _settled_job(facts, action, promise["status"])
+        # Rejection resumes the module body with a throw. A catch/finally may
+        # handle it; only the execution completion establishes module failure.
+        row["status"] = "running"
         row["awaited"] = None
     elif kind in {"module.complete", "module.reject"}:
         if (
             not _exact(action, {"type", "file", "frameId", "promiseId", "jobId"})
-            or row["status"] not in {"running", "suspended", "failed-await"}
+            or row["status"] not in {"running", "suspended"}
             or row["frameId"] != action["frameId"]
             or row["executionPromiseId"] != action["promiseId"]
             or not _id(action["jobId"])
@@ -500,13 +502,38 @@ def apply_module_scheduler_action_v8(plan, state, action, facts=None):
         if row["status"] == "suspended":
             _fail("cannot settle with unresolved await")
         rejecting = kind == "module.reject"
-        if row["status"] == "failed-await" and not rejecting:
-            _fail("failed await cannot complete successfully")
-        promise, job = _settled_job(facts, action, "rejected" if rejecting else "fulfilled")
+        status = "rejected" if rejecting else "fulfilled"
+        if source["hasTLA"]:
+            promise, job = _settled_job(facts, action, status)
+        else:
+            job = facts.get("jobs", {}).get(action["jobId"])
+            frame = facts.get("frames", {}).get(action["frameId"])
+            if (
+                not isinstance(job, Mapping)
+                or job.get("id") != action["jobId"]
+                or job.get("promiseId") is not None
+                or job.get("frameId") != action["frameId"]
+                or job.get("status") != status
+                or "value" not in job
+                or not isinstance(frame, Mapping)
+                or frame.get("id") != action["frameId"]
+                or frame.get("moduleFile") != action["file"]
+                or frame.get("executionPromiseId") is not None
+                or frame.get("status") != "completed"
+                or not isinstance(frame.get("completion"), Mapping)
+                or frame["completion"].get("type") != ("throw" if rejecting else "return")
+                or _canonical(frame["completion"].get("value")) != _canonical(job["value"])
+            ):
+                _fail("synchronous completion authority")
+            promise = {"id": None, "value": job["value"]}
         row["status"] = "rejected" if rejecting else "fulfilled"
         row["awaited"] = None
         row["completionJobId"] = job["id"]
-        expected_kind = "module-evaluation-failure" if rejecting else "module-execution-settle"
+        expected_kind = (
+            ("module-evaluation-failure" if rejecting else "module-execution-settle")
+            if source["hasTLA"]
+            else ("module-synchronous-failure" if rejecting else "module-synchronous-complete")
+        )
         if (
             job.get("kind") != expected_kind
             or job.get("moduleFile") != action["file"]
@@ -531,32 +558,37 @@ def apply_module_scheduler_action_v8(plan, state, action, facts=None):
             != action["promiseId"]
             or next_state["modules"][action["dependencyFile"]]["failure"]["jobId"]
             != action["jobId"]
-            or not _id(action["promiseId"])
+            or (action["promiseId"] is not None and not _id(action["promiseId"]))
             or not _id(action["jobId"])
         ):
             _fail("dependency failure propagation")
         promise = facts.get("promises", {}).get(action["promiseId"])
         job = facts.get("jobs", {}).get(action["jobId"])
+        root_file = next_state["modules"][action["dependencyFile"]]["failure"]["moduleFile"]
+        asynchronous = next(item for item in plan["modules"] if item["file"] == root_file)["hasTLA"]
         if (
-            not isinstance(promise, Mapping)
-            or promise.get("id") != action["promiseId"]
-            or promise.get("status") != "rejected"
+            asynchronous
+            and (
+                not isinstance(promise, Mapping)
+                or promise.get("id") != action["promiseId"]
+                or promise.get("status") != "rejected"
+            )
             or not isinstance(job, Mapping)
             or job.get("id") != action["jobId"]
             or job.get("promiseId") != action["promiseId"]
             or job.get("status") != "rejected"
-            or job.get("kind") != "module-evaluation-failure"
-            or job.get("moduleFile")
-            != next_state["modules"][action["dependencyFile"]]["failure"]["moduleFile"]
-            or "value" not in promise
+            or job.get("kind")
+            != ("module-evaluation-failure" if asynchronous else "module-synchronous-failure")
+            or job.get("moduleFile") != root_file
             or "value" not in job
-            or _canonical(promise["value"]) != _canonical(job["value"])
+            or asynchronous
+            and ("value" not in promise or _canonical(promise["value"]) != _canonical(job["value"]))
         ):
             _fail("dependency propagation job identity")
         row["status"] = "rejected"
         row["failure"] = {
             "moduleFile": next_state["modules"][action["dependencyFile"]]["failure"]["moduleFile"],
-            "promiseId": promise["id"],
+            "promiseId": action["promiseId"],
             "jobId": job["id"],
         }
         row["completionJobId"] = job["id"]
