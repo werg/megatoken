@@ -7,6 +7,7 @@ claim.
 
 from __future__ import annotations
 
+import hashlib
 import json
 import os
 import subprocess
@@ -15,6 +16,7 @@ from pathlib import Path
 
 from megatoken.data import PreparedDataset, WindowConfig, iter_windows
 from megatoken.data.protocol_v8 import ProtocolV8Error, decode_protocol_record
+from megatoken.data.semantic_json import stable_algorithm_hash
 from megatoken.generation.codec import LING_TOKENIZER_SHA256, ByteCodec
 
 
@@ -84,7 +86,10 @@ def test_actual_namespace_artifact_is_source_rechecked_and_packed(tmp_path):
         timeout=300,
     )
 
-    report = json.loads((prepared_path / "semantic-v8-report.json").read_text())
+    report_path = prepared_path / "semantic-v8-report.json"
+    report_bytes = report_path.read_bytes()
+    report_text = report_bytes.decode("utf-8")
+    report = json.loads(report_text)
     assert report["counts"]["attempted"] == 1
     assert report["counts"]["admitted"] == 1
     assert report["counts"].get("refused", 0) == 0
@@ -108,6 +113,10 @@ def test_actual_namespace_artifact_is_source_rechecked_and_packed(tmp_path):
     assert semantic["nativeTrainingDigest"]
     assert semantic["tokenizerEvidence"]["sha256"] == LING_TOKENIZER_SHA256
 
+    manifest_path = prepared_path / "manifest.json"
+    manifest_bytes = manifest_path.read_bytes()
+    manifest_text = manifest_bytes.decode("utf-8")
+    manifest = json.loads(manifest_text)
     codec = ByteCodec.from_tokenizer_json(tokenizer, expected_sha256=LING_TOKENIZER_SHA256)
     required_kinds = {
         "namespace.create",
@@ -117,10 +126,11 @@ def test_actual_namespace_artifact_is_source_rechecked_and_packed(tmp_path):
         "namespace.read",
         "namespace.descriptor",
     }
-    packed_targets = {}
-    for window in iter_windows(
-        episode, codec, WindowConfig(max_window_tokens=8192, max_decisions=4)
-    ):
+    packed_targets = {kind: [] for kind in required_kinds}
+    windows = tuple(
+        iter_windows(episode, codec, WindowConfig(max_window_tokens=8192, max_decisions=4))
+    )
+    for window in windows:
         for encoded in window.records:
             record = encoded.record
             if record.role != "assistant" or not record.policy_mask:
@@ -134,5 +144,65 @@ def test_actual_namespace_artifact_is_source_rechecked_and_packed(tmp_path):
             assert encoded.token_ids
             assert len(encoded.token_ids) == len(encoded.free_mask)
             assert encoded.P > 0
-            packed_targets[protocol_record["kind"]] = encoded
-    assert set(packed_targets) == required_kinds
+            packed_targets[protocol_record["kind"]].append(encoded)
+    assert all(packed_targets[kind] for kind in required_kinds)
+
+    packed_target_evidence = {}
+    for kind, encoded_rows in sorted(packed_targets.items()):
+        encoded_identity = [
+            {
+                "recordId": row.record.record_id,
+                "tokenIds": list(row.token_ids),
+                "freeMask": list(row.free_mask),
+            }
+            for row in encoded_rows
+        ]
+        packed_target_evidence[kind] = {
+            "targetRecords": len(encoded_rows),
+            "tokenIds": sum(len(row.token_ids) for row in encoded_rows),
+            "scoredPositions": sum(row.P for row in encoded_rows),
+            "tokenAndMaskDigest": hashlib.sha256(
+                json.dumps(encoded_identity, sort_keys=True, separators=(",", ":")).encode(
+                    "utf-8"
+                )
+            ).hexdigest(),
+        }
+
+    source_identity = artifact["sidecar"]["splitIdentity"]
+    binding = artifact["sidecar"]["datasetBinding"]
+    evidence = {
+        "schema": "semantic-v8-namespace-artifact-pack-evidence/1",
+        "sourceArtifactSha256": hashlib.sha256(artifact_path.read_bytes()).hexdigest(),
+        "sourceFamily": source_identity["family"],
+        "sourceId": source_identity["sourceId"],
+        "sourceDigest": source_identity["sourceDigest"],
+        "sourceComponentId": source_identity["componentId"],
+        "split": source_identity["split"],
+        "registryDigest": source_identity["registryDigest"],
+        "datasetBinding": binding,
+        "datasetBindingDigest": stable_algorithm_hash(binding),
+        "publicDigest": binding["episodeDigest"],
+        "contextsDigest": binding["contextsDigest"],
+        "sourceArtifactDigest": binding["sourceArtifactDigest"],
+        "sourceAdmission": semantic["sourceAdmission"],
+        "nativeAdmission": semantic["nativeAdmission"],
+        "tokenizerEvidence": semantic["tokenizerEvidence"],
+        "preparedSemanticV8ReportRaw": report_text,
+        "preparedSemanticV8ReportSha256": hashlib.sha256(report_bytes).hexdigest(),
+        "preparedSemanticV8Report": report,
+        "preparedManifestRaw": manifest_text,
+        "preparedManifestSha256": hashlib.sha256(manifest_bytes).hexdigest(),
+        "preparedManifestFingerprint": manifest["fingerprint"],
+        "preparedCodecFingerprint": manifest["codec_fingerprint"],
+        "producerRevision": semantic["sourceAdmission"]["producerRevision"],
+        "consumerRevision": semantic["nativeAdmission"]["consumerRevision"],
+        "preparedManifest": manifest,
+        "packedWindowCount": len(windows),
+        "packedTargetsByKind": packed_target_evidence,
+        "optimizerSteps": 0,
+        "learnedSuccess": None,
+    }
+    print(
+        "NAMESPACE_ARTIFACT_PACK_EVIDENCE_JSON "
+        + json.dumps(evidence, sort_keys=True, separators=(",", ":"))
+    )
