@@ -1,0 +1,10 @@
+<?xml version="1.0" encoding="utf-8"?><testsuites name="pytest tests"><testsuite name="pytest" errors="0" failures="1" skipped="0" tests="1" time="0.641" timestamp="2026-11-22T18:27:34.581294+01:00" hostname="07bf85b14210"><testcase classname="tests.test_semantic_v8_late_callback" name="test_actual_journalled_callback_can_continue_after_root_checkpoint" time="0.002"><failure message="KeyError: 'event'">def test_actual_journalled_callback_can_continue_after_root_checkpoint():
+        document = original_listener()
+        assert document["reference"] == {"registrations": 1, "root": 1, "callback": 5}
+        assert document["registrations"] == 1
+        assert document["rootPublic"]["timeline"] == document["admissionPublic"]["timeline"][:-2]
+&gt;       assert document["ingressRecords"][-1]["event"]["eventId"] == "after-checkpoint"
+               ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+E       KeyError: 'event'
+
+tests/test_semantic_v8_late_callback.py:103: KeyError</failure></testcase></testsuite></testsuites>

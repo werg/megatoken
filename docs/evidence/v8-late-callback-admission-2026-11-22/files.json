@@ -1,0 +1,22 @@
+{
+  "README.md": {
+    "bytes": 1780,
+    "sha256": "3bef0769cc4090c137cf49cb3e2b0ee8b9dc5fe66bc2d82ec2c4b0b66de0f891"
+  },
+  "native-red-setup.log": {
+    "bytes": 1029,
+    "sha256": "e784cb115460f02c3be5db24ae3f8f5d0a6baeb95b164d0a4e0ebfd144fb5b85"
+  },
+  "native-red-setup.xml": {
+    "bytes": 1022,
+    "sha256": "16f1612602e79e573000f5c7bbb1333bb5955b7c11d63c23bf7a1a1076071975"
+  },
+  "native-red.log": {
+    "bytes": 2748,
+    "sha256": "70bffe188a8273ba22f3211129bd7407d38ddeb028420c871ec5e711f1040c95"
+  },
+  "native-red.xml": {
+    "bytes": 2852,
+    "sha256": "d69c04b7a6d163d17c5f93bce1d1dc3cf290bf53200f617d0f1af7403fcaaa49"
+  }
+}

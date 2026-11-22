@@ -1,0 +1,411 @@
+{
+  "baseline": "2062414631c16749815895a472ddfdb67f5b869d",
+  "current": "33031866fc7e2d20156a454064aeafd4ef79ccf3",
+  "candidate": "017ecb86457834a7757ef502abc4663e292c864f",
+  "files": [
+    {
+      "path": "docs/evidence/v8-late-callback-admission-2026-11-22/README.md",
+      "baseline": null,
+      "current": null,
+      "candidate": {
+        "sha": "b3b6567efe0a307c69e1c6547d354fbb5d6819eb",
+        "mode": "100644"
+      },
+      "overlap": false,
+      "result": {
+        "sha": "b3b6567efe0a307c69e1c6547d354fbb5d6819eb",
+        "sha256": "3bef0769cc4090c137cf49cb3e2b0ee8b9dc5fe66bc2d82ec2c4b0b66de0f891",
+        "bytes": 1780
+      }
+    },
+    {
+      "path": "docs/evidence/v8-late-callback-admission-2026-11-22/files.json",
+      "baseline": null,
+      "current": null,
+      "candidate": {
+        "sha": "eea2a86413bd7dee2661e97402ee54f2837a383c",
+        "mode": "100644"
+      },
+      "overlap": false,
+      "result": {
+        "sha": "eea2a86413bd7dee2661e97402ee54f2837a383c",
+        "sha256": "b1fd5c9a91bb5763aa150457ba2da211b6b133651283d957908cb4a48aebcb5b",
+        "bytes": 645
+      }
+    },
+    {
+      "path": "docs/evidence/v8-late-callback-admission-2026-11-22/native-red-setup.log",
+      "baseline": null,
+      "current": null,
+      "candidate": {
+        "sha": "61afb2d0a40eededf69b4ab61f88e50e02f7da4b",
+        "mode": "100644"
+      },
+      "overlap": false,
+      "result": {
+        "sha": "61afb2d0a40eededf69b4ab61f88e50e02f7da4b",
+        "sha256": "e784cb115460f02c3be5db24ae3f8f5d0a6baeb95b164d0a4e0ebfd144fb5b85",
+        "bytes": 1029
+      }
+    },
+    {
+      "path": "docs/evidence/v8-late-callback-admission-2026-11-22/native-red-setup.xml",
+      "baseline": null,
+      "current": null,
+      "candidate": {
+        "sha": "2ff48bc27a0939171ee9e921ae222337349ebf58",
+        "mode": "100644"
+      },
+      "overlap": false,
+      "result": {
+        "sha": "2ff48bc27a0939171ee9e921ae222337349ebf58",
+        "sha256": "16f1612602e79e573000f5c7bbb1333bb5955b7c11d63c23bf7a1a1076071975",
+        "bytes": 1022
+      }
+    },
+    {
+      "path": "docs/evidence/v8-late-callback-admission-2026-11-22/native-red.log",
+      "baseline": null,
+      "current": null,
+      "candidate": {
+        "sha": "ae8616d00092d7282333a5c4b753dadd602017fa",
+        "mode": "100644"
+      },
+      "overlap": false,
+      "result": {
+        "sha": "ae8616d00092d7282333a5c4b753dadd602017fa",
+        "sha256": "70bffe188a8273ba22f3211129bd7407d38ddeb028420c871ec5e711f1040c95",
+        "bytes": 2748
+      }
+    },
+    {
+      "path": "docs/evidence/v8-late-callback-admission-2026-11-22/native-red.xml",
+      "baseline": null,
+      "current": null,
+      "candidate": {
+        "sha": "776199287fe000fbd3192af6332730c692e6ae5a",
+        "mode": "100644"
+      },
+      "overlap": false,
+      "result": {
+        "sha": "776199287fe000fbd3192af6332730c692e6ae5a",
+        "sha256": "d69c04b7a6d163d17c5f93bce1d1dc3cf290bf53200f617d0f1af7403fcaaa49",
+        "bytes": 2852
+      }
+    },
+    {
+      "path": "docs/evidence/v8-late-callback-native-2026-11-22/README.md",
+      "baseline": null,
+      "current": null,
+      "candidate": {
+        "sha": "5ecef3e146125d82857493793f0c6071259ed605",
+        "mode": "100644"
+      },
+      "overlap": false,
+      "result": {
+        "sha": "5ecef3e146125d82857493793f0c6071259ed605",
+        "sha256": "d71f500bd1d1b929886d481cd7c48c133d36eb16e5c807346c9da644f9637cc7",
+        "bytes": 2450
+      }
+    },
+    {
+      "path": "docs/evidence/v8-late-callback-native-2026-11-22/files.json",
+      "baseline": null,
+      "current": null,
+      "candidate": {
+        "sha": "6a9e55e5655d44ab7663b5cb121248826a993f90",
+        "mode": "100644"
+      },
+      "overlap": false,
+      "result": {
+        "sha": "6a9e55e5655d44ab7663b5cb121248826a993f90",
+        "sha256": "9fe3b7524f108812211acf6b3ed52b12919a0d031c9e8673a13c563f1c0d10ac",
+        "bytes": 1506
+      }
+    },
+    {
+      "path": "docs/evidence/v8-late-callback-native-2026-11-22/native-admission-first.log",
+      "baseline": null,
+      "current": null,
+      "candidate": {
+        "sha": "adae803efd401056c265039b855dfa8c5405ccf1",
+        "mode": "100644"
+      },
+      "overlap": false,
+      "result": {
+        "sha": "adae803efd401056c265039b855dfa8c5405ccf1",
+        "sha256": "bc3a198ba9c843c5842a8ae960cecfae0384491c86a74886dd90388fdd5680cf",
+        "bytes": 8344
+      }
+    },
+    {
+      "path": "docs/evidence/v8-late-callback-native-2026-11-22/native-admission-first.xml",
+      "baseline": null,
+      "current": null,
+      "candidate": {
+        "sha": "533625bbdbd967d6e02332941327ba79989f48d1",
+        "mode": "100644"
+      },
+      "overlap": false,
+      "result": {
+        "sha": "533625bbdbd967d6e02332941327ba79989f48d1",
+        "sha256": "ba3ad8ff24b6cb51582da38dc402a607838ffb25962274735719f6ec2802db5d",
+        "bytes": 8967
+      }
+    },
+    {
+      "path": "docs/evidence/v8-late-callback-native-2026-11-22/native-admission-second.log",
+      "baseline": null,
+      "current": null,
+      "candidate": {
+        "sha": "57df97af2b6052f21046672c2e68c147f7143176",
+        "mode": "100644"
+      },
+      "overlap": false,
+      "result": {
+        "sha": "57df97af2b6052f21046672c2e68c147f7143176",
+        "sha256": "3efe7626c39e83e4ae1534617f485036d01cfb171f9199e29286df8c42c903e7",
+        "bytes": 129
+      }
+    },
+    {
+      "path": "docs/evidence/v8-late-callback-native-2026-11-22/native-admission-second.xml",
+      "baseline": null,
+      "current": null,
+      "candidate": {
+        "sha": "45fc0d7eca0408112b3382a25a84d0ea38aade72",
+        "mode": "100644"
+      },
+      "overlap": false,
+      "result": {
+        "sha": "45fc0d7eca0408112b3382a25a84d0ea38aade72",
+        "sha256": "b7f7270c0f931d8818449e4dd619d920ceb18d5cccbb58bf8c05921c4dd62942",
+        "bytes": 1377
+      }
+    },
+    {
+      "path": "docs/evidence/v8-late-callback-native-2026-11-22/native-existing-regression.log",
+      "baseline": null,
+      "current": null,
+      "candidate": {
+        "sha": "1e31eadce414c681d9abe25bc6ff684951393755",
+        "mode": "100644"
+      },
+      "overlap": false,
+      "result": {
+        "sha": "1e31eadce414c681d9abe25bc6ff684951393755",
+        "sha256": "4dc044b4f70f34ff08c41227cbbbbae6b157b571b77973c0185d887d079aadb6",
+        "bytes": 100
+      }
+    },
+    {
+      "path": "docs/evidence/v8-late-callback-native-2026-11-22/native-existing-regression.xml",
+      "baseline": null,
+      "current": null,
+      "candidate": {
+        "sha": "8efe6495fb4162d996a06bb8d2ebc734fc74cd35",
+        "mode": "100644"
+      },
+      "overlap": false,
+      "result": {
+        "sha": "8efe6495fb4162d996a06bb8d2ebc734fc74cd35",
+        "sha256": "5251034d87ec71599a6da72dd33cf5f3ac03f99b01f503d4690003ba3c34d4bd",
+        "bytes": 4334
+      }
+    },
+    {
+      "path": "docs/evidence/v8-late-callback-native-2026-11-22/native-intent.json.gz.b64",
+      "baseline": null,
+      "current": null,
+      "candidate": {
+        "sha": "7c3bfc3eb44c14de705e8733d5611542675ad223",
+        "mode": "100644"
+      },
+      "overlap": false,
+      "result": {
+        "sha": "7c3bfc3eb44c14de705e8733d5611542675ad223",
+        "sha256": "5928702f2296642df7a20b0e58b8db959ae60b117269b2346f6ae1a5af2d6b1a",
+        "bytes": 18169
+      }
+    },
+    {
+      "path": "docs/evidence/v8-late-callback-native-2026-11-22/native-outcome.json.gz.b64",
+      "baseline": null,
+      "current": null,
+      "candidate": {
+        "sha": "95090ef9212d28d86e3ee03ea118d969da5e2f78",
+        "mode": "100644"
+      },
+      "overlap": false,
+      "result": {
+        "sha": "95090ef9212d28d86e3ee03ea118d969da5e2f78",
+        "sha256": "3b6a5c80304af53186b66533bbe4a2f3711a3a0d2a413696f6401d5abe26c447",
+        "bytes": 505289
+      }
+    },
+    {
+      "path": "docs/evidence/v8-late-callback-native-2026-11-22/qualification.json",
+      "baseline": null,
+      "current": null,
+      "candidate": {
+        "sha": "8dd4414d5c4ed7a849ef4c7e2374c552420b2cf4",
+        "mode": "100644"
+      },
+      "overlap": false,
+      "result": {
+        "sha": "8dd4414d5c4ed7a849ef4c7e2374c552420b2cf4",
+        "sha256": "d81efbf204c3e82af6604d3862d1a70b3d5ee70105aeb978d1566594602a9239",
+        "bytes": 1665
+      }
+    },
+    {
+      "path": "docs/evidence/v8-late-callback-native-2026-11-22/source-map.json",
+      "baseline": null,
+      "current": null,
+      "candidate": {
+        "sha": "7760e3dcf77e22bc0110cec452b520ea07f15761",
+        "mode": "100644"
+      },
+      "overlap": false,
+      "result": {
+        "sha": "7760e3dcf77e22bc0110cec452b520ea07f15761",
+        "sha256": "e017848f63d54435fe198bfd0595806a987114a92a2c531f8738a441cebab436",
+        "bytes": 1765
+      }
+    },
+    {
+      "path": "docs/v8-late-callback-admission.md",
+      "baseline": null,
+      "current": null,
+      "candidate": {
+        "sha": "e62ba2a4e2d127438f2a9c6930e5731193ebc9a2",
+        "mode": "100644"
+      },
+      "overlap": false,
+      "result": {
+        "sha": "e62ba2a4e2d127438f2a9c6930e5731193ebc9a2",
+        "sha256": "1745a8dd92014a906176866cbad923a14073624ac0228576b414aa7118a61a71",
+        "bytes": 2132
+      }
+    },
+    {
+      "path": "scripts/serve_semantic_v8.py",
+      "baseline": {
+        "sha": "3a0472c542322a89f57c951baf25f03f380fa0db",
+        "mode": "100644"
+      },
+      "current": {
+        "sha": "3a0472c542322a89f57c951baf25f03f380fa0db",
+        "mode": "100644"
+      },
+      "candidate": {
+        "sha": "dfb909d73696a936dc32a5d3d96cfd4c5ba34e63",
+        "mode": "100644"
+      },
+      "overlap": false,
+      "result": {
+        "sha": "dfb909d73696a936dc32a5d3d96cfd4c5ba34e63",
+        "sha256": "c6124249e7cedff6d6580ca9784c726a702ecae59ebfd561b912c22849b00957",
+        "bytes": 9923
+      }
+    },
+    {
+      "path": "src/megatoken/semantic_commit_recovery_v8.py",
+      "baseline": {
+        "sha": "cd273e5983b02df717964f98995c3690a98554ac",
+        "mode": "100644"
+      },
+      "current": {
+        "sha": "cd273e5983b02df717964f98995c3690a98554ac",
+        "mode": "100644"
+      },
+      "candidate": {
+        "sha": "5f881290027024dd822f7162f9ce1a77aea8f073",
+        "mode": "100644"
+      },
+      "overlap": false,
+      "result": {
+        "sha": "5f881290027024dd822f7162f9ce1a77aea8f073",
+        "sha256": "a6251b26d266c735487fdbd0b4d6ef07a12401c5bb97bfcedc49bc716a57cdc2",
+        "bytes": 75559
+      }
+    },
+    {
+      "path": "src/megatoken/semantic_model_v8.py",
+      "baseline": {
+        "sha": "1ed7e622fabf704a901406fbeb633719b7049229",
+        "mode": "100644"
+      },
+      "current": {
+        "sha": "12490c1ef229c733f51df1fc891f0464a3cd2695",
+        "mode": "100644"
+      },
+      "candidate": {
+        "sha": "598d63c964696783e1a3240c442b780fa85e8a41",
+        "mode": "100644"
+      },
+      "overlap": true,
+      "result": {
+        "sha": "2421b0d3407e979f687f8dea6268b68535c632b4",
+        "sha256": "dcc90fedea92751677642b588d14afb6ec89d211b38af9480abcb83a6fc1b0fe",
+        "bytes": 63412
+      }
+    },
+    {
+      "path": "src/megatoken/semantic_orchestration_v8.py",
+      "baseline": {
+        "sha": "3ecd571bfe9468b9f18d3c1e76cb827c28ee299e",
+        "mode": "100644"
+      },
+      "current": {
+        "sha": "3ecd571bfe9468b9f18d3c1e76cb827c28ee299e",
+        "mode": "100644"
+      },
+      "candidate": {
+        "sha": "80466998265b183a15f2dfecc5590a5f9adb691b",
+        "mode": "100644"
+      },
+      "overlap": false,
+      "result": {
+        "sha": "80466998265b183a15f2dfecc5590a5f9adb691b",
+        "sha256": "1dc1fade9378e9be10fb3b29e47540c06c510b8d73e483f24547aa4810855a78",
+        "bytes": 52285
+      }
+    },
+    {
+      "path": "tests/fixtures/late-callback-original-input-v8.json.gz.b64",
+      "baseline": null,
+      "current": null,
+      "candidate": {
+        "sha": "abac1f289f502259b9b0e0453ac239a4bc31f82d",
+        "mode": "100644"
+      },
+      "overlap": false,
+      "result": {
+        "sha": "abac1f289f502259b9b0e0453ac239a4bc31f82d",
+        "sha256": "7828c519b8a7535301ce71a95b18ac0f71b6df2d7d91f2623e18262fb0960ccf",
+        "bytes": 10597
+      }
+    },
+    {
+      "path": "tests/test_semantic_v8_late_callback.py",
+      "baseline": null,
+      "current": null,
+      "candidate": {
+        "sha": "b78832ca4d2a2399bdb489f107bb78c0c9e09daa",
+        "mode": "100644"
+      },
+      "overlap": false,
+      "result": {
+        "sha": "b78832ca4d2a2399bdb489f107bb78c0c9e09daa",
+        "sha256": "b33d2190a7f73565c47f4d9255575f61171f0c8d803e9d97ac564acc77295c8b",
+        "bytes": 16095
+      }
+    }
+  ],
+  "modelMerge": {
+    "addedMethod": "NativeSemanticInferenceV8.admit_orchestration_callback",
+    "candidateMethodAstIdentical": true,
+    "otherCurrentModelBytesAndAstIdentical": true
+  }
+}

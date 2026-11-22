@@ -95,6 +95,7 @@ def _dispatch(adapter, request, *, commit_bridge=None):
             "select_orchestration",
             "commit_orchestration",
             "bootstrap_orchestration_child",
+            "admit_orchestration_callback",
             "status_orchestration",
             "cancel_orchestration",
         )

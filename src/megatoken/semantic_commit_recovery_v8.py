@@ -30,7 +30,7 @@ from megatoken.semantic_request_journal_v8 import (
 
 _HEX64 = re.compile(r"[0-9a-f]{64}")
 _EXECUTION_ID = re.compile(r"[a-z][a-z0-9:_-]{0,255}")
-_COMMITS = {"commit", "commit-orchestration"}
+_COMMITS = {"commit", "commit-orchestration", "admit-orchestration-callback"}
 _BOOTSTRAPS = {"bootstrap-orchestration-child"}
 _CLOSES = {"cancel"}
 _MUTATIONS = {
@@ -264,11 +264,14 @@ class DurableNativeCommitBridge:
             or request.get("session") != identity["session_id"]
         ):
             _fail("exact request ID, operation or session differs")
-        keys = {"id", "op", "session", "record", "selection"} | (
-            {"public", "contexts", "invocationId"}
-            if identity["operation"] == "commit"
-            else {"track"}
-        )
+        if identity["operation"] == "admit-orchestration-callback":
+            keys = {"id", "op", "session", "track", "public", "contexts"}
+        else:
+            keys = {"id", "op", "session", "record", "selection"} | (
+                {"public", "contexts", "invocationId"}
+                if identity["operation"] == "commit"
+                else {"track"}
+            )
         if set(request) != keys:
             _fail("commit request fields differ")
         frame = _canonical(
@@ -865,6 +868,9 @@ class DurableNativeCommitBridge:
             for saved in sessions.values()
         ):
             _fail("saved postcheckpoint contains an uncommitted sibling selection")
+        if request["op"] == "admit-orchestration-callback":
+            self._check_callback_admission_post(request, response, checkpoint, before)
+            return
         selection = request["selection"]
         if type(selection) is not dict or selection.get("status") != "awaiting-commit":
             _fail("commit requires its exact pending selection")
@@ -942,6 +948,72 @@ class DurableNativeCommitBridge:
             expected = matches[0]["outcome"]
         if not _same(response, {"id": request["id"], "ok": True, "result": expected}):
             _fail("stored response differs from its exact native committed outcome")
+
+    def _check_callback_admission_post(self, request, response, checkpoint, before):
+        """Independently derive the only allowed observed-admission delta."""
+        from megatoken.semantic_orchestration_v8 import derive_callback_admission
+
+        sessions, before_sessions = checkpoint["sessions"], before.get("sessions")
+        if (
+            type(before_sessions) is not dict
+            or set(before_sessions) != set(sessions)
+            or request["session"] not in before_sessions
+            or any(
+                saved.get("unacknowledgedSelection") is not None
+                for saved in before_sessions.values()
+            )
+            or not _same(
+                {key: value for key, value in before.items() if key not in {"digest", "sessions"}},
+                {
+                    key: value
+                    for key, value in checkpoint.items()
+                    if key not in {"digest", "sessions"}
+                },
+            )
+        ):
+            _fail(
+                "callback admission changed whole-adapter identity, attempts or pending authority"
+            )
+        for session, saved in before_sessions.items():
+            if session != request["session"] and not _same(saved, sessions[session]):
+                _fail("callback admission changed a sibling session")
+        pre, post = before_sessions[request["session"]], sessions[request["session"]]
+        state = pre.get("orchestration")
+        if type(state) is not dict or state.get("track") != request["track"]:
+            _fail("callback admission has no exact original coordinator")
+        child, result = derive_callback_admission(
+            session=request["session"],
+            state=state,
+            previous_public=pre["public"],
+            previous_contexts=pre["contexts"],
+            completed=pre["completed"],
+            public=request["public"],
+            contexts=request["contexts"],
+        )
+        expected_state = copy.deepcopy(state)
+        expected_state["children"].append(child)
+        expected_state["operations"].append(
+            {
+                "kind": "callback-admission",
+                "acknowledgedThrough": len(request["public"]["timeline"]),
+                "contextCount": len(request["contexts"]),
+                "randomBefore": before["randomState"],
+                "receipt": result,
+            }
+        )
+        expected = {**pre, "public": request["public"], "orchestration": expected_state}
+        if (
+            not _same(
+                {key: value for key, value in expected.items() if key != "continuationDigest"},
+                {key: value for key, value in post.items() if key != "continuationDigest"},
+            )
+            or not _HEX64.fullmatch(post.get("continuationDigest", ""))
+            or post["continuationDigest"] == pre["continuationDigest"]
+            or not _same(response, {"id": request["id"], "ok": True, "result": result})
+        ):
+            _fail(
+                "callback admission changed more than its exact observed child and ordered receipt"
+            )
 
     def _envelope(self, stored, request, raw, pre_digest):
         value = strict_json_loads(stored.decode("utf-8", errors="strict"))

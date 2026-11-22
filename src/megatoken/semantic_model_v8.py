@@ -728,6 +728,11 @@ class NativeSemanticInferenceV8:
 
         return bootstrap_orchestration_child(self, **request)
 
+    def admit_orchestration_callback(self, **request):
+        from megatoken.semantic_orchestration_v8 import admit_orchestration_callback
+
+        return admit_orchestration_callback(self, **request)
+
     def status_orchestration(self, **request):
         from megatoken.semantic_orchestration_v8 import status_orchestration
 

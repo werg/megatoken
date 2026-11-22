@@ -1,0 +1,9 @@
+# Native callback composition on current rejected-fragment source
+
+This isolated candidate starts from native `33031866fc7e2d20156a454064aeafd4ef79ccf3` and imports the exact callback runtime/test/evidence at `017ecb86457834a7757ef502abc4663e292c864f` (runtime `a390b27947ff500054c59c11f40f39d514b66435`, original baseline `2062414631c16749815895a472ddfdb67f5b869d`). Twenty-four paths were directly compatible. The only overlapping path is the model adapter: its five-line callback forwarding method was added to current330, preserving every other byte of the current module. AST comparison independently confirms that the new method equals the callback candidate and the remainder equals current330.
+
+The current rejected-fragment implementation, its eight original invalid-output fixtures and all seventeen model-selection controls remain unchanged. All required formatting corrections and the113 previously retained evidence paths remain present. The callback operation admits no track and executes no callback; it still requires subsequent create, bootstrap and join. Whole-adapter durable ownership and ordered replay remain mandatory.
+
+The original native7-case/15-subtest and24-case regression evidence is retained exactly with its source identities and local pytest9.2 deviation. Its first failed assertion attempts and original private journal bytes are unchanged. Those historical runs do not qualify this new composition. A fresh focused combination is required.
+
+The producer's live journal-to-input integration is still being implemented and independently reviewed. This native-only candidate is not a paired live-continuation, successor takeover, learned execution or main-branch qualification claim. The producer must independently authenticate the private arrival before issuing the native request and again on restoration.

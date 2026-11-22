@@ -1,0 +1,53 @@
+{
+  "schema": "v8-late-callback-native-evidence/1",
+  "source": "a390b27947ff500054c59c11f40f39d514b66435",
+  "nativeFocused": {
+    "passed": 7,
+    "failed": 0,
+    "errors": 0,
+    "skipped": 0,
+    "subtestsPassed": 15,
+    "pytestSeconds": 92.27
+  },
+  "existingRegression": {
+    "passed": 24,
+    "failed": 0,
+    "errors": 0,
+    "skipped": 0,
+    "pytestSeconds": 42.53
+  },
+  "distinctCases": 31,
+  "firstAttempt": {
+    "passed": 2,
+    "failed": 3,
+    "subtestsPassed": 12,
+    "reason": "Guard controls expected ValueError instead of the existing NativeRequestJournalError; refusal occurred correctly. Fixed test assertions, then added fourth alias and actual durable-outcome case."
+  },
+  "runtime": {
+    "python": "3.12.14",
+    "torch": "2.10.0+cpu",
+    "pytest": "9.2.0",
+    "pytestLockDeviation": true
+  },
+  "originalJournalBytes": {
+    "native-intent.json.gz.b64": {
+      "decodedBytes": 36232,
+      "decodedSha256": "4d8a1e850ea55f9d807f6b16079bbacc966adca5d2bfec0619e735cc15f25331"
+    },
+    "native-outcome.json.gz.b64": {
+      "decodedBytes": 1038981,
+      "decodedSha256": "d504aee5dfb7ce95b11471cafc39101f0998ee4d7bf06b5d1e14f2eaf3cb8734"
+    }
+  },
+  "scope": {
+    "actualNativeExecutionAndReplay": true,
+    "suppliedLexicalDecisions": true,
+    "learnedQuality": false,
+    "sourceAdmissionQualification": false,
+    "pairedProducerIntegration": false,
+    "successorTakeover": false,
+    "privateIngressBinding": "Producer independently verifies durable journal arguments; native independently validates and binds the resulting public event/invocation prefix.",
+    "newOptimizerUpdates": 0,
+    "workflowLaunches": 0
+  }
+}

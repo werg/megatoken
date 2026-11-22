@@ -1,0 +1,40 @@
+{
+  "publishedSource": "a390b27947ff500054c59c11f40f39d514b66435",
+  "localSource": "265afdfd0c375ff9d37d66bde053a2006df4b935",
+  "tree": "153f2275df92d003d5c67f0c7e9f1825d35c36df",
+  "parentPublished": "f2a0e2a22d478f382b767c36cd8f1daed5c2f9d3",
+  "originalNativeBase": "2062414631c16749815895a472ddfdb67f5b869d",
+  "producerFixture": "92cd9c1d7cc7dbe0934aadcb94d661e4340f0001",
+  "paths": [
+    {
+      "path": "scripts/serve_semantic_v8.py",
+      "oldBlob": "3a0472c542322a89f57c951baf25f03f380fa0db",
+      "newBlob": "dfb909d73696a936dc32a5d3d96cfd4c5ba34e63",
+      "sha256": "c6124249e7cedff6d6580ca9784c726a702ecae59ebfd561b912c22849b00957"
+    },
+    {
+      "path": "src/megatoken/semantic_commit_recovery_v8.py",
+      "oldBlob": "cd273e5983b02df717964f98995c3690a98554ac",
+      "newBlob": "5f881290027024dd822f7162f9ce1a77aea8f073",
+      "sha256": "a6251b26d266c735487fdbd0b4d6ef07a12401c5bb97bfcedc49bc716a57cdc2"
+    },
+    {
+      "path": "src/megatoken/semantic_model_v8.py",
+      "oldBlob": "1ed7e622fabf704a901406fbeb633719b7049229",
+      "newBlob": "598d63c964696783e1a3240c442b780fa85e8a41",
+      "sha256": "2ec4e2f1b7a3ce6f5acf5b854792c6af9a07de8ccd6de2d22197267c260796a7"
+    },
+    {
+      "path": "src/megatoken/semantic_orchestration_v8.py",
+      "oldBlob": "3ecd571bfe9468b9f18d3c1e76cb827c28ee299e",
+      "newBlob": "80466998265b183a15f2dfecc5590a5f9adb691b",
+      "sha256": "1dc1fade9378e9be10fb3b29e47540c06c510b8d73e483f24547aa4810855a78"
+    },
+    {
+      "path": "tests/test_semantic_v8_late_callback.py",
+      "oldBlob": "d02b1c11f87d377fa27e45decf4e37609cec6dc2",
+      "newBlob": "b78832ca4d2a2399bdb489f107bb78c0c9e09daa",
+      "sha256": "b33d2190a7f73565c47f4d9255575f61171f0c8d803e9d97ac564acc77295c8b"
+    }
+  ]
+}
