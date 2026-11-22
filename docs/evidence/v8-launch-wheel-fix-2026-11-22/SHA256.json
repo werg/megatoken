@@ -16,5 +16,11 @@
     "decodedBytes": 99,
     "decodedSha256": "5579796f7a706be1359492675bd061951d7ff51b1e363ecbe8b7a659d23aa7b5",
     "storedSha256": "519c55ba33dab882fc0fc2cfae2e006cbb699da29a3b194dc8f003e90af35560"
+  },
+  {
+    "path": "native-fb99-format-failure.log.gz.b64",
+    "decodedBytes": 59661,
+    "decodedSha256": "f7c0bd49ced797154f1c3de369cdc2865cb10ce0d00a423795b40afbbfe5f658",
+    "storedSha256": "d7c754fef2d51422acdc2ebeac757fc9b6056936605c0ac39d30b13cfcc8c2e0"
   }
 ]

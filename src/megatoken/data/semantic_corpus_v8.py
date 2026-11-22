@@ -313,9 +313,7 @@ def semantic_behaviors_v8(episode):
         ):
             continue
         if kind == "await":
-            awaits[
-                (track(row["fields"]), invocation_id, fields.get("continuation"))
-            ] = row
+            awaits[(track(row["fields"]), invocation_id, fields.get("continuation"))] = row
         elif kind == "resume":
             key = (track(row["fields"]), invocation_id, fields.get("continuation"))
             prior = awaits.get(key)
@@ -441,8 +439,7 @@ def semantic_behaviors_v8(episode):
             or fields.get("digest") != program.get("digest")
             or stable_algorithm_hash(program.get("source")) != program.get("digest")
             or not any(
-                invoked_sequence < row_sequence
-                for invoked_sequence in invoked_tracks.get(key, ())
+                invoked_sequence < row_sequence for invoked_sequence in invoked_tracks.get(key, ())
             )
         ):
             continue

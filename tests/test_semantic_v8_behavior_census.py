@@ -28,9 +28,7 @@ def census_for(document):
             },
         }
     }
-    episode = SimpleNamespace(
-        supervision=SimpleNamespace(annotations_json=json.dumps(annotations))
-    )
+    episode = SimpleNamespace(supervision=SimpleNamespace(annotations_json=json.dumps(annotations)))
     return semantic_behaviors_v8(episode)
 
 
@@ -142,7 +140,8 @@ def test_v8_source_reread_requires_a_bound_eviction_and_exact_reread():
 
     evicted_before_invocation = copy.deepcopy(artifact)
     eviction = next(
-        row for row in evicted_before_invocation["public"]["timeline"]
+        row
+        for row in evicted_before_invocation["public"]["timeline"]
         if row["kind"] == "source-evict"
     )
     eviction["sequence"] = 1
@@ -150,16 +149,14 @@ def test_v8_source_reread_requires_a_bound_eviction_and_exact_reread():
 
     read_before_eviction = copy.deepcopy(artifact)
     reread = next(
-        row for row in read_before_eviction["public"]["timeline"]
-        if row["kind"] == "source-read"
+        row for row in read_before_eviction["public"]["timeline"] if row["kind"] == "source-read"
     )
     reread["sequence"] = 2
     assert "semantic_source_reread" not in census_for(read_before_eviction)
 
     generated_eviction = copy.deepcopy(artifact)
     eviction = next(
-        row for row in generated_eviction["public"]["timeline"]
-        if row["kind"] == "source-evict"
+        row for row in generated_eviction["public"]["timeline"] if row["kind"] == "source-evict"
     )
     eviction["mode"] = "generated"
     assert "semantic_source_reread" not in census_for(generated_eviction)

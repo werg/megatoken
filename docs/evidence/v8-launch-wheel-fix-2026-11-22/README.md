@@ -14,3 +14,7 @@ Local validation on the working increment based on `be9f446`:
 The small `uniseg==0.10.1` dependency was installed from the repository's exact hashed lock to execute the real prepared-corpus controls. Torch was not fabricated or substituted. These local selections overlap earlier tests and must not be added to the hosted baseline counts. Fresh general CPU and paired V8 results are still required for the published repair.
 
 Decode each complete log with `base64 -d < FILE | gzip -d`; the manifest retains stored and decoded hashes. These checks perform no optimizer updates and do not establish learned task quality.
+
+## Formatter gate follow-up
+
+General CI on published `fb99d1c` stopped before tests because the two census files passed `ruff check` but did not yet match `ruff format --diff`. The complete failed [Python3.12 job137031691849](https://github.com/werg/megatoken/actions/runs/44964932310/job/137031691849) is retained as `native-fb99-format-failure.log.gz.b64`. The follow-up applies only the required formatting. Both exact repository-wide gates now pass locally: `ruff check src tests scripts` and `ruff format --check src tests scripts` (584 files). Formatting validation is a separate required gate; a clean linter result does not establish it. New hosted runtime results remain required.
