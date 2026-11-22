@@ -286,9 +286,7 @@ class NativeV8AdmissionTests(unittest.TestCase):
                     "primitive-conversion-source/1", document["sidecar"]["protocolExtensions"]
                 )
                 if identity == "promise-key":
-                    self.assertIn(
-                        "promise-adoption/1", document["sidecar"]["protocolExtensions"]
-                    )
+                    self.assertIn("promise-adoption/1", document["sidecar"]["protocolExtensions"])
                 receipt = self.run_cli(document)
                 self.assertEqual(
                     receipt["protocolExtensions"], document["sidecar"]["protocolExtensions"]
