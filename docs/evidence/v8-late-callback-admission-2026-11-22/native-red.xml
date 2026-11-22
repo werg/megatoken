@@ -1,0 +1,38 @@
+<?xml version="1.0" encoding="utf-8"?><testsuites name="pytest tests"><testsuite name="pytest" errors="0" failures="1" skipped="0" tests="1" time="20.744" timestamp="2026-11-22T18:27:54.063827+01:00" hostname="07bf85b14210"><testcase classname="tests.test_semantic_v8_late_callback" name="test_actual_journalled_callback_can_continue_after_root_checkpoint" time="20.255"><failure message="megatoken.semantic_model_v8.NativeSelectionV8Error: Dynamic invocation admission is outside this bounded coordinator profile">def test_actual_journalled_callback_can_continue_after_root_checkpoint():
+        document = original_listener()
+        assert document["reference"] == {"registrations": 1, "root": 1, "callback": 5}
+        assert document["registrations"] == 1
+        assert document["rootPublic"]["timeline"] == document["admissionPublic"]["timeline"][:-2]
+        assert document["ingressRecords"][-1]["arrival"]["event"]["eventId"] == "after-checkpoint"
+        with real_runtime() as (open_adapter, decoder):
+            adapter = open_adapter()
+            opened, packet = completed_root(adapter, decoder, document)
+            decoder["records"] = [record.encode() for record in document["records"][:4]]
+            adapter, receipt = recover(open_adapter, adapter, opened["session"], packet)
+            assert receipt["hostDispatches"] == 0
+            decoder["records"] = [record.encode() for record in document["records"][4:]]
+            # Red baseline: this real post-checkpoint callback reaches the existing
+            # explicit dynamic-admission refusal before any callback generation.
+&gt;           selected = select_child(adapter, document, 4)
+                       ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+tests/test_semantic_v8_late_callback.py:113: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+tests/test_semantic_v8_orchestration.py:157: in select_child
+    return adapter.select(
+src/megatoken/semantic_model_v8.py:319: in select
+    model_track = semantic_track(work, context["invocationId"], public)
+                  ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+src/megatoken/semantic_orchestration_v8.py:708: in semantic_track
+    _fail("Dynamic invocation admission is outside this bounded coordinator profile")
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+
+message = 'Dynamic invocation admission is outside this bounded coordinator profile'
+
+    def _fail(message):
+        from megatoken.semantic_model_v8 import NativeSelectionV8Error
+    
+&gt;       raise NativeSelectionV8Error(message)
+E       megatoken.semantic_model_v8.NativeSelectionV8Error: Dynamic invocation admission is outside this bounded coordinator profile
+
+src/megatoken/semantic_orchestration_v8.py:38: NativeSelectionV8Error</failure></testcase></testsuite></testsuites>
