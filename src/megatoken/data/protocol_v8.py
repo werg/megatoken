@@ -1951,8 +1951,11 @@ def validate_pending_scope(machine, pending, invocations=None):
     if pending is None:
         return True
     has_handler = isinstance(pending, dict) and "handler" in pending
-    _exact(pending, {"kind", "value"} | ({"handler"} if has_handler else set()),
-           "retained pending scope")
+    _exact(
+        pending,
+        {"kind", "value"} | ({"handler"} if has_handler else set()),
+        "retained pending scope",
+    )
     if pending["kind"] not in {"return", "throw", "cleanup"}:
         _fail("retained pending kind")
     _known(machine, pending["value"])

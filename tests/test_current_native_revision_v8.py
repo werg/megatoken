@@ -18,7 +18,9 @@ class CurrentNativeRevisionTests(unittest.TestCase):
             module = root / "src/megatoken/__init__.py"
             module.parent.mkdir(parents=True)
             module.write_text("# first implementation\n")
-            environment = {key: value for key, value in os.environ.items() if not key.startswith("GIT_")}
+            environment = {
+                key: value for key, value in os.environ.items() if not key.startswith("GIT_")
+            }
 
             def git(*args):
                 return subprocess.check_output(
@@ -27,7 +29,15 @@ class CurrentNativeRevisionTests(unittest.TestCase):
 
             git("init", "--quiet")
             git("add", ".")
-            git("-c", "user.name=Fixture", "-c", "user.email=test@example.invalid", "commit", "-qm", "first")
+            git(
+                "-c",
+                "user.name=Fixture",
+                "-c",
+                "user.email=test@example.invalid",
+                "commit",
+                "-qm",
+                "first",
+            )
             with patch.object(megatoken, "__file__", str(module)):
                 first = checked_revision(root)
                 self.assertEqual(first, git("rev-parse", "HEAD"))
@@ -35,7 +45,15 @@ class CurrentNativeRevisionTests(unittest.TestCase):
                 with self.assertRaisesRegex(ValueError, "exact clean consumer"):
                     checked_revision(root)
                 git("add", ".")
-                git("-c", "user.name=Fixture", "-c", "user.email=test@example.invalid", "commit", "-qm", "next")
+                git(
+                    "-c",
+                    "user.name=Fixture",
+                    "-c",
+                    "user.email=test@example.invalid",
+                    "commit",
+                    "-qm",
+                    "next",
+                )
                 second = checked_revision(root)
                 self.assertNotEqual(second, first)
                 with self.assertRaisesRegex(ValueError, "exact clean consumer"):

@@ -153,8 +153,8 @@ def validate_target_inventory(
         or not 0 <= inventory["onePassMeterCount"] <= inventory["phaseBudget"]
         or type(inventory["trainEpisodeCount"]) is not int
         or inventory["trainEpisodeCount"] != len(inventory["sourceIds"])
-        or len(inventory["sourceIds"]) != 48
-        or len(set(inventory["sourceIds"])) != 48
+        or not inventory["sourceIds"]
+        or len(set(inventory["sourceIds"])) != len(inventory["sourceIds"])
         or inventory["sourceIds"] != sorted(inventory["sourceIds"])
         or inventory["scoredSourceIds"] != sorted(inventory["sources"])
         or not set(inventory["scoredSourceIds"]) <= set(inventory["sourceIds"])

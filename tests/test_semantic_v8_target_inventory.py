@@ -83,22 +83,22 @@ def test_complete_inventory_keeps_program_identity_and_exact_prepared_targets(
     spec = importlib.util.spec_from_file_location("inventory_control", path)
     module = importlib.util.module_from_spec(spec)
     spec.loader.exec_module(module)
-    ids = [f"source-{index:02d}" for index in range(64)]
+    ids = [f"source-{index:02d}" for index in range(9)]
     registry = {
         "digest": REGISTRY,
         "sources": [{"id": source} for source in ids],
         "components": [
             {"split": split, "sourceIds": sources}
             for split, sources in (
-                ("train", ids[:48]),
-                ("validation", ids[48:60]),
-                ("test", ids[60:]),
+                ("train", ids[:5]),
+                ("validation", ids[5:7]),
+                ("test", ids[7:]),
             )
         ],
     }
     (tmp_path / "manifest.json").write_text(json.dumps({"fingerprint": MANIFEST}))
     (tmp_path / "semantic-v8-families.json").write_text(json.dumps(registry))
-    episodes = [_prepared_episode(source=source) for source in ids[:48]]
+    episodes = [_prepared_episode(source=source) for source in ids[:5]]
     for episode in episodes:
         episode.records = [
             SimpleNamespace(policy_mask=True, logical_id="logical", record_id="physical"),
@@ -195,20 +195,20 @@ def test_complete_inventory_keeps_program_identity_and_exact_prepared_targets(
             module.target_inventory(config, ids)
         return
     result = module.target_inventory(config, ids)
-    assert result["scoredSourceIds"] == ids[:48]
+    assert result["scoredSourceIds"] == ids[:5]
     assert (
-        result["windowCount"] == result["optimizerWindowCount"] == result["onePassMeterCount"] == 48
+        result["windowCount"] == result["optimizerWindowCount"] == result["onePassMeterCount"] == 5
     )
     assert result["positiveWeight"] == {
-        "sourceCount": 48,
-        "logicalTargetCount": 48,
-        "physicalTargetRecordCount": 48,
-        "scoredOccurrences": 48,
-        "lossDenominators": {"lexical": 48},
+        "sourceCount": 5,
+        "logicalTargetCount": 5,
+        "physicalTargetRecordCount": 5,
+        "scoredOccurrences": 5,
+        "lossDenominators": {"lexical": 5},
     }
     assert result["available"] == {
-        "policyTargetRecordCount": 48,
-        "lossDenominators": {"lexical": 48},
+        "policyTargetRecordCount": 5,
+        "lossDenominators": {"lexical": 5},
     }
     assert result["optimizerUpdates"] == 0
 
@@ -455,3 +455,14 @@ def test_all_keys_can_be_present_while_occurrence_census_still_differs():
     assert result["scoredOccurrenceMismatches"] == [
         [["source-a", "target-one", "record-one"], 2, 3]
     ]
+
+
+@pytest.mark.parametrize("source_count", [1, 3, 52, 99])
+def test_positive_loss_inventory_accepts_current_population_sizes(source_count):
+    inventory = _inventory()
+    inventory["sourceIds"] = ["source-a"] + [f"train-{i:03d}" for i in range(source_count - 1)]
+    inventory["trainEpisodeCount"] = source_count
+    inventory["digest"] = stable_algorithm_hash(
+        {key: value for key, value in inventory.items() if key != "digest"}
+    )
+    validate_target_inventory(inventory, rederived_inventory=deepcopy(inventory), **_identities())

@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import base64
 import gzip
+import hashlib
 import json
 from dataclasses import replace
 from pathlib import Path
@@ -18,6 +19,7 @@ from megatoken.data.semantic_json import stable_algorithm_hash
 from megatoken.data.storage import PreparedCorpus
 from megatoken.generation.codec import LING_TOKENIZER_SHA256, ByteCodec
 from megatoken.training.semantic_v8 import validate_semantic_episode_v8
+from tests.current_source_registry_v8 import current_source_registry
 
 PRODUCER_REVISION = "a" * 40
 CONSUMER_REVISION = "b" * 40
@@ -28,53 +30,24 @@ def source_qualified_artifact():
     document = json.loads(gzip.decompress(base64.b64decode(path.read_bytes())))
     sidecar = document["sidecar"]
     source = document["public"]["timeline"][0]["fields"]["source"]
-    source_digest = stable_algorithm_hash(source)
+    source_digest = hashlib.sha256(source.encode()).hexdigest()
     family = sidecar["family"]
-    registry = {
-        "schema": "semantic-region-family-registry/1",
-        "policy": "semantic-region-family-components/1",
-        "traceFormat": "semantic-trace/8",
-        "coreSchema": "semantic-algorithm/2",
-        "seed": 17,
-        "holdouts": {"families": [], "sourceDigests": [], "coreDigests": []},
-        "sources": [
-            {
-                "id": "orchestration-source",
-                "family": family,
-                "ancestors": [],
-                "source": source,
-                "entry": "run",
-                "sourceDigest": source_digest,
-                "coreDigest": None,
-                "coreStatus": "detailed",
-            }
-        ],
-        "components": [
-            {
-                "id": "orchestration-component",
-                "members": [family],
-                "sourceIds": ["orchestration-source"],
-                "split": "train",
-                "holdout": None,
-            }
-        ],
-        "diagnostics": {},
-    }
-    registry["digest"] = stable_algorithm_hash(registry)
+    registry = current_source_registry(source, "orchestration-source", family)
+    member, component = registry["sources"][0], registry["components"][0]
     sidecar["splitIdentity"] = {
         "schema": "semantic-region-split-identity/1",
         "registry": registry,
         "registryDigest": registry["digest"],
         "sourceId": "orchestration-source",
         "sourceDigest": source_digest,
-        "coreDigest": None,
-        "componentId": "orchestration-component",
+        "coreDigest": member["coreDigest"],
+        "componentId": component["id"],
         "members": [family],
         "split": "train",
     }
     sidecar.update(
         split="train",
-        sourceComponent="orchestration-component",
+        sourceComponent=component["id"],
         familyRegistryDigest=registry["digest"],
     )
     binding = {
@@ -84,12 +57,12 @@ def source_qualified_artifact():
         "contextsDigest": stable_algorithm_hash(document["contexts"]),
         "sourceArtifactDigest": stable_algorithm_hash(sidecar["sourceArtifact"]),
         "registryDigest": registry["digest"],
-        "componentId": "orchestration-component",
+        "componentId": component["id"],
         "split": "train",
         "sourceId": "orchestration-source",
         "family": family,
         "sourceDigest": source_digest,
-        "coreDigest": None,
+        "coreDigest": member["coreDigest"],
         "orchestrationTranscriptDigest": stable_algorithm_hash(sidecar["orchestrationTranscript"]),
     }
     sidecar["datasetBinding"] = binding

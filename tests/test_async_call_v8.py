@@ -136,15 +136,29 @@ def test_first_await_returns_execution_promise_and_restores_caller_scope():
 
 
 def cleanup_scope(invocations, completion=None):
-    return {"kind": "cleanup", "value": ["undefined"], "handler": {
-        "schema": "semantic-handler-scopes/1", "frames": [
-            {"invocation": invocation, "handlers": [{
-                "id": invocation + "-cleanup", "catch": False, "finally": True,
-                "phase": "finally" if completion else "try", "caught": None,
-                "pending": copy.deepcopy(completion),
-            }]} for invocation in invocations
-        ],
-    }}
+    return {
+        "kind": "cleanup",
+        "value": ["undefined"],
+        "handler": {
+            "schema": "semantic-handler-scopes/1",
+            "frames": [
+                {
+                    "invocation": invocation,
+                    "handlers": [
+                        {
+                            "id": invocation + "-cleanup",
+                            "catch": False,
+                            "finally": True,
+                            "phase": "finally" if completion else "try",
+                            "caught": None,
+                            "pending": copy.deepcopy(completion),
+                        }
+                    ],
+                }
+                for invocation in invocations
+            ],
+        },
+    }
 
 
 @pytest.mark.parametrize("completion_kind", ["return", "throw"])
@@ -187,7 +201,9 @@ def test_restored_async_cleanup_rejects_foreign_handler_ownership(scope):
         suspend(machine)
         dict(machine["continuations"])["first-await"]["pending"] = cleanup_scope(["root"])
     else:
-        machine["heap"]["first"]["asyncCall"]["resumeScope"]["pending"] = cleanup_scope(["first-body"])
+        machine["heap"]["first"]["asyncCall"]["resumeScope"]["pending"] = cleanup_scope(
+            ["first-body"]
+        )
     external = _external_machine(machine)
     with pytest.raises(ProtocolV8Error, match="handler frame is not active"):
         validate_protocol_state(external["protocol"], external["heap"], external)

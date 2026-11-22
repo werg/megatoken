@@ -20,6 +20,7 @@ from megatoken.training.semantic_v8 import (
     validate_semantic_episode_v8,
     validate_semantic_training_policy_v8,
 )
+from tests.current_source_registry_v8 import current_source_registry
 from tests.test_source_identity_v8 import direct_source_sidecar
 
 
@@ -48,18 +49,15 @@ def test_v8_policy_is_exact_and_pinned():
 
 
 def test_unverified_data_flag_cannot_admit_unqualified_v8_targets(tmp_path):
-    registry = {
-        "schema": "semantic-region-family-registry/1",
-        "policy": "semantic-region-family-components/1",
-        "traceFormat": "semantic-trace/8",
-        "coreSchema": "semantic-algorithm/2",
-        "seed": 17,
-        "holdouts": {"families": [], "sourceDigests": [], "coreDigests": []},
-        "sources": [{"id": "source-1", "sourceDigest": "d" * 64, "coreDigest": None}],
-        "components": [{"id": "component-1", "sourceIds": ["source-1"], "split": "train"}],
-        "diagnostics": {},
-    }
-    registry["digest"] = stable_algorithm_hash(registry)
+    registry = next(
+        iter(
+            json.loads(
+                (
+                    Path(__file__).parent / "fixtures" / "current-preparation-registries-v8.json"
+                ).read_text()
+            ).values()
+        )
+    )
     policy = {**POLICY, "registryDigest": registry["digest"]}
     config = TrainConfig(
         purpose="diagnostic",
@@ -113,37 +111,8 @@ def prepared_v8_fixture(
         ]
     source = document["public"]["timeline"][0]["fields"]["source"]
     source_digest = hashlib.sha256(source.encode()).hexdigest()
-    registry = {
-        "schema": "semantic-region-family-registry/1",
-        "policy": "semantic-region-family-components/1",
-        "traceFormat": "semantic-trace/8",
-        "coreSchema": "semantic-algorithm/2",
-        "seed": 17,
-        "holdouts": {"families": [], "sourceDigests": [], "coreDigests": []},
-        "sources": [
-            {
-                "id": "source-1",
-                "family": "family-1",
-                "ancestors": [],
-                "source": source,
-                "entry": "run",
-                "sourceDigest": source_digest,
-                "coreDigest": None,
-                "coreStatus": "detailed",
-            }
-        ],
-        "components": [
-            {
-                "id": "component-1",
-                "members": ["family-1"],
-                "sourceIds": ["source-1"],
-                "split": "train",
-                "holdout": None,
-            }
-        ],
-        "diagnostics": {},
-    }
-    registry["digest"] = stable_algorithm_hash(registry)
+    registry = current_source_registry(source)
+    member, component = registry["sources"][0], registry["components"][0]
     source_artifact = {"sidecar": {"referenceInput": {"source": source, "entry": "run"}}}
     binding = {
         "schema": "semantic-region-dataset-binding/1",
@@ -152,12 +121,12 @@ def prepared_v8_fixture(
         "contextsDigest": stable_algorithm_hash(document["contexts"]),
         "sourceArtifactDigest": stable_algorithm_hash(source_artifact),
         "registryDigest": registry["digest"],
-        "componentId": "component-1",
+        "componentId": component["id"],
         "split": "train",
         "sourceId": "source-1",
         "family": "family-1",
         "sourceDigest": source_digest,
-        "coreDigest": None,
+        "coreDigest": member["coreDigest"],
     }
     document["sidecar"] = {
         "schema": "semantic-region-evidence/1",
@@ -169,13 +138,13 @@ def prepared_v8_fixture(
             "registryDigest": registry["digest"],
             "sourceId": "source-1",
             "sourceDigest": source_digest,
-            "coreDigest": None,
-            "componentId": "component-1",
+            "coreDigest": member["coreDigest"],
+            "componentId": component["id"],
             "members": ["family-1"],
             "split": "train",
         },
         "split": "train",
-        "sourceComponent": "component-1",
+        "sourceComponent": component["id"],
         "familyRegistryDigest": registry["digest"],
         "datasetBinding": binding,
     }

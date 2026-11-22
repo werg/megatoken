@@ -474,52 +474,17 @@ def load_semantic_v8_codec(path, *, vocab_size):
 
 
 def _verify_registry(registry, expected_digest):
-    required = {
-        "schema",
-        "policy",
-        "traceFormat",
-        "coreSchema",
-        "seed",
-        "holdouts",
-        "sources",
-        "components",
-        "diagnostics",
-        "digest",
-    }
-    if (
-        not isinstance(registry, dict)
-        or set(registry) != required
-        or registry["schema"] != "semantic-region-family-registry/1"
-        or registry["policy"] != "semantic-region-family-components/1"
-        or registry["traceFormat"] != "semantic-trace/8"
-        or registry["coreSchema"] != "semantic-algorithm/2"
-        or type(registry["seed"]) is not int
-        or registry["digest"] != expected_digest
-        or stable_algorithm_hash({k: v for k, v in registry.items() if k != "digest"})
-        != expected_digest
-    ):
-        raise ValueError("V8 prepared data has no exact frozen source-family registry")
+    from megatoken.data.source_families_v8 import verify_region_family_registry
+
+    if not isinstance(registry, dict) or registry.get("digest") != expected_digest:
+        raise ValueError("V8 prepared data has no exact current source-family registry")
+    verify_region_family_registry(registry)
     sources = registry["sources"]
-    components = registry["components"]
-    if not isinstance(sources, list) or not sources or not isinstance(components, list):
-        raise ValueError("V8 registry is incomplete")
-    ids = [row.get("id") for row in sources if isinstance(row, dict)]
-    if len(ids) != len(sources) or len(ids) != len(set(ids)):
-        raise ValueError("V8 registry source inventory is malformed")
-    membership = {}
-    for component in components:
-        if (
-            not isinstance(component, dict)
-            or not isinstance(component.get("sourceIds"), list)
-            or component.get("split") not in {"train", "validation", "test"}
-        ):
-            raise ValueError("V8 registry component or split is malformed")
-        for source_id in component["sourceIds"]:
-            if source_id in membership:
-                raise ValueError("V8 source is assigned to more than one component")
-            membership[source_id] = component
-    if set(membership) != set(ids):
-        raise ValueError("V8 registry does not assign every inventoried source exactly once")
+    membership = {
+        identity: component
+        for component in registry["components"]
+        for identity in component["sourceIds"]
+    }
     return sources, membership
 
 

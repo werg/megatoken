@@ -44,7 +44,7 @@ class DedupConfig:
     anchor_count: int = 8
     max_candidates: int = 4096
     min_near_words: int = 40
-    max_descendants_per_parent: int = 5
+    max_descendants_per_parent: int | None = 5
     train_fraction: float = 0.98
     validation_fraction: float = 0.01
     split_seed: str = "fmt-v13-family-split-v1"
@@ -64,7 +64,9 @@ class DedupConfig:
             or self.train_fraction + self.validation_fraction > 1 + 1e-9
         ):
             raise ValueError("Invalid train/validation/test proportions")
-        if self.min_near_words < 0 or self.max_descendants_per_parent < 1:
+        if self.min_near_words < 0 or (
+            self.max_descendants_per_parent is not None and self.max_descendants_per_parent < 1
+        ):
             raise ValueError("Near minimum/descendant cap must be nonnegative/positive")
         if self.evaluation_after is not None:
             object.__setattr__(self, "evaluation_after", _utc_timestamp(self.evaluation_after))
@@ -686,14 +688,15 @@ class DedupStore:
                         (root,),
                     )
             # SQL window functions avoid keeping all variant/task counts in RAM.
-            self.connection.execute(
-                """UPDATE episodes SET quarantine_reason='parent_variant_cap'
+            if self.config.max_descendants_per_parent is not None:
+                self.connection.execute(
+                    """UPDATE episodes SET quarantine_reason='parent_variant_cap'
                 WHERE ordinal IN (SELECT ordinal FROM (
                     SELECT ordinal, ROW_NUMBER() OVER (PARTITION BY variant_key ORDER BY ordinal) AS n
                     FROM episodes WHERE duplicate_of IS NULL AND quarantine_reason IS NULL
                 ) WHERE n > ?)""",
-                (self.config.max_descendants_per_parent,),
-            )
+                    (self.config.max_descendants_per_parent,),
+                )
             self.set_meta("families_frozen", "true")
 
     def split_of(self, family_key: str) -> str:

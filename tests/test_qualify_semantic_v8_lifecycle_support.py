@@ -50,14 +50,18 @@ def _binding(document, identity, member, component):
     }
 
 
-def _fixture(tmp_path, monkeypatch):
-    ids = [f"support-{i:02d}" for i in range(64)]
-    splits = ["train"] * 48 + ["validation"] * 12 + ["test"] * 4
+def _fixture(tmp_path, monkeypatch, counts=(48, 12, 4)):
+    ids = [f"support-{i:02d}" for i in range(sum(counts))]
+    splits = [
+        split
+        for split, count in zip(("train", "validation", "test"), counts, strict=True)
+        for _ in range(count)
+    ]
     components = []
     sources = []
     members_by_id = {}
     components_by_id = {}
-    for i in range(64):
+    for i in range(len(ids)):
         source_id, split = ids[i], splits[i]
         member = {
             "id": source_id,
@@ -203,3 +207,11 @@ def test_support_lifecycle_rejects_missing_and_duplicate_prepared_sources(
         expected = "differs from its frozen inventory or split"
     with pytest.raises(ValueError, match=expected):
         MODULE.validate_support_population(root, sample, inventory)
+
+
+@pytest.mark.parametrize("counts", [(1, 1, 1), (52, 8, 4), (80, 12, 7)])
+def test_support_lifecycle_uses_observed_inventory_and_splits(tmp_path, monkeypatch, counts):
+    root, inventory, sample, *_ = _fixture(tmp_path, monkeypatch, counts)
+    result = MODULE.validate_support_population(root, sample, inventory)
+    assert result["sourceCount"] == sum(counts)
+    assert result["splitCounts"] == dict(zip(("train", "validation", "test"), counts, strict=True))

@@ -125,9 +125,13 @@ def _own_pending(machine, invocation):
         return copy.deepcopy(pending)
     frames = [frame for frame in handler["frames"] if frame["invocation"] == invocation]
     return (
-        {"kind": "cleanup", "value": ["undefined"],
-         "handler": {"schema": handler["schema"], "frames": copy.deepcopy(frames)}}
-        if frames else None
+        {
+            "kind": "cleanup",
+            "value": ["undefined"],
+            "handler": {"schema": handler["schema"], "frames": copy.deepcopy(frames)},
+        }
+        if frames
+        else None
     )
 
 
@@ -315,8 +319,11 @@ def apply_record(machine, record):
         machine["stack"].append(call["invocation"])
         _restore_scope(
             machine,
-            {"receiver": continuation["receiver"], "aliases": continuation["captureAliases"],
-             "pending": continuation["pending"]},
+            {
+                "receiver": continuation["receiver"],
+                "aliases": continuation["captureAliases"],
+                "pending": continuation["pending"],
+            },
         )
         call["phase"] = "running"
         return True
@@ -638,7 +645,11 @@ def validate_state(machine):
             saved = call["resumeScope"]
             _exact(saved, {"receiver", "aliases", "pending"}, "async idle scope")
             _known(machine, saved["receiver"])
-            callers = machine["stack"][:machine["stack"].index(call["invocation"])] if call["attached"] else []
+            callers = (
+                machine["stack"][: machine["stack"].index(call["invocation"])]
+                if call["attached"]
+                else []
+            )
             validate_pending_scope(machine, saved["pending"], callers)
             _require(type(saved["aliases"]) is list, "async idle aliases")
             aliases = set()

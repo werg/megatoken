@@ -532,10 +532,10 @@ def read_support_source_inventory(path, registry_digest):
     ids = value["sourceIds"]
     require(
         isinstance(ids, list)
-        and len(ids) == 64
+        and bool(ids)
         and all(isinstance(item, str) and item for item in ids)
-        and len(set(ids)) == 64,
-        "Support inventory must contain exactly 64 unique source IDs",
+        and len(set(ids)) == len(ids),
+        "Support inventory must contain a nonempty set of unique source IDs",
     )
     return tuple(sorted(ids))
 
@@ -561,9 +561,9 @@ def validate_support_population(prepared_root, source_path, inventory_path):
     source_rows = registry.get("sources")
     require(
         isinstance(source_rows, list)
-        and len(source_rows) == 64
+        and len(source_rows) == len(expected)
         and {row.get("id") for row in source_rows if isinstance(row, dict)} == set(expected),
-        "Prepared support registry differs from the immutable 64-source inventory",
+        "Prepared support registry differs from the observed source inventory",
     )
     split_by_id = {}
     for component in registry.get("components", []):
@@ -620,8 +620,9 @@ def validate_support_population(prepared_root, source_path, inventory_path):
         "Lifecycle sample public/context/source bytes differ from the prepared training episode",
     )
     require(
-        counts == {"train": 48, "validation": 12, "test": 4},
-        "Prepared support corpus differs from its frozen 48/12/4 source split",
+        counts
+        == {split: sum(value == split for value in split_by_id.values()) for split in counts},
+        "Prepared support corpus differs from its authenticated source split",
     )
     return {
         "registryDigest": registry_digest,

@@ -72,8 +72,19 @@ def two_split_supply(tmp_path_factory):
     root = tmp_path_factory.mktemp("v8-launch-corpus")
     fixture = Path(__file__).parent / "fixtures/semantic-regions-v8.json.gz.b64"
     examples = json.loads(gzip.decompress(base64.b64decode(fixture.read_bytes())))["examples"]
-    documents, receipts, sources, components = [], {}, [], []
+    registry = json.loads((Path(__file__).parent / "fixtures/current-launch-registry-v8.json").read_text())
+    documents, receipts = [], {}
+    source_by_id = {source["id"]: source for source in registry["sources"]}
+    component_by_source = {
+        source_id: component
+        for component in registry["components"]
+        for source_id in component["sourceIds"]
+    }
     for index, split in enumerate(("train", "validation")):
+        source_id = f"source-{index}"
+        source = source_by_id[source_id]
+        component = component_by_source[source_id]
+        assert component["split"] == split
         document, codec, _, prepared = prepared_v8_fixture(
             root / split,
             document=copy.deepcopy(examples[index]),
@@ -81,38 +92,28 @@ def two_split_supply(tmp_path_factory):
             max_history=128,
         )
         sidecar = document["sidecar"]
-        source_id, family, component = f"source-{index}", f"family-{index}", f"component-{index}"
-        source = copy.deepcopy(sidecar["splitIdentity"]["registry"]["sources"][0])
-        source.update(id=source_id, family=family)
-        sources.append(source)
-        components.append(
-            {
-                "id": component,
-                "members": [family],
-                "sourceIds": [source_id],
-                "split": split,
-                "holdout": None,
-            }
-        )
         with PreparedCorpus([str(prepared)], split=None) as corpus:
             (episode,) = corpus.iter_episodes()
             receipt = json.loads(episode.supervision.annotations_json)["semantic_execution"][
                 "sourceAdmission"
             ]
         receipts[source_id] = receipt
-        documents.append(document)
-    registry = copy.deepcopy(documents[0]["sidecar"]["splitIdentity"]["registry"])
-    registry.update(sources=sources, components=components)
-    registry["digest"] = stable_algorithm_hash({k: v for k, v in registry.items() if k != "digest"})
-    for document, source, component in zip(documents, sources, components, strict=True):
-        sidecar = document["sidecar"]
-        sidecar["splitIdentity"].update(
+        identity = sidecar["splitIdentity"]
+        identity.update(
             registry=registry,
             registryDigest=registry["digest"],
-            sourceId=source["id"],
+            seed=registry["seed"],
+            sourceId=source_id,
+            family=source["family"],
+            ancestors=source["ancestors"],
+            entry=source["entry"],
+            sourceDigest=source["sourceDigest"],
+            coreDigest=source["coreDigest"],
+            coreStatus=source["coreStatus"],
             componentId=component["id"],
             members=component["members"],
             split=component["split"],
+            holdout=component["holdout"],
         )
         sidecar.update(
             split=component["split"],
@@ -121,15 +122,18 @@ def two_split_supply(tmp_path_factory):
         )
         sidecar["datasetBinding"].update(
             registryDigest=registry["digest"],
-            sourceId=source["id"],
+            sourceId=source_id,
             family=source["family"],
             componentId=component["id"],
             split=component["split"],
+            sourceDigest=source["sourceDigest"],
+            coreDigest=source["coreDigest"],
         )
-        receipts[source["id"]].update(
+        receipts[source_id].update(
             registryDigest=registry["digest"],
             datasetBindingDigest=stable_algorithm_hash(sidecar["datasetBinding"]),
         )
+        documents.append(document)
     destination = root / "both-splits"
     prepare_semantic_corpus_v8(
         documents,

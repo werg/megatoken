@@ -56,7 +56,10 @@ def _fingerprint(value):
     _require(_safe_int(value["tokenCount"], 1) and value["tokenCount"] <= 50000, "token count")
     _require(_hash(value["exactHash"]) and _hash(value["alphaHash"]), "fingerprint hashes")
     shingles = _strings(value["shingles"], "shingles")
-    _require(len(shingles) <= 50000 and all(_SHINGLE.fullmatch(item) for item in shingles), "shingle bounds")
+    _require(
+        len(shingles) <= 50000 and all(_SHINGLE.fullmatch(item) for item in shingles),
+        "shingle bounds",
+    )
 
 
 class _Components:
@@ -80,16 +83,22 @@ def _clone_relations(rows, threshold, budget):
     identities = ({}, {})
     for index, row in enumerate(rows):
         fingerprint = row["sourceFingerprint"]
-        for table, key in zip(identities, (
-            fingerprint["exactHash"],
-            fingerprint["alphaHash"] if fingerprint["tokenCount"] >= 20 else None,
-        ), strict=True):
+        for table, key in zip(
+            identities,
+            (
+                fingerprint["exactHash"],
+                fingerprint["alphaHash"] if fingerprint["tokenCount"] >= 20 else None,
+            ),
+            strict=True,
+        ):
             if key is not None:
                 if key in table:
                     groups.join(index, table[key])
                 else:
                     table[key] = index
-    frequencies = Counter(shingle for row in rows for shingle in row["sourceFingerprint"]["shingles"])
+    frequencies = Counter(
+        shingle for row in rows for shingle in row["sourceFingerprint"]["shingles"]
+    )
     postings = defaultdict(list)
     costs = {"comparisons": 0, "candidateVisits": 0, "indexEntries": 0}
 
@@ -103,8 +112,8 @@ def _clone_relations(rows, threshold, budget):
         size = len(shingles)
         if not size:
             continue
-        prefix = sorted(shingles, key=lambda item: (frequencies[item], item))[:
-            size - math.ceil(threshold * size) + 1
+        prefix = sorted(shingles, key=lambda item: (frequencies[item], item))[
+            : size - math.ceil(threshold * size) + 1
         ]
         candidates = set()
         for shingle in prefix:
@@ -129,16 +138,42 @@ def _clone_relations(rows, threshold, budget):
 
 def verify_region_family_registry(registry):
     """Validate the complete graph; source-derived claims also require fresh JS replay."""
-    _exact(registry, ("schema", "policy", "traceFormat", "coreSchema", "seed", "holdouts",
-                      "nearThreshold", "cloneBudget", "sources", "components", "diagnostics", "digest"), "registry")
-    _require((registry["schema"], registry["policy"], registry["traceFormat"], registry["coreSchema"]) == (
-        "semantic-region-family-registry/1", "semantic-region-family-components/1",
-        "semantic-trace/8", "semantic-algorithm/2"), "unsupported current contract")
+    _exact(
+        registry,
+        (
+            "schema",
+            "policy",
+            "traceFormat",
+            "coreSchema",
+            "seed",
+            "holdouts",
+            "nearThreshold",
+            "cloneBudget",
+            "sources",
+            "components",
+            "diagnostics",
+            "digest",
+        ),
+        "registry",
+    )
+    _require(
+        (registry["schema"], registry["policy"], registry["traceFormat"], registry["coreSchema"])
+        == (
+            "semantic-region-family-registry/1",
+            "semantic-region-family-components/1",
+            "semantic-trace/8",
+            "semantic-algorithm/2",
+        ),
+        "unsupported current contract",
+    )
     body = {key: value for key, value in registry.items() if key != "digest"}
     _require(registry["digest"] == stable_algorithm_hash(body), "digest differs")
     seed, threshold, budget = registry["seed"], registry["nearThreshold"], registry["cloneBudget"]
     _require(type(seed) is int and abs(seed) <= 2**53 - 1, "split seed")
-    _require(type(threshold) in (int, float) and math.isfinite(threshold) and 0.8 <= threshold <= 1, "clone threshold")
+    _require(
+        type(threshold) in (int, float) and math.isfinite(threshold) and 0.8 <= threshold <= 1,
+        "clone threshold",
+    )
     _exact(budget, _BUDGET, "clone budget")
     _require(all(_safe_int(value) for value in budget.values()), "clone budget bounds")
     holdouts = registry["holdouts"]
@@ -148,21 +183,58 @@ def verify_region_family_registry(registry):
         if key != "families":
             _require(all(_hash(value) for value in holdouts[key]), "holdout hashes")
     sources = registry["sources"]
-    _require(type(sources) is list and len(sources) > 0, "complete nonempty source inventory required")
+    _require(
+        type(sources) is list and len(sources) > 0, "complete nonempty source inventory required"
+    )
     for row in sources:
-        _exact(row, ("id", "family", "ancestors", "source", "entry", "sourceDigest", "coreDigest",
-                     "coreStatus", "sourceFingerprint", "sourceFingerprintStatus"), "source member")
+        _exact(
+            row,
+            (
+                "id",
+                "family",
+                "ancestors",
+                "source",
+                "entry",
+                "sourceDigest",
+                "coreDigest",
+                "coreStatus",
+                "sourceFingerprint",
+                "sourceFingerprintStatus",
+            ),
+            "source member",
+        )
         for field in ("id", "family", "entry"):
-            _require(type(row[field]) is str and 0 < _js_string_length(row[field]) <= 256, "source " + field)
-        _require(type(row["source"]) is str and row["source"] and len(_js_utf8(row["source"])) <= 2000000, "original source")
-        _require(row["sourceDigest"] == hashlib.sha256(_js_utf8(row["source"])).hexdigest(), "original source bytes changed")
+            _require(
+                type(row[field]) is str and 0 < _js_string_length(row[field]) <= 256,
+                "source " + field,
+            )
+        _require(
+            type(row["source"]) is str
+            and row["source"]
+            and len(_js_utf8(row["source"])) <= 2000000,
+            "original source",
+        )
+        _require(
+            row["sourceDigest"] == hashlib.sha256(_js_utf8(row["source"])).hexdigest(),
+            "original source bytes changed",
+        )
         ancestors = _strings(row["ancestors"], "ancestors")
-        _require(len(ancestors) <= 1024 and row["family"] not in ancestors and
-                 all(_js_string_length(value) <= 256 for value in ancestors), "source ancestry")
-        _require((row["coreStatus"] == "algorithm" and _hash(row["coreDigest"])) or
-                 (row["coreStatus"] in ("detailed", "source-refused") and row["coreDigest"] is None), "normalized core status")
+        _require(
+            len(ancestors) <= 1024
+            and row["family"] not in ancestors
+            and all(_js_string_length(value) <= 256 for value in ancestors),
+            "source ancestry",
+        )
+        _require(
+            (row["coreStatus"] == "algorithm" and _hash(row["coreDigest"]))
+            or (row["coreStatus"] in ("detailed", "source-refused") and row["coreDigest"] is None),
+            "normalized core status",
+        )
         if row["sourceFingerprint"] is None:
-            _require(row["sourceFingerprintStatus"] in ("tokenization-refused", "empty-token-stream"), "unassessed fingerprint status")
+            _require(
+                row["sourceFingerprintStatus"] in ("tokenization-refused", "empty-token-stream"),
+                "unassessed fingerprint status",
+            )
         else:
             _require(row["sourceFingerprintStatus"] == "tokenized", "assessed fingerprint status")
             _fingerprint(row["sourceFingerprint"])
@@ -180,8 +252,12 @@ def verify_region_family_registry(registry):
                 groups.join(index, edges[key])
             else:
                 edges[key] = index
-    representative_by_digest = {row["sourceDigest"]: row for row in sources if row["sourceFingerprint"] is not None}
-    representatives = sorted(representative_by_digest.values(), key=lambda row: _js_string_units(row["id"]))
+    representative_by_digest = {
+        row["sourceDigest"]: row for row in sources if row["sourceFingerprint"] is not None
+    }
+    representatives = sorted(
+        representative_by_digest.values(), key=lambda row: _js_string_units(row["id"])
+    )
     clones, near_pairs, costs = _clone_relations(representatives, threshold, budget)
     positions = {row["id"]: index for index, row in enumerate(sources)}
     for index, row in enumerate(representatives):
@@ -201,21 +277,56 @@ def verify_region_family_registry(registry):
         grouped[groups.root(index)].append(row)
     components = []
     for rows in grouped.values():
-        identity = "semantic-region-component:" + stable_algorithm_hash([
-            {key: value for key, value in row.items() if key != "source"} for row in rows
-        ])
-        members = sorted({value for row in rows for value in (row["family"], *row["ancestors"])}, key=_js_string_units)
+        identity = "semantic-region-component:" + stable_algorithm_hash(
+            [{key: value for key, value in row.items() if key != "source"} for row in rows]
+        )
+        members = sorted(
+            {value for row in rows for value in (row["family"], *row["ancestors"])},
+            key=_js_string_units,
+        )
         matched = {
             "families": [value for value in members if value in holdouts["families"]],
-            "sourceDigests": sorted({row["sourceDigest"] for row in rows if row["sourceDigest"] in holdouts["sourceDigests"]}),
-            "coreDigests": sorted({row["coreDigest"] for row in rows if row["coreDigest"] is not None and row["coreDigest"] in holdouts["coreDigests"]}),
+            "sourceDigests": sorted(
+                {
+                    row["sourceDigest"]
+                    for row in rows
+                    if row["sourceDigest"] in holdouts["sourceDigests"]
+                }
+            ),
+            "coreDigests": sorted(
+                {
+                    row["coreDigest"]
+                    for row in rows
+                    if row["coreDigest"] is not None
+                    and row["coreDigest"] in holdouts["coreDigests"]
+                }
+            ),
         }
         holdout = matched if any(matched.values()) else None
         bucket = int(hashlib.sha256(_js_utf8(str(seed) + ":" + identity)).hexdigest()[:8], 16) % 100
-        split = "test" if holdout else "train" if bucket < 80 else "validation" if bucket < 90 else "test"
-        components.append({"id": identity, "members": members, "sourceIds": [row["id"] for row in rows], "split": split, "holdout": holdout})
+        split = (
+            "test"
+            if holdout
+            else "train"
+            if bucket < 80
+            else "validation"
+            if bucket < 90
+            else "test"
+        )
+        components.append(
+            {
+                "id": identity,
+                "members": members,
+                "sourceIds": [row["id"] for row in rows],
+                "split": split,
+                "holdout": holdout,
+            }
+        )
     components.sort(key=lambda row: row["id"])
-    _require(registry["components"] == components, "source relations, component membership, split or holdout changed")
+    _require(
+        registry["components"] == components,
+        "source relations, component membership, split or holdout changed",
+    )
     diagnostics = {
         "sourceMembers": len(sources),
         "exactSourceVariants": len({row["sourceDigest"] + ":" + row["entry"] for row in sources}),
@@ -224,14 +335,28 @@ def verify_region_family_registry(registry):
         "withoutNormalizedCore": sum(row["coreDigest"] is None for row in sources),
         "nearPairs": near_pairs,
         "cloneAudit": {
-            "algorithm": "complete-jaccard-prefix", "complete": not unassessed,
-            "nearThreshold": threshold, "budget": budget, "costs": costs,
+            "algorithm": "complete-jaccard-prefix",
+            "complete": not unassessed,
+            "nearThreshold": threshold,
+            "budget": budget,
+            "costs": costs,
             "assessedSources": len(sources) - len(unassessed),
-            "comparedSourceVariants": len(representatives), "unassessedSources": unassessed,
+            "comparedSourceVariants": len(representatives),
+            "unassessedSources": unassessed,
             "unassessedPolicy": "same-component",
         },
         "connectedComponents": len(components),
-        "splitComponents": {split: sum(row["split"] == split for row in components) for split in _SPLITS},
+        "splitComponents": {
+            split: sum(row["split"] == split for row in components) for split in _SPLITS
+        },
     }
-    _require(stable_algorithm_hash(registry["diagnostics"]) == stable_algorithm_hash(diagnostics), "clone accounting or coverage changed")
-    return {"valid": True, "digest": registry["digest"], "components": len(components), "nearPairs": near_pairs}
+    _require(
+        stable_algorithm_hash(registry["diagnostics"]) == stable_algorithm_hash(diagnostics),
+        "clone accounting or coverage changed",
+    )
+    return {
+        "valid": True,
+        "digest": registry["digest"],
+        "components": len(components),
+        "nearPairs": near_pairs,
+    }
