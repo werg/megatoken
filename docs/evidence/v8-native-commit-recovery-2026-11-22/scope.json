@@ -1,0 +1,85 @@
+{
+  "schema": "native-v8-commit-recovery-evidence/1",
+  "date": "2026-11-22",
+  "repository": "werg/megatoken",
+  "localCandidateRevision": "4117413b5b91024fb45e4eee04dc083526d0b4c0",
+  "candidateBaseRevision": "dbc89dcd52cb93d1d9fdca2989fab64b85e5d427",
+  "execution": "local CPU; exact implementation blobs listed below; not a hosted run or installed-package test",
+  "runtime": {
+    "python": "3.12.14",
+    "torch": "2.14.1+cpu",
+    "pytest": "9.2.0",
+    "packageImportPath": "/workspace/scratch/05d92519587f/native-recovery-worktree/src/megatoken/__init__.py"
+  },
+  "result": {
+    "pytestCases": 83,
+    "pytestSubtests": 8,
+    "junitEntries": 83,
+    "failures": 0,
+    "errors": 0,
+    "skipped": 0
+  },
+  "command": "TMPDIR=<existing writable temporary directory> OMP_NUM_THREADS=1 MKL_NUM_THREADS=1 python -m pytest -q tests/test_semantic_commit_recovery_v8.py tests/test_semantic_request_journal_v8.py tests/test_semantic_v8_serving_restore.py tests/test_semantic_v8_closed_session_restore.py tests/test_semantic_model_v8.py tests/test_semantic_v8_orchestration.py tests/test_serve_semantic_v8.py --junitxml=<output.xml>",
+  "focusedResult": {
+    "pytestCases": 46,
+    "skipped": 0
+  },
+  "files": {
+    "src/megatoken/semantic_commit_recovery_v8.py": {
+      "gitBlob": "5f834ee471d37d9a5584c9b3d28a82846c2ea14e",
+      "sha256": "3931575a2e44c101cda24e6c2b6f326c8508e388466e9a94fcc6873bcce9acf5"
+    },
+    "src/megatoken/semantic_request_journal_v8.py": {
+      "gitBlob": "04eec398d32ee910ecc436115f30dbc8597f349e",
+      "sha256": "97f8c6a8a48db034dbd44dbb64bf3daff2a5519b1d1144ede9e63f8c8ba93692"
+    },
+    "scripts/serve_semantic_v8.py": {
+      "gitBlob": "78a34f14c2f53499f0b70a61703185be87164049",
+      "sha256": "abb50660c4e2b4c4c8284573bfe4899d8fd7e19a4c60a186c2de9354fb012d87"
+    },
+    "tests/test_semantic_commit_recovery_v8.py": {
+      "gitBlob": "32c8034d659ab7e951e000cb75c513752b8cd6f3",
+      "sha256": "6305b9b74077b9e4d9b97a0143dca4eae0360a70167198e102679037b76aa57d"
+    },
+    "tests/test_semantic_request_journal_v8.py": {
+      "gitBlob": "a1512b225bacb5f815a914c3801863ed3ae3a537",
+      "sha256": "bd89565e521e0266e5dd7e0b99f9a6485d39ff29a3ccf85f7ac8c1f316ca21f6"
+    },
+    "tests/test_semantic_v8_serving_restore.py": {
+      "gitBlob": "5083771a9d1211d89128f638ff7f60208346963d",
+      "sha256": "06fd9d03bfba6deadef95dfe5f99d9d508c4a40199635721209e291bad81bfd7"
+    },
+    "tests/test_semantic_v8_closed_session_restore.py": {
+      "gitBlob": "32c15eb8539fe8e2e8c9dbf83de1b0c2b88888d0",
+      "sha256": "5f02d6128dd615ce5835bea1faab4e6c7cb26fb0fcc0c7dc7e478c171c5e8434"
+    },
+    "tests/test_semantic_model_v8.py": {
+      "gitBlob": "ae6d1906a5fb2469a0be6b2cd402133eac95a5e2",
+      "sha256": "58addf3774fc0da03b5115586d4cb5d7b7e2700e821ff60b6acf1cb754b27879"
+    },
+    "tests/test_semantic_v8_orchestration.py": {
+      "gitBlob": "15e30e0f8606830227427204d914730ea1af5f23",
+      "sha256": "3ddb2ca76d33007fee3b1bc2021598249fd83b6ea16ed7b3e3b18e6d00e4e0cc"
+    },
+    "tests/test_serve_semantic_v8.py": {
+      "gitBlob": "7179aeb786982dcd0b14f892cae1f37dd6762ced",
+      "sha256": "99416839934cc70e309eff8b5c9e286736730dcd8206982144adc1a33a9e2975"
+    },
+    "tests/fixtures/serve_semantic_v8_recovery_fixture.py": {
+      "gitBlob": "6165ed4795ffa966575aee7008b1a197d51d78d2",
+      "sha256": "85cf0d4d244ec19d8b6adf20d71ce84e8dabad63ccc50f530d38af10da165008"
+    },
+    "tests/fixtures/semantic_request_journal_worker_v8.py": {
+      "gitBlob": "331daec96caa2c1412f327f63d77c450d62eae6f",
+      "sha256": "508d52897b240abe8e901e2745db4b1f7675a04da9a9b077772cd766f636cbf0"
+    }
+  },
+  "limits": [
+    "trusted-local Linux single execution owner",
+    "producer must use a one-use inherited lease for each native child",
+    "explicit commit-only reconciliation; no automatic host/history recovery",
+    "unknown or superseded native outcomes cannot recover",
+    "supplied lexical decoder/controlled lifecycle tests are engineering controls, not learned-quality evidence",
+    "source-corpus admission, tokenizer packing, optimizer coverage, GPU and distributed ownership are outside this run"
+  ]
+}
