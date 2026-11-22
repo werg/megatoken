@@ -70,6 +70,37 @@ def executor_fixture():
 
 
 class PromiseExecutorV8Tests(unittest.TestCase):
+    def test_foreign_shared_realm_adoption_keeps_common_heap_invariants(self):
+        state = machine()
+        state["stack"] = []
+        state["heap"]["target"] = {
+            "kind": "promise", "properties": {}, "state": "fulfilled", "result": ["num", 1],
+            "adopted": None, "external": None, "reactions": [],
+        }
+        state["heap"]["promise"].update(state="fulfilled", result=["num", 1])
+        state["heap"]["promise"]["adoption"] = {
+            "schema": "semantic-promise-adoption-state/1",
+            "owner": "foreign-root",
+            "target": "target",
+            "phase": "completed",
+            "cause": {"kind": "async", "invocation": "foreign-call"},
+            "job": "foreign-adopt-job",
+            "forwarding": "foreign-forward-job",
+            "error": None,
+        }
+        saved = _external_machine(state)
+        self.assertTrue(validate_protocol_state(saved["protocol"], saved["heap"], saved))
+
+        # Controller-local job/cause rows are absent here, but shared heap
+        # settlement consistency is still mandatory for every owner.
+        bad = copy.deepcopy(saved)
+        target = dict(bad["heap"])["target"]
+        target["state"] = "fulfilled"
+        target["result"] = ["num", 2]
+        bad["heap"] = [[identity, node] for identity, node in dict(bad["heap"]).items()]
+        with self.assertRaises(ProtocolV8Error):
+            validate_protocol_state(bad["protocol"], bad["heap"], bad)
+
     def test_owned_promise_resolution_uses_fifo_adoption_and_forwarding_jobs(self):
         state = executor_fixture()
         state["heap"]["source"] = {
@@ -117,6 +148,13 @@ class PromiseExecutorV8Tests(unittest.TestCase):
         next(row for row in tampered["jobs"] if row[0] == "adopt-job")[1]["adoptionTarget"] = "other"
         saved_tampered = _external_machine(tampered)
         with self.assertRaises(ProtocolV8Error):
+            validate_protocol_state(
+                saved_tampered["protocol"], saved_tampered["heap"], saved_tampered
+            )
+        tampered = copy.deepcopy(state)
+        next(row for row in tampered["jobs"] if row[0] == "adopt-job")[1]["extra"] = None
+        saved_tampered = _external_machine(tampered)
+        with self.assertRaisesRegex(ProtocolV8Error, "noncanonical retained fields"):
             validate_protocol_state(
                 saved_tampered["protocol"], saved_tampered["heap"], saved_tampered
             )
@@ -173,9 +211,15 @@ class PromiseExecutorV8Tests(unittest.TestCase):
                 {"kind": "promise.adopt.enqueue", "promise": "promise", "target": "other", "job": "adopt-job"},
             )
         self.assertEqual(state, before)
+        with self.assertRaisesRegex(ProtocolV8Error, "same Promise and target"):
+            apply_protocol_record(
+                state,
+                {"kind": "promise.adopt.enqueue", "promise": "other", "target": "source", "job": "other-job"},
+            )
+        self.assertEqual(state, before)
 
     def test_overridden_promise_then_is_refused_before_resolver_mutation(self):
-        for key in ("properties", "descriptors"):
+        for key in ("properties", "descriptors", "prototype"):
             state = executor_fixture()
             source = {
                 "kind": "promise", "properties": {}, "state": "pending", "result": None,
@@ -183,8 +227,10 @@ class PromiseExecutorV8Tests(unittest.TestCase):
             }
             if key == "properties":
                 source[key] = {"then": ["undefined"]}
-            else:
+            elif key == "descriptors":
                 source[key] = {"then": {"kind": "accessor"}}
+            else:
+                source[key] = None
             state["heap"]["source"] = source
             enter(state)
             before = copy.deepcopy(state)

@@ -45,7 +45,7 @@ def _assert_intrinsic_then(machine, identity):
     if (
         properties
         or descriptors
-        or node.get("prototype", "ordinary") not in (None, "ordinary")
+        or "prototype" in node and node["prototype"] != "ordinary"
         or node.get("extensible") is False
         or node.get("callable") is not None
         or node.get("proxy") is not None
@@ -169,6 +169,22 @@ def _check_cause(machine, adopter, row, target):
         _fail("unknown adoption cause")
 
 
+def _validate_cause_shape(row):
+    cause = row.get("cause")
+    if type(cause) is not dict:
+        _fail("adoption lacks a source-bound resolution cause")
+    expected = {
+        "resolver": {"kind", "resolver"},
+        "async": {"kind", "invocation"},
+        "reaction": {"kind", "job"},
+        "source": {"kind"},
+    }.get(cause.get("kind"))
+    if expected is None or set(cause) != expected:
+        _fail("adoption cause has noncanonical fields")
+    for key in expected - {"kind"}:
+        _id(cause[key])
+
+
 def validate_record(record):
     from .protocol_v8 import _exact, _identity, validate_protocol_value
 
@@ -233,10 +249,7 @@ def apply_record(machine, record):
         if row["phase"] != "intent" or row["target"] != target:
             _fail("enqueue does not consume exact resolution intent")
         _check_cause(machine, adopter, row, target)
-        if (
-            (not machine["stack"] and row.get("cause", {}).get("kind") != "reaction")
-            or row["owner"] != next(iter(machine.get("frameFunctions", {})), None)
-        ):
+        if row["owner"] != next(iter(machine.get("frameFunctions", {})), None):
             _fail("adoption owner changed before enqueue")
         _fresh_job(machine, identity)
         if sum(1 for node in machine["heap"].values() if node.get("kind") == "promise" and node.get("adoption") is not None) >= BOUND:
@@ -364,9 +377,24 @@ def assert_next(machine, record):
         if node.get("kind") == "promise"
         and node.get("adoption") is not None
         and node["adoption"].get("phase") == "intent"
+        and node["adoption"].get("owner") == next(iter(machine.get("frameFunctions", {})), None)
     ]
     if pending and record.get("kind") not in ("promise.adopt.enqueue", "promise.adopt.self"):
         _fail("resolution intent must be consumed before another record")
+    if pending:
+        promise_id, adoption = pending[0]
+        valid_enqueue = (
+            kind == "promise.adopt.enqueue"
+            and fields.get("promise") == promise_id
+            and fields.get("target") == adoption["target"]
+        )
+        valid_self = (
+            kind == "promise.adopt.self"
+            and fields.get("promise") == promise_id
+            and adoption["target"] == promise_id
+        )
+        if not (valid_enqueue or valid_self):
+            _fail("resolution intent must be consumed for the same Promise and target")
     if kind == "promise" and fields.get("action") in ("resolve", "reject", "adopt"):
         if machine["heap"].get(fields.get("promise"), {}).get("adoption") is not None:
             _fail("adoption-owned Promise requires its scheduler record")
@@ -408,13 +436,17 @@ def validate_state(machine):
         for key in ("owner", "target", "job", "forwarding"):
             if row[key] is not None:
                 _identity(row[key])
-        if row["owner"] != next(iter(machine.get("frameFunctions", {})), None):
-            _fail("retained adoption owner differs from its root invocation")
+        local_owner = row["owner"] == next(iter(machine.get("frameFunctions", {})), None)
+        _validate_cause_shape(row)
         _promise(machine, row["target"])
         _assert_intrinsic_then(machine, row["target"])
         if row["phase"] == "intent" and (row["target"] is None or row["cause"] is None):
             _fail("incomplete staged adoption intent")
-        if row["phase"] in ("intent", "queued", "observing", "completed", "self"):
+        # The realm heap and scheduler are shared, but each controller retains
+        # only its own executor/async/reaction cause tables. Validate the
+        # common heap/job shape for every owner; validate causal authority only
+        # when the cause belongs to this controller.
+        if local_owner:
             _check_cause(machine, identity, row, row["target"])
         if row["phase"] == "intent":
             if (
@@ -423,12 +455,17 @@ def validate_state(machine):
             ):
                 _fail("staged adoption intent contains a future identity or early result")
         elif row["phase"] == "queued":
-            _assert_fresh_heap_identity(machine, row["job"])
-            job = rows.get(row["job"])
             if (
                 row["job"] is None or row["forwarding"] is not None or row["error"] is not None
                 or node["state"] != "pending" or node["result"] is not None
-                or not job or job.get("status") != "queued" or job.get("owner") != row["owner"]
+            ):
+                _fail("queued adoption has an early result or incomplete identity")
+            if not local_owner:
+                continue
+            _assert_fresh_heap_identity(machine, row["job"])
+            job = rows.get(row["job"])
+            if (
+                not job or job.get("status") != "queued" or job.get("owner") != row["owner"]
                 or job.get("reaction") != "adopt" or job.get("closure") is not None
                 or job.get("adoptionPromise") != identity or job.get("adoptionTarget") != row["target"]
                 or type(job.get("readySequence")) is not int or job["readySequence"] <= 0
@@ -438,13 +475,20 @@ def validate_state(machine):
                 _fail("queued adoption job lost its exact FIFO binding")
             owned_jobs.add(row["job"])
         elif row["phase"] in ("observing", "completed"):
+            if row["job"] is None or row["forwarding"] is None or row["error"] is not None:
+                _fail("observing adoption has incomplete identities")
+            if row["phase"] == "completed":
+                target = _promise(machine, row["target"])
+                if node["state"] != target["state"] or node["result"] != target["result"]:
+                    _fail("completed adoption differs from target settlement")
+            if not local_owner:
+                continue
             _assert_fresh_heap_identity(machine, row["job"])
             _assert_fresh_heap_identity(machine, row["forwarding"])
             job = rows.get(row["job"])
             forwarding = rows.get(row["forwarding"])
             if (
-                row["job"] is None or row["forwarding"] is None or row["error"] is not None
-                or not job or job.get("status") != "completed" or job.get("owner") != row["owner"]
+                not job or job.get("status") != "completed" or job.get("owner") != row["owner"]
                 or job.get("reaction") != "adopt" or job.get("closure") is not None
                 or job.get("adoptionPromise") != identity or job.get("adoptionTarget") != row["target"]
                 or type(job.get("readySequence")) is not int or job["readySequence"] <= 0
@@ -476,10 +520,6 @@ def validate_state(machine):
                 )
             ):
                 _fail("retained forwarding registration linkage")
-            if row["phase"] == "completed":
-                target = _promise(machine, row["target"])
-                if node["state"] != target["state"] or node["result"] != target["result"]:
-                    _fail("completed adoption differs from target settlement")
         elif row["phase"] == "self":
             error = row["error"]
             _identity(error)
@@ -497,3 +537,12 @@ def validate_state(machine):
                 _fail("orphan or invalid adoption job")
             if (job.get("status") == "queued") != (identity in ready):
                 _fail("adoption job ready status differs from queue")
+            expected_fields = (
+                {"status", "owner", "closure", "reaction", "adoptionPromise", "adoptionTarget", "readySequence"}
+                if job["reaction"] == "adopt"
+                else {"status", "owner", "promise", "reaction", "closure", "rejectionClosure", "target", "sequence", "adoptionPromise", "adoptionTarget"}
+            )
+            if job["reaction"] == "adoption" and job["status"] != "waiting":
+                expected_fields.add("readySequence")
+            if set(job) != expected_fields:
+                _fail("adoption job has noncanonical retained fields")
