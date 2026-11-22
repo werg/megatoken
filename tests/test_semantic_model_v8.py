@@ -1,6 +1,8 @@
 """Protocol tests use an explicit fake decoder; no model-quality claim follows."""
 
+import base64
 import copy
+import gzip
 import json
 import unittest
 from dataclasses import dataclass
@@ -193,6 +195,171 @@ class NativeServingV8Tests(unittest.TestCase):
         self.assertEqual(adapter.metrics()["failedAttempts"], 1)
         self.acknowledge(adapter, self.request(adapter))
         self.assertEqual(adapter.metrics()["committed"], 1)
+
+    def test_runtime_invalid_first_and_later_fragments_keep_all_original_bytes(self):
+        for earlier in (b"", b"prefix "):
+            with self.subTest(earlier=earlier):
+                fragments = ([(earlier, False)] if earlier else []) + [
+                    (b"\xff", True),
+                    (self.target(), True),
+                ]
+                adapter, runtime = self.setup_adapter(fragments)
+                generate = runtime.generate
+
+                def reject_utf8(*args, generate=generate, **kwargs):
+                    result = generate(*args, **kwargs)
+                    if result.tape.payloads == (b"\xff",):
+                        result.tape.valid = (False,)
+                    return result
+
+                runtime.generate = reject_utf8
+                with self.assertRaisesRegex(
+                    NativeSelectionV8Error, "invalid v8 text fragment"
+                ) as caught:
+                    self.request(adapter)
+                evidence = caught.exception.evidence
+                self.assertEqual(evidence["payloadHex"], (earlier + b"\xff").hex())
+                self.assertEqual(evidence["rawPayloadHex"], evidence["payloadHex"])
+                self.assertEqual(
+                    evidence["payloadHex"],
+                    "".join(part["payloadHex"] for part in evidence["fragments"]),
+                )
+                self.assertEqual(evidence["generatedTokens"], len(earlier) + 1)
+                validation = evidence["fragments"][-1]["validation"]
+                self.assertEqual(
+                    validation,
+                    {
+                        "shapeValid": True,
+                        "runtimeValid": False,
+                        "tokenIdsValid": True,
+                        "tokenBytesMatch": True,
+                        "tokenDecodeError": None,
+                        "utf8Valid": False,
+                    },
+                )
+                self.assertEqual(
+                    evidence["fragments"][-1]["rejectedNativeOutputs"]["payloadsHex"], ["ff"]
+                )
+                self.assertEqual(evidence["status"], "rejected")
+                work = adapter.sessions[evidence["session"]]
+                self.assertEqual(work.runtime.state, 0)
+                self.assertIsNone(work.pending)
+                self.assertEqual(adapter.metrics()["committed"], 0)
+                self.acknowledge(adapter, self.request(adapter))
+                self.assertEqual(adapter.metrics()["committed"], 1)
+
+    def test_malformed_rejected_outputs_retain_raw_evidence_without_aggregate_provenance(self):
+        changes = {
+            "multiple-outputs": {
+                "payloads": (b"a", b"b"),
+                "emitted_ids": ((97,), (98,)),
+                "terminal": (True, True),
+                "event_ids": ("a", "b"),
+            },
+            "not-bytes": {"payloads": ("not bytes",)},
+            "token-byte-disagreement": {"payloads": (b"a",), "emitted_ids": ((98,),)},
+            "negative-token": {"emitted_ids": ((-1,),)},
+            "boolean-token": {"emitted_ids": ((True,),)},
+            "out-of-range-token": {"emitted_ids": ((256,),)},
+            "missing-terminal": {"terminal": ()},
+            "wrong-track": {"tracks": ("other",)},
+        }
+        for label, changed in changes.items():
+            with self.subTest(label=label):
+                adapter, runtime = self.setup_adapter([(b"prefix", False), (b"a", True)])
+                generate = runtime.generate
+
+                def malformed(*args, changed=changed, generate=generate, **kwargs):
+                    result = generate(*args, **kwargs)
+                    if result.tape.payloads == (b"a",):
+                        for key, value in changed.items():
+                            setattr(result.tape, key, value)
+                    return result
+
+                runtime.generate = malformed
+                with self.assertRaisesRegex(
+                    NativeSelectionV8Error, "invalid v8 text fragment"
+                ) as caught:
+                    self.request(adapter)
+                evidence = caught.exception.evidence
+                self.assertIsNone(evidence["payloadHex"])
+                self.assertEqual(len(evidence["fragments"]), 2)
+                raw = evidence["fragments"][-1]["rejectedNativeOutputs"]
+                payloads = changed.get("payloads", (b"a",))
+                self.assertEqual(
+                    raw["payloadsHex"],
+                    [value.hex() if isinstance(value, bytes) else None for value in payloads],
+                )
+                self.assertEqual(
+                    raw["emittedTokenIds"],
+                    [list(values) for values in changed.get("emitted_ids", ((97,),))],
+                )
+                self.assertEqual(
+                    evidence["generatedTokens"],
+                    6 + sum(len(values) for values in raw["emittedTokenIds"]),
+                )
+                self.assertEqual(adapter.metrics()["committed"], 0)
+                self.assertEqual(adapter.sessions[evidence["session"]].runtime.state, 0)
+                self.assertIsNone(adapter.sessions[evidence["session"]].pending)
+
+    def test_all_eight_original348_invalid_outputs_keep_rejected_final_bytes(self):
+        # These are retained actual failed output bytes, supplied to the explicit
+        # FakeRuntime. Its byte-fallback IDs are not the original model token IDs;
+        # those remain separately retained in the fixture and original ZIP.
+        path = (
+            Path(__file__).parent / "fixtures/semantic-v8-original348-invalid-fragments.json.gz.b64"
+        )
+        fixture = json.loads(gzip.decompress(base64.b64decode(path.read_bytes(), validate=False)))
+        self.assertEqual(fixture["originalRun"], 45046754653)
+        self.assertEqual(len(fixture["cases"]), 8)
+        self.assertEqual(len({row["caseId"] for row in fixture["cases"]}), 8)
+        for original in fixture["cases"]:
+            with self.subTest(case=original["caseId"]):
+                fragments = [
+                    (bytes.fromhex(row["payloadHex"]), row["terminal"])
+                    for row in original["fragments"]
+                ]
+                prefix_bytes = b"".join(payload for payload, _ in fragments[:-1])
+                self.assertEqual(
+                    bytes.fromhex(original["originalAggregatePayloadHex"] or ""), prefix_bytes
+                )
+                self.assertFalse(original["originalProvenanceValidated"])
+                for payload, _ in fragments[:-1]:
+                    payload.decode("utf-8", errors="strict")
+                with self.assertRaises(UnicodeDecodeError):
+                    fragments[-1][0].decode("utf-8", errors="strict")
+                adapter, runtime = self.setup_adapter(fragments)
+                generate = runtime.generate
+
+                def reproduce_invalid(*args, generate=generate, **kwargs):
+                    result = generate(*args, **kwargs)
+                    try:
+                        result.tape.payloads[0].decode("utf-8", errors="strict")
+                    except UnicodeDecodeError:
+                        result.tape.valid = (False,)
+                    return result
+
+                runtime.generate = reproduce_invalid
+                with self.assertRaisesRegex(
+                    NativeSelectionV8Error, "invalid v8 text fragment"
+                ) as caught:
+                    self.request(adapter)
+                evidence = caught.exception.evidence
+                self.assertEqual(
+                    evidence["payloadHex"], b"".join(payload for payload, _ in fragments).hex()
+                )
+                self.assertEqual(
+                    [row["payloadHex"] for row in evidence["fragments"]],
+                    [row["payloadHex"] for row in original["fragments"]],
+                )
+                self.assertEqual(
+                    evidence["generatedTokens"], sum(len(payload) for payload, _ in fragments)
+                )
+                self.assertFalse(evidence["fragments"][-1]["validation"]["runtimeValid"])
+                self.assertTrue(evidence["fragments"][-1]["validation"]["tokenBytesMatch"])
+                self.assertEqual(adapter.metrics()["committed"], 0)
+                self.assertEqual(adapter.sessions[evidence["session"]].runtime.state, 0)
+                self.assertIsNone(adapter.sessions[evidence["session"]].pending)
 
     def test_continuation_requires_visible_context_and_every_earlier_fragment(self):
         target = self.target()
