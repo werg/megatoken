@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 import copy
-import json
 import os
 import runpy
 import sys
@@ -57,7 +56,9 @@ class Adapter:
         return {}
 
 
-bundle = SimpleNamespace(model=None, chunking=None, manifest={"model_sha256": model_identity["checkpoint"]})
+bundle = SimpleNamespace(
+    model=None, chunking=None, manifest={"model_sha256": model_identity["checkpoint"]}
+)
 namespace.update(
     ServedBundle=lambda *args, **kwargs: bundle,
     MultiTrackGenerator=SimpleNamespace(of=lambda model: None),
@@ -79,9 +80,7 @@ def dispatch(adapter, request):
         "schema": "semantic-model-checkpoint/8",
         "initialization": adapter.initialization,
         "attempts": adapter.attempts,
-        "sessions": {
-            session: {"public": copy.deepcopy(public), "unacknowledgedSelection": None}
-        },
+        "sessions": {session: {"public": copy.deepcopy(public), "unacknowledgedSelection": None}},
     }
     adapter.state["digest"] = stable_algorithm_hash(adapter.state)
     return {

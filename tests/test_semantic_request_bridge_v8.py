@@ -37,9 +37,7 @@ def checkpoint(*, pending=False):
             "tokenizerIdentity": "b" * 64,
             "trainingIdentity": None,
         },
-        "attempts": [
-            {"selectionId": "v8:0", "status": "committed", "session": "session-1"}
-        ],
+        "attempts": [{"selectionId": "v8:0", "status": "committed", "session": "session-1"}],
         "sessions": {
             "session-1": {
                 "public": {"timeline": [{"mode": "generated"}]},
@@ -121,7 +119,7 @@ def test_completed_commit_readback_restores_and_rechecks_poststate(tmp_path):
         first,
         identity,
         raw,
-        lambda _: (setattr(first, "state", cp) or reply_bytes(cp)),
+        lambda _: setattr(first, "state", cp) or reply_bytes(cp),
     )
     assert output == reply_bytes(cp)
 
@@ -143,7 +141,10 @@ def test_unknown_commit_outcome_is_not_reexecuted(tmp_path):
     raw = request_bytes()
     with pytest.raises(NativeRequestOutcomeUnknown) as refused:
         bridge.execute_commit(
-            Adapter(), identity, raw, lambda _: (_ for _ in ()).throw(RuntimeError("post-dispatch crash"))
+            Adapter(),
+            identity,
+            raw,
+            lambda _: (_ for _ in ()).throw(RuntimeError("post-dispatch crash")),
         )
     assert isinstance(refused.value.__cause__, RuntimeError)
     assert str(refused.value.__cause__) == "post-dispatch crash"
@@ -165,7 +166,7 @@ def test_fresh_restore_refuses_checkpoint_with_unacknowledged_selection(tmp_path
             adapter,
             identity,
             raw,
-            lambda _: (setattr(adapter, "state", pending) or reply_bytes(pending)),
+            lambda _: setattr(adapter, "state", pending) or reply_bytes(pending),
         )
     assert isinstance(refused.value.__cause__, NativePoststateMismatch)
     assert "unacknowledged selection" in str(refused.value.__cause__)
@@ -199,7 +200,7 @@ def test_committed_reply_must_match_checkpoint_public_digest(tmp_path):
             first,
             identity,
             request_bytes(),
-            lambda _: (setattr(first, "state", cp) or wrong),
+            lambda _: setattr(first, "state", cp) or wrong,
         )
     assert isinstance(refused.value.__cause__, NativePoststateMismatch)
     assert "public digest" in str(refused.value.__cause__)
@@ -234,10 +235,13 @@ def test_execution_lock_proves_existing_lock_on_exact_inherited_open_description
         os.close(owner)
 
 
-@pytest.mark.parametrize("reply", [
-    lambda base: {**base, "id": "wrong-rpc"},
-    lambda base: {**base, "ok": False, "error": {"category": "refused"}},
-])
+@pytest.mark.parametrize(
+    "reply",
+    [
+        lambda base: {**base, "id": "wrong-rpc"},
+        lambda base: {**base, "ok": False, "error": {"category": "refused"}},
+    ],
+)
 def test_changed_or_rejected_reply_becomes_unknown_without_retry(tmp_path, reply):
     journal = DurableNativeRequestJournal(tmp_path / "journal")
     bridge = CheckpointBoundNativeRequestBridge(journal)
@@ -252,7 +256,7 @@ def test_changed_or_rejected_reply_becomes_unknown_without_retry(tmp_path, reply
             adapter,
             identity,
             raw,
-            lambda _: (setattr(adapter, "state", cp) or changed),
+            lambda _: setattr(adapter, "state", cp) or changed,
         )
     assert isinstance(refused.value.__cause__, NativePoststateMismatch)
     with pytest.raises(NativeRequestOutcomeUnknown):
@@ -272,7 +276,7 @@ def test_completed_readback_refuses_to_replace_existing_sibling_native_state(tmp
         original,
         identity,
         raw,
-        lambda _: (setattr(original, "state", target) or reply_bytes(target)),
+        lambda _: setattr(original, "state", target) or reply_bytes(target),
     )
     sibling = checkpoint()
     sibling["sessions"]["sibling-session"] = {

@@ -121,6 +121,7 @@ def test_opt_in_jsonl_commit_readback_requires_same_locked_ofd_and_restores_chec
 
     class Runtime:
         memory = SimpleNamespace(sessions={})
+
         def close(self):
             return None
 
@@ -262,6 +263,7 @@ def test_real_jsonl_subprocess_reads_exact_committed_reply_after_process_restart
     finally:
         fcntl.flock(fd, fcntl.LOCK_UN)
         os.close(fd)
+
 
 def test_jsonl_stops_and_never_retries_after_commit_outcome_becomes_unknown(tmp_path):
     import fcntl

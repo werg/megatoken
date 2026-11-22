@@ -4,6 +4,7 @@ This bridge stores the exact response bytes together with the native adapter's
 post-request checkpoint. It returns a stored response from a fresh adapter only
 after that adapter has actually restored and re-captured the same checkpoint.
 """
+
 from __future__ import annotations
 
 import base64
@@ -70,7 +71,9 @@ def validate_execution_lock_fd(fd: int, expected_path: str) -> None:
             or expected.st_nlink != 1
             or (expected.st_dev, expected.st_ino) != (inherited.st_dev, inherited.st_ino)
         ):
-            raise NativeRequestJournalError("inherited lock descriptor does not match expected lock path")
+            raise NativeRequestJournalError(
+                "inherited lock descriptor does not match expected lock path"
+            )
         try:
             fcntl.flock(probe, fcntl.LOCK_EX | fcntl.LOCK_NB)
         except BlockingIOError:
@@ -82,7 +85,9 @@ def validate_execution_lock_fd(fd: int, expected_path: str) -> None:
         # open-file description; an independently opened contender must fail.
         fcntl.flock(fd, fcntl.LOCK_EX | fcntl.LOCK_NB)
     except OSError as exc:
-        raise NativeRequestJournalError("inherited open-file-description lock proof failed") from exc
+        raise NativeRequestJournalError(
+            "inherited open-file-description lock proof failed"
+        ) from exc
     finally:
         if probe is not None:
             os.close(probe)
@@ -98,7 +103,9 @@ def _checkpoint_digest(checkpoint: object) -> str:
     return digest
 
 
-def _assert_safe_committed_checkpoint(checkpoint: dict, identity: dict, request: dict, reply: dict) -> None:
+def _assert_safe_committed_checkpoint(
+    checkpoint: dict, identity: dict, request: dict, reply: dict
+) -> None:
     _checkpoint_digest(checkpoint)
     if checkpoint.get("schema") != "semantic-model-checkpoint/8":
         raise NativePoststateMismatch("unsupported native post-request checkpoint")
@@ -138,7 +145,8 @@ def _assert_safe_committed_checkpoint(checkpoint: dict, identity: dict, request:
     if stable_algorithm_hash(saved["public"]) != result.get("publicDigest"):
         raise NativePoststateMismatch("commit response public digest differs from checkpoint")
     matches = [
-        row for row in attempts
+        row
+        for row in attempts
         if isinstance(row, dict) and row.get("selectionId") == result["selectionId"]
     ]
     if (
@@ -148,8 +156,7 @@ def _assert_safe_committed_checkpoint(checkpoint: dict, identity: dict, request:
     ):
         raise NativePoststateMismatch("checkpoint does not contain this committed attempt")
     if any(
-        isinstance(row, dict) and row.get("status") == "awaiting-commit"
-        for row in attempts
+        isinstance(row, dict) and row.get("status") == "awaiting-commit" for row in attempts
     ) or any(
         isinstance(row, dict) and row.get("unacknowledgedSelection") is not None
         for row in sessions.values()
@@ -195,7 +202,9 @@ class CheckpointBoundNativeRequestBridge:
             or request.get("op") != "commit"
             or request.get("nativeRequest") != identity
         ):
-            raise NativePoststateMismatch("request envelope or operation differs from commit identity")
+            raise NativePoststateMismatch(
+                "request envelope or operation differs from commit identity"
+            )
         captured = False
 
         def execute_once(exact_request: bytes) -> bytes:
@@ -206,7 +215,9 @@ class CheckpointBoundNativeRequestBridge:
             try:
                 reply = strict_json_loads(reply_bytes.decode("utf-8", errors="strict"))
             except (UnicodeError, ValueError) as exc:
-                raise NativeRequestJournalError("commit callback response is not strict JSON") from exc
+                raise NativeRequestJournalError(
+                    "commit callback response is not strict JSON"
+                ) from exc
             checkpoint = adapter.checkpoint()
             _assert_safe_committed_checkpoint(checkpoint, identity, request, reply)
             body = {
@@ -269,19 +280,28 @@ class CheckpointBoundNativeRequestBridge:
                 adapter.restore(checkpoint=checkpoint)
                 current = adapter.checkpoint()
             if _canonical(current) != _canonical(checkpoint):
-                raise NativePoststateMismatch("restored native state differs from journaled poststate")
+                raise NativePoststateMismatch(
+                    "restored native state differs from journaled poststate"
+                )
         return reply_bytes
 
-    def _decode_envelope(self, raw: bytes, identity: dict, request_bytes: bytes, request: dict) -> dict:
+    def _decode_envelope(
+        self, raw: bytes, identity: dict, request_bytes: bytes, request: dict
+    ) -> dict:
         try:
             envelope = json.loads(raw.decode("utf-8"))
         except (UnicodeError, json.JSONDecodeError) as exc:
             raise NativeRequestJournalError("corrupt checkpoint-bound response record") from exc
         if (
             not isinstance(envelope, dict)
-            or set(envelope) != {
-                "schema", "identity", "request_sha256", "response_b64",
-                "postCheckpoint", "digest",
+            or set(envelope)
+            != {
+                "schema",
+                "identity",
+                "request_sha256",
+                "response_b64",
+                "postCheckpoint",
+                "digest",
             }
             or _canonical(envelope) != raw
         ):

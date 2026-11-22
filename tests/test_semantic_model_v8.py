@@ -620,7 +620,6 @@ class NativeServingV8Tests(unittest.TestCase):
                 adapter.cancel(session=session, reason="test-complete")
             runtime.close()
 
-
     def test_committed_request_readback_restores_only_verified_poststate(self):
         import tempfile
 
@@ -673,9 +672,7 @@ class NativeServingV8Tests(unittest.TestCase):
             ).encode()
 
         with tempfile.TemporaryDirectory() as directory:
-            bridge = CheckpointBoundNativeRequestBridge(
-                DurableNativeRequestJournal(directory)
-            )
+            bridge = CheckpointBoundNativeRequestBridge(DurableNativeRequestJournal(directory))
             original_response = bridge.execute_commit(adapter, native_identity, raw, commit)
             fresh, _fresh_runtime = self.setup_adapter(fragments)
             restored_response = bridge.execute_commit(

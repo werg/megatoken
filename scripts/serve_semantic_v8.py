@@ -59,11 +59,7 @@ def dispatch(adapter, request):
     if operation not in methods:
         raise ValueError("Unknown native v8 RPC operation")
     return methods[operation](
-        **{
-            key: value
-            for key, value in request.items()
-            if key not in {"id", "op", "nativeRequest"}
-        }
+        **{key: value for key, value in request.items() if key not in {"id", "op", "nativeRequest"}}
     )
 
 
@@ -93,9 +89,7 @@ def main():
         value is not None for value in lock_options
     ):
         parser.error("Native execution locking requires its inherited descriptor and namespace")
-    if args.request_journal is not None and not all(
-        value is not None for value in lock_options
-    ):
+    if args.request_journal is not None and not all(value is not None for value in lock_options):
         parser.error("Native request journaling requires its inherited execution lock")
     request_bridge = None
     if args.execution_lock_fd is not None:
