@@ -55,6 +55,11 @@ from .primitive_conversion_v8 import apply_record as apply_primitive_conversion_
 from .primitive_conversion_v8 import assert_next as assert_primitive_conversion_next
 from .primitive_conversion_v8 import validate_record as validate_primitive_conversion_record
 from .primitive_conversion_v8 import validate_state as validate_primitive_conversion_state
+from .promise_adoption_v8 import FIELDS as PROMISE_ADOPTION_FIELDS
+from .promise_adoption_v8 import apply_record as apply_promise_adoption_record
+from .promise_adoption_v8 import assert_next as assert_promise_adoption_next
+from .promise_adoption_v8 import validate_record as validate_promise_adoption_record
+from .promise_adoption_v8 import validate_state as validate_promise_adoption_state
 from .promise_executor_v8 import FIELDS as PROMISE_EXECUTOR_FIELDS
 from .promise_executor_v8 import apply_record as apply_promise_executor_record
 from .promise_executor_v8 import assert_callable as assert_promise_executor_callable
@@ -149,6 +154,7 @@ FIELDS.update(ITERATOR_FIELDS)
 FIELDS.update(ENUMERATION_FIELDS)
 FIELDS.update(PROMISE_JOIN_FIELDS)
 FIELDS.update(PROMISE_EXECUTOR_FIELDS)
+FIELDS.update(PROMISE_ADOPTION_FIELDS)
 FIELDS.update(NUMBER_FIELDS)
 FIELDS.update(PRIMITIVE_CONVERSION_FIELDS)
 FIELDS.update(GENERATOR_FIELDS)
@@ -279,6 +285,8 @@ def validate_protocol_record(record):
         return validate_enumeration_record(record)
     if record["kind"] in PROMISE_EXECUTOR_FIELDS:
         return validate_promise_executor_record(record)
+    if record["kind"] in PROMISE_ADOPTION_FIELDS:
+        return validate_promise_adoption_record(record)
     if type(record) is dict and record.get("kind") in PROXY_FIELDS:
         return validate_proxy_record(record)
     if type(record) is dict and record.get("kind") in NUMBER_FIELDS:
@@ -932,7 +940,11 @@ def _apply(machine, record):
         _fail("property finish must consume child completion")
     if machine.get("completion") is not None:
         _fail("record after completion")
-    if not machine["stack"] and record["kind"] not in ("end", "promise.join.step", "async.resume"):
+    if not machine["stack"] and record["kind"] not in (
+        "end", "promise.join.step", "async.resume", "promise.reaction.complete",
+        "promise.adopt.enqueue", "promise.adopt.self", "promise.adopt.enter",
+        "promise.adopt.forward"
+    ):
         _fail("active invocation required")
     kind = record["kind"]
     if not machine.get("_internalProtocolTransition"):
@@ -942,6 +954,7 @@ def _apply(machine, record):
         assert_generator_next(machine, record)
         assert_proxy_next(machine, record)
         assert_promise_executor_next(machine, record)
+        assert_promise_adoption_next(machine, record)
         assert_promise_join_next(machine, record)
     if p.get("construction") is not None:
         assert_construction_next(machine, record)
@@ -968,6 +981,10 @@ def _apply(machine, record):
     if kind in PROMISE_EXECUTOR_FIELDS:
         if not apply_promise_executor_record(machine, record):
             _fail("unsupported Promise executor transition")
+        return
+    if kind in PROMISE_ADOPTION_FIELDS:
+        if not apply_promise_adoption_record(machine, record):
+            _fail("unsupported Promise adoption transition")
         return
     if kind in NUMBER_FIELDS:
         if not apply_number_record(machine, record):
@@ -1699,6 +1716,7 @@ def validate_protocol_state(snapshot, heap_ids=(), shared_state=None):
         from .promise_executor_v8 import validate_state as validate_promise_executor_state
 
         validate_promise_executor_state(memory_machine)
+        validate_promise_adoption_state(memory_machine)
         validate_number_state(memory_machine)
         validate_generator_state(memory_machine)
         validate_async_call_state(memory_machine)
@@ -1795,6 +1813,7 @@ def apply_protocol_to_shared_state(
     assert_async_call_next(machine, record)
     assert_proxy_next(machine, record)
     assert_promise_executor_next(machine, record)
+    assert_promise_adoption_next(machine, record)
     assert_promise_join_next(machine, record)
     if p.get("construction") is not None:
         assert_construction_next(machine, record)
@@ -1959,6 +1978,7 @@ def assert_detailed_record_compatible(shared_state, kind, fields, *, namespace_p
     assert_async_call_next(machine, {"kind": kind, **fields})
     assert_proxy_next(machine, {"kind": kind, **fields})
     assert_promise_executor_next(machine, {"kind": kind, **fields})
+    assert_promise_adoption_next(machine, {"kind": kind, **fields})
     assert_promise_join_next(machine, {"kind": kind, **fields})
 
     def rich(node):
