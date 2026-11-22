@@ -200,10 +200,10 @@ class DeterministicDecoder(nn.Module):
         dtype = parameter_dtype(self.header_start)
         return self.header_start(raw.to(dtype).mean(1))
 
-    def teacher_raw(self, core, context, plan: PreparedTargets):
+    def teacher_raw(self, core, context, plan: PreparedTargets, *, position_sink=None):
         context = core.prepare_realization(context) if isinstance(context, Tensor) else context
         with core.expert_pools.routing_epoch_if_absent(context.facets.mean(1), role="R", stage=0):
-            return self._teacher_raw_impl(core, context, plan)
+            return self._teacher_raw_impl(core, context, plan, position_sink=position_sink)
 
     def _public_support(self, spec):
         limit = min(spec.max_tokens, self.config.max_capacity)
@@ -266,7 +266,7 @@ class DeterministicDecoder(nn.Module):
     def _text_kind(spec: ActionSpec | None) -> str:
         return "bytes" if spec is None else spec.text_kind
 
-    def _support_loss(self, header, codes, targets, supports, *, name):
+    def _support_loss(self, header, codes, targets, supports, *, name, position_sink=None):
         """Score batched categorical labels after applying each row's public support."""
         zero = header.float().sum() * 0
         total, count = zero, 0
@@ -286,11 +286,17 @@ class DeterministicDecoder(nn.Module):
             local_targets = positions.index_select(0, targets.index_select(0, rows))
             selected = logits.index_select(0, rows).index_select(1, columns)
             total = total + F.cross_entropy(selected, local_targets, reduction="sum")
+            if position_sink is not None:
+                position_sink.categorical(
+                    name, rows.tolist(), local_targets.tolist(), columns.tolist()
+                )
             count += len(members)
         return total, count
 
-    def _teacher_raw_impl(self, core, context, plan: PreparedTargets):
+    def _teacher_raw_impl(self, core, context, plan: PreparedTargets, *, position_sink=None):
         """Vectorized independent examples; only the sparse CE positions are gathered."""
+        if position_sink is not None:
+            position_sink.begin(plan.payloads, plan.ids, plan.capacities)
         batch = len(plan.ids)
         public_header = self.header(context)
         header = self.condition(public_header, self.mode_codes, 0)
@@ -299,7 +305,12 @@ class DeterministicDecoder(nn.Module):
         lengths = torch.tensor([len(row) for row in plan.ids], device=header.device)
         length_supports = tuple(self._text_length_support(spec) for spec in plan.mode_specs)
         losses["structure"] = self._support_loss(
-            header, self.length_codes, lengths, length_supports, name="length"
+            header,
+            self.length_codes,
+            lengths,
+            length_supports,
+            name="length",
+            position_sink=position_sink,
         )
         # Score the format against the same public alternatives as serving.
         # The target never decides which alternatives are legal.
@@ -311,18 +322,26 @@ class DeterministicDecoder(nn.Module):
                 raise ValueError("Text target is outside its public output support")
             support = torch.tensor(modes, device=header.device, dtype=torch.long)
             logits = self.logits(public_header[index : index + 1], self.mode_codes)
+            local_label = torch.tensor([modes.index(0)], device=header.device)
             loss = F.cross_entropy(
                 logits.float().index_select(1, support),
-                torch.tensor([modes.index(0)], device=header.device),
+                local_label,
                 reduction="sum",
             )
+            if position_sink is not None:
+                position_sink.categorical("mode", [index], local_label.tolist(), support.tolist())
             previous, count = losses["structure"]
             losses["structure"] = previous + loss, count + 1
         header = self.condition(header, self.length_codes, lengths)
         terminals = torch.tensor(plan.terminals, device=header.device, dtype=torch.long)
         terminal_supports = tuple(self._terminal_support(spec) for spec in plan.mode_specs)
         losses["terminal"] = self._support_loss(
-            header, self.terminal_codes, terminals, terminal_supports, name="terminal"
+            header,
+            self.terminal_codes,
+            terminals,
+            terminal_supports,
+            name="terminal",
+            position_sink=position_sink,
         )
         header = self.condition(header, self.terminal_codes, terminals)
         # Each example is realized at its own workspace size, as serving does.
@@ -331,6 +350,7 @@ class DeterministicDecoder(nn.Module):
             groups.setdefault(capacity, []).append(example)
         states: dict[str, list[Tensor]] = {}
         targets: dict[str, list[int]] = {}
+        selected_coordinates: dict[str, list[tuple[int, int]]] = {}
         for capacity, members in groups.items():
             if len(members) == batch:
                 group_context, group_header = context, header
@@ -359,13 +379,18 @@ class DeterministicDecoder(nn.Module):
             for kind, selected_positions in positions.items():
                 if not selected_positions:
                     continue
-                states.setdefault(kind, []).append(
-                    rows.index_select(
-                        0,
-                        torch.tensor(selected_positions, device=rows.device, dtype=torch.long),
-                    )
+                gather_indices = torch.tensor(
+                    selected_positions, device=rows.device, dtype=torch.long
                 )
+                states.setdefault(kind, []).append(rows.index_select(0, gather_indices))
                 targets.setdefault(kind, []).extend(group_targets[kind])
+                if position_sink is not None:
+                    # Read back the exact index tensor used by index_select; the
+                    # audit's expected masks come independently from source bytes.
+                    selected_coordinates.setdefault(kind, []).extend(
+                        (members[flat // capacity], flat % capacity)
+                        for flat in gather_indices.tolist()
+                    )
         lexical_total = zero
         lexical_count = 0
         for kind, values in states.items():
@@ -373,6 +398,8 @@ class DeterministicDecoder(nn.Module):
             labels = torch.tensor(targets[kind], device=header.device, dtype=torch.long)
             alphabet = self.alphabet(kind)
             lexical_total = lexical_total + self.vocabulary.loss(selected, labels, alphabet).sum()
+            if position_sink is not None:
+                position_sink.lexical(kind, selected_coordinates[kind], labels.tolist(), alphabet)
             lexical_count += selected.shape[0]
         losses["lexical"] = lexical_total, lexical_count
         return losses

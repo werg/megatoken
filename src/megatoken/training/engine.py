@@ -871,7 +871,16 @@ def train(
             # Initialization is identical; sampling/exploration is rank-specific.
             seed_everything(config.seed + data_rank, config.deterministic)
         semantic_v8_target_exposure = None
+        semantic_v8_position_exposure = None
         if config.semantic_v8_policy is not None:
+            from .positions_v8 import (
+                PositionWindowAudit,
+                advance_position_exposure,
+                installed_modality_ids,
+                position_exposure_report,
+                position_objective,
+                restore_position_exposure,
+            )
             from .semantic_v8 import (
                 advance_semantic_v8_target_exposure,
                 merge_semantic_v8_target_exposures,
@@ -885,6 +894,15 @@ def train(
             semantic_v8_target_exposure = restore_semantic_v8_target_exposure(
                 payload,
                 registry_digest=registry_digest,
+                global_step=global_step,
+                phase_transition=phase_transition,
+            )
+            position_modalities = installed_modality_ids(model)
+            position_identity = position_objective(config, model_config, codec, position_modalities)
+            semantic_v8_position_exposure = restore_position_exposure(
+                payload,
+                registry_digest=registry_digest,
+                objective=position_identity,
                 global_step=global_step,
                 phase_transition=phase_transition,
             )
@@ -971,6 +989,11 @@ def train(
                                 if semantic_v8_target_exposure is not None
                                 else {}
                             ),
+                            **(
+                                {"semantic_v8_position_exposure": semantic_v8_position_exposure}
+                                if semantic_v8_position_exposure is not None
+                                else {}
+                            ),
                         }
                     )
                     metadata = {
@@ -986,6 +1009,11 @@ def train(
                         **(
                             {"semantic_v8_lineage_digest": semantic_training_v8["digest"]}
                             if semantic_training_v8 is not None
+                            else {}
+                        ),
+                        **(
+                            {"semantic_v8_position_digest": semantic_v8_position_exposure["digest"]}
+                            if semantic_v8_position_exposure is not None
                             else {}
                         ),
                     }
@@ -1059,12 +1087,24 @@ def train(
             local_target_exposure = None
             try:
                 batches = prepare_batches(model, selected, config)
+                position_audits = [None] * len(batches)
                 if semantic_v8_target_exposure is not None:
                     local_target_exposure = semantic_v8_target_exposure_from_batches(
                         batches,
                         registry_digest=config.semantic_v8_policy["registryDigest"],
                         effective_loss_weights=weights,
                     )
+                    position_audits = [
+                        PositionWindowAudit(
+                            batch,
+                            codec=codec,
+                            config=config,
+                            model_config=model_config,
+                            modalities=position_modalities,
+                            objective=position_identity,
+                        )
+                        for batch in batches
+                    ]
             except Exception as error:
                 preparation_error = error
                 batches = []
@@ -1138,7 +1178,7 @@ def train(
             for router in routers.values():
                 router.balance_recorder = router_replay
             try:
-                for batch in batches:
+                for batch, position_audit in zip(batches, position_audits, strict=True):
                     diagnostics_batch = forward_meridian_batch(
                         model,
                         batch,
@@ -1153,6 +1193,7 @@ def train(
                         ),
                         transducer=transducer,
                         window_scale=window_scale,
+                        position_audit=position_audit,
                     )
                     for key, value in diagnostics_batch.items():
                         step_diagnostics[key] = step_diagnostics.get(key, 0.0) + value
@@ -1191,6 +1232,29 @@ def train(
                 for name, (value, count) in terms.items():
                     if count:
                         step_diagnostics[f"autoencode_{name}"] = float(value.detach()) / count
+            position_exposure_candidate = None
+            if semantic_v8_position_exposure is not None:
+                position_error = None
+                try:
+                    local_positions = [audit.finish() for audit in position_audits]
+                except Exception as error:
+                    position_error = error
+                    local_positions = []
+                gathered_positions = context.all_gather_object(
+                    (local_positions, None if position_error is None else str(position_error))
+                )
+                if any(error for _, error in gathered_positions):
+                    raise ValueError(
+                        "Distributed executed-position audit failed: "
+                        + next(error for _, error in gathered_positions if error)
+                    ) from position_error
+                position_exposure_candidate = advance_position_exposure(
+                    semantic_v8_position_exposure,
+                    [receipt for rows, _ in gathered_positions for receipt in rows],
+                    registry_digest=registry_digest,
+                    objective=position_identity,
+                    optimizer_step=global_step + 1,
+                )
             context.synchronize_gradients(optimizer.parameters)
             optimizer_started = time.perf_counter()
             step_metrics = optimizer.step(config.grad_clip)
@@ -1219,6 +1283,8 @@ def train(
                 install_published(transducer, diloco.transducer, ready[2], ready[1])
             if target_exposure_candidate is not None:
                 semantic_v8_target_exposure = target_exposure_candidate
+            if position_exposure_candidate is not None:
+                semantic_v8_position_exposure = position_exposure_candidate
             model.core.set_model_version(global_step)
             local_sums = ledger.sums
             merged_sums = context.all_gather_object(local_sums)
@@ -1336,6 +1402,15 @@ def train(
                         else {}
                     ),
                     **rates(global_work, elapsed),
+                    **(
+                        {
+                            "semantic_v8_position_exposure": position_exposure_report(
+                                semantic_v8_position_exposure
+                            )
+                        }
+                        if semantic_v8_position_exposure is not None
+                        else {}
+                    ),
                     **step_metrics,
                 )
             if (
@@ -1412,6 +1487,15 @@ def train(
                     )
                 }
                 if semantic_v8_target_exposure is not None
+                else {}
+            ),
+            **(
+                {
+                    "semantic_v8_position_exposure": position_exposure_report(
+                        semantic_v8_position_exposure
+                    )
+                }
+                if semantic_v8_position_exposure is not None
                 else {}
             ),
         }

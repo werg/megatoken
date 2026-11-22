@@ -80,6 +80,21 @@ def test_v8_normal_update_checkpoint_fresh_process_resume(tmp_path, monkeypatch)
     assert exposure["sources"]["source-1"]["split"] == "train"
     assert exposure["sources"]["source-1"]["logicalTargets"]
     assert first["semantic_v8_target_exposure"]["physicalTargetRecordCount"] > 0
+    positions = payload["semantic_v8_position_exposure"]
+    assert positions["optimizerUpdates"] == 1
+    assert positions["lastGlobalStep"] == 1
+    assert positions["registryDigest"] == registry["digest"]
+    assert checkpoint_metadata["semantic_v8_position_digest"] == positions["digest"]
+    assert set(positions["sources"]) == {"source-1"}
+    report = first["semantic_v8_position_exposure"]
+    assert (
+        report["physicalTargetRecordCount"]
+        == first["semantic_v8_target_exposure"]["physicalTargetRecordCount"]
+    )
+    assert report["verifiedPhysicalTargets"] == report["physicalTargetRecordCount"]
+    assert report["unmeasuredPhysicalTargets"] == 0
+    assert report["positiveWeightPositionCounts"]["lexical"] > 0
+    assert report["routerInternalPositionCoverage"] == "unmeasured"
     assert max(int(state["step"]) for state in payload["optimizer"]["moments"].values()) == 1
 
     config_path = tmp_path / "resume-config.json"
@@ -112,7 +127,8 @@ config=TrainConfig.from_dict(json.loads(open(sys.argv[1]).read()))
 result=train(config,resume=sys.argv[2])
 assert not blocked.intersection(sys.modules)
 print(json.dumps({'global_step':result['global_step'],'termination':result['termination'],
- 'semantic_v8_target_exposure':result['semantic_v8_target_exposure']}))
+ 'semantic_v8_target_exposure':result['semantic_v8_target_exposure'],
+ 'semantic_v8_position_exposure':result['semantic_v8_position_exposure']}))
 """
     environment = dict(os.environ, OMP_NUM_THREADS="1", MKL_NUM_THREADS="1")
     completed = subprocess.run(
@@ -130,6 +146,12 @@ print(json.dumps({'global_step':result['global_step'],'termination':result['term
     assert result["semantic_v8_target_exposure"]["optimizerUpdates"] == 2
     assert result["semantic_v8_target_exposure"]["lastGlobalStep"] == 2
     assert result["semantic_v8_target_exposure"]["sources"]["source-1"]["split"] == "train"
+    resumed_positions = result["semantic_v8_position_exposure"]
+    assert resumed_positions["optimizerUpdates"] == resumed_positions["lastGlobalStep"] == 2
+    assert (
+        resumed_positions["positiveWeightPositionCounts"]["lexical"]
+        > report["positiveWeightPositionCounts"]["lexical"]
+    )
 
     forged_payload = {
         **payload,
