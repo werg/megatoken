@@ -43,6 +43,7 @@ The descriptor has exactly these fields:
       "path": "prepared/000",
       "sourceArtifacts": [{
         "caseId": "one-declared-case",
+        "sourceId": "one-declared-case:<source-evidence-digest>",
         "path": "source-qualification/one-declared-case.original.json"
       }]
     }],
@@ -54,9 +55,17 @@ The descriptor has exactly these fields:
 ```
 
 Role paths must be existing canonical relative descendants of the bundle, with
-no aliases, overlapping roles, symlinks or symlink ancestors. Source artifacts
-must be inside the qualification role and have unique case, path and underlying
-source membership. Every bundle member, including hidden journal files, is
+no aliases, overlapping roles, symlinks or symlink ancestors. Each source row has
+exactly `caseId`, `sourceId` and `path`. Source artifacts must be inside the
+qualification role and have unique case labels, paths and nonempty source IDs.
+The case label remains independent of the source identity: legitimate physical
+source IDs can include a digest suffix. The expected `sourceId` must exactly
+match the artifact's `sidecar.datasetBinding.sourceId` before fresh source
+verification or preparation starts. No source identity is rewritten. The
+producer must separately bind this expected identity to the original declared
+task and source evidence when constructing the descriptor.
+
+Every bundle member, including hidden journal files, is
 hashed before and after verification; the verifier never creates a missing
 journal lock or repairs evidence.
 
