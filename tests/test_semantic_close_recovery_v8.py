@@ -128,6 +128,26 @@ def _close_arguments(adapter, lease, session, *, ordinal=1, reason="terminal coo
     }
 
 
+def _pending_sibling_selection(adapter, bridge):
+    track = adapter.sessions["sibling"].orchestration["track"]
+    sibling = adapter.status_orchestration(session="sibling", track=track)
+    record = json.dumps(
+        {"name": "track_create", "arguments": create_arguments(sibling)},
+        separators=(",", ":"),
+    )
+    return dispatch(
+        adapter,
+        {
+            "id": "pending-sibling-selection",
+            "op": "select-orchestration",
+            "session": "sibling",
+            "track": track,
+            "controlledRecord": record,
+        },
+        commit_bridge=bridge,
+    )
+
+
 def _tamper_outcome(journal, mutate):
     path = next(journal.root.glob("*/00000000000000000001.outcome.json"))
     outer = json.loads(path.read_text(encoding="utf-8"))
@@ -228,6 +248,63 @@ def test_active_session_cannot_enter_durable_terminal_close(tmp_path):
                 bridge.durable_close(**args)
             assert adapter.checkpoint() == before
             assert not list(journal.root.glob("*/*.intent.json"))
+
+
+def test_pending_sibling_selection_refuses_close_before_journal_admission(tmp_path):
+    with real_runtime() as (open_adapter, decoder):
+        with execution_lease(tmp_path / "owner", session="teacher1") as lease:
+            adapter, opened, _sibling = _terminal_coordinator(
+                open_adapter, decoder, "cancelled"
+            )
+            journal = DurableNativeRequestJournal(tmp_path / "journal")
+            bridge = DurableNativeCommitBridge(adapter, journal, lease)
+            _pending_sibling_selection(adapter, bridge)
+            before = adapter.checkpoint()
+            assert before["sessions"]["sibling"]["unacknowledgedSelection"] is not None
+            args = _close_arguments(adapter, lease, opened["session"])
+
+            with pytest.raises(NativeRequestJournalError, match="pending selections"):
+                bridge.durable_close(**args)
+
+            assert adapter.checkpoint() == before
+            assert not list(journal.root.glob("*/*.intent.json"))
+            assert not list(journal.root.glob("*/*.outcome.json"))
+
+
+def test_later_live_sibling_mutation_supersedes_known_close_for_recovery(tmp_path):
+    with real_runtime() as (open_adapter, decoder):
+        with execution_lease(tmp_path / "owner", session="teacher1") as lease:
+            adapter, opened, _sibling = _terminal_coordinator(
+                open_adapter, decoder, "cancelled"
+            )
+            journal = DurableNativeRequestJournal(tmp_path / "journal")
+            bridge = DurableNativeCommitBridge(adapter, journal, lease)
+            args = _close_arguments(adapter, lease, opened["session"])
+            closed = bridge.durable_close(**args)
+            assert bridge._recoverable is not None
+            assert adapter.checkpoint() == closed["postCheckpoint"]
+
+            selected = _pending_sibling_selection(adapter, bridge)
+            assert selected["selection"]["selectionId"]
+            assert adapter.sessions["sibling"].pending is not None
+            assert adapter.checkpoint() != closed["postCheckpoint"]
+
+            fresh = open_adapter()
+            restore_calls = []
+            original_restore = fresh.restore
+
+            def observed_restore(**request):
+                restore_calls.append(request)
+                return original_restore(**request)
+
+            fresh.restore = observed_restore
+            fresh_bridge = DurableNativeCommitBridge(fresh, journal, lease)
+            with pytest.raises(NativeRequestConflict, match="superseded before a later mutation"):
+                fresh_bridge.recover_close(**args)
+            assert restore_calls == []
+            assert not fresh.sessions
+            assert not fresh.closed_sessions
+            assert not fresh.runtime.memory.sessions
 
 
 def test_terminal_close_recovery_refuses_a_never_admitted_request(tmp_path):
