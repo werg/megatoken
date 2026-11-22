@@ -1,6 +1,8 @@
 """Exact positive-loss inventory and optimizer target-presence comparison controls."""
 
+import json
 from copy import deepcopy
+from types import SimpleNamespace
 
 import pytest
 
@@ -9,12 +11,78 @@ from megatoken.training.target_inventory_v8 import (
     compare_target_inventory,
     validate_target_inventory,
 )
+from scripts.qualify_semantic_v8_target_inventory import _prepared_v8_source_identity
 
 REGISTRY = "a" * 64
 MANIFEST = "b" * 64
 CODEC = "c" * 64
 TRAINING = "d" * 64
 MODEL = "e" * 64
+
+
+def _prepared_episode(source_id="source-a", *, binding_source_id=None, split="train"):
+    component_id = "component-a"
+    member = {
+        "id": source_id,
+        "family": "family-a",
+        "sourceDigest": "1" * 64,
+        "coreDigest": "2" * 64,
+    }
+    component = {
+        "id": component_id,
+        "members": ["family-a"],
+        "sourceIds": ["source-a"],
+        "split": "train",
+    }
+    registry = {
+        "digest": REGISTRY,
+        "sources": [member],
+        "components": [component],
+    }
+    binding = {
+        "schema": "semantic-region-dataset-binding/1",
+        "traceFormat": "semantic-trace/8",
+        "registryDigest": REGISTRY,
+        "sourceId": binding_source_id or source_id,
+        "componentId": component_id,
+        "split": split,
+        "family": "family-a",
+        "sourceDigest": member["sourceDigest"],
+        "coreDigest": member["coreDigest"],
+    }
+    semantic = {
+        "schema": "semantic-execution/8",
+        "sourceId": source_id,
+        "componentId": component_id,
+        "members": ["family-a"],
+        "split": split,
+        "registryDigest": REGISTRY,
+        "datasetBinding": binding,
+    }
+    episode = SimpleNamespace(
+        supervision=SimpleNamespace(annotations_json=json.dumps({"semantic_execution": semantic})),
+        lineage=SimpleNamespace(
+            source_id="semantic-execution-v8",
+            family_id=component_id,
+            frozen_split="train",
+        ),
+    )
+    return episode, registry
+
+
+def test_prepared_source_identity_uses_bound_annotation_not_generic_lineage_label():
+    episode, registry = _prepared_episode()
+    assert _prepared_v8_source_identity(episode, registry, REGISTRY) == "source-a"
+
+
+@pytest.mark.parametrize(
+    ("binding_source_id", "split"),
+    [("source-other", "train"), ("source-a", "validation")],
+)
+def test_prepared_source_identity_rejects_changed_binding_or_split(binding_source_id, split):
+    episode, registry = _prepared_episode(binding_source_id=binding_source_id, split=split)
+    with pytest.raises(ValueError, match="identity differ"):
+        _prepared_v8_source_identity(episode, registry, REGISTRY)
 
 
 def _inventory():

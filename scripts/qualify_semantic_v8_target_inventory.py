@@ -37,6 +37,53 @@ def read_json(path: Path):
     return json.loads(path.read_text())
 
 
+def _prepared_v8_source_identity(episode, registry, registry_digest):
+    """Recover source ID from the validated V8 dataset annotation.
+
+    Prepared episodes use a generic lineage label; source identity is carried
+    by semantic execution and its dataset binding.
+    """
+    try:
+        semantic = json.loads(episode.supervision.annotations_json)["semantic_execution"]
+    except (KeyError, TypeError, json.JSONDecodeError) as error:
+        raise ValueError("Prepared V8 episode has no source-bound semantic annotation") from error
+    require(isinstance(semantic, dict), "Prepared V8 semantic annotation is malformed")
+    source_id = semantic.get("sourceId")
+    member = next((row for row in registry["sources"] if row.get("id") == source_id), None)
+    component = next(
+        (row for row in registry["components"] if source_id in row.get("sourceIds", [])),
+        None,
+    )
+    binding = semantic.get("datasetBinding")
+    require(
+        semantic.get("schema") == "semantic-execution/8"
+        and isinstance(source_id, str)
+        and member is not None
+        and component is not None
+        and isinstance(binding, dict),
+        "Prepared V8 episode source identity is not in the frozen registry",
+    )
+    require(
+        semantic.get("registryDigest") == registry_digest
+        and semantic.get("componentId") == component["id"]
+        and semantic.get("split") == component["split"]
+        and semantic.get("members") == component["members"]
+        and binding.get("schema") == "semantic-region-dataset-binding/1"
+        and binding.get("traceFormat") == "semantic-trace/8"
+        and binding.get("registryDigest") == registry_digest
+        and binding.get("sourceId") == source_id
+        and binding.get("componentId") == component["id"]
+        and binding.get("split") == component["split"]
+        and binding.get("family") == member.get("family")
+        and binding.get("sourceDigest") == member.get("sourceDigest")
+        and binding.get("coreDigest") == member.get("coreDigest")
+        and episode.lineage.family_id == component["id"]
+        and episode.lineage.frozen_split == component["split"],
+        "Prepared V8 annotation, dataset binding and lineage identity differ",
+    )
+    return source_id
+
+
 def target_inventory(config_source, expected_source_ids_source=None):
     config_raw = (
         read_json(config_source) if isinstance(config_source, (str, Path)) else config_source
@@ -173,7 +220,7 @@ def target_inventory(config_source, expected_source_ids_source=None):
         )
         for index in range(len(corpus)):
             episode, assets = corpus.fetch(index)
-            source_id = episode.lineage.source_id
+            source_id = _prepared_v8_source_identity(episode, registry, registry_digest)
             require(
                 source_id in expected_train_ids,
                 "Prepared training episode is outside the frozen train source inventory",
