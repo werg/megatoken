@@ -1,0 +1,24 @@
+{
+  "schema": "semantic-v8-independent-prepared-target-inventory-comparison/1",
+  "inventoryConsumerRevision": "2479a9d59793569954a85d0f911085bfd4ee29f6",
+  "preparedInputProducerRevision": "0694fa9280712fa1364ead46a477c757a0ca4bfa",
+  "preparedInputConsumerRevision": "dbc89dcd52cb93d1d9fdca2989fab64b85e5d427",
+  "runtime": {
+    "python": "3.12",
+    "torch": "2.10.0+cpu",
+    "device": "cpu"
+  },
+  "priorInventoryHasIndependentPreparedTargetCheck": false,
+  "newInventoryHasIndependentPreparedTargetCheck": true,
+  "inventoryJsonBytesEqual": true,
+  "inventoryJsonSha256": "2891c81f9021640049ee8ac9ea5408aa2bf9e8793c2ef7cac5016bb6d05a70ae",
+  "inventoryDigest": "1448910c17fa4ca735f4e9919b8acd8b28abe4fce6f7d85d44bfde09a0bf6720",
+  "preparedTrainPolicyPhysicalTargetCount": 720,
+  "plannedTrainPolicyPhysicalTargetCount": 720,
+  "missingPreparedTargets": [],
+  "inventedTargets": [],
+  "optimizerUpdates": 0,
+  "freshCurrentPairQualification": false,
+  "fullCoverageQualified": false,
+  "learnedSuccess": null
+}

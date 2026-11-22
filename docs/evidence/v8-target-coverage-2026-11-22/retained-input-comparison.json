@@ -1,0 +1,33 @@
+{
+  "schema": "semantic-v8-retained-input-admission-reuse-control/1",
+  "sourceArtifactRun": 45005718379,
+  "sourceArtifactId": 14747074516,
+  "originalProducerRevision": "0694fa9280712fa1364ead46a477c757a0ca4bfa",
+  "originalNativeAdmissionRevision": "dbc89dcd52cb93d1d9fdca2989fab64b85e5d427",
+  "uncachedImplementation": "9c68b14f5bc3e2329f0d3f21515fd3d7daa5ecc1",
+  "cachedImplementation": "a1d7f83dc46e4829ca4226e4040519cd5835f365",
+  "inventoryRawSha256": "2891c81f9021640049ee8ac9ea5408aa2bf9e8793c2ef7cac5016bb6d05a70ae",
+  "inventoryDigest": "1448910c17fa4ca735f4e9919b8acd8b28abe4fce6f7d85d44bfde09a0bf6720",
+  "preparedManifestFingerprint": "f72b4e181b5dc4db5b891b5f6ab4b21bfb027dd3b93d688bdc1a7eddd950e822",
+  "registryDigest": "306a20791e1a76fa53872f6b1b856bba66f1308c1428a3a745171d28322b3e6c",
+  "trainingConfigDigest": "e105b04d1eea5f5bc059a122bb7f10c94a968e827bb1403563b92d0c13e45455",
+  "byteExactEqual": true,
+  "sourceCount": 48,
+  "windowCount": 348,
+  "positiveWeight": {
+    "sourceCount": 48,
+    "logicalTargetCount": 696,
+    "physicalTargetRecordCount": 720,
+    "scoredOccurrences": 720,
+    "lossDenominators": {
+      "lexical": 26027,
+      "reconstruction": 26027,
+      "structure": 2880,
+      "terminal": 1440,
+      "router_z": 720
+    }
+  },
+  "optimizerUpdates": 0,
+  "freshPairedQualification": false,
+  "learnedSuccess": null
+}
