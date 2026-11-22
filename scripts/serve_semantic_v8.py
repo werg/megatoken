@@ -37,13 +37,18 @@ def _dispatch(adapter, request, *, commit_bridge=None):
     operation = request.get("op")
     if commit_bridge is not None:
         commit_bridge.assert_operation(operation, request)
-    if operation in {"durable-commit", "recover-commit"}:
+    if operation in {
+        "durable-commit",
+        "recover-commit",
+        "durable-bootstrap",
+        "recover-bootstrap",
+    }:
         if commit_bridge is None:
             raise ValueError(
-                "Native commit durability requires a configured execution lease and journal"
+                "Native durable operations require a configured execution lease and journal"
             )
         if set(request) != {"id", "op", "identity", "requestBase64", "preCheckpointDigest"}:
-            raise ValueError("Native durable commit RPC fields differ")
+            raise ValueError("Native durable operation RPC fields differ")
         return getattr(commit_bridge, operation.replace("-", "_"))(
             **{key: value for key, value in request.items() if key not in {"id", "op"}}
         )
