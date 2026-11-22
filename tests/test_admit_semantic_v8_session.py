@@ -160,7 +160,8 @@ def test_admission_cli_rechecks_valid_session_shape_before_emitting_receipt(
     )
     source_checks = []
 
-    def source_check(value, path, _root, revision):
+    def source_check(value, path, _root, revision, *, timeout_seconds=30):
+        assert timeout_seconds == 30
         source_checks.append((value, path, revision))
         return generic_source_receipt(value, path, producer_revision)
 
