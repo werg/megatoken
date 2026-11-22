@@ -224,7 +224,12 @@ class PromiseExecutorTests(unittest.TestCase):
         self.assertEqual(state["heap"]["promise"]["state"], "pending")
         apply_protocol_record(
             state,
-            {"kind": "promise.adopt.enqueue", "promise": "promise", "target": "other-promise", "job": "adopt-job"},
+            {
+                "kind": "promise.adopt.enqueue",
+                "promise": "promise",
+                "target": "other-promise",
+                "job": "adopt-job",
+            },
         )
         finish(state)
         self.assertTrue(validate_state(restore(state)))

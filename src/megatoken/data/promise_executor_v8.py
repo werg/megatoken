@@ -206,7 +206,12 @@ def apply_record(machine, record):
             and machine["heap"].get(value[1], {}).get("kind") == "promise"
             else None
         )
-        if target["state"] == "pending" and mode == "resolve" and value[0] == "ref" and adopted_target is None:
+        if (
+            target["state"] == "pending"
+            and mode == "resolve"
+            and value[0] == "ref"
+            and adopted_target is None
+        ):
             _fail("object resolution requires its explicit assimilation protocol")
         capability["called"] = True
         capability["resolution"] = {"mode": mode, "value": copy.deepcopy(value)}
@@ -415,7 +420,8 @@ def validate_state(machine):
                 or (
                     (resolution["mode"] == "reject" or value[0] != "ref")
                     and target.get("adopted") is None
-                    and target["state"] == ("fulfilled" if resolution["mode"] == "resolve" else "rejected")
+                    and target["state"]
+                    == ("fulfilled" if resolution["mode"] == "resolve" else "rejected")
                     and target.get("result") == value
                 )
             )

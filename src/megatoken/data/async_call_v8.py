@@ -458,7 +458,8 @@ def validate_state(machine):
                 _require(
                     adoption.get("target") == result[1]
                     and adoption.get("cause") == {"kind": "async", "invocation": call["invocation"]}
-                    and adoption.get("phase") in ("intent", "queued", "observing", "completed", "self"),
+                    and adoption.get("phase")
+                    in ("intent", "queued", "observing", "completed", "self"),
                     "retained async Promise result lacks adoption authority",
                 )
                 if adoption.get("phase") == "completed":
@@ -469,7 +470,8 @@ def validate_state(machine):
                     )
                 elif adoption.get("phase") == "self":
                     _require(
-                        result[1] == _identity and node["state"] == "rejected"
+                        result[1] == _identity
+                        and node["state"] == "rejected"
                         and node["result"] == ["ref", adoption.get("error")],
                         "retained async self-resolution differs from its TypeError",
                     )
@@ -582,8 +584,10 @@ def validate_state(machine):
                 if adopts_promise:
                     _require(
                         adoption.get("target") == value[1]
-                        and adoption.get("cause") == {"kind": "async", "invocation": call["invocation"]}
-                        and adoption.get("phase") in ("intent", "queued", "observing", "completed", "self"),
+                        and adoption.get("cause")
+                        == {"kind": "async", "invocation": call["invocation"]}
+                        and adoption.get("phase")
+                        in ("intent", "queued", "observing", "completed", "self"),
                         "retained async completion lacks adoption authority",
                     )
                     if adoption.get("phase") == "completed":
@@ -594,12 +598,15 @@ def validate_state(machine):
                         )
                     elif adoption.get("phase") == "self":
                         _require(
-                            value[1] == _identity and node["state"] == "rejected"
+                            value[1] == _identity
+                            and node["state"] == "rejected"
                             and node["result"] == ["ref", adoption.get("error")],
                             "retained async self-resolution differs from its TypeError",
                         )
                     else:
-                        _require(node["state"] == "pending", "async adoption settled before forwarding")
+                        _require(
+                            node["state"] == "pending", "async adoption settled before forwarding"
+                        )
                 else:
                     _require(
                         node["state"]

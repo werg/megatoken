@@ -941,9 +941,14 @@ def _apply(machine, record):
     if machine.get("completion") is not None:
         _fail("record after completion")
     if not machine["stack"] and record["kind"] not in (
-        "end", "promise.join.step", "async.resume", "promise.reaction.complete",
-        "promise.adopt.enqueue", "promise.adopt.self", "promise.adopt.enter",
-        "promise.adopt.forward"
+        "end",
+        "promise.join.step",
+        "async.resume",
+        "promise.reaction.complete",
+        "promise.adopt.enqueue",
+        "promise.adopt.self",
+        "promise.adopt.enter",
+        "promise.adopt.forward",
     ):
         _fail("active invocation required")
     kind = record["kind"]

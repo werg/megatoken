@@ -45,7 +45,8 @@ def _assert_intrinsic_then(machine, identity):
     if (
         properties
         or descriptors
-        or "prototype" in node and node["prototype"] != "ordinary"
+        or "prototype" in node
+        and node["prototype"] != "ordinary"
         or node.get("extensible") is False
         or node.get("callable") is not None
         or node.get("proxy") is not None
@@ -72,7 +73,14 @@ def stage_intent(machine, adopter, target, cause):
         or _adoption(machine, adopter) is not None
     ):
         _fail("adoption requires a pending adopter")
-    if sum(1 for node in machine["heap"].values() if node.get("kind") == "promise" and node.get("adoption") is not None) >= BOUND:
+    if (
+        sum(
+            1
+            for node in machine["heap"].values()
+            if node.get("kind") == "promise" and node.get("adoption") is not None
+        )
+        >= BOUND
+    ):
         _fail("Promise adoption bound")
     owner = next(iter(machine.get("frameFunctions", {})), None)
     _id(owner)
@@ -111,10 +119,13 @@ def _fresh_job(machine, identity):
 def _turn(machine, identity, job, owner):
     root = next(iter(machine.get("frameFunctions", {})), None)
     if (
-        machine.get("stack") or machine.get("activeJob") is not None
+        machine.get("stack")
+        or machine.get("activeJob") is not None
         or any(row.get("status") == "running" for row in _rows(machine.get("jobs", [])).values())
         or machine.get("ready", [])[:1] != [identity]
-        or not job or job.get("status") != "queued" or job.get("owner") != owner
+        or not job
+        or job.get("status") != "queued"
+        or job.get("owner") != owner
         or owner != root
     ):
         _fail("adoption step violates FIFO or active turn ownership")
@@ -160,7 +171,8 @@ def _check_cause(machine, adopter, row, target):
         capabilities = (machine["protocol"].get("promiseExecutors") or {}).get("capabilities", [])
         jobs = _rows(machine.get("jobs", []))
         if (
-            node.get("asyncCall") or node.get("join")
+            node.get("asyncCall")
+            or node.get("join")
             or any(c.get("promise") == adopter for c in capabilities)
             or any(job.get("target") == adopter for job in jobs.values())
         ):
@@ -234,6 +246,7 @@ def _queue_job(machine, identity, *, status, owner, promise=None, adopter=None, 
 
 def apply_record(machine, record):
     from .promise_scheduler_v8 import refresh_ready, settle_promise
+
     kind = record["kind"]
     if kind == "promise.adopt.enqueue":
         adopter, target, identity = record["promise"], record["target"], record["job"]
@@ -252,24 +265,41 @@ def apply_record(machine, record):
         if row["owner"] != next(iter(machine.get("frameFunctions", {})), None):
             _fail("adoption owner changed before enqueue")
         _fresh_job(machine, identity)
-        if sum(1 for node in machine["heap"].values() if node.get("kind") == "promise" and node.get("adoption") is not None) >= BOUND:
+        if (
+            sum(
+                1
+                for node in machine["heap"].values()
+                if node.get("kind") == "promise" and node.get("adoption") is not None
+            )
+            >= BOUND
+        ):
             _fail("adoption bound")
         row.update(phase="queued", job=identity)
-        _queue_job(machine, identity, status="queued", owner=row["owner"], adopter=adopter, target=target)
+        _queue_job(
+            machine, identity, status="queued", owner=row["owner"], adopter=adopter, target=target
+        )
         return True
     if kind == "promise.adopt.enter":
         adopter, target, identity, forwarding = (
-            record["promise"], record["target"], record["job"], record["forwarding"]
+            record["promise"],
+            record["target"],
+            record["job"],
+            record["forwarding"],
         )
         row = _adoption(machine, adopter)
         jobs = _rows(machine.get("jobs", []))
         job = jobs.get(identity)
         _turn(machine, identity, job, row.get("owner") if row else None)
         if (
-            row["phase"] != "queued" or row["job"] != identity or row["target"] != target
-            or not job or job.get("reaction") != "adopt"
-            or job.get("adoptionPromise") != adopter or job.get("adoptionTarget") != target
-            or job.get("owner") != row["owner"] or machine.get("ready", [])[:1] != [identity]
+            row["phase"] != "queued"
+            or row["job"] != identity
+            or row["target"] != target
+            or not job
+            or job.get("reaction") != "adopt"
+            or job.get("adoptionPromise") != adopter
+            or job.get("adoptionTarget") != target
+            or job.get("owner") != row["owner"]
+            or machine.get("ready", [])[:1] != [identity]
             or job.get("status") != "queued"
         ):
             _fail("assimilation job is not the FIFO head")
@@ -277,7 +307,15 @@ def apply_record(machine, record):
         machine["ready"].pop(0)
         job["status"] = "completed"
         row.update(phase="observing", forwarding=forwarding)
-        _queue_job(machine, forwarding, status="waiting", owner=row["owner"], promise=target, adopter=adopter, target=target)
+        _queue_job(
+            machine,
+            forwarding,
+            status="waiting",
+            owner=row["owner"],
+            promise=target,
+            adopter=adopter,
+            target=target,
+        )
         refresh_ready(machine)
         return True
     if kind == "promise.adopt.forward":
@@ -288,12 +326,18 @@ def apply_record(machine, record):
         source = _promise(machine, target)
         _turn(machine, identity, job, row.get("owner") if row else None)
         if (
-            row["phase"] != "observing" or row["forwarding"] != identity or row["target"] != target
-            or not job or job.get("reaction") != "adoption"
-            or job.get("adoptionPromise") != adopter or job.get("adoptionTarget") != target
-            or job.get("owner") != row["owner"] or machine.get("ready", [])[:1] != [identity]
+            row["phase"] != "observing"
+            or row["forwarding"] != identity
+            or row["target"] != target
+            or not job
+            or job.get("reaction") != "adoption"
+            or job.get("adoptionPromise") != adopter
+            or job.get("adoptionTarget") != target
+            or job.get("owner") != row["owner"]
+            or machine.get("ready", [])[:1] != [identity]
             or job.get("status") != "queued"
-            or source["state"] != record["status"] or source["result"] != record["value"]
+            or source["state"] != record["status"]
+            or source["result"] != record["value"]
         ):
             _fail("forwarding job does not match FIFO target settlement")
         machine["ready"].pop(0)
@@ -332,7 +376,10 @@ def apply_record(machine, record):
         return True
     if kind == "promise.reaction.complete":
         identity, owner, adopter, target = (
-            record["job"], record["owner"], record["promise"], record["target"]
+            record["job"],
+            record["owner"],
+            record["promise"],
+            record["target"],
         )
         jobs = _rows(machine.get("jobs", []))
         job = jobs.get(identity)
@@ -340,16 +387,22 @@ def apply_record(machine, record):
         _assert_intrinsic_then(machine, target)
         returned = (job or {}).get("returned") or {}
         if (
-            not job or job.get("status") != "running" or job.get("owner") != owner
+            not job
+            or job.get("status") != "running"
+            or job.get("owner") != owner
             or owner != next(iter(machine.get("frameFunctions", {})), None)
-            or not job.get("promise") or not job.get("target")
+            or not job.get("promise")
+            or not job.get("target")
             or job.get("target") != adopter
             or returned.get("kind") != "return"
             or returned.get("value") != ["ref", target]
-            or machine.get("stack") or machine.get("activeJob") != identity
+            or machine.get("stack")
+            or machine.get("activeJob") != identity
             or job.get("reaction") not in ("then", "catch")
-            or any(c.get("activeJob") == identity and c["state"] != "resumed"
-                   for c in _rows(machine.get("continuations", [])).values())
+            or any(
+                c.get("activeJob") == identity and c["state"] != "resumed"
+                for c in _rows(machine.get("continuations", [])).values()
+            )
         ):
             _fail("reaction completion does not bind its returned Promise")
         row = _adoption(machine, adopter)
@@ -399,8 +452,10 @@ def assert_next(machine, record):
         if machine["heap"].get(fields.get("promise"), {}).get("adoption") is not None:
             _fail("adoption-owned Promise requires its scheduler record")
     selected_identity = (
-        fields.get("result") if kind == "promise.join"
-        else fields.get("promise") if kind in ("promise.executor.enter", "async.call")
+        fields.get("result")
+        if kind == "promise.join"
+        else fields.get("promise")
+        if kind in ("promise.executor.enter", "async.call")
         else None
     )
     if selected_identity and machine["heap"].get(selected_identity, {}).get("adoption") is not None:
@@ -413,7 +468,11 @@ def assert_next(machine, record):
     head_job = jobs.get(head[0]) if head else None
     if not machine.get("stack") and machine.get("activeJob") is None and head_job:
         if head_job.get("reaction") in ("adopt", "adoption"):
-            expected = "promise.adopt.enter" if head_job["reaction"] == "adopt" else "promise.adopt.forward"
+            expected = (
+                "promise.adopt.enter"
+                if head_job["reaction"] == "adopt"
+                else "promise.adopt.forward"
+            )
             if kind != expected or fields.get("job") != head[0]:
                 _fail("ready adoption job must run before any later record")
 
@@ -430,8 +489,18 @@ def validate_state(machine):
         row = node.get("adoption")
         if row is None:
             continue
-        _exact(row, {"schema", "owner", "target", "phase", "cause", "job", "forwarding", "error"}, "Promise adoption metadata")
-        if row["schema"] != STATE_SCHEMA or row["phase"] not in ("intent", "queued", "observing", "completed", "self"):
+        _exact(
+            row,
+            {"schema", "owner", "target", "phase", "cause", "job", "forwarding", "error"},
+            "Promise adoption metadata",
+        )
+        if row["schema"] != STATE_SCHEMA or row["phase"] not in (
+            "intent",
+            "queued",
+            "observing",
+            "completed",
+            "self",
+        ):
             _fail("adoption metadata schema or phase")
         for key in ("owner", "target", "job", "forwarding"):
             if row[key] is not None:
@@ -450,14 +519,20 @@ def validate_state(machine):
             _check_cause(machine, identity, row, row["target"])
         if row["phase"] == "intent":
             if (
-                row["job"] is not None or row["forwarding"] is not None or row["error"] is not None
-                or node["state"] != "pending" or node["result"] is not None
+                row["job"] is not None
+                or row["forwarding"] is not None
+                or row["error"] is not None
+                or node["state"] != "pending"
+                or node["result"] is not None
             ):
                 _fail("staged adoption intent contains a future identity or early result")
         elif row["phase"] == "queued":
             if (
-                row["job"] is None or row["forwarding"] is not None or row["error"] is not None
-                or node["state"] != "pending" or node["result"] is not None
+                row["job"] is None
+                or row["forwarding"] is not None
+                or row["error"] is not None
+                or node["state"] != "pending"
+                or node["result"] is not None
             ):
                 _fail("queued adoption has an early result or incomplete identity")
             if not local_owner:
@@ -465,11 +540,17 @@ def validate_state(machine):
             _assert_fresh_heap_identity(machine, row["job"])
             job = rows.get(row["job"])
             if (
-                not job or job.get("status") != "queued" or job.get("owner") != row["owner"]
-                or job.get("reaction") != "adopt" or job.get("closure") is not None
-                or job.get("adoptionPromise") != identity or job.get("adoptionTarget") != row["target"]
-                or type(job.get("readySequence")) is not int or job["readySequence"] <= 0
-                or job["readySequence"] > machine["scheduler"]["ready"] or row["job"] in owned_jobs
+                not job
+                or job.get("status") != "queued"
+                or job.get("owner") != row["owner"]
+                or job.get("reaction") != "adopt"
+                or job.get("closure") is not None
+                or job.get("adoptionPromise") != identity
+                or job.get("adoptionTarget") != row["target"]
+                or type(job.get("readySequence")) is not int
+                or job["readySequence"] <= 0
+                or job["readySequence"] > machine["scheduler"]["ready"]
+                or row["job"] in owned_jobs
                 or row["job"] not in ready
             ):
                 _fail("queued adoption job lost its exact FIFO binding")
@@ -488,28 +569,41 @@ def validate_state(machine):
             job = rows.get(row["job"])
             forwarding = rows.get(row["forwarding"])
             if (
-                not job or job.get("status") != "completed" or job.get("owner") != row["owner"]
-                or job.get("reaction") != "adopt" or job.get("closure") is not None
-                or job.get("adoptionPromise") != identity or job.get("adoptionTarget") != row["target"]
-                or type(job.get("readySequence")) is not int or job["readySequence"] <= 0
+                not job
+                or job.get("status") != "completed"
+                or job.get("owner") != row["owner"]
+                or job.get("reaction") != "adopt"
+                or job.get("closure") is not None
+                or job.get("adoptionPromise") != identity
+                or job.get("adoptionTarget") != row["target"]
+                or type(job.get("readySequence")) is not int
+                or job["readySequence"] <= 0
                 or job["readySequence"] > machine["scheduler"]["ready"]
-                or row["job"] in owned_jobs or row["forwarding"] in owned_jobs
+                or row["job"] in owned_jobs
+                or row["forwarding"] in owned_jobs
             ):
                 _fail("retained assimilation job linkage")
             owned_jobs.update((row["job"], row["forwarding"]))
             expected_status = (
-                "completed" if row["phase"] == "completed"
-                else "waiting" if _promise(machine, row["target"])["state"] == "pending"
+                "completed"
+                if row["phase"] == "completed"
+                else "waiting"
+                if _promise(machine, row["target"])["state"] == "pending"
                 else "queued"
             )
             if (
-                not forwarding or forwarding.get("status") != expected_status
-                or forwarding.get("owner") != row["owner"] or forwarding.get("reaction") != "adoption"
-                or forwarding.get("promise") != row["target"] or forwarding.get("closure") is not None
-                or forwarding.get("rejectionClosure") is not None or forwarding.get("target") is not None
+                not forwarding
+                or forwarding.get("status") != expected_status
+                or forwarding.get("owner") != row["owner"]
+                or forwarding.get("reaction") != "adoption"
+                or forwarding.get("promise") != row["target"]
+                or forwarding.get("closure") is not None
+                or forwarding.get("rejectionClosure") is not None
+                or forwarding.get("target") is not None
                 or forwarding.get("adoptionPromise") != identity
                 or forwarding.get("adoptionTarget") != row["target"]
-                or type(forwarding.get("sequence")) is not int or forwarding["sequence"] <= 0
+                or type(forwarding.get("sequence")) is not int
+                or forwarding["sequence"] <= 0
                 or forwarding["sequence"] > machine["scheduler"]["registration"]
                 or ((expected_status == "queued") != (row["forwarding"] in ready))
                 or expected_status != "waiting"
@@ -525,22 +619,50 @@ def validate_state(machine):
             _identity(error)
             error_node = machine["heap"].get(error)
             if (
-                row["target"] != identity or row["job"] is not None or row["forwarding"] is not None
-                or node.get("state") != "rejected" or node.get("result") != ["ref", error]
-                or not error_node or error_node.get("kind") != "object"
-                or error in rows or error in _rows(machine.get("continuations", []))
+                row["target"] != identity
+                or row["job"] is not None
+                or row["forwarding"] is not None
+                or node.get("state") != "rejected"
+                or node.get("result") != ["ref", error]
+                or not error_node
+                or error_node.get("kind") != "object"
+                or error in rows
+                or error in _rows(machine.get("continuations", []))
             ):
                 _fail("self-resolution rejection lost its declared TypeError")
     for identity, job in rows.items():
         if job.get("reaction") in ("adopt", "adoption"):
-            if identity not in owned_jobs or job.get("status") not in ("waiting", "queued", "completed"):
+            if identity not in owned_jobs or job.get("status") not in (
+                "waiting",
+                "queued",
+                "completed",
+            ):
                 _fail("orphan or invalid adoption job")
             if (job.get("status") == "queued") != (identity in ready):
                 _fail("adoption job ready status differs from queue")
             expected_fields = (
-                {"status", "owner", "closure", "reaction", "adoptionPromise", "adoptionTarget", "readySequence"}
+                {
+                    "status",
+                    "owner",
+                    "closure",
+                    "reaction",
+                    "adoptionPromise",
+                    "adoptionTarget",
+                    "readySequence",
+                }
                 if job["reaction"] == "adopt"
-                else {"status", "owner", "promise", "reaction", "closure", "rejectionClosure", "target", "sequence", "adoptionPromise", "adoptionTarget"}
+                else {
+                    "status",
+                    "owner",
+                    "promise",
+                    "reaction",
+                    "closure",
+                    "rejectionClosure",
+                    "target",
+                    "sequence",
+                    "adoptionPromise",
+                    "adoptionTarget",
+                }
             )
             if job["reaction"] == "adoption" and job["status"] != "waiting":
                 expected_fields.add("readySequence")

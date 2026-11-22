@@ -149,13 +149,32 @@ def test_async_returned_promise_remains_pending_until_fifo_forwarding_job():
         },
     )
     assert machine["heap"]["first"]["state"] == "pending"
-    apply(machine, {"kind": "promise.adopt.enqueue", "promise": "first", "target": "source", "job": "adopt"})
+    apply(
+        machine,
+        {"kind": "promise.adopt.enqueue", "promise": "first", "target": "source", "job": "adopt"},
+    )
     machine["stack"] = []
-    apply(machine, {"kind": "promise.adopt.enter", "promise": "first", "target": "source", "job": "adopt", "forwarding": "forward"})
+    apply(
+        machine,
+        {
+            "kind": "promise.adopt.enter",
+            "promise": "first",
+            "target": "source",
+            "job": "adopt",
+            "forwarding": "forward",
+        },
+    )
     assert machine["ready"] == ["forward"]
     apply(
         machine,
-        {"kind": "promise.adopt.forward", "promise": "first", "target": "source", "job": "forward", "status": "fulfilled", "value": ["num", 23]},
+        {
+            "kind": "promise.adopt.forward",
+            "promise": "first",
+            "target": "source",
+            "job": "forward",
+            "status": "fulfilled",
+            "value": ["num", 23],
+        },
     )
     assert machine["heap"]["first"]["state"] == "fulfilled"
     assert machine["heap"]["first"]["result"] == ["num", 23]
@@ -284,7 +303,12 @@ def test_async_throw_keeps_an_owned_promise_as_opaque_rejection_after_restore():
     with pytest.raises(ProtocolV8Error):
         apply_protocol_record(
             machine,
-            {"kind": "promise.adopt.enqueue", "promise": "first", "target": "input", "job": "invented-adoption"},
+            {
+                "kind": "promise.adopt.enqueue",
+                "promise": "first",
+                "target": "input",
+                "job": "invented-adoption",
+            },
         )
     assert machine == before
     assert machine["heap"]["input"]["result"] == ["num", 0]
@@ -303,7 +327,15 @@ def test_async_forwarding_identity_cannot_collide_with_jobs_or_other_adopters():
                 "completion": {"kind": "return", "value": ["ref", "input"]},
             },
         )
-        apply(machine, {"kind": "promise.adopt.enqueue", "promise": name, "target": "input", "job": name + "-adopt"})
+        apply(
+            machine,
+            {
+                "kind": "promise.adopt.enqueue",
+                "promise": name,
+                "target": "input",
+                "job": name + "-adopt",
+            },
+        )
         if name == "first":
             detail(machine, "job", action="enqueue", job="ordinary", owner="root")
     root_return(machine)
@@ -313,10 +345,25 @@ def test_async_forwarding_identity_cannot_collide_with_jobs_or_other_adopters():
         with pytest.raises(ProtocolV8Error):
             apply_protocol_record(
                 machine,
-                {"kind": "promise.adopt.enter", "promise": "first", "target": "input", "job": "first-adopt", "forwarding": forwarding},
+                {
+                    "kind": "promise.adopt.enter",
+                    "promise": "first",
+                    "target": "input",
+                    "job": "first-adopt",
+                    "forwarding": forwarding,
+                },
             )
         assert machine == before
-    apply(machine, {"kind": "promise.adopt.enter", "promise": "first", "target": "input", "job": "first-adopt", "forwarding": "first-forward"})
+    apply(
+        machine,
+        {
+            "kind": "promise.adopt.enter",
+            "promise": "first",
+            "target": "input",
+            "job": "first-adopt",
+            "forwarding": "first-forward",
+        },
+    )
     machine = _internal_machine(copy.deepcopy(_external_machine(machine)))
     detail(machine, "job", action="dispatch", job="ordinary", owner="root")
     detail(machine, "job", action="complete", job="ordinary", owner="root")
@@ -324,10 +371,25 @@ def test_async_forwarding_identity_cannot_collide_with_jobs_or_other_adopters():
     with pytest.raises(ProtocolV8Error):
         apply_protocol_record(
             machine,
-            {"kind": "promise.adopt.enter", "promise": "second", "target": "input", "job": "second-adopt", "forwarding": "first-forward"},
+            {
+                "kind": "promise.adopt.enter",
+                "promise": "second",
+                "target": "input",
+                "job": "second-adopt",
+                "forwarding": "first-forward",
+            },
         )
     assert machine == before
-    apply(machine, {"kind": "promise.adopt.enter", "promise": "second", "target": "input", "job": "second-adopt", "forwarding": "second-forward"})
+    apply(
+        machine,
+        {
+            "kind": "promise.adopt.enter",
+            "promise": "second",
+            "target": "input",
+            "job": "second-adopt",
+            "forwarding": "second-forward",
+        },
+    )
     machine = _internal_machine(copy.deepcopy(_external_machine(machine)))
     external = _external_machine(machine)
     assert validate_protocol_state(external["protocol"], external["heap"], external)

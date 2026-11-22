@@ -1337,7 +1337,10 @@ def _replay_shared_state(
             elif kind == "protocol":
                 protocol_record = decode_protocol_record(fields["line"])
                 if protocol_record["kind"] in (
-                    "promise.join.step", "async.resume", "promise.adopt.enter", "promise.adopt.forward"
+                    "promise.join.step",
+                    "async.resume",
+                    "promise.adopt.enter",
+                    "promise.adopt.forward",
                 ):
                     _assert_realm_scheduler_turn(
                         {
@@ -1361,7 +1364,11 @@ def _replay_shared_state(
                     or (
                         (state["jobs"] or state["ready"])
                         and protocol_record["kind"]
-                        not in ("promise.join", "promise.executor.enter", "promise.reaction.complete")
+                        not in (
+                            "promise.join",
+                            "promise.executor.enter",
+                            "promise.reaction.complete",
+                        )
                         and not any(
                             node.get("kind") == "promise" and node.get("external", False) is None
                             for _, node in state["heap"]

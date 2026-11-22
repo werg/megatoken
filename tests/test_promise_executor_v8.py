@@ -74,8 +74,13 @@ class PromiseExecutorV8Tests(unittest.TestCase):
         state = machine()
         state["stack"] = []
         state["heap"]["target"] = {
-            "kind": "promise", "properties": {}, "state": "fulfilled", "result": ["num", 1],
-            "adopted": None, "external": None, "reactions": [],
+            "kind": "promise",
+            "properties": {},
+            "state": "fulfilled",
+            "result": ["num", 1],
+            "adopted": None,
+            "external": None,
+            "reactions": [],
         }
         state["heap"]["promise"].update(state="fulfilled", result=["num", 1])
         state["heap"]["promise"]["adoption"] = {
@@ -104,13 +109,22 @@ class PromiseExecutorV8Tests(unittest.TestCase):
     def test_owned_promise_resolution_uses_fifo_adoption_and_forwarding_jobs(self):
         state = executor_fixture()
         state["heap"]["source"] = {
-            "kind": "promise", "properties": {}, "state": "pending", "result": None,
-            "adopted": None, "external": None, "reactions": [],
+            "kind": "promise",
+            "properties": {},
+            "state": "pending",
+            "result": None,
+            "adopted": None,
+            "external": None,
+            "reactions": [],
         }
         enter(state)
         apply_protocol_record(
             state,
-            {"kind": "promise.resolver.call", "resolver": ["ref", "resolve-id"], "value": ["ref", "source"]},
+            {
+                "kind": "promise.resolver.call",
+                "resolver": ["ref", "resolve-id"],
+                "value": ["ref", "source"],
+            },
         )
         self.assertEqual(state["heap"]["promise"]["state"], "pending")
         self.assertEqual(state["heap"]["promise"]["adoption"]["phase"], "intent")
@@ -120,7 +134,12 @@ class PromiseExecutorV8Tests(unittest.TestCase):
         )
         apply_protocol_record(
             state,
-            {"kind": "promise.adopt.enqueue", "promise": "promise", "target": "source", "job": "adopt-job"},
+            {
+                "kind": "promise.adopt.enqueue",
+                "promise": "promise",
+                "target": "source",
+                "job": "adopt-job",
+            },
         )
         self.assertEqual(state["ready"], ["adopt-job"])
         before = copy.deepcopy(state)
@@ -133,19 +152,26 @@ class PromiseExecutorV8Tests(unittest.TestCase):
         self.assertEqual(state, before)
         apply_protocol_record(
             state,
-            {"kind": "promise.executor.finish", "promise": "promise", "invocation": "executor-call", "completion": {"kind": "return", "value": ["undefined"]}},
+            {
+                "kind": "promise.executor.finish",
+                "promise": "promise",
+                "invocation": "executor-call",
+                "completion": {"kind": "return", "value": ["undefined"]},
+            },
         )
         state["stack"] = []
         saved_finished = _external_machine(state)
         self.assertTrue(
-            validate_protocol_state(saved_finished["protocol"], saved_finished["heap"], saved_finished)
+            validate_protocol_state(
+                saved_finished["protocol"], saved_finished["heap"], saved_finished
+            )
         )
         saved = _external_machine(state)
-        self.assertTrue(
-            validate_protocol_state(saved["protocol"], saved["heap"], saved)
-        )
+        self.assertTrue(validate_protocol_state(saved["protocol"], saved["heap"], saved))
         tampered = copy.deepcopy(state)
-        next(row for row in tampered["jobs"] if row[0] == "adopt-job")[1]["adoptionTarget"] = "other"
+        next(row for row in tampered["jobs"] if row[0] == "adopt-job")[1]["adoptionTarget"] = (
+            "other"
+        )
         saved_tampered = _external_machine(tampered)
         with self.assertRaises(ProtocolV8Error):
             validate_protocol_state(
@@ -160,12 +186,20 @@ class PromiseExecutorV8Tests(unittest.TestCase):
             )
         apply_protocol_record(
             state,
-            {"kind": "promise.adopt.enter", "promise": "promise", "target": "source", "job": "adopt-job", "forwarding": "forward-job"},
+            {
+                "kind": "promise.adopt.enter",
+                "promise": "promise",
+                "target": "source",
+                "job": "adopt-job",
+                "forwarding": "forward-job",
+            },
         )
         self.assertEqual(state["heap"]["promise"]["adoption"]["phase"], "observing")
         saved_observing = _external_machine(state)
         self.assertTrue(
-            validate_protocol_state(saved_observing["protocol"], saved_observing["heap"], saved_observing)
+            validate_protocol_state(
+                saved_observing["protocol"], saved_observing["heap"], saved_observing
+            )
         )
         from megatoken.data.promise_scheduler_v8 import settle_promise
 
@@ -177,7 +211,14 @@ class PromiseExecutorV8Tests(unittest.TestCase):
         )
         apply_protocol_record(
             state,
-            {"kind": "promise.adopt.forward", "promise": "promise", "target": "source", "job": "forward-job", "status": "fulfilled", "value": ["num", 17]},
+            {
+                "kind": "promise.adopt.forward",
+                "promise": "promise",
+                "target": "source",
+                "job": "forward-job",
+                "status": "fulfilled",
+                "value": ["num", 17],
+            },
         )
         self.assertEqual(state["heap"]["promise"]["state"], "fulfilled")
         self.assertEqual(state["heap"]["promise"]["result"], ["num", 17])
@@ -192,14 +233,23 @@ class PromiseExecutorV8Tests(unittest.TestCase):
     def test_resolution_intent_cannot_be_skipped_or_retargeted(self):
         state = executor_fixture()
         state["heap"]["source"] = {
-            "kind": "promise", "properties": {}, "state": "pending", "result": None,
-            "adopted": None, "external": None, "reactions": [],
+            "kind": "promise",
+            "properties": {},
+            "state": "pending",
+            "result": None,
+            "adopted": None,
+            "external": None,
+            "reactions": [],
         }
         state["heap"]["other"] = copy.deepcopy(state["heap"]["source"])
         enter(state)
         apply_protocol_record(
             state,
-            {"kind": "promise.resolver.call", "resolver": ["ref", "resolve-id"], "value": ["ref", "source"]},
+            {
+                "kind": "promise.resolver.call",
+                "resolver": ["ref", "resolve-id"],
+                "value": ["ref", "source"],
+            },
         )
         before = copy.deepcopy(state)
         with self.assertRaises(ProtocolV8Error):
@@ -208,13 +258,23 @@ class PromiseExecutorV8Tests(unittest.TestCase):
         with self.assertRaises(ProtocolV8Error):
             apply_protocol_record(
                 state,
-                {"kind": "promise.adopt.enqueue", "promise": "promise", "target": "other", "job": "adopt-job"},
+                {
+                    "kind": "promise.adopt.enqueue",
+                    "promise": "promise",
+                    "target": "other",
+                    "job": "adopt-job",
+                },
             )
         self.assertEqual(state, before)
         with self.assertRaisesRegex(ProtocolV8Error, "same Promise and target"):
             apply_protocol_record(
                 state,
-                {"kind": "promise.adopt.enqueue", "promise": "other", "target": "source", "job": "other-job"},
+                {
+                    "kind": "promise.adopt.enqueue",
+                    "promise": "other",
+                    "target": "source",
+                    "job": "other-job",
+                },
             )
         self.assertEqual(state, before)
 
@@ -222,8 +282,14 @@ class PromiseExecutorV8Tests(unittest.TestCase):
         for key in ("properties", "descriptors", "prototype"):
             state = executor_fixture()
             source = {
-                "kind": "promise", "properties": {}, "state": "pending", "result": None,
-                "adopted": None, "adoption": None, "external": None, "reactions": [],
+                "kind": "promise",
+                "properties": {},
+                "state": "pending",
+                "result": None,
+                "adopted": None,
+                "adoption": None,
+                "external": None,
+                "reactions": [],
             }
             if key == "properties":
                 source[key] = {"then": ["undefined"]}
@@ -237,7 +303,11 @@ class PromiseExecutorV8Tests(unittest.TestCase):
             with self.assertRaisesRegex(ProtocolV8Error, "then lookup"):
                 apply_protocol_record(
                     state,
-                    {"kind": "promise.resolver.call", "resolver": ["ref", "resolve-id"], "value": ["ref", "source"]},
+                    {
+                        "kind": "promise.resolver.call",
+                        "resolver": ["ref", "resolve-id"],
+                        "value": ["ref", "source"],
+                    },
                 )
             self.assertEqual(state, before)
 
@@ -246,19 +316,30 @@ class PromiseExecutorV8Tests(unittest.TestCase):
         enter(state)
         apply_protocol_record(
             state,
-            {"kind": "promise.resolver.call", "resolver": ["ref", "resolve-id"], "value": ["ref", "promise"]},
+            {
+                "kind": "promise.resolver.call",
+                "resolver": ["ref", "resolve-id"],
+                "value": ["ref", "promise"],
+            },
         )
         before = copy.deepcopy(state)
         with self.assertRaisesRegex(ProtocolV8Error, "identity"):
-            apply_protocol_record(state, {"kind": "promise.adopt.self", "promise": "promise", "error": "executor"})
+            apply_protocol_record(
+                state, {"kind": "promise.adopt.self", "promise": "promise", "error": "executor"}
+            )
         self.assertEqual(state, before)
-        apply_protocol_record(state, {"kind": "promise.adopt.self", "promise": "promise", "error": "self-typeerror"})
+        apply_protocol_record(
+            state, {"kind": "promise.adopt.self", "promise": "promise", "error": "self-typeerror"}
+        )
         self.assertEqual(state["heap"]["promise"]["state"], "rejected")
         self.assertEqual(state["heap"]["promise"]["result"], ["ref", "self-typeerror"])
         self.assertEqual(state["heap"]["self-typeerror"]["kind"], "object")
         self.assertEqual(
             state["heap"]["self-typeerror"]["properties"],
-            {"name": ["str", "TypeError"], "message": ["str", "Chaining cycle detected for promise"]},
+            {
+                "name": ["str", "TypeError"],
+                "message": ["str", "Chaining cycle detected for promise"],
+            },
         )
         external = _external_machine(state)
         self.assertTrue(validate_protocol_state(external["protocol"], external["heap"], external))
@@ -277,14 +358,22 @@ class PromiseExecutorV8Tests(unittest.TestCase):
             state = machine()
             for identity in ("left", "right", "leaf"):
                 state["heap"][identity] = {
-                    "kind": "promise", "properties": {}, "state": "pending", "result": None,
-                    "adopted": None, "external": None, "reactions": [],
+                    "kind": "promise",
+                    "properties": {},
+                    "state": "pending",
+                    "result": None,
+                    "adopted": None,
+                    "external": None,
+                    "reactions": [],
                 }
             return state
 
         state = owned_machine()
         for promise, target, job in (("left", "right", "left-job"), ("right", "leaf", "right-job")):
-            apply_protocol_record(state, {"kind": "promise.adopt.enqueue", "promise": promise, "target": target, "job": job})
+            apply_protocol_record(
+                state,
+                {"kind": "promise.adopt.enqueue", "promise": promise, "target": target, "job": job},
+            )
         with self.assertRaisesRegex(ProtocolV8Error, "scheduler record"):
             assert_detailed_record_compatible(
                 _external_machine(state),
@@ -292,23 +381,82 @@ class PromiseExecutorV8Tests(unittest.TestCase):
                 {"action": "resolve", "promise": "left", "value": ["num", 99]},
             )
         state["stack"] = []
-        apply_protocol_record(state, {"kind": "promise.adopt.enter", "promise": "left", "target": "right", "job": "left-job", "forwarding": "left-forward"})
-        apply_protocol_record(state, {"kind": "promise.adopt.enter", "promise": "right", "target": "leaf", "job": "right-job", "forwarding": "right-forward"})
+        apply_protocol_record(
+            state,
+            {
+                "kind": "promise.adopt.enter",
+                "promise": "left",
+                "target": "right",
+                "job": "left-job",
+                "forwarding": "left-forward",
+            },
+        )
+        apply_protocol_record(
+            state,
+            {
+                "kind": "promise.adopt.enter",
+                "promise": "right",
+                "target": "leaf",
+                "job": "right-job",
+                "forwarding": "right-forward",
+            },
+        )
         from megatoken.data.promise_scheduler_v8 import settle_promise
 
         settle_promise(state, "leaf", "fulfilled", ["num", 41])
         self.assertEqual(state["ready"], ["right-forward"])
-        apply_protocol_record(state, {"kind": "promise.adopt.forward", "promise": "right", "target": "leaf", "job": "right-forward", "status": "fulfilled", "value": ["num", 41]})
+        apply_protocol_record(
+            state,
+            {
+                "kind": "promise.adopt.forward",
+                "promise": "right",
+                "target": "leaf",
+                "job": "right-forward",
+                "status": "fulfilled",
+                "value": ["num", 41],
+            },
+        )
         self.assertEqual(state["ready"], ["left-forward"])
-        apply_protocol_record(state, {"kind": "promise.adopt.forward", "promise": "left", "target": "right", "job": "left-forward", "status": "fulfilled", "value": ["num", 41]})
+        apply_protocol_record(
+            state,
+            {
+                "kind": "promise.adopt.forward",
+                "promise": "left",
+                "target": "right",
+                "job": "left-forward",
+                "status": "fulfilled",
+                "value": ["num", 41],
+            },
+        )
         self.assertEqual(state["heap"]["left"]["result"], ["num", 41])
 
         cycle = owned_machine()
         for promise, target, job in (("left", "right", "left-job"), ("right", "left", "right-job")):
-            apply_protocol_record(cycle, {"kind": "promise.adopt.enqueue", "promise": promise, "target": target, "job": job})
+            apply_protocol_record(
+                cycle,
+                {"kind": "promise.adopt.enqueue", "promise": promise, "target": target, "job": job},
+            )
         cycle["stack"] = []
-        apply_protocol_record(cycle, {"kind": "promise.adopt.enter", "promise": "left", "target": "right", "job": "left-job", "forwarding": "left-forward"})
-        apply_protocol_record(cycle, {"kind": "promise.adopt.enter", "promise": "right", "target": "left", "job": "right-job", "forwarding": "right-forward"})
+        apply_protocol_record(
+            cycle,
+            {
+                "kind": "promise.adopt.enter",
+                "promise": "left",
+                "target": "right",
+                "job": "left-job",
+                "forwarding": "left-forward",
+            },
+        )
+        apply_protocol_record(
+            cycle,
+            {
+                "kind": "promise.adopt.enter",
+                "promise": "right",
+                "target": "left",
+                "job": "right-job",
+                "forwarding": "right-forward",
+            },
+        )
         self.assertEqual(cycle["ready"], [])
         self.assertEqual(cycle["heap"]["left"]["state"], "pending")
         self.assertEqual(cycle["heap"]["right"]["state"], "pending")
@@ -317,29 +465,52 @@ class PromiseExecutorV8Tests(unittest.TestCase):
         state = executor_fixture()
         for identity in ("derived", "source"):
             state["heap"][identity] = {
-                "kind": "promise", "properties": {}, "state": "pending", "result": None,
-                "adopted": None, "external": None, "reactions": [],
+                "kind": "promise",
+                "properties": {},
+                "state": "pending",
+                "result": None,
+                "adopted": None,
+                "external": None,
+                "reactions": [],
             }
         state["stack"] = []
         state["activeJob"] = "reaction"
         state["jobs"] = {
             "reaction": {
-                "status": "running", "owner": "root", "promise": "input",
-                "target": "derived", "reaction": "then", "returned": {"kind": "return", "value": ["ref", "source"]},
+                "status": "running",
+                "owner": "root",
+                "promise": "input",
+                "target": "derived",
+                "reaction": "then",
+                "returned": {"kind": "return", "value": ["ref", "source"]},
                 "priorAliases": [],
             }
         }
         apply_protocol_record(
             state,
-            {"kind": "promise.reaction.complete", "job": "reaction", "owner": "root", "promise": "derived", "target": "source"},
+            {
+                "kind": "promise.reaction.complete",
+                "job": "reaction",
+                "owner": "root",
+                "promise": "derived",
+                "target": "source",
+            },
         )
         self.assertEqual(state["activeJob"], None)
-        self.assertEqual(state["heap"]["derived"]["adoption"]["cause"], {"kind": "reaction", "job": "reaction"})
+        self.assertEqual(
+            state["heap"]["derived"]["adoption"]["cause"], {"kind": "reaction", "job": "reaction"}
+        )
         apply_protocol_record(
             state,
-            {"kind": "promise.adopt.enqueue", "promise": "derived", "target": "source", "job": "reaction-adopt"},
+            {
+                "kind": "promise.adopt.enqueue",
+                "promise": "derived",
+                "target": "source",
+                "job": "reaction-adopt",
+            },
         )
         self.assertEqual(state["ready"], ["reaction-adopt"])
+
     def test_synchronous_executor_resolves_once_and_finishes_with_promise(self):
         state = executor_fixture()
         enter(state)
