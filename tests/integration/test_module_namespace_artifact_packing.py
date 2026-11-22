@@ -15,7 +15,7 @@ from pathlib import Path
 
 from megatoken.data import PreparedDataset, WindowConfig, iter_windows
 from megatoken.data.protocol_v8 import ProtocolV8Error, decode_protocol_record
-from megatoken.generation.codec import ByteCodec, LING_TOKENIZER_SHA256
+from megatoken.generation.codec import LING_TOKENIZER_SHA256, ByteCodec
 
 
 def _run_checked(command, *, cwd: Path, timeout: int) -> subprocess.CompletedProcess[str]:
@@ -31,9 +31,7 @@ def _run_checked(command, *, cwd: Path, timeout: int) -> subprocess.CompletedPro
 
 
 def _revision(root: Path) -> str:
-    return subprocess.check_output(
-        ["git", "rev-parse", "HEAD"], cwd=root, text=True
-    ).strip()
+    return subprocess.check_output(["git", "rev-parse", "HEAD"], cwd=root, text=True).strip()
 
 
 def test_actual_namespace_artifact_is_source_rechecked_and_packed(tmp_path):
@@ -51,9 +49,7 @@ def test_actual_namespace_artifact_is_source_rechecked_and_packed(tmp_path):
     )
     assert artifact_path.is_file()
     artifact = json.loads(artifact_path.read_text())
-    program = next(
-        row for row in artifact["public"]["timeline"] if row["kind"] == "program"
-    )
+    program = next(row for row in artifact["public"]["timeline"] if row["kind"] == "program")
     plan = program["fields"]["regionProgram"]["moduleNamespacePlan"]
     assert plan["schema"] == "semantic-module-namespace-plan/1"
     identity = artifact["sidecar"]["splitIdentity"]
