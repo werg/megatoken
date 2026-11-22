@@ -3,8 +3,8 @@
   "files": [
     {
       "path": "README.md",
-      "bytes": 2937,
-      "sha256": "1b77ec2557dd5692bf09bc61ddf92774cd5c1606e7eb5fe3f4ef79a93883e14c"
+      "bytes": 3795,
+      "sha256": "1c8812543ecded12bdd282400b8a2a01cdd089a2869090f8d4a2875301c1fe16"
     },
     {
       "path": "check-neutral-imports.py",
@@ -52,14 +52,39 @@
       "sha256": "62910f6e8ec153c9f0e90cce98e22ea2ab1d222d7b5d17e60b409c23857a1c9f"
     },
     {
+      "path": "repair-red.log",
+      "bytes": 1772,
+      "sha256": "295948f3275b51bacca069c6acac35a4c15df8271c49414a3adcd6ee25e6267e"
+    },
+    {
+      "path": "repair-red.xml",
+      "bytes": 2139,
+      "sha256": "163fa6b711634795a0f723e8c9a8dcd0f434958cb0e63e41fc4c039f6ef76a48"
+    },
+    {
       "path": "source-map.json",
       "bytes": 1029,
       "sha256": "bf6d32011070af4bd881f72e50bced259d3a32ac36948f196cc2a0f4b9f5ff84"
     },
     {
+      "path": "strict-read-red.json",
+      "bytes": 1044,
+      "sha256": "8f32f566d83d1272af64de21d2675da81d1e0dedbf0d8272adca7382728a9371"
+    },
+    {
       "path": "summary.json",
       "bytes": 2768,
       "sha256": "47bfaaff82f5b643420441d318e19338af6f871dd3a8cbb3a2fbbe8257160fa6"
+    },
+    {
+      "path": "type-red.log",
+      "bytes": 18728,
+      "sha256": "378e7cc5bc34ff822412d2d2ad71425a76c6b2ed7bca54bfea3daab908189a0b"
+    },
+    {
+      "path": "type-red.xml",
+      "bytes": 5481,
+      "sha256": "53821b3522baa4eec214e01717ab6c38249c8bada6b215a729b6e88aad85dee7"
     }
   ]
 }

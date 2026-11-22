@@ -45,3 +45,7 @@ removal claim or a physical-source-absence execution test.
 Python 3.12.14, Torch 2.10.0+cpu and pytest 9.2.0 were used locally. This is not
 the fully locked hosted test environment. All original failure and success logs
 remain unedited; `files.json` binds the retained evidence.
+
+## Subsequent strict metadata and immutable-reader red controls
+
+After the original42-case gate, a real export control changed the JSON boolean `checkpoint_stages: false` to integer `0` and recomputed all affected hashes and lineage seals. Python dictionary equality accepted the changed JSON type. The expected refusal failed (1case,1failure,0errors/skips; one additional controlled training update). A separate0-update control showed that ordinary checkpoint resolution renamed a `.superseded-*` input directory before refusing invalid metadata (1case,1failure,0errors/skips). The exact red logs, JUnit and runtime/test blob identities are retained. The original9150 verifier is insufficient for these stronger strict-type and read-only claims; correction and new qualification are separate. Only disposable test fixtures were mutated by the red control.

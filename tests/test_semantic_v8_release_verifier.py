@@ -283,6 +283,20 @@ def test_actual_loaded_state_comparison_rejects_plausible_forgery(changed):
         release.assert_same_state(original, altered, "test")
 
 
+def test_checkpoint_refusal_never_repairs_or_moves_input_files(tmp_path):
+    checkpoint = tmp_path / "checkpoint"
+    checkpoint.mkdir()
+    (checkpoint / "state.pt").write_bytes(b"not a checkpoint\n")
+    (checkpoint / "metadata.json").write_text("{}\n")
+    aside = checkpoint / ".superseded-side-1"
+    aside.mkdir()
+    (aside / "preserved.bin").write_bytes(b"original evidence must stay in place\n")
+    before = release.bundle_inventory(checkpoint)
+    with pytest.raises(ValueError):
+        release.checkpoint_consistency(None, None, None, {"checkpoint": checkpoint}, [])
+    assert release.bundle_inventory(checkpoint) == before
+
+
 def test_real_controlled_checkpoint_export_and_resealed_weight_refusal(tmp_path, monkeypatch):
     """One real optimizer update; fixture source/byte codec are explicitly injected.
 
