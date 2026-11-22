@@ -1,26 +1,45 @@
 """Controls for shared heap namespace operations and live source locals."""
 
-from copy import deepcopy
 import json
+from copy import deepcopy
 
 import pytest
 
-from megatoken.data.module_namespace_state_v8 import build_experimental_module_namespace_plan
-from megatoken.data.protocol_v8 import apply_protocol_to_shared_state, encode_protocol_record
+from megatoken.data.module_namespace_machine_v8 import (
+    apply_experimental_module_namespace_shared_transition as apply,
+)
 from megatoken.data.module_namespace_machine_v8 import (
     assert_experimental_module_namespace_state_unchanged,
-    apply_experimental_module_namespace_shared_transition as apply,
+)
+from megatoken.data.module_namespace_machine_v8 import (
     validate_experimental_module_namespace_shared_state as validate_state,
 )
+from megatoken.data.module_namespace_state_v8 import build_experimental_module_namespace_plan
+from megatoken.data.protocol_v8 import apply_protocol_to_shared_state, encode_protocol_record
 
 
 def plan():
     return build_experimental_module_namespace_plan(
-        modules={"main.js": "import * as ns from './cells.js';", "cells.js": "export let value=1; export {value as alias};"},
+        modules={
+            "main.js": "import * as ns from './cells.js';",
+            "cells.js": "export let value=1; export {value as alias};",
+        },
         entry_module="main.js",
         cells=[
-            {"file": "cells.js", "local": "value", "kind": "let", "mutable": True, "loweredName": "__traced_eval_m1_value"},
-            {"file": "cells.js", "local": "fixed", "kind": "const", "mutable": False, "loweredName": "__traced_eval_m1_fixed"},
+            {
+                "file": "cells.js",
+                "local": "value",
+                "kind": "let",
+                "mutable": True,
+                "loweredName": "__traced_eval_m1_value",
+            },
+            {
+                "file": "cells.js",
+                "local": "fixed",
+                "kind": "const",
+                "mutable": False,
+                "loweredName": "__traced_eval_m1_fixed",
+            },
         ],
         namespaces=[
             {
@@ -58,7 +77,10 @@ def test_namespace_read_follows_single_live_cell_and_materializes_heap_results()
         {"kind": "namespace.create", "namespaceId": "o15", "moduleFile": "cells.js"},
     )
     locals_map = dict(state["locals"])
-    locals_map["__traced_eval_namespace_0"] = ["ref", "o15"]  # ordinary source binding initialization
+    locals_map["__traced_eval_namespace_0"] = [
+        "ref",
+        "o15",
+    ]  # ordinary source binding initialization
     state["locals"] = [[key, value] for key, value in locals_map.items()]
     assert validate_state(json.loads(json.dumps(state)), source_plan)
 
@@ -137,7 +159,12 @@ def test_tdz_and_immutable_cells_use_source_plan_and_local_presence():
         apply(
             state,
             source_plan,
-            {"kind": "namespace.read", "namespaceId": "o15", "exportName": "value", "value": ["num", 1]},
+            {
+                "kind": "namespace.read",
+                "namespaceId": "o15",
+                "exportName": "value",
+                "value": ["num", 1],
+            },
         )
     initialized = apply(
         state,
@@ -241,7 +268,11 @@ def test_namespace_ids_and_result_ids_are_fresh_public_heap_ids():
         {"kind": "namespace.create", "namespaceId": "o15", "moduleFile": "cells.js"},
     )
     with pytest.raises(ValueError, match="fresh public heap identity"):
-        apply(state, source_plan, {"kind": "namespace.create", "namespaceId": "o15", "moduleFile": "cells.js"})
+        apply(
+            state,
+            source_plan,
+            {"kind": "namespace.create", "namespaceId": "o15", "moduleFile": "cells.js"},
+        )
     with pytest.raises(ValueError, match="fresh public heap identity"):
         apply(
             state,
@@ -253,7 +284,6 @@ def test_namespace_ids_and_result_ids_are_fresh_public_heap_ids():
                 "resultId": "obj16",
             },
         )
-
 
 
 def test_protocol_lines_apply_namespace_effects_to_shared_machine_and_checkpoint():
@@ -420,7 +450,16 @@ def test_namespace_operation_cannot_bypass_pending_number_continuation_guard():
     state["stack"] = ["invocation-1"]
     state["frameFunctions"] = [["invocation-1", "code-1"]]
     state["heap"] = [
-        ["o20", {"id": "o20", "kind": "object", "prototype": None, "extensible": True, "properties": []}]
+        [
+            "o20",
+            {
+                "id": "o20",
+                "kind": "object",
+                "prototype": None,
+                "extensible": True,
+                "properties": [],
+            },
+        ]
     ]
     protocol = create_protocol_state()
     protocol["numberConversions"] = {
