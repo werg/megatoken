@@ -1,0 +1,7 @@
+create continuationDigest: c3d2097c9daa60f4750d916c2bcb5ec1290e47f5ea91ad4f59036e8867c2e474
+bootstrap continuationDigest: be69d490007cb39bf4d3d601888799847ad1781bb39333d99842b45910d7601b
+changed: True
+pre/post checkpoint digests: 06329d58935029c4a08ca53141f882ef59540695c99955404795fc30448b6b0e 5c662474fb0d0fcee30ded36c1a09dbeba528094729d70186f2e5d642544fe2e
+stale continuationDigest recovery: NativeRequestJournalError Native commit recovery: independent full-state bootstrap reexecution differs from durable outcome
+bridge fenced: True
+receipt returned: no
