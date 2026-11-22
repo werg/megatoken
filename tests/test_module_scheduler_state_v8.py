@@ -337,6 +337,57 @@ def test_plan_rejects_cycle_and_tampered_digest():
         verify_module_scheduler_plan_v8(plan)
 
 
+def test_synchronous_execution_has_no_fabricated_promise_and_matches_its_actual_frame():
+    plan = build_module_scheduler_plan_v8(META)
+    initial = create_module_scheduler_state_v8(plan)
+    start = {
+        "type": "module.start",
+        "file": "shared.js",
+        "frameId": "sync-frame",
+        "executionPromiseId": "invented",
+    }
+    with pytest.raises(ValueError, match="module start"):
+        apply_module_scheduler_action_v8(
+            plan, initial, start, _facts("shared.js", "sync-frame", "invented")
+        )
+    start["executionPromiseId"] = None
+    started = apply_module_scheduler_action_v8(
+        plan, initial, start, _facts("shared.js", "sync-frame", None)
+    )
+    completion = {
+        "type": "module.complete",
+        "file": "shared.js",
+        "frameId": "sync-frame",
+        "promiseId": None,
+        "jobId": "return-event",
+    }
+    frame = {
+        "id": "sync-frame",
+        "moduleFile": "shared.js",
+        "executionPromiseId": None,
+        "status": "completed",
+        "completion": {"type": "return", "value": None},
+    }
+    job = {
+        "id": "return-event",
+        "promiseId": None,
+        "frameId": "sync-frame",
+        "moduleFile": "shared.js",
+        "status": "fulfilled",
+        "kind": "module-synchronous-complete",
+        "value": 7,
+    }
+    facts = {"frames": {"sync-frame": frame}, "jobs": {"return-event": job}, "promises": {}}
+    snapshot = copy.deepcopy(started)
+    with pytest.raises(ValueError, match="synchronous completion"):
+        apply_module_scheduler_action_v8(plan, started, completion, facts)
+    assert started == snapshot
+    job["value"] = None
+    result = apply_module_scheduler_action_v8(plan, started, completion, facts)
+    assert result["modules"]["shared.js"]["status"] == "fulfilled"
+    assert result["modules"]["shared.js"]["executionPromiseId"] is None
+
+
 def test_early_and_duplicate_completion_are_refused_without_mutation():
     plan = build_module_scheduler_plan_v8(META)
     initial = create_module_scheduler_state_v8(plan)
