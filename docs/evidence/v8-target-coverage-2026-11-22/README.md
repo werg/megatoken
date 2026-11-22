@@ -86,3 +86,19 @@ counterexamples that drop a real prepared target or plan an unprepared target.
 The full controls log and JUnit are retained with the `prepared-target-inventory-`
 prefix. This additional refusal check does not change valid inventory JSON or
 the training objective; it does not itself establish any optimizer exposure.
+
+The stronger inventory was rederived over every retained prepared episode with
+the locked `torch 2.10.0+cpu` runtime. Its complete JSON bytes still equal both
+earlier inventories (SHA-256 `2891c81f9021640049ee8ac9ea5408aa2bf9e8793c2ef7cac5016bb6d05a70ae`),
+including all IDs, windows, denominators, objective bindings and inventory digest.
+The `independent-prepared-target-` files retain the full log and explicit prior-input
+provenance. No new preparation or optimizer credit is inferred from that equality.
+
+Native `2479a9d59793569954a85d0f911085bfd4ee29f6` then passed **83 focused controls,
+zero failures or skips**, plus Ruff and formatting, in
+[run 45009562622, job 137168645809](https://github.com/werg/megatoken/actions/runs/45009562622/job/137168645809).
+The complete job log, raw JUnit/runtime logs and exact identity report are retained
+with the `native2479-` prefix. Artifact `14749855083` has archive SHA-256
+`207684c20d80b64c07d941126e583949993c7956ef56936d65d22d856c47a8a9`.
+The concurrent complete optimizer campaign remains on the earlier exact native
+`a1d7f83`; this control result does not retroactively change that run's executable pin.
