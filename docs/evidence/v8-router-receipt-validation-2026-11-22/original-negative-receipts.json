@@ -1,0 +1,33 @@
+{
+  "zero_updates_nonzero_router_counts_accepted": true,
+  "seeded_rows_reported_as_complete": {
+    "counts": {
+      "p": 1001
+    },
+    "accounting": "complete-per-update"
+  },
+  "decreased_counts": {
+    "historyContinued": true,
+    "routerAccounting": "complete-per-update",
+    "counts": {
+      "p": 1,
+      "u": 1
+    }
+  },
+  "removed_selector": {
+    "historyContinued": true,
+    "routerAccounting": "complete-per-update",
+    "counts": {
+      "p": 13
+    }
+  },
+  "fewer_assignments_than_rows": {
+    "historyContinued": true,
+    "routerAccounting": "complete-per-update",
+    "counts": {
+      "p": 13,
+      "u": 5
+    }
+  },
+  "scope": "Synthetic resealed contradictory receipts; no claim that actual optimizer execution lost counts; zero optimizer updates performed by these negative probes."
+}
