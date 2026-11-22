@@ -18,7 +18,10 @@ available supply; this census measures the selected training windows.
 Unique coverage is deduplicated. Scored occurrences and denominator sums are not.
 The obsolete per-operation router-balance objective has zero effective weight;
 the separate global replacement does not become a source-target exposure claim.
-These counters do not measure the magnitude or usefulness of a learned update.
+The position audit records actual per-selector router row counts without storing
+route identities, but cannot independently reconstruct the internal rows from
+prepared source data. These counters do not measure the magnitude or usefulness
+of a learned update.
 
 ## Actual optimizer and checkpoint path
 
@@ -96,8 +99,11 @@ scored occurrence counts, exact window sets, exact per-loss denominators and the
 complete bounded optimizer-update count. A key-presence match alone can pass
 `allPositiveWeightTargetsExposed` while failing `exactOnePassCensus`; the complete
 gate requires both. Validation/test data are not optimized. Per-loss denominator
-counts overlap and must not be summed into a distinct-token count. Token/mask-position
-coverage and learned success remain unmeasured by this gate.
+counts overlap and must not be summed into a distinct-token count. The final
+collector also compares admitted plain-text positions and public supports against
+independently reconstructed prepared data. It reports actual aggregate router-row
+counts, while independent router-row coverage and learned success remain
+unmeasured.
 
 The producer's ordinary support lifecycle retains its bounded two-update route
 by default and compares that partial census with the complete inventory. Select

@@ -27,7 +27,9 @@ it does not store activations, predictions, logits or routing assignments.
 The audit compares these two sides before an optimizer update. Its cumulative
 history advances only after that update succeeds, and is sealed into the normal
 checkpoint. Exact resume requires the matching history and objective identity;
-an older checkpoint without positional receipts cannot acquire retrospective
+checkpoint metadata must independently name the same history digest and global
+step. An explicit stage transition checks and archives the same bound history.
+An older checkpoint without positional receipts cannot acquire retrospective
 position credit. This is a direct pre-release format change.
 
 An explicit training-stage transition begins a new census at the existing global
@@ -47,9 +49,17 @@ positive-weight objective even though the earlier per-record target-plan census
 did not enumerate its grouped-execution denominator.
 
 Routing regularizers operate on internal hidden rows; the physical payload does
-not independently determine those rows. Their objective-event counts remain
-visible, but **router internal position coverage remains unmeasured**. The same
-boundary applies to latent representation coordinates, transducer/retrieval
+not independently determine those rows. During training, the existing router
+balance recorder now contributes per-selector counts of the internal rows it
+actually routed, plus separate expert-assignment counts. Adapter controllers can
+choose several experts for one context row, so these counts are not interchangeable.
+The checkpoint retains only the aggregates and the number of optimizer updates
+with a router-count receipt; it does not retain expert IDs, contexts or individual
+assignment lists.
+This provides actual router-row accounting, while **router internal position
+coverage remains unmeasured** because the prepared-data oracle cannot independently
+reconstruct hidden router rows. The
+same boundary applies to latent representation coordinates, transducer/retrieval
 losses, media masks and structured-action field/copy/placement masks. Unsupported
 targets are explicitly unmeasured and cannot satisfy complete text-position
 qualification.
@@ -82,4 +92,8 @@ audit does not establish that exposure or learned semantic quality.
   passed a complete four-target actual fixture run, then an actual explicit stage
   transition; separate fresh-process resume evidence correctly remains a partial
   three-of-four-target subset. See [retained bounded evidence](evidence/v8-target-positions-2026-11-22/README.md).
-  No new full 348-update run has been launched for this audit yet.
+  The router balance recorder now contributes per-selector internal-row counts
+  to optimizer position history, and resume rejects checkpoint metadata whose
+  digest or global step does not bind that history. Focused actual optimization,
+  resume, stage transition and router-count controls cover these checks. No new
+  full 348-update run has been launched for this audit yet.

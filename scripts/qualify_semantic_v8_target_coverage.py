@@ -131,6 +131,7 @@ def main() -> int:
             "Ordinary training differs from independently reconstructed prepared positions: "
             + json.dumps(position_comparison, sort_keys=True, separators=(",", ":"))
         )
+    position_summary = position_exposure_report(position_state)
     body = {
         "schema": "semantic-v8-ordinary-target-coverage/1",
         "consumerRevision": policy["consumerRevision"],
@@ -158,10 +159,15 @@ def main() -> int:
         "comparison": comparison,
         "independentPreparedPositionInventory": position_inventory,
         "optimizerPositionExposure": position_state,
-        "optimizerPositionSummary": position_exposure_report(position_state),
+        "optimizerPositionSummary": position_summary,
         "positionComparison": position_comparison,
         "targetPresenceCoverage": "complete: every positive-weight logical/physical target record contributed at least once",
         "tokenOrMaskPositionCoverage": "complete-for-prepared-text",
+        "routerInternalPositionCounts": position_summary["routerInternalPositionCounts"],
+        "routerInternalPositionCount": position_summary["routerInternalPositionCount"],
+        "routerInternalAssignmentCounts": position_summary["routerInternalAssignmentCounts"],
+        "routerInternalAssignmentCount": position_summary["routerInternalAssignmentCount"],
+        "routerInternalPositionAccounting": position_summary["routerInternalPositionAccounting"],
         "routerInternalPositionCoverage": "unmeasured",
         "learnedSuccess": None,
     }

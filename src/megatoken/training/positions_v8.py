@@ -820,6 +820,9 @@ def empty_position_exposure(
             "optimizerUpdates": 0,
             "sources": {},
             "unmeasuredObjectives": {},
+            "routerInternalPositionCounts": {},
+            "routerInternalAssignmentCounts": {},
+            "routerInternalPositionAuditUpdates": 0,
         }
     )
 
@@ -839,6 +842,9 @@ def validate_position_exposure(state, *, registry_digest, objective):
             "optimizerUpdates",
             "sources",
             "unmeasuredObjectives",
+            "routerInternalPositionCounts",
+            "routerInternalAssignmentCounts",
+            "routerInternalPositionAuditUpdates",
             "digest",
         }
         and state["schema"] == POSITION_SCHEMA
@@ -858,6 +864,20 @@ def validate_position_exposure(state, *, registry_digest, objective):
         )
         and type(state["sources"]) is dict
         and type(state["unmeasuredObjectives"]) is dict
+        and type(state["routerInternalPositionCounts"]) is dict
+        and all(
+            type(name) is str and bool(name) and type(count) is int and count >= 0
+            for name, count in state["routerInternalPositionCounts"].items()
+        )
+        and type(state["routerInternalAssignmentCounts"]) is dict
+        and set(state["routerInternalPositionCounts"])
+        == set(state["routerInternalAssignmentCounts"])
+        and all(
+            type(name) is str and bool(name) and type(count) is int and count >= 0
+            for name, count in state["routerInternalAssignmentCounts"].items()
+        )
+        and type(state["routerInternalPositionAuditUpdates"]) is int
+        and 0 <= state["routerInternalPositionAuditUpdates"] <= state["optimizerUpdates"]
         and all(
             type(name) is str and type(count) is int and count > 0
             for name, count in state["unmeasuredObjectives"].items()
@@ -938,7 +958,13 @@ def validate_position_exposure(state, *, registry_digest, objective):
 
 
 def restore_position_exposure(
-    payload, *, registry_digest, objective, global_step, phase_transition=False
+    payload,
+    *,
+    registry_digest,
+    objective,
+    global_step,
+    phase_transition=False,
+    checkpoint_metadata=None,
 ):
     _require(type(global_step) is int and global_step >= 0, "restore step is invalid")
     if payload is None:
@@ -956,6 +982,15 @@ def restore_position_exposure(
             registry_digest=registry_digest, objective=objective, starting_global_step=global_step
         )
     _require(saved is not None, "V8 checkpoint is missing its position-exposure history")
+    if checkpoint_metadata is not None:
+        _require(
+            type(saved) is dict
+            and type(checkpoint_metadata) is dict
+            and checkpoint_metadata.get("semantic_v8_position_digest") == saved.get("digest")
+            and type(checkpoint_metadata.get("global_step")) is int
+            and checkpoint_metadata.get("global_step") == global_step,
+            "checkpoint metadata does not bind its position history and optimizer step",
+        )
     if phase_transition:
         validate_position_exposure(
             saved,
@@ -979,7 +1014,16 @@ def restore_position_exposure(
     return state
 
 
-def advance_position_exposure(state, exposures, *, registry_digest, objective, optimizer_step):
+def advance_position_exposure(
+    state,
+    exposures,
+    *,
+    registry_digest,
+    objective,
+    optimizer_step,
+    router_internal_positions=None,
+    router_internal_assignments=None,
+):
     validate_position_exposure(state, registry_digest=registry_digest, objective=objective)
     _require(
         type(optimizer_step) is int and optimizer_step == state["lastGlobalStep"] + 1,
@@ -991,6 +1035,38 @@ def advance_position_exposure(state, exposures, *, registry_digest, objective, o
         lastGlobalStep=optimizer_step,
         optimizerUpdates=state["optimizerUpdates"] + 1,
     )
+    if router_internal_positions is not None or router_internal_assignments is not None:
+        _require(
+            type(router_internal_positions) is dict
+            and type(router_internal_assignments) is dict
+            and all(
+                type(name) is str and bool(name) and type(count) is int and count >= 0
+                for name, count in router_internal_positions.items()
+            ),
+            "actual router internal-position counts are malformed",
+        )
+        _require(
+            all(
+                type(name) is str and bool(name) and type(count) is int and count >= 0
+                for name, count in router_internal_assignments.items()
+            )
+            and set(router_internal_positions) == set(router_internal_assignments),
+            "actual router internal-assignment counts are malformed",
+        )
+        _require(
+            updated["routerInternalPositionAuditUpdates"] == 0
+            or set(updated["routerInternalPositionCounts"]) == set(router_internal_positions),
+            "router selector set changed within one objective history",
+        )
+        for name, count in router_internal_positions.items():
+            updated["routerInternalPositionCounts"][name] = (
+                updated["routerInternalPositionCounts"].get(name, 0) + count
+            )
+        for name, count in router_internal_assignments.items():
+            updated["routerInternalAssignmentCounts"][name] = (
+                updated["routerInternalAssignmentCounts"].get(name, 0) + count
+            )
+        updated["routerInternalPositionAuditUpdates"] += 1
     touched = set()
     for exposure in exposures:
         _require(
@@ -1090,6 +1166,11 @@ def position_exposure_report(state):
                     row["receipt"], state["objective"]["effectiveLossWeights"]
                 ).items():
                     counts[name] += count * row["scoredOccurrences"]
+    router_internal_positions = state["routerInternalPositionCounts"]
+    router_internal_position_count = sum(router_internal_positions.values())
+    router_internal_assignments = state["routerInternalAssignmentCounts"]
+    router_internal_assignment_count = sum(router_internal_assignments.values())
+    router_audit_updates = state["routerInternalPositionAuditUpdates"]
     return {
         "schema": POSITION_SCHEMA,
         "digest": state["digest"],
@@ -1107,6 +1188,18 @@ def position_exposure_report(state):
         "scoredOccurrences": occurrences,
         "positiveWeightPositionCounts": counts,
         "unmeasuredObjectiveCounts": state["unmeasuredObjectives"],
+        "routerInternalPositionCounts": router_internal_positions,
+        "routerInternalPositionCount": router_internal_position_count,
+        "routerInternalAssignmentCounts": router_internal_assignments,
+        "routerInternalAssignmentCount": router_internal_assignment_count,
+        "routerInternalPositionAuditUpdates": router_audit_updates,
+        "routerInternalPositionAccounting": (
+            "complete-per-update"
+            if state["optimizerUpdates"] > 0 and router_audit_updates == state["optimizerUpdates"]
+            else "partial"
+            if router_audit_updates > 0
+            else "unmeasured"
+        ),
         "positionScope": "Actual plain-text lexical/reconstruction rows and length/mode/terminal/modality categorical labels and public supports",
         "routerInternalPositionCoverage": "unmeasured",
         "otherObjectiveScope": "Routing regularizers, representation coordinates, media/structured-action masks and transducer/retrieval losses are not granted token-position credit by this audit",
@@ -1288,6 +1381,12 @@ def compare_position_inventory(inventory, state, *, target_exposure, global_step
         "unmeasuredPhysicalTargets": [list(key) for key in unmeasured],
         "positiveWeightPositionCountsMatch": count_match,
         "exactOnePassPreparedTextPositions": complete,
+        "routerInternalPositionCounts": summary["routerInternalPositionCounts"],
+        "routerInternalPositionCount": summary["routerInternalPositionCount"],
+        "routerInternalAssignmentCounts": summary["routerInternalAssignmentCounts"],
+        "routerInternalAssignmentCount": summary["routerInternalAssignmentCount"],
+        "routerInternalPositionAuditUpdates": summary["routerInternalPositionAuditUpdates"],
+        "routerInternalPositionAccounting": summary["routerInternalPositionAccounting"],
         "routerInternalPositionCoverage": "unmeasured",
         "learnedSuccess": None,
     }

@@ -905,6 +905,7 @@ def train(
                 objective=position_identity,
                 global_step=global_step,
                 phase_transition=phase_transition,
+                checkpoint_metadata=resumed_metadata if payload is not None else None,
             )
 
         if config.compile:
@@ -1175,6 +1176,7 @@ def train(
             optimizer.set_lr(learning_rate)
             model.core.dispatch_metrics(reset=True)
             step_diagnostics: dict[str, float | torch.Tensor] = {}
+            router_internal_positions = None
             for router in routers.values():
                 router.balance_recorder = router_replay
             try:
@@ -1200,6 +1202,27 @@ def train(
                 ledger.finish()
                 # All ranks participate, including workers with zero eligible
                 # assignments. The model's version remains fixed until step().
+                local_router_positions = router_replay.internal_position_counts(routers=routers)
+                local_router_assignments = router_replay.internal_assignment_counts(routers=routers)
+                gathered_router_counts = context.all_gather_object(
+                    (local_router_positions, local_router_assignments)
+                )
+                if any(
+                    set(positions) != set(local_router_positions)
+                    or set(assignments) != set(local_router_assignments)
+                    for positions, assignments in gathered_router_counts
+                ):
+                    raise ValueError(
+                        "Distributed router position audits disagree on selector identity"
+                    )
+                router_internal_positions = {
+                    name: sum(positions[name] for positions, _ in gathered_router_counts)
+                    for name in local_router_positions
+                }
+                router_internal_assignments = {
+                    name: sum(assignments[name] for _, assignments in gathered_router_counts)
+                    for name in local_router_assignments
+                }
                 step_diagnostics.update(
                     router_replay.backward(
                         context,
@@ -1254,6 +1277,8 @@ def train(
                     registry_digest=registry_digest,
                     objective=position_identity,
                     optimizer_step=global_step + 1,
+                    router_internal_positions=router_internal_positions,
+                    router_internal_assignments=router_internal_assignments,
                 )
             context.synchronize_gradients(optimizer.parameters)
             optimizer_started = time.perf_counter()

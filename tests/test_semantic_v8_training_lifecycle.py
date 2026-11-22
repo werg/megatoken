@@ -95,6 +95,10 @@ def test_v8_normal_update_checkpoint_fresh_process_resume(tmp_path, monkeypatch)
     assert report["unmeasuredPhysicalTargets"] == 0
     assert report["positiveWeightPositionCounts"]["lexical"] > 0
     assert report["routerInternalPositionCoverage"] == "unmeasured"
+    assert report["routerInternalPositionAuditUpdates"] == 1
+    assert report["routerInternalPositionCount"] > 0
+    assert report["routerInternalAssignmentCount"] >= report["routerInternalPositionCount"]
+    assert report["routerInternalPositionAccounting"] == "complete-per-update"
     assert max(int(state["step"]) for state in payload["optimizer"]["moments"].values()) == 1
 
     config_path = tmp_path / "resume-config.json"
@@ -148,6 +152,11 @@ print(json.dumps({'global_step':result['global_step'],'termination':result['term
     assert result["semantic_v8_target_exposure"]["sources"]["source-1"]["split"] == "train"
     resumed_positions = result["semantic_v8_position_exposure"]
     assert resumed_positions["optimizerUpdates"] == resumed_positions["lastGlobalStep"] == 2
+    assert resumed_positions["routerInternalPositionAuditUpdates"] == 2
+    assert resumed_positions["routerInternalPositionCount"] > report["routerInternalPositionCount"]
+    assert (
+        resumed_positions["routerInternalAssignmentCount"] > report["routerInternalAssignmentCount"]
+    )
     assert (
         resumed_positions["positiveWeightPositionCounts"]["lexical"]
         > report["positiveWeightPositionCounts"]["lexical"]

@@ -124,6 +124,8 @@ def state_after_one():
         registry_digest="a" * 64,
         objective=objective(),
         optimizer_step=1,
+        router_internal_positions={"p": 4, "shape_bootstrap": 2},
+        router_internal_assignments={"p": 4, "shape_bootstrap": 2},
     )
 
 
@@ -279,6 +281,8 @@ def test_position_state_resumes_exactly_and_counts_repeated_optimizer_occurrence
     }
     assert report["unmeasuredObjectiveCounts"] == {"router_z": 1}
     assert report["routerInternalPositionCoverage"] == "unmeasured"
+    empty = empty_position_exposure(registry_digest="a" * 64, objective=objective())
+    assert position_exposure_report(empty)["routerInternalPositionAccounting"] == "unmeasured"
     restored = restore_position_exposure(
         {"train_config": {"semantic_v8_policy": {}}, "semantic_v8_position_exposure": first},
         registry_digest="a" * 64,
@@ -291,10 +295,38 @@ def test_position_state_resumes_exactly_and_counts_repeated_optimizer_occurrence
         registry_digest="a" * 64,
         objective=objective(),
         optimizer_step=2,
+        router_internal_positions={"p": 3, "shape_bootstrap": 1},
+        router_internal_assignments={"p": 3, "shape_bootstrap": 1},
     )
     assert first == first_copy  # an uncommitted candidate cannot mutate saved history
     assert second["previousDigest"] == first["digest"]
     assert position_exposure_report(second)["scoredOccurrences"] == 2
+    assert position_exposure_report(second)["routerInternalPositionCounts"] == {
+        "p": 7,
+        "shape_bootstrap": 3,
+    }
+    assert position_exposure_report(second)["routerInternalPositionCount"] == 10
+    assert position_exposure_report(second)["routerInternalAssignmentCounts"] == {
+        "p": 7,
+        "shape_bootstrap": 3,
+    }
+    assert position_exposure_report(second)["routerInternalAssignmentCount"] == 10
+    assert position_exposure_report(second)["routerInternalPositionAuditUpdates"] == 2
+    assert (
+        position_exposure_report(second)["routerInternalPositionAccounting"]
+        == "complete-per-update"
+    )
+    assert "expertIds" not in json.dumps(second)
+    with pytest.raises(ValueError, match="selector set changed"):
+        advance_position_exposure(
+            restored,
+            [exposure()],
+            registry_digest="a" * 64,
+            objective=objective(),
+            optimizer_step=2,
+            router_internal_positions={"p": 3},
+            router_internal_assignments={"p": 3},
+        )
     with pytest.raises(ValueError, match="missing"):
         restore_position_exposure(
             {"train_config": {"semantic_v8_policy": {}}},
@@ -338,6 +370,11 @@ def test_explicit_stage_change_archives_old_objective_without_reusing_its_credit
     assert report["optimizerUpdates"] == report["scoredOccurrences"] == 1
     assert report["previousStageDigest"] == original["digest"]
     assert current["previousStage"] == original
+    assert current["routerInternalPositionCounts"] == {}
+    assert current["previousStage"]["routerInternalPositionCounts"] == {
+        "p": 4,
+        "shape_bootstrap": 2,
+    }
     broken = deepcopy(current)
     broken["previousStage"]["sources"]["source-1"]["logicalTargets"]["logical-1"]["records"][
         "physical-1"
@@ -350,6 +387,27 @@ def test_explicit_stage_change_archives_old_objective_without_reusing_its_credit
     reseal(broken["previousStage"])
     with pytest.raises(ValueError, match="objective metadata"):
         validate_position_exposure(reseal(broken), registry_digest="a" * 64, objective=changed)
+
+
+@pytest.mark.parametrize("field", ["semantic_v8_position_digest", "global_step"])
+def test_resume_and_stage_transition_require_metadata_to_bind_position_history(field):
+    state = state_after_one()
+    payload = {
+        "train_config": {"semantic_v8_policy": {}},
+        "semantic_v8_position_exposure": state,
+    }
+    metadata = {"semantic_v8_position_digest": state["digest"], "global_step": 1}
+    metadata[field] = "f" * 64 if field == "semantic_v8_position_digest" else 2
+    for phase_transition in (False, True):
+        with pytest.raises(ValueError, match="checkpoint metadata"):
+            restore_position_exposure(
+                payload,
+                registry_digest="a" * 64,
+                objective=objective(),
+                global_step=1,
+                phase_transition=phase_transition,
+                checkpoint_metadata=metadata,
+            )
 
 
 def test_actual_decoder_receipts_leave_losses_and_gradients_unchanged():
