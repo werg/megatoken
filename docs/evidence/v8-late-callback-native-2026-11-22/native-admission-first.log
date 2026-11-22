@@ -1,0 +1,151 @@
+.uuuuuuuuuuuu.FFF                                                        [100%]
+=================================== FAILURES ===================================
+_ test_durable_sessions_refuse_direct_admission_spellings[admit-orchestration-callback] _
+
+tmp_path = PosixPath('/workspace/scratch/05d92519587f/native-v8-release-composition/pytest-of-agent/pytest-0/test_durable_sessions_refuse_d0')
+operation = 'admit-orchestration-callback'
+
+    @pytest.mark.parametrize(
+        "operation",
+        [
+            "admit-orchestration-callback",
+            "admit_orchestration_callback",
+            "admit-orchestration_callback",
+        ],
+    )
+    def test_durable_sessions_refuse_direct_admission_spellings(tmp_path, operation):
+        from megatoken.semantic_commit_recovery_v8 import DurableNativeCommitBridge
+        from megatoken.semantic_request_journal_v8 import DurableNativeRequestJournal
+        from scripts.serve_semantic_v8 import dispatch
+        from tests.test_semantic_commit_recovery_v8 import execution_lease
+    
+        with execution_lease(tmp_path) as lease, real_runtime() as (open_adapter, _):
+            adapter = open_adapter()
+            journal = DurableNativeRequestJournal(tmp_path / "journal")
+            bridge = DurableNativeCommitBridge(adapter, journal, lease)
+            before = adapter.checkpoint()
+            with pytest.raises(ValueError, match="durable-commit"):
+>               dispatch(adapter, {"id": "unguarded-admission", "op": operation}, commit_bridge=bridge)
+
+tests/test_semantic_v8_late_callback.py:278: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+../target-coverage-venv/lib/python3.12/site-packages/torch/utils/_contextlib.py:124: in decorate_context
+    return func(*args, **kwargs)
+           ^^^^^^^^^^^^^^^^^^^^^
+scripts/serve_semantic_v8.py:31: in dispatch
+    return _dispatch(adapter, request, commit_bridge=commit_bridge)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+scripts/serve_semantic_v8.py:39: in _dispatch
+    commit_bridge.assert_operation(operation, request)
+src/megatoken/semantic_commit_recovery_v8.py:206: in assert_operation
+    _fail("configured durable sessions require durable-commit")
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+
+message = 'configured durable sessions require durable-commit'
+
+    def _fail(message):
+>       raise NativeRequestJournalError("Native commit recovery: " + message)
+E       megatoken.semantic_request_journal_v8.NativeRequestJournalError: Native commit recovery: configured durable sessions require durable-commit
+
+src/megatoken/semantic_commit_recovery_v8.py:52: NativeRequestJournalError
+_ test_durable_sessions_refuse_direct_admission_spellings[admit_orchestration_callback] _
+
+tmp_path = PosixPath('/workspace/scratch/05d92519587f/native-v8-release-composition/pytest-of-agent/pytest-0/test_durable_sessions_refuse_d1')
+operation = 'admit_orchestration_callback'
+
+    @pytest.mark.parametrize(
+        "operation",
+        [
+            "admit-orchestration-callback",
+            "admit_orchestration_callback",
+            "admit-orchestration_callback",
+        ],
+    )
+    def test_durable_sessions_refuse_direct_admission_spellings(tmp_path, operation):
+        from megatoken.semantic_commit_recovery_v8 import DurableNativeCommitBridge
+        from megatoken.semantic_request_journal_v8 import DurableNativeRequestJournal
+        from scripts.serve_semantic_v8 import dispatch
+        from tests.test_semantic_commit_recovery_v8 import execution_lease
+    
+        with execution_lease(tmp_path) as lease, real_runtime() as (open_adapter, _):
+            adapter = open_adapter()
+            journal = DurableNativeRequestJournal(tmp_path / "journal")
+            bridge = DurableNativeCommitBridge(adapter, journal, lease)
+            before = adapter.checkpoint()
+            with pytest.raises(ValueError, match="durable-commit"):
+>               dispatch(adapter, {"id": "unguarded-admission", "op": operation}, commit_bridge=bridge)
+
+tests/test_semantic_v8_late_callback.py:278: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+../target-coverage-venv/lib/python3.12/site-packages/torch/utils/_contextlib.py:124: in decorate_context
+    return func(*args, **kwargs)
+           ^^^^^^^^^^^^^^^^^^^^^
+scripts/serve_semantic_v8.py:31: in dispatch
+    return _dispatch(adapter, request, commit_bridge=commit_bridge)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+scripts/serve_semantic_v8.py:39: in _dispatch
+    commit_bridge.assert_operation(operation, request)
+src/megatoken/semantic_commit_recovery_v8.py:206: in assert_operation
+    _fail("configured durable sessions require durable-commit")
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+
+message = 'configured durable sessions require durable-commit'
+
+    def _fail(message):
+>       raise NativeRequestJournalError("Native commit recovery: " + message)
+E       megatoken.semantic_request_journal_v8.NativeRequestJournalError: Native commit recovery: configured durable sessions require durable-commit
+
+src/megatoken/semantic_commit_recovery_v8.py:52: NativeRequestJournalError
+_ test_durable_sessions_refuse_direct_admission_spellings[admit-orchestration_callback] _
+
+tmp_path = PosixPath('/workspace/scratch/05d92519587f/native-v8-release-composition/pytest-of-agent/pytest-0/test_durable_sessions_refuse_d2')
+operation = 'admit-orchestration_callback'
+
+    @pytest.mark.parametrize(
+        "operation",
+        [
+            "admit-orchestration-callback",
+            "admit_orchestration_callback",
+            "admit-orchestration_callback",
+        ],
+    )
+    def test_durable_sessions_refuse_direct_admission_spellings(tmp_path, operation):
+        from megatoken.semantic_commit_recovery_v8 import DurableNativeCommitBridge
+        from megatoken.semantic_request_journal_v8 import DurableNativeRequestJournal
+        from scripts.serve_semantic_v8 import dispatch
+        from tests.test_semantic_commit_recovery_v8 import execution_lease
+    
+        with execution_lease(tmp_path) as lease, real_runtime() as (open_adapter, _):
+            adapter = open_adapter()
+            journal = DurableNativeRequestJournal(tmp_path / "journal")
+            bridge = DurableNativeCommitBridge(adapter, journal, lease)
+            before = adapter.checkpoint()
+            with pytest.raises(ValueError, match="durable-commit"):
+>               dispatch(adapter, {"id": "unguarded-admission", "op": operation}, commit_bridge=bridge)
+
+tests/test_semantic_v8_late_callback.py:278: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+../target-coverage-venv/lib/python3.12/site-packages/torch/utils/_contextlib.py:124: in decorate_context
+    return func(*args, **kwargs)
+           ^^^^^^^^^^^^^^^^^^^^^
+scripts/serve_semantic_v8.py:31: in dispatch
+    return _dispatch(adapter, request, commit_bridge=commit_bridge)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+scripts/serve_semantic_v8.py:39: in _dispatch
+    commit_bridge.assert_operation(operation, request)
+src/megatoken/semantic_commit_recovery_v8.py:206: in assert_operation
+    _fail("configured durable sessions require durable-commit")
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+
+message = 'configured durable sessions require durable-commit'
+
+    def _fail(message):
+>       raise NativeRequestJournalError("Native commit recovery: " + message)
+E       megatoken.semantic_request_journal_v8.NativeRequestJournalError: Native commit recovery: configured durable sessions require durable-commit
+
+src/megatoken/semantic_commit_recovery_v8.py:52: NativeRequestJournalError
+=========================== short test summary info ============================
+FAILED tests/test_semantic_v8_late_callback.py::test_durable_sessions_refuse_direct_admission_spellings[admit-orchestration-callback]
+FAILED tests/test_semantic_v8_late_callback.py::test_durable_sessions_refuse_direct_admission_spellings[admit_orchestration_callback]
+FAILED tests/test_semantic_v8_late_callback.py::test_durable_sessions_refuse_direct_admission_spellings[admit-orchestration_callback]
+3 failed, 2 passed, 12 subtests passed in 64.90s (0:01:04)
