@@ -31,6 +31,18 @@ from megatoken.semantic_request_journal_v8 import (
 _HEX64 = re.compile(r"[0-9a-f]{64}")
 _EXECUTION_ID = re.compile(r"[a-z][a-z0-9:_-]{0,255}")
 _COMMITS = {"commit", "commit-orchestration"}
+_MUTATIONS = {
+    "initialize",
+    "select",
+    "reject",
+    "complete",
+    "cancel",
+    "restore",
+    "open-orchestration",
+    "select-orchestration",
+    "bootstrap-orchestration-child",
+    "cancel-orchestration",
+}
 MAX_COMMIT_REQUEST_BYTES = 40 << 20
 
 
@@ -44,6 +56,12 @@ def _sha(value):
 
 def _same(left, right):
     return stable_algorithm_json(left) == stable_algorithm_json(right)
+
+
+def _reply_bytes(value):
+    # The producer verifies these exact bytes with ECMAScript stable JSON.
+    # Python json.dumps uses different spellings for 1.0 and some exponents.
+    return stable_algorithm_json(value).encode("utf-8") + b"\n"
 
 
 def _decode(value, maximum, label):
@@ -140,23 +158,70 @@ class NativeExecutionLease:
 class DurableNativeCommitBridge:
     """Commit-only journal and full-adapter restoration under execution ownership."""
 
-    def __init__(self, adapter, journal, execution_lease):
+    def __init__(self, adapter, journal, execution_lease, *, session_generation=1):
         if not isinstance(journal, DurableNativeRequestJournal):
             raise TypeError("A native request journal is required")
         if not isinstance(execution_lease, NativeExecutionLease):
             raise TypeError("An inherited native execution lease is required")
         execution_lease.assert_held()
+        if type(session_generation) is not int or not 1 <= session_generation <= 2**53 - 1:
+            raise ValueError("Native execution generation must be a positive safe integer")
         self.adapter, self.journal, self.execution_lease = adapter, journal, execution_lease
+        self.session_generation = session_generation
         self.fenced = False
+        self._recoverable = None
+        self._started = False
 
-    def assert_operation(self, operation):
-        self.execution_lease.assert_held()
+    def _scope_identity(self):
+        model = {
+            "checkpoint": self.adapter.model_identity,
+            "tokenizer": self.adapter.codec.fingerprint,
+        }
+        if self.adapter.training_identity is not None:
+            model["training"] = self.adapter.training_identity
+        return {
+            "schema": "semantic-native-request-identity/1",
+            "session_id": self.execution_lease.session_id,
+            "stream_id": self.execution_lease.stream_id,
+            "session_generation": self.session_generation,
+            "ordinal": 1,
+            "operation": "commit",
+            "model_identity": model,
+        }
+
+    def assert_operation(self, operation, request=None):
+        try:
+            self.execution_lease.assert_held()
+        except BaseException:
+            self.fenced = True
+            raise
         if operation in {"metrics", "status"}:
             return
         if self.fenced:
             _fail("this process is fenced after an uncertain durable operation")
         if operation in {"commit", "commit_orchestration", "commit-orchestration"}:
             _fail("configured durable sessions require durable-commit")
+        if operation == "restore":
+            _fail(
+                "configured durable sessions require explicit recover-commit, not ordinary restore"
+            )
+        normalized = operation.replace("_", "-") if isinstance(operation, str) else operation
+        if normalized in _MUTATIONS and not self._started:
+            if self.journal.has_history(self._scope_identity()):
+                _fail(
+                    "retained native generation requires explicit commit recovery before any mutation"
+                )
+            self._started = True
+        if normalized in _MUTATIONS and self._recoverable is not None:
+            if type(request) is not dict or request.get("op") != operation:
+                _fail("a later mutation requires its complete original request")
+            identity, frame = self._recoverable
+            try:
+                self.journal.supersede(identity, frame, copy.deepcopy(request))
+            except BaseException:
+                self.fenced = True
+                raise
+            self._recoverable = None
 
     def _input(self, identity, requestBase64, preCheckpointDigest):
         identity = copy.deepcopy(_validate_identity(identity))
@@ -164,6 +229,8 @@ class DurableNativeCommitBridge:
         lease.assert_held()
         if identity["session_id"] != lease.session_id or identity["stream_id"] != lease.stream_id:
             _fail("request identity differs from execution ownership")
+        if identity["session_generation"] != self.session_generation:
+            _fail("request generation differs from configured native execution")
         if identity["operation"] not in _COMMITS:
             _fail("only exact commit operations are recoverable")
         expected = {
@@ -328,7 +395,7 @@ class DurableNativeCommitBridge:
             _fail("saved commit outcome binding differs")
         response_raw = _decode(value["responseBase64"], MAX_COMMIT_REQUEST_BYTES, "commit response")
         response = strict_json_loads(response_raw.decode("utf-8", errors="strict"))
-        if _canonical(response) + b"\n" != response_raw:
+        if _reply_bytes(response) != response_raw:
             _fail("saved commit response bytes differ")
         self._check_post(
             request, response, value["postCheckpoint"], value["preCheckpoint"], pre_digest
@@ -376,9 +443,7 @@ class DurableNativeCommitBridge:
                         "schema": "semantic-native-durable-commit-outcome/8",
                         "requestSha256": _sha(raw),
                         "preCheckpointDigest": preCheckpointDigest,
-                        "responseBase64": base64.b64encode(_canonical(response) + b"\n").decode(
-                            "ascii"
-                        ),
+                        "responseBase64": base64.b64encode(_reply_bytes(response)).decode("ascii"),
                         "postCheckpoint": post,
                         "preCheckpoint": before,
                     }
@@ -389,9 +454,11 @@ class DurableNativeCommitBridge:
                 value, response_raw = self._envelope(stored, request, raw, preCheckpointDigest)
                 if not _same(self.adapter.checkpoint(), value["postCheckpoint"]):
                     _fail("whole live adapter differs from saved commit poststate")
-                readback = self.journal.inspect(identity, frame)
+                readback = self.journal.inspect(identity, frame, require_latest=True)
                 if readback.get("result_bytes") != stored:
                     _fail("independent durable commit readback differs")
+                self._recoverable = (copy.deepcopy(identity), frame)
+                self._started = True
                 return self._receipt(identity, raw, value, response_raw, readback["request_id"])
             except BaseException:
                 self.fenced = True
@@ -425,6 +492,8 @@ class DurableNativeCommitBridge:
                 restored = self.adapter.restore(checkpoint=value["postCheckpoint"])
                 if not _same(self.adapter.checkpoint(), value["postCheckpoint"]):
                     _fail("whole restored adapter differs from saved commit poststate")
+                self._recoverable = (copy.deepcopy(identity), frame)
+                self._started = True
                 return self._receipt(
                     identity, raw, value, response_raw, readback["request_id"], restored
                 )

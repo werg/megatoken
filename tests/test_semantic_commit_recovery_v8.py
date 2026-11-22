@@ -25,7 +25,7 @@ from megatoken.semantic_request_journal_v8 import (
     _canonical,
 )
 from scripts.serve_semantic_v8 import dispatch
-from tests.test_prediction_prefix_v8 import examples
+from tests.test_prediction_prefix_v8 import examples, prefix
 from tests.test_semantic_v8_closed_session_restore import adapter_for_sessions, with_session
 from tests.test_semantic_v8_serving_restore import commit, select, target
 
@@ -262,7 +262,7 @@ def test_rpc_requires_configured_bridge_and_blocks_unjournaled_commits(tmp_path)
         )
 
 
-def test_live_inherited_descriptor_excludes_second_process_and_survives_parent_close(tmp_path):
+def test_live_inherited_descriptor_excludes_second_process(tmp_path):
     with execution_lease(tmp_path / "owner") as lease:
         code = """
 import fcntl,os,sys
@@ -276,6 +276,53 @@ raise SystemExit(0)
         result = subprocess.run([sys.executable, "-c", code, str(lease.path)], timeout=10)
         assert result.returncode == 73
         lease.assert_held()
+
+
+def test_outliving_native_child_retains_lock_after_every_parent_descriptor_closes(tmp_path):
+    child = None
+    contender = """
+import fcntl,os,sys
+fd=os.open(sys.argv[1],os.O_RDWR)
+try:
+    fcntl.flock(fd,fcntl.LOCK_EX|fcntl.LOCK_NB)
+except BlockingIOError:
+    raise SystemExit(73)
+os.close(fd)
+"""
+    holder = """
+import fcntl,os,sys
+fd=int(sys.argv[1])
+fcntl.flock(fd,fcntl.LOCK_EX|fcntl.LOCK_NB)
+print('HELD',flush=True)
+sys.stdin.readline()
+os.close(fd)
+"""
+    try:
+        with execution_lease(tmp_path / "owner") as lease:
+            path = str(lease.path)
+            child = subprocess.Popen(
+                [sys.executable, "-c", holder, str(lease.fd)],
+                pass_fds=(lease.fd,),
+                stdin=subprocess.PIPE,
+                stdout=subprocess.PIPE,
+                stderr=subprocess.PIPE,
+                text=True,
+            )
+            assert child.stdout.readline().strip() == "HELD"
+        # The context closed both the lease duplicate and its original owner fd.
+        assert subprocess.run([sys.executable, "-c", contender, path], timeout=10).returncode == 73
+        child.stdin.write("finish\n")
+        child.stdin.flush()
+        assert child.wait(timeout=10) == 0
+        assert subprocess.run([sys.executable, "-c", contender, path], timeout=10).returncode == 0
+    finally:
+        if child is not None:
+            if child.poll() is None:
+                child.kill()
+                child.wait(timeout=10)
+            child.stdin.close()
+            child.stdout.close()
+            child.stderr.close()
 
 
 def test_execution_lock_refuses_replaced_inode_and_wrong_scope(tmp_path):
@@ -452,3 +499,164 @@ def test_real_native_orchestration_commit_restores_reserved_child(tmp_path):
             assert receipt["restoreReceipt"]["hostDispatches"] == 0
             outcome = json.loads(base64.b64decode(receipt["responseBase64"]))["result"]
             assert outcome["committed"] and outcome["track"]["execution"]["invocation_id"]
+
+
+@pytest.mark.parametrize("operation", ["select", "cancel"])
+def test_later_native_mutation_durably_supersedes_commit_before_dispatch(tmp_path, operation):
+    with execution_lease(tmp_path / "owner") as lease:
+        document = example()
+        adapter, _, bridge, args = prepare(
+            tmp_path, lease, fragments=[target(document, 0), target(document, 1)]
+        )
+        bridge.durable_commit(**args)
+        if operation == "select":
+            public, contexts, context = prefix(document, 1)
+            mutation = {
+                "id": "later-selection",
+                "op": "select",
+                "session": "session-a",
+                "public": public,
+                "contexts": contexts,
+                "context": context,
+            }
+        else:
+            mutation = {
+                "id": "later-cancel",
+                "op": "cancel",
+                "session": "session-a",
+                "reason": "explicit caller cancellation",
+            }
+        dispatch(adapter, mutation, commit_bridge=bridge)
+        assert list((tmp_path / "journal").glob("*/*.superseded.json"))
+        restored, _ = adapter_for_sessions([target(document, 0)])
+        fresh = DurableNativeCommitBridge(restored, bridge.journal, lease)
+        with pytest.raises(NativeRequestConflict, match="superseded"):
+            fresh.recover_commit(**args)
+        assert not restored.sessions and not restored.attempts
+
+
+def test_lost_supersession_acknowledgement_prevents_later_native_mutation(tmp_path):
+    class LoseMarkerAck(DurableNativeRequestJournal):
+        def _after_published(self, name, path):
+            if name.endswith(".superseded.json"):
+                raise OSError("lost supersession acknowledgement")
+
+    with execution_lease(tmp_path / "owner") as lease:
+        adapter, _, bridge, args = prepare(tmp_path, lease, journal_class=LoseMarkerAck)
+        bridge.durable_commit(**args)
+        before = adapter.checkpoint()
+        with pytest.raises(OSError, match="lost supersession"):
+            dispatch(
+                adapter,
+                {"id": "cancel", "op": "cancel", "session": "session-a", "reason": "later"},
+                commit_bridge=bridge,
+            )
+        assert adapter.checkpoint() == before
+        assert bridge.fenced
+        restored, _ = adapter_for_sessions([target(example(), 0)])
+        fresh = DurableNativeCommitBridge(
+            restored, DurableNativeRequestJournal(tmp_path / "journal"), lease
+        )
+        with pytest.raises(NativeRequestConflict, match="superseded"):
+            fresh.recover_commit(**args)
+
+
+def test_new_durable_commit_reestablishes_exact_recoverable_poststate(tmp_path):
+    with execution_lease(tmp_path / "owner") as lease:
+        document = example()
+        adapter, _, bridge, first = prepare(
+            tmp_path, lease, fragments=[target(document, 0), target(document, 1)]
+        )
+        bridge.durable_commit(**first)
+        public, contexts, context = prefix(document, 1)
+        selected = dispatch(
+            adapter,
+            {
+                "id": "next",
+                "op": "select",
+                "session": "session-a",
+                "public": public,
+                "contexts": contexts,
+                "context": context,
+            },
+            commit_bridge=bridge,
+        )
+        second = arguments(adapter, document, 1, selected, ordinal=2)
+        committed = bridge.durable_commit(**second)
+        restored, _ = adapter_for_sessions([target(document, 0), target(document, 1)])
+        receipt = DurableNativeCommitBridge(restored, bridge.journal, lease).recover_commit(
+            **second
+        )
+        assert receipt["postCheckpoint"] == committed["postCheckpoint"] == restored.checkpoint()
+        assert receipt["restoreReceipt"]["reexecutedSelections"] == 2
+
+
+def test_read_only_native_rpcs_keep_commit_recoverable(tmp_path):
+    with execution_lease(tmp_path / "owner") as lease:
+        adapter, _, bridge, args = prepare(tmp_path, lease)
+        response = bridge.durable_commit(**args)
+        for op in ("metrics", "status", "checkpoint"):
+            dispatch(adapter, {"id": op, "op": op}, commit_bridge=bridge)
+        assert not list((tmp_path / "journal").glob("*/*.superseded.json"))
+        restored, _ = adapter_for_sessions([target(example(), 0)])
+        receipt = DurableNativeCommitBridge(restored, bridge.journal, lease).recover_commit(**args)
+        assert receipt["responseBase64"] == response["responseBase64"]
+
+
+def test_ordinary_restore_cannot_bypass_durable_commit_reconciliation(tmp_path):
+    with execution_lease(tmp_path / "owner") as lease:
+        adapter, _, bridge, args = prepare(tmp_path, lease)
+        result = bridge.durable_commit(**args)
+        restored, _ = adapter_for_sessions([target(example(), 0)])
+        fresh = DurableNativeCommitBridge(restored, bridge.journal, lease)
+        with pytest.raises(NativeRequestJournalError, match="explicit recover-commit"):
+            dispatch(
+                restored,
+                {"id": "old-cut", "op": "restore", "checkpoint": result["postCheckpoint"]},
+                commit_bridge=fresh,
+            )
+        assert not restored.sessions and not restored.attempts
+        assert fresh.recover_commit(**args)["responseBase64"] == result["responseBase64"]
+
+
+@pytest.mark.parametrize("operation", ["initialize", "select", "open-orchestration"])
+def test_fresh_native_generation_cannot_mutate_before_existing_commit_is_recovered(
+    tmp_path, operation
+):
+    with execution_lease(tmp_path / "owner") as lease:
+        _adapter, _, bridge, args = prepare(tmp_path, lease)
+        committed = bridge.durable_commit(**args)
+        restored, _ = adapter_for_sessions([target(example(), 0)])
+        fresh = DurableNativeCommitBridge(restored, bridge.journal, lease)
+        before = restored.checkpoint()
+        with pytest.raises(NativeRequestJournalError, match="retained native generation"):
+            dispatch(restored, {"id": "premature", "op": operation}, commit_bridge=fresh)
+        assert restored.checkpoint() == before
+        assert fresh.recover_commit(**args)["postCheckpoint"] == committed["postCheckpoint"]
+
+
+def test_native_execution_generation_is_fixed_and_new_generation_is_explicit(tmp_path):
+    with execution_lease(tmp_path / "owner") as lease:
+        _adapter, _, bridge, args = prepare(tmp_path, lease)
+        bridge.durable_commit(**args)
+        second, _ = adapter_for_sessions([target(example(), 0)])
+        newer = DurableNativeCommitBridge(second, bridge.journal, lease, session_generation=2)
+        with pytest.raises(NativeRequestJournalError, match="generation differs"):
+            newer.recover_commit(**args)
+        dispatch(
+            second,
+            {
+                "id": "new-generation",
+                "op": "initialize",
+                "seed": 17,
+                "checkpointIdentity": second.model_identity,
+                "tokenizerIdentity": second.codec.fingerprint,
+            },
+            commit_bridge=newer,
+        )
+        selected = select(second, example(), 0)
+        next_args = arguments(second, example(), 0, selected)
+        next_args["identity"]["session_generation"] = 2
+        result = newer.durable_commit(**next_args)
+        assert result["identity"]["session_generation"] == 2
+        assert len(list((tmp_path / "journal").glob("*/00000000000000000001.intent.json"))) == 2

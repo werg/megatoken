@@ -23,11 +23,20 @@ MAX_REQUEST_BYTES = 40 << 20
 
 @torch.inference_mode()
 def dispatch(adapter, request, *, commit_bridge=None):
+    if commit_bridge is None:
+        return _dispatch(adapter, request)
+    # Ownership check, durable invalidation and the actual operation form one
+    # serialized adapter transaction, including when an embedding uses threads.
+    with adapter.lock:
+        return _dispatch(adapter, request, commit_bridge=commit_bridge)
+
+
+def _dispatch(adapter, request, *, commit_bridge=None):
     if not isinstance(request, dict) or not isinstance(request.get("id"), str):
         raise ValueError("V8 RPC requires a stable request ID")
     operation = request.get("op")
     if commit_bridge is not None:
-        commit_bridge.assert_operation(operation)
+        commit_bridge.assert_operation(operation, request)
     if operation in {"durable-commit", "recover-commit"}:
         if commit_bridge is None:
             raise ValueError(
@@ -82,6 +91,7 @@ def main():
     parser.add_argument("--execution-lock-path", type=Path)
     parser.add_argument("--execution-session-id")
     parser.add_argument("--execution-stream-id")
+    parser.add_argument("--execution-session-generation", type=int, default=1)
     args = parser.parse_args()
     durability = (
         args.request_journal_dir,
@@ -96,6 +106,8 @@ def main():
         parser.error(
             "Native durability requires the journal directory and every inherited execution-lock argument"
         )
+    if args.request_journal_dir is None and args.execution_session_generation != 1:
+        parser.error("Native execution generation requires configured durability")
     execution_lease = None
     if args.request_journal_dir is not None:
         from megatoken.semantic_commit_recovery_v8 import NativeExecutionLease
@@ -143,6 +155,7 @@ def main():
                 max_log_bytes=512 << 20,
             ),
             execution_lease,
+            session_generation=args.execution_session_generation,
         )
     synchronize()
     cold_seconds = time.perf_counter() - started
@@ -167,6 +180,11 @@ def main():
                         "category": type(error).__name__,
                         "message": str(error),
                         "evidence": getattr(error, "evidence", None),
+                        **(
+                            {"durabilityFenced": True}
+                            if commit_bridge is not None and commit_bridge.fenced
+                            else {}
+                        ),
                     },
                 }
             synchronize()

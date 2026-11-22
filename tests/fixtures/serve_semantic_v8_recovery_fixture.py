@@ -189,6 +189,7 @@ def _serve(decoder_log_path, durability=None):
                 max_log_bytes=512 << 20,
             ),
             execution_lease,
+            session_generation=durability.execution_session_generation,
         )
     decoder_log_path.parent.mkdir(parents=True, exist_ok=True)
     decoder_log = decoder_log_path.open("x", encoding="utf-8")
@@ -222,6 +223,11 @@ def _serve(decoder_log_path, durability=None):
                         "category": type(error).__name__,
                         "message": str(error),
                         "evidence": getattr(error, "evidence", None),
+                        **(
+                            {"durabilityFenced": True}
+                            if commit_bridge is not None and commit_bridge.fenced
+                            else {}
+                        ),
                     },
                 }
             reply["runtimeMetrics"] = {
@@ -252,6 +258,7 @@ def main():
     parser.add_argument("--execution-lock-path", type=Path)
     parser.add_argument("--execution-session-id")
     parser.add_argument("--execution-stream-id")
+    parser.add_argument("--execution-session-generation", type=int, default=1)
     arguments = parser.parse_args()
     durability = (
         arguments.request_journal_dir,
@@ -264,6 +271,8 @@ def main():
         value is not None for value in durability
     ):
         parser.error("Every native durability argument must be supplied together")
+    if arguments.request_journal_dir is None and arguments.execution_session_generation != 1:
+        parser.error("Native execution generation requires configured durability")
     if arguments.describe:
         print(json.dumps(_describe(), ensure_ascii=False, separators=(",", ":"), allow_nan=False))
         return 0

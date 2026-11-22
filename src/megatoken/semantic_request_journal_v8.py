@@ -38,6 +38,7 @@ class NativeRequestOutcomeUnknown(NativeRequestJournalError):
 _SCHEMA_ID = "semantic-native-request-identity/1"
 _SCHEMA_INTENT = "semantic-native-request-intent/1"
 _SCHEMA_OUTCOME = "semantic-native-request-outcome/1"
+_SCHEMA_SUPERSEDED = "semantic-native-request-superseded/1"
 _SCOPE_KEYS = ("session_id", "stream_id", "session_generation")
 _IDENTITY_KEYS = {
     "schema",
@@ -187,7 +188,7 @@ class DurableNativeRequestJournal:
     def _used_bytes(self, directory: Path) -> int:
         total = 0
         for item in directory.iterdir():
-            if not re.fullmatch(r"[0-9]{20}\.(?:intent|outcome)\.json", item.name):
+            if not re.fullmatch(r"[0-9]{20}\.(?:intent|outcome|superseded)\.json", item.name):
                 continue
             try:
                 st = item.lstat()
@@ -385,12 +386,17 @@ class DurableNativeRequestJournal:
             if (
                 os.path.lexists(outcome_path)
                 or self._read_record(outcome_path, self.max_result_bytes * 2 + 8192) is not None
+                or os.path.lexists(directory / f"{ordinal:020d}.superseded.json")
             ):
                 raise NativeRequestJournalError("orphan outcome exists without its intent")
             if any(
                 int(match.group(1)) > ordinal
                 for item in directory.iterdir()
-                if (match := re.fullmatch(r"([0-9]{20})\.(?:intent|outcome)\.json", item.name))
+                if (
+                    match := re.fullmatch(
+                        r"([0-9]{20})\.(?:intent|outcome|superseded)\.json", item.name
+                    )
+                )
             ):
                 raise NativeRequestJournalError(
                     "missing request slot precedes retained higher ordinal"
@@ -408,6 +414,8 @@ class DurableNativeRequestJournal:
             raise NativeRequestConflict("request slot identity or exact bytes differ")
         outcome = self._read_record(outcome_path, self.max_result_bytes * 2 + 8192)
         if outcome is None:
+            if os.path.lexists(directory / f"{ordinal:020d}.superseded.json"):
+                raise NativeRequestJournalError("superseded marker has no original outcome")
             return intent, None
         try:
             result = base64.b64decode(outcome["result_b64"], validate=True)
@@ -422,7 +430,35 @@ class DurableNativeRequestJournal:
         }
         if outcome != expected_outcome or len(result) > self.max_result_bytes:
             raise NativeRequestJournalError("stored outcome integrity failure")
+        self._superseded(directory, identity, request, outcome)
         return intent, result
+
+    def _superseded(self, directory, identity, request_bytes, outcome):
+        marker = self._read_record(directory / f"{identity['ordinal']:020d}.superseded.json", 8192)
+        if marker is None:
+            return None
+        if (
+            type(marker) is not dict
+            or set(marker)
+            != {
+                "schema",
+                "request_id",
+                "request_sha256",
+                "outcome_sha256",
+                "mutation_sha256",
+                "operation",
+            }
+            or marker.get("schema") != _SCHEMA_SUPERSEDED
+            or marker.get("request_id") != outcome["request_id"]
+            or marker.get("request_sha256") != _digest(request_bytes)
+            or marker.get("outcome_sha256") != _digest(_canonical(outcome))
+            or type(marker.get("mutation_sha256")) is not str
+            or not _HEX64.fullmatch(marker["mutation_sha256"])
+            or type(marker.get("operation")) is not str
+            or not _ID.fullmatch(marker["operation"])
+        ):
+            raise NativeRequestJournalError("superseded native request marker differs")
+        return marker
 
     def _scan_prior(self, directory: Path, scope_id: str, identity: dict) -> tuple[str | None, int]:
         previous = None
@@ -431,7 +467,9 @@ class DurableNativeRequestJournal:
             intent_path, outcome_path = self._paths(directory, ordinal)
             if not os.path.lexists(intent_path):
                 for item in directory.iterdir():
-                    match = re.fullmatch(r"([0-9]{20})\.(?:intent|outcome)\.json", item.name)
+                    match = re.fullmatch(
+                        r"([0-9]{20})\.(?:intent|outcome|superseded)\.json", item.name
+                    )
                     if match and int(match.group(1)) > ordinal:
                         raise NativeRequestJournalError(
                             "missing request intent precedes retained later records"
@@ -491,6 +529,7 @@ class DurableNativeRequestJournal:
                 or len(result) > self.max_result_bytes
             ):
                 raise NativeRequestJournalError("prior outcome integrity failure")
+            self._superseded(directory, prior_identity, prior_request, outcome)
             previous = _digest(_canonical(outcome))
             highest = ordinal
         return previous, highest
@@ -575,7 +614,11 @@ class DurableNativeRequestJournal:
             if require_latest and any(
                 int(match.group(1)) > ordinal
                 for item in directory.iterdir()
-                if (match := re.fullmatch(r"([0-9]{20})\.(?:intent|outcome)\.json", item.name))
+                if (
+                    match := re.fullmatch(
+                        r"([0-9]{20})\.(?:intent|outcome|superseded)\.json", item.name
+                    )
+                )
             ):
                 raise NativeRequestConflict(
                     "a later native request exists; earlier poststate cannot recover"
@@ -594,9 +637,70 @@ class DurableNativeRequestJournal:
                 return {"status": "unknown", "request_id": self._request_id(scope_id, ordinal)}
             _, outcome_path = self._paths(directory, ordinal)
             outcome = self._read_record(outcome_path, self.max_result_bytes * 2 + 8192)
+            if (
+                require_latest
+                and self._superseded(directory, identity, request_bytes, outcome) is not None
+            ):
+                raise NativeRequestConflict(
+                    "native poststate was superseded before a later mutation"
+                )
             return {
                 "status": "completed",
                 "request_id": self._request_id(scope_id, ordinal),
                 "result_bytes": result,
                 "outcome_sha256": _digest(_canonical(outcome)),
             }
+
+    def has_history(self, identity: dict) -> bool:
+        """Check exact scope occupancy before a fresh process can mutate state."""
+        identity = _validate_identity(identity)
+        with self._locked(identity) as (directory, _scope_id):
+            self._used_bytes(directory)
+            return any(
+                re.fullmatch(r"[0-9]{20}\.(?:intent|outcome|superseded)\.json", item.name)
+                for item in directory.iterdir()
+            )
+
+    def supersede(self, identity: dict, request_bytes: bytes, mutation: dict) -> None:
+        """Durably revoke state-recovery eligibility before an unjournaled mutation.
+
+        The completed response remains readable as historical storage evidence.
+        A later ordinal can establish a new independently acknowledged poststate.
+        """
+        identity = _validate_identity(identity)
+        if not isinstance(request_bytes, bytes) or len(request_bytes) > self.max_request_bytes:
+            raise NativeRequestJournalError("request must be bounded exact bytes")
+        if (
+            type(mutation) is not dict
+            or type(mutation.get("op")) is not str
+            or not _ID.fullmatch(mutation["op"])
+        ):
+            raise NativeRequestJournalError("supersession requires an exact mutation request")
+        mutation_digest = _digest(_canonical(mutation))
+        with self._locked(identity) as (directory, scope_id):
+            previous, _ = self._scan_prior(directory, scope_id, identity)
+            intent, result = self._check_slot(
+                directory, scope_id, identity, request_bytes, previous
+            )
+            if intent is None or result is None:
+                raise NativeRequestOutcomeUnknown(
+                    "only a completed native outcome may be superseded"
+                )
+            _, outcome_path = self._paths(directory, identity["ordinal"])
+            outcome = self._read_record(outcome_path, self.max_result_bytes * 2 + 8192)
+            if self._superseded(directory, identity, request_bytes, outcome) is not None:
+                return
+            marker = {
+                "schema": _SCHEMA_SUPERSEDED,
+                "request_id": outcome["request_id"],
+                "request_sha256": _digest(request_bytes),
+                "outcome_sha256": _digest(_canonical(outcome)),
+                "mutation_sha256": mutation_digest,
+                "operation": mutation["op"],
+            }
+            if self._used_bytes(directory) + len(_canonical(marker)) > self.max_log_bytes:
+                raise NativeRequestJournalError("journal scope byte limit exceeded")
+            path = directory / f"{identity['ordinal']:020d}.superseded.json"
+            self._publish(path, marker, 8192)
+            if self._superseded(directory, identity, request_bytes, outcome) != marker:
+                raise NativeRequestJournalError("superseded marker durable readback differs")

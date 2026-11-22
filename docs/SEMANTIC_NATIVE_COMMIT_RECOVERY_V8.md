@@ -16,6 +16,7 @@ Start `scripts/serve_semantic_v8.py` with all of these arguments together:
 --execution-lock-path /private/selected-orchestration-execution-locks/KEY.lock
 --execution-session-id SESSION
 --execution-stream-id STREAM
+--execution-session-generation 1
 ```
 
 The producer acquires its stable Linux execution lock before creating the native
@@ -94,6 +95,32 @@ latest slot. Any later intent or outcome, including an unknown later request,
 prevents restoring an older state. A never-admitted request is not executed by
 recovery; an admitted request without a known durable outcome is never retried.
 The producer remains responsible for deciding the current execution generation.
+The native bridge freezes that configured generation (default 1), refuses a
+request from any other generation, and independently checks journal occupancy
+before the first mutating RPC. If the scope already has any retained request,
+even an unknown one, a fresh process must recover explicitly before it may
+initialize, select or create work. A different generation must be configured
+deliberately; a changed request field cannot switch generations.
+Ordinary checkpoint `restore` RPC is unavailable while this bridge is configured;
+the caller must use explicit `recover-commit`. The producer also refuses fresh
+initialization when its journal already contains an intent for this generation.
+
+After a successful durable commit or recovery, every later mutating application
+RPC first publishes and independently rereads an immutable supersession marker.
+The marker binds the original request/outcome and the next request's canonical
+digest. Selection, rejection, completion, cancellation, initialization, restore,
+coordinator creation and child bootstrap all invalidate the older recoverable
+state before they run. Lost marker acknowledgement prevents the new mutation.
+A fresh process refuses that earlier commit even if no later commit intent was
+ever written. A later durable commit can establish a new eligible complete
+poststate. Checkpoint, status and metrics reads do not invalidate it.
+
+End-of-process cleanup only releases in-memory resources and emits no new
+application acknowledgement. It deliberately does not supersede a retained
+checkpoint, so a clean process replacement preserves the same recovery semantics
+as abrupt process loss. An explicit cancellation RPC is different: it publishes
+the supersession marker before changing state and cannot be undone by recovering
+an older successful commit.
 
 The saved precheckpoint must match the producer's original digest. The saved
 transition must retain the complete session inventory, sibling sessions, closed
