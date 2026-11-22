@@ -22,6 +22,7 @@ from megatoken.training.positions_v8 import (
     independent_position_inventory,
     independent_text_target,
     position_exposure_report,
+    qualify_position_history,
     restore_position_exposure,
     validate_position_exposure,
 )
@@ -296,6 +297,49 @@ def test_position_state_resumes_exactly_and_counts_repeated_optimizer_occurrence
         )
 
 
+def test_explicit_stage_change_archives_old_objective_without_reusing_its_credit():
+    original = state_after_one()
+    changed = {**objective(), "trainingConfigDigest": "e" * 64}
+    payload = {
+        "train_config": {"semantic_v8_policy": {}},
+        "semantic_v8_position_exposure": original,
+    }
+    with pytest.raises(ValueError, match="another objective"):
+        restore_position_exposure(
+            payload, registry_digest="a" * 64, objective=changed, global_step=1
+        )
+    fresh = restore_position_exposure(
+        payload,
+        registry_digest="a" * 64,
+        objective=changed,
+        global_step=1,
+        phase_transition=True,
+    )
+    assert fresh["startingGlobalStep"] == fresh["lastGlobalStep"] == 1
+    assert fresh["optimizerUpdates"] == 0 and fresh["sources"] == {}
+    assert fresh["previousStage"] == original
+    sample = exposure()
+    sample["objectiveDigest"] = stable_algorithm_hash(changed)
+    current = advance_position_exposure(
+        fresh,
+        [sample],
+        registry_digest="a" * 64,
+        objective=changed,
+        optimizer_step=2,
+    )
+    report = position_exposure_report(current)
+    assert report["optimizerUpdates"] == report["scoredOccurrences"] == 1
+    assert report["previousStageDigest"] == original["digest"]
+    assert current["previousStage"] == original
+    broken = deepcopy(current)
+    broken["previousStage"]["sources"]["source-1"]["logicalTargets"]["logical-1"]["records"][
+        "physical-1"
+    ]["receipt"]["readouts"]["prior"]["positions"] = [0, 1]
+    reseal(broken["previousStage"])
+    with pytest.raises(ValueError, match="token positions"):
+        validate_position_exposure(reseal(broken), registry_digest="a" * 64, objective=changed)
+
+
 def test_actual_decoder_receipts_leave_losses_and_gradients_unchanged():
     torch.set_num_threads(1)
     torch.manual_seed(913)
@@ -361,8 +405,8 @@ def prepared_episode(records, *, source="source-1", tools="[]"):
     )
 
 
-def prepared_inventory(episodes):
-    config = TrainConfig(
+def prepared_config():
+    return TrainConfig(
         purpose="diagnostic",
         phase="SC",
         model="tiny",
@@ -376,10 +420,13 @@ def prepared_inventory(episodes):
             "registryDigest": "a" * 64,
         },
     )
+
+
+def prepared_inventory(episodes):
     return independent_position_inventory(
         episodes,
         codec=ByteCodec.byte_fallback(),
-        config=config,
+        config=prepared_config(),
         model_config=ModelConfig.tiny(),
         modalities=[0],
         prepared_manifest_fingerprint="b" * 64,
@@ -497,6 +544,76 @@ def test_observation_only_window_receives_no_position_credit_or_invented_targets
         audit.step([SimpleNamespace(record=observed)])
 
 
+@pytest.mark.parametrize(
+    "mutation", [None, "parent", "metadata", "drop", "changed_mask", "hidden_events"]
+)
+def test_bounded_position_history_preserves_receipts_and_never_claims_full_pass(mutation):
+    from dataclasses import asdict
+
+    inventory = prepared_inventory([prepared_episode([record()])])
+    state, presence = state_and_presence(inventory)
+    sample = exposure()
+    sample["objectiveDigest"] = stable_algorithm_hash(inventory["objective"])
+    after = advance_position_exposure(
+        state,
+        [sample],
+        registry_digest="a" * 64,
+        objective=inventory["objective"],
+        optimizer_step=2,
+    )
+    if mutation == "parent":
+        after["previousDigest"] = "f" * 64
+    elif mutation == "drop":
+        after["sources"] = {}
+    elif mutation == "hidden_events":
+        after["unmeasuredObjectives"] = {}
+    elif mutation == "changed_mask":
+        receipt = after["sources"]["source-1"]["logicalTargets"]["logical-1"]["records"][
+            "physical-1"
+        ]["receipt"]
+        receipt["oracle"]["freeMask"] = [True, True, False, False]
+        reseal(receipt["oracle"])
+        for row in receipt["readouts"].values():
+            row["positions"] = [0, 1]
+            row["mask"] = [True, True, False, False]
+    reseal(after)
+    payload = {
+        "train_config": asdict(prepared_config()),
+        "model_config": ModelConfig.tiny().to_dict(),
+        "codec_fingerprint": ByteCodec.byte_fallback().fingerprint,
+        "global_step": 1,
+        "semantic_v8_position_exposure": state,
+        "semantic_v8_target_exposure": presence,
+    }
+    resumed = {
+        **payload,
+        "global_step": 2,
+        "semantic_v8_position_exposure": after,
+        "semantic_v8_target_exposure": {
+            **presence,
+            "lastGlobalStep": 2,
+            "optimizerUpdates": 2,
+            "sources": deepcopy(after["sources"]),
+        },
+    }
+    arguments = {
+        "inventory": inventory,
+        "first_metadata": {"semantic_v8_position_digest": state["digest"]},
+        "resumed_metadata": {
+            "semantic_v8_position_digest": after["digest"] if mutation != "metadata" else "f" * 64
+        },
+    }
+    if mutation is None:
+        report = qualify_position_history(payload, resumed, **arguments)
+        assert report["historyContinued"] is True
+        assert report["fullPopulationQualified"] is False
+        assert report["fullPopulationComparison"]["independentOccurrenceMismatches"]
+        assert report["routerInternalPositionCoverage"] == "unmeasured"
+    else:
+        with pytest.raises(ValueError, match="V8 position audit"):
+            qualify_position_history(payload, resumed, **arguments)
+
+
 def test_full_controlled_corpus_executes_exact_independent_positions(tmp_path, monkeypatch):
     """Actual bounded optimizer pass; fixture source/tokenizer admission is injected."""
     import subprocess
@@ -572,6 +689,16 @@ def test_full_controlled_corpus_executes_exact_independent_positions(tmp_path, m
     assert inventory["physicalTargetRecordCount"] == 4
     assert metadata["semantic_v8_position_digest"] == state["digest"]
     assert state["optimizerUpdates"] == result["global_step"] == updates
+    stage_config = replace(config, phase="SE", max_steps=1, output=str(tmp_path / "fit-next-stage"))
+    stage_result = train(stage_config, resume=result["checkpoint"], phase_transition=True)
+    stage_payload, stage_metadata = load_checkpoint(stage_result["checkpoint"])
+    stage_positions = stage_payload["semantic_v8_position_exposure"]
+    assert stage_positions["startingGlobalStep"] == updates
+    assert stage_positions["lastGlobalStep"] == stage_result["global_step"] == updates + 1
+    assert stage_positions["optimizerUpdates"] == 1
+    assert stage_positions["previousStage"] == state
+    assert stage_positions["objective"] != state["objective"]
+    assert stage_positions["sources"] != state["sources"]
     root = Path(__file__).resolve().parents[1]
     report = {
         "schema": "semantic-v8-controlled-position-evidence/1",
@@ -592,6 +719,16 @@ def test_full_controlled_corpus_executes_exact_independent_positions(tmp_path, m
         "elapsedSeconds": elapsed,
         "windowCount": len(windows),
         "optimizerUpdates": updates,
+        "totalOptimizerUpdatesExecuted": updates + 1,
+        "phaseTransition": {
+            "from": config.phase,
+            "to": stage_config.phase,
+            "checkpointMetadata": stage_metadata,
+            "positionExposure": stage_positions,
+            "summary": position_exposure_report(stage_positions),
+            "previousObjectiveArchived": True,
+            "newStageExposureStartsEmpty": True,
+        },
         "config": asdict(config),
         "preparedManifestFingerprint": manifest["fingerprint"],
         "checkpointMetadata": metadata,

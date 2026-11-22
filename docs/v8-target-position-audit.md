@@ -30,6 +30,11 @@ checkpoint. Exact resume requires the matching history and objective identity;
 an older checkpoint without positional receipts cannot acquire retrospective
 position credit. This is a direct pre-release format change.
 
+An explicit training-stage transition begins a new census at the existing global
+step and archives the complete prior stage's sealed receipts. The new stage's
+counts start at zero. Ordinary resume still rejects an objective change; only the
+already-supported explicit stage transition creates a fresh objective scope.
+
 ## Coverage boundary
 
 The supported profile is prepared plain-text V8 data without structured tool
@@ -64,13 +69,17 @@ audit does not establish that exposure or learned semantic quality.
   wrong token labels, changed alphabet masks, altered categorical supports,
   missing decisions and resealed malformed checkpoint metadata.
 - The ordinary tiny optimizer/checkpoint/fresh-process-resume test runs with the
-  observer active; both saved and resumed histories contain actual receipts.
+  observer active; both saved and resumed histories contain actual receipts. The
+  ordinary lifecycle collector independently checks this observed subset and
+  retains its partial population comparison without requiring the full fit.
 - The complete prepared-record comparison independently enumerates policy
   targets without the window iterator or target planner. Each distinct physical
   target must appear once in the actual receipts. Controls reject even a jointly
   shifted prepared-plan/execution mask whose counts and repeated token labels
   still agree, and a duplicated target that both older accounting paths repeat.
 - The dedicated full qualification driver requires the independent comparison;
-  historical target-only evidence cannot satisfy it. A separate bounded complete
-  four-target fixture execution is the next integration check. No new full
+  historical target-only evidence cannot satisfy it. An initial bounded complete
+  four-target fixture run passed on the frozen implementation preceding the
+  archived-stage addition. The same actual run and explicit stage transition
+  will be checked together after the updated source is frozen. No new full
   348-update run has been launched for this audit yet.

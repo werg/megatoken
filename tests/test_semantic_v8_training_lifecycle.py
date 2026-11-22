@@ -152,6 +152,55 @@ print(json.dumps({'global_step':result['global_step'],'termination':result['term
         resumed_positions["positiveWeightPositionCounts"]["lexical"]
         > report["positiveWeightPositionCounts"]["lexical"]
     )
+    from megatoken.data import PreparedCorpus
+    from megatoken.model import ModelConfig
+    from megatoken.training.positions_v8 import (
+        independent_position_inventory,
+        qualify_position_history,
+    )
+
+    with PreparedCorpus([prepared], split="train") as corpus:
+        position_inventory = independent_position_inventory(
+            [corpus.fetch(index)[0] for index in range(len(corpus))],
+            codec=ByteCodec.byte_fallback(),
+            config=config,
+            model_config=ModelConfig.from_dict(payload["model_config"]),
+            modalities=[0],
+            prepared_manifest_fingerprint=manifest["fingerprint"],
+            expected_source_ids=["source-1"],
+        )
+    latest = json.loads((tmp_path / "fit/checkpoints/latest.json").read_text())
+    resumed_payload, resumed_metadata = load_checkpoint(
+        tmp_path / "fit/checkpoints" / latest["checkpoint"]
+    )
+    position_history = qualify_position_history(
+        payload,
+        resumed_payload,
+        inventory=position_inventory,
+        first_metadata=checkpoint_metadata,
+        resumed_metadata=resumed_metadata,
+    )
+    assert position_history["historyContinued"] is True
+    assert position_history["fullPopulationQualified"] is False
+    assert position_history["resumedCheckpointDigest"] == resumed_positions["digest"]
+    proof = {
+        "sourceCommit": subprocess.check_output(
+            ["git", "rev-parse", "HEAD"], cwd=Path(__file__).resolve().parents[1], text=True
+        ).strip(),
+        "scope": "Actual tiny optimizer and fresh-process resume; injected source/tokenizer fixture boundaries; no full support-population or learned-quality claim",
+        "runtime": {
+            "torch": str(torch.__version__),
+            "device": "cpu",
+            "precision": config.precision,
+        },
+        "firstCheckpointMetadata": checkpoint_metadata,
+        "resumedCheckpointMetadata": resumed_metadata,
+        "independentPreparedPositionInventory": position_inventory,
+        "firstPositionExposure": positions,
+        "resumedPositionExposure": resumed_payload["semantic_v8_position_exposure"],
+        "qualification": position_history,
+    }
+    (tmp_path / "position-resume-proof.json").write_text(json.dumps(proof, indent=2) + "\n")
 
     forged_payload = {
         **payload,

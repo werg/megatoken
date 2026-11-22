@@ -765,7 +765,9 @@ def _validate_target_receipt(record, *, logical_id, record_id):
     )
 
 
-def empty_position_exposure(*, registry_digest, objective, starting_global_step=0):
+def empty_position_exposure(
+    *, registry_digest, objective, starting_global_step=0, previous_stage=None
+):
     _require(_digest(registry_digest), "registry digest is invalid")
     _require(
         type(starting_global_step) is int and starting_global_step >= 0, "starting step is invalid"
@@ -776,6 +778,7 @@ def empty_position_exposure(*, registry_digest, objective, starting_global_step=
             "registryDigest": registry_digest,
             "objective": objective,
             "previousDigest": None,
+            "previousStage": previous_stage,
             "startingGlobalStep": starting_global_step,
             "lastGlobalStep": starting_global_step,
             "optimizerUpdates": 0,
@@ -794,6 +797,7 @@ def validate_position_exposure(state, *, registry_digest, objective):
             "registryDigest",
             "objective",
             "previousDigest",
+            "previousStage",
             "startingGlobalStep",
             "lastGlobalStep",
             "optimizerUpdates",
@@ -824,6 +828,18 @@ def validate_position_exposure(state, *, registry_digest, objective):
         ),
         "checkpoint position history is malformed, unsealed or bound to another objective",
     )
+    previous_stage = state["previousStage"]
+    if previous_stage is not None:
+        _require(type(previous_stage) is dict, "archived position stage is malformed")
+        validate_position_exposure(
+            previous_stage,
+            registry_digest=registry_digest,
+            objective=previous_stage.get("objective"),
+        )
+        _require(
+            previous_stage["lastGlobalStep"] == state["startingGlobalStep"],
+            "archived position stage does not meet the current stage boundary",
+        )
     for source_id, source in state["sources"].items():
         _require(
             type(source_id) is str
@@ -887,6 +903,7 @@ def validate_position_exposure(state, *, registry_digest, objective):
 def restore_position_exposure(
     payload, *, registry_digest, objective, global_step, phase_transition=False
 ):
+    _require(type(global_step) is int and global_step >= 0, "restore step is invalid")
     if payload is None:
         return empty_position_exposure(
             registry_digest=registry_digest, objective=objective, starting_global_step=global_step
@@ -902,6 +919,22 @@ def restore_position_exposure(
             registry_digest=registry_digest, objective=objective, starting_global_step=global_step
         )
     _require(saved is not None, "V8 checkpoint is missing its position-exposure history")
+    if phase_transition:
+        validate_position_exposure(
+            saved,
+            registry_digest=registry_digest,
+            objective=saved.get("objective"),
+        )
+        _require(
+            saved["lastGlobalStep"] == global_step,
+            "archived position stage differs from checkpoint step",
+        )
+        return empty_position_exposure(
+            registry_digest=registry_digest,
+            objective=objective,
+            starting_global_step=global_step,
+            previous_stage=saved,
+        )
     state = validate_position_exposure(saved, registry_digest=registry_digest, objective=objective)
     _require(
         state["lastGlobalStep"] == global_step, "position history differs from checkpoint step"
@@ -1026,6 +1059,9 @@ def position_exposure_report(state):
         "startingGlobalStep": state["startingGlobalStep"],
         "lastGlobalStep": state["lastGlobalStep"],
         "optimizerUpdates": state["optimizerUpdates"],
+        "previousStageDigest": None
+        if state["previousStage"] is None
+        else state["previousStage"]["digest"],
         "sourceCount": len(state["sources"]),
         "logicalTargetCount": logical,
         "physicalTargetRecordCount": physical,
@@ -1148,6 +1184,7 @@ def compare_position_inventory(inventory, state, *, target_exposure, global_step
         type(global_step) is int
         and global_step >= 1
         and state["startingGlobalStep"] == target_exposure["startingGlobalStep"] == 0
+        and state["previousStage"] is None
         and state["lastGlobalStep"] == target_exposure["lastGlobalStep"] == global_step
         and state["optimizerUpdates"] == target_exposure["optimizerUpdates"] == global_step
         and target_exposure["registryDigest"] == inventory["registryDigest"],
@@ -1214,6 +1251,104 @@ def compare_position_inventory(inventory, state, *, target_exposure, global_step
         "unmeasuredPhysicalTargets": [list(key) for key in unmeasured],
         "positiveWeightPositionCountsMatch": count_match,
         "exactOnePassPreparedTextPositions": complete,
+        "routerInternalPositionCoverage": "unmeasured",
+        "learnedSuccess": None,
+    }
+
+
+def qualify_position_history(first, resumed, *, inventory, first_metadata, resumed_metadata):
+    """Verify bounded step-one/resume history and its observed prepared-text subset."""
+    from types import SimpleNamespace
+
+    from megatoken.model import ModelConfig
+    from megatoken.training.config import TrainConfig
+
+    states = []
+    for payload, metadata, step in ((first, first_metadata, 1), (resumed, resumed_metadata, 2)):
+        identity = position_objective(
+            TrainConfig.from_dict(payload["train_config"]),
+            ModelConfig.from_dict(payload["model_config"]),
+            SimpleNamespace(fingerprint=payload["codec_fingerprint"]),
+            inventory["objective"]["installedModalities"],
+        )
+        _require(
+            stable_algorithm_hash(identity) == stable_algorithm_hash(inventory["objective"]),
+            "lifecycle checkpoint changed the independently inventoried position objective",
+        )
+        state = validate_position_exposure(
+            payload.get("semantic_v8_position_exposure"),
+            registry_digest=inventory["registryDigest"],
+            objective=identity,
+        )
+        _require(
+            state["startingGlobalStep"] == 0
+            and state["lastGlobalStep"]
+            == state["optimizerUpdates"]
+            == payload["global_step"]
+            == step
+            and metadata.get("semantic_v8_position_digest") == state["digest"],
+            "lifecycle checkpoint metadata or steps do not bind the actual position history",
+        )
+        states.append(state)
+    before, after = states
+    _require(
+        after["previousDigest"] == before["digest"], "resumed position history changed its parent"
+    )
+    _require(
+        all(
+            after["unmeasuredObjectives"].get(name, 0) >= count
+            for name, count in before["unmeasuredObjectives"].items()
+        ),
+        "resumed position history dropped unmeasured objective events",
+    )
+    previous_rows, resumed_rows = (_flat_position_rows(state["sources"]) for state in states)
+    for key, previous in previous_rows.items():
+        current = resumed_rows.get(key)
+        _require(
+            current is not None
+            and stable_algorithm_hash(current["receipt"])
+            == stable_algorithm_hash(previous["receipt"])
+            and set(previous["windowIndices"]) <= set(current["windowIndices"])
+            and current["scoredOccurrences"] >= previous["scoredOccurrences"]
+            and current["optimizerUpdates"] >= previous["optimizerUpdates"]
+            and current["firstGlobalStep"] == previous["firstGlobalStep"]
+            and current["lastGlobalStep"] >= previous["lastGlobalStep"],
+            "resumed position history dropped or changed an earlier actual receipt",
+        )
+    comparisons = [
+        compare_position_inventory(
+            inventory,
+            state,
+            target_exposure=payload["semantic_v8_target_exposure"],
+            global_step=step,
+        )
+        for state, payload, step in ((before, first, 1), (after, resumed, 2))
+    ]
+    for comparison in comparisons:
+        _require(
+            not any(
+                comparison[name]
+                for name in (
+                    "unexpectedPhysicalTargets",
+                    "preparedOracleMismatches",
+                    "targetCensusWindowOrOccurrenceMismatches",
+                    "targetCensusWithoutPositionReceipt",
+                )
+            ),
+            "lifecycle actual position subset differs from independently read prepared data",
+        )
+    return {
+        "registryDigest": inventory["registryDigest"],
+        "historyContinued": True,
+        "firstCheckpointDigest": before["digest"],
+        "resumedCheckpointDigest": after["digest"],
+        "firstCheckpointCounts": position_exposure_report(before),
+        "resumedCounts": position_exposure_report(after),
+        "independentPreparedPositionInventoryDigest": inventory["digest"],
+        "independentPreparedPhysicalTargetCount": inventory["physicalTargetRecordCount"],
+        "fullPopulationComparison": comparisons[-1],
+        "fullPopulationQualified": False,
+        "scope": "Only the actual two-update prepared-text subset and its exact resume history; a dedicated fresh complete pass is required for full qualification",
         "routerInternalPositionCoverage": "unmeasured",
         "learnedSuccess": None,
     }
