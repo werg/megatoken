@@ -1,0 +1,37 @@
+{
+  "schema": "source-promotion-map/1",
+  "repository": "werg/megatoken",
+  "branch": "codex/native-v8-release-composition-20261122",
+  "publishedCommit": "5ecdbaa9842ab086c312a7d0be281780091df065",
+  "localCommit": "f95604bff5f2ae856c38f116618113f99e7d25c0",
+  "tree": "3d09866da2fbcabdc2f1eb00d03be9caa17f1232",
+  "completeCompositionBase": "15844c00c095849755ca6f0e1d207f7db79a9264",
+  "incrementBase": "6c70b40a437ee986b42c2d86b8a450d48fe32fa2",
+  "changedFiles": [
+    {
+      "path": "scripts/verify_semantic_v8_release.py",
+      "blob": "2bf5dcc34be5f3ab2bac6b93f5056e5f5d3e08de",
+      "sha256": "6d9f739caa0d22edc5909b231e4117c198e322b4b4a09cb5cf6671e1889bbd9a"
+    },
+    {
+      "path": "tests/test_semantic_v8_release_verifier.py",
+      "blob": "b96eaa9feebf67dcef9c8a239890a510bfe481d1",
+      "sha256": "850714c20024c4f1e2006d979253382691512d1d745a855b8274259df7c67285"
+    },
+    {
+      "path": "docs/v8-release-verification.md",
+      "blob": "3753aaa0763fc741e4dd84482d314873455cac20",
+      "sha256": "1c4f4d92a7ed03c2f78a59383c821e6cf9809768cdb1a77f6732e604c041c3f4"
+    }
+  ],
+  "validation": {
+    "tests": 62,
+    "failures": 0,
+    "errors": 0,
+    "skips": 0,
+    "seconds": 13.581,
+    "controlledOptimizerUpdates": 1,
+    "realTwoSourcePreparedOrder": true,
+    "nativeReprepareSubprocessInOrderControl": "intercepted to inspect inputs, not fresh source qualification"
+  }
+}

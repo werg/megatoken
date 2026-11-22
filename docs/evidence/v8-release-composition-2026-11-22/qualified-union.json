@@ -1,0 +1,2519 @@
+{
+  "schema": "semantic-v8-native-release-qualified-union/1",
+  "frozenSourceRevision": "5ecdbaa9842ab086c312a7d0be281780091df065",
+  "frozenSourceTree": "3d09866da2fbcabdc2f1eb00d03be9caa17f1232",
+  "status": "qualified-union-passed",
+  "runs": [
+    {
+      "name": "native-release-composition-union",
+      "sourceRevision": "6c70b40a437ee986b42c2d86b8a450d48fe32fa2",
+      "junit": {
+        "name": "pytest",
+        "errors": "75",
+        "failures": "0",
+        "skipped": "0",
+        "tests": "490",
+        "time": "542.901",
+        "timestamp": "2026-11-22T16:56:08.634607+01:00",
+        "hostname": "07bf85b14210"
+      },
+      "collectedCaseElements": 391,
+      "passed": 316,
+      "failure": 0,
+      "error": 75,
+      "skipped": 0
+    },
+    {
+      "name": "native-release-composition-retry",
+      "sourceRevision": "5ecdbaa9842ab086c312a7d0be281780091df065",
+      "junit": {
+        "name": "pytest",
+        "errors": "0",
+        "failures": "1",
+        "skipped": "0",
+        "tests": "103",
+        "time": "93.973",
+        "timestamp": "2026-11-22T17:06:18.170645+01:00",
+        "hostname": "07bf85b14210"
+      },
+      "collectedCaseElements": 103,
+      "passed": 102,
+      "failure": 1,
+      "error": 0,
+      "skipped": 0
+    },
+    {
+      "name": "native-release-composition-spawn-retry",
+      "sourceRevision": "5ecdbaa9842ab086c312a7d0be281780091df065",
+      "junit": {
+        "name": "pytest",
+        "errors": "0",
+        "failures": "0",
+        "skipped": "0",
+        "tests": "1",
+        "time": "23.683",
+        "timestamp": "2026-11-22T17:08:24.989165+01:00",
+        "hostname": "07bf85b14210"
+      },
+      "collectedCaseElements": 1,
+      "passed": 1,
+      "failure": 0,
+      "error": 0,
+      "skipped": 0
+    }
+  ],
+  "distinctCurrentCollectedCases": 398,
+  "distinctQualifiedPassedCases": 398,
+  "passedSubtests": 99,
+  "singleCleanRun": false,
+  "priorAndRetryPassedOverlap": 21,
+  "unresolvedCases": [],
+  "unexpectedCases": [],
+  "firstRunErrors": "All75 setup errors contain ENOSPC before temporary fixture construction; no test body ran for those errored cases.",
+  "retryFailure": "The coordinator spawn test failed because pytest was invoked programmatically from stdin. Its child tried to reopen <stdin>; normal python -m pytest passed unchanged source on the final one-case retry.",
+  "sourceChangesBetweenRuns": [
+    "docs/evidence/v8-release-composition-2026-11-22/source-order-red.json",
+    "docs/evidence/v8-release-composition-2026-11-22/source-order-red.log",
+    "docs/evidence/v8-release-composition-2026-11-22/source-order-red.xml",
+    "docs/v8-release-verification.md",
+    "scripts/verify_semantic_v8_release.py",
+    "tests/test_semantic_v8_release_verifier.py"
+  ],
+  "allOtherRuntimeAndTestBlobsEqual": true,
+  "finalVerifierFocused": {
+    "cases": 62,
+    "failures": 0,
+    "errors": 0,
+    "skips": 0,
+    "seconds": 13.581
+  },
+  "runtime": {
+    "python": "3.12.14",
+    "torch": "2.10.0+cpu",
+    "pytest": "9.2.0",
+    "fullyLockedHostedEnvironment": false,
+    "declaredPytestRange": ">=8.3,<9",
+    "pytestMatchesDeclaredRange": false,
+    "productionTokenizerSha256": "40fb9d7d7795b8bd305aeff39ce9963f3f450915b9553f2938e009be9a1fed60"
+  },
+  "contractDigest": "fd1e64f60ad5b6bb9431db3cd34513a5bd34041cdf7e710a99c5df1205502bf4",
+  "fixtureDigest": "56f7f36d3b25b3b11a208be3de337e637b9782e6759faea1e1ec107b0a90f0ce",
+  "interoperabilityDigest": "b004c2bde15007278d0c26189560ac0362530585f8b7d49d5b1999525fcce975",
+  "freshCompleteSourceDataReleaseQualification": false,
+  "fullOptimizerPassPerformed": false,
+  "acceptedLiveHistoryReleaseQualification": false,
+  "learnedSuccess": null,
+  "defaultPromotion": false,
+  "scope": "Controlled native guard/close/Promise, ordinary input relocation/positions, production-tokenizer coordinator/export/reload, and strict release verifier tests. Actual case population independently recollected at final frozen source. Test counts are not source-population, optimizer-exposure or learned-quality counts.",
+  "cases": [
+    {
+      "identity": "tests.test_async_call_v8::test_async_returned_promise_remains_pending_until_fifo_forwarding_job",
+      "passedIn": [
+        "native-release-composition-union"
+      ]
+    },
+    {
+      "identity": "tests.test_async_call_v8::test_detached_resume_keeps_live_cells_and_completion_does_not_replace_root",
+      "passedIn": [
+        "native-release-composition-union"
+      ]
+    },
+    {
+      "identity": "tests.test_async_call_v8::test_first_await_returns_execution_promise_and_restores_caller_scope",
+      "passedIn": [
+        "native-release-composition-union"
+      ]
+    },
+    {
+      "identity": "tests.test_async_call_v8::test_forged_resume_and_generic_completion_cannot_mutate_async_state",
+      "passedIn": [
+        "native-release-composition-union"
+      ]
+    },
+    {
+      "identity": "tests.test_async_call_v8::test_immediate_async_completion_returns_its_own_settled_promise[return]",
+      "passedIn": [
+        "native-release-composition-union"
+      ]
+    },
+    {
+      "identity": "tests.test_async_call_v8::test_immediate_async_completion_returns_its_own_settled_promise[throw]",
+      "passedIn": [
+        "native-release-composition-union"
+      ]
+    },
+    {
+      "identity": "tests.test_async_call_v8::test_restore_refuses_changed_receiver_captures_or_execution_settlement",
+      "passedIn": [
+        "native-release-composition-union"
+      ]
+    },
+    {
+      "identity": "tests.test_async_call_v8::test_siblings_and_repeated_awaits_use_one_fifo_without_duplicate_execution",
+      "passedIn": [
+        "native-release-composition-union"
+      ]
+    },
+    {
+      "identity": "tests.test_native_v8.NativeV8Tests::test_algorithm_entry_binds_definition_region_state_and_exact_cutoff",
+      "passedIn": [
+        "native-release-composition-union"
+      ]
+    },
+    {
+      "identity": "tests.test_native_v8.NativeV8Tests::test_callback_request_dispatch_event_and_close_are_replayed",
+      "passedIn": [
+        "native-release-composition-union"
+      ]
+    },
+    {
+      "identity": "tests.test_native_v8.NativeV8Tests::test_choose_and_completion_transfer_replay",
+      "passedIn": [
+        "native-release-composition-union"
+      ]
+    },
+    {
+      "identity": "tests.test_native_v8.NativeV8Tests::test_false_region_cursor_is_rejected_at_next_prediction",
+      "passedIn": [
+        "native-release-composition-union"
+      ]
+    },
+    {
+      "identity": "tests.test_native_v8.NativeV8Tests::test_false_region_entry_state_is_rejected",
+      "passedIn": [
+        "native-release-composition-union"
+      ]
+    },
+    {
+      "identity": "tests.test_native_v8.NativeV8Tests::test_false_request_obligation_is_rejected_at_next_prediction",
+      "passedIn": [
+        "native-release-composition-union"
+      ]
+    },
+    {
+      "identity": "tests.test_native_v8.NativeV8Tests::test_false_shared_state_is_rejected_at_next_prediction",
+      "passedIn": [
+        "native-release-composition-union"
+      ]
+    },
+    {
+      "identity": "tests.test_native_v8.NativeV8Tests::test_fresh_entry_digest_cannot_repeat_a_whole_algorithm",
+      "passedIn": [
+        "native-release-composition-union"
+      ]
+    },
+    {
+      "identity": "tests.test_native_v8.NativeV8Tests::test_future_context_prefix_is_rejected",
+      "passedIn": [
+        "native-release-composition-union"
+      ]
+    },
+    {
+      "identity": "tests.test_native_v8.NativeV8Tests::test_native_checkpoint_roundtrip_and_tamper_detection",
+      "passedIn": [
+        "native-release-composition-union"
+      ]
+    },
+    {
+      "identity": "tests.test_native_v8.NativeV8Tests::test_old_trace_label_is_rejected",
+      "passedIn": [
+        "native-release-composition-union"
+      ]
+    },
+    {
+      "identity": "tests.test_native_v8.NativeV8Tests::test_public_interoperability_examples_are_independently_checked",
+      "passedIn": [
+        "native-release-composition-union"
+      ]
+    },
+    {
+      "identity": "tests.test_native_v8_lifecycle_authority::test_request_dispatch_and_result_replay_with_witness_v6_unavailable",
+      "passedIn": [
+        "native-release-composition-union"
+      ]
+    },
+    {
+      "identity": "tests.test_native_v8_without_legacy::test_full_native_fixture_replay_and_recovery_without_legacy_wire_imports",
+      "passedIn": [
+        "native-release-composition-union"
+      ]
+    },
+    {
+      "identity": "tests.test_promise_executor_boundaries_v8.PromiseExecutorTests::test_executor_inside_reaction_preserves_job_and_nested_helper_scope",
+      "passedIn": [
+        "native-release-composition-union"
+      ]
+    },
+    {
+      "identity": "tests.test_promise_executor_boundaries_v8.PromiseExecutorTests::test_executor_throw_consumes_the_resolving_pair_before_later_calls",
+      "passedIn": [
+        "native-release-composition-union"
+      ]
+    },
+    {
+      "identity": "tests.test_promise_executor_boundaries_v8.PromiseExecutorTests::test_first_resolving_call_wins_over_opposite_handle_and_executor_throw",
+      "passedIn": [
+        "native-release-composition-union"
+      ]
+    },
+    {
+      "identity": "tests.test_promise_executor_boundaries_v8.PromiseExecutorTests::test_generator_executor_is_refused_before_opening_an_ordinary_call",
+      "passedIn": [
+        "native-release-composition-union"
+      ]
+    },
+    {
+      "identity": "tests.test_promise_executor_boundaries_v8.PromiseExecutorTests::test_join_cannot_reuse_executor_result_but_can_observe_it_as_input",
+      "passedIn": [
+        "native-release-composition-union"
+      ]
+    },
+    {
+      "identity": "tests.test_promise_executor_boundaries_v8.PromiseExecutorTests::test_malformed_executor_identities_raise_protocol_errors_on_restore",
+      "passedIn": [
+        "native-release-composition-union"
+      ]
+    },
+    {
+      "identity": "tests.test_promise_executor_boundaries_v8.PromiseExecutorTests::test_reference_resolution_is_refused_before_first_call_but_rejection_is_owned",
+      "passedIn": [
+        "native-release-composition-union"
+      ]
+    },
+    {
+      "identity": "tests.test_promise_executor_boundaries_v8.PromiseExecutorTests::test_rejected_first_entry_and_unknown_resolver_leave_state_unchanged",
+      "passedIn": [
+        "native-release-composition-union"
+      ]
+    },
+    {
+      "identity": "tests.test_promise_executor_boundaries_v8.PromiseExecutorTests::test_resolving_functions_survive_executor_completion",
+      "passedIn": [
+        "native-release-composition-union"
+      ]
+    },
+    {
+      "identity": "tests.test_promise_executor_boundaries_v8.PromiseExecutorTests::test_restoration_checks_first_call_cell_and_original_resolving_pair",
+      "passedIn": [
+        "native-release-composition-union"
+      ]
+    },
+    {
+      "identity": "tests.test_promise_executor_boundaries_v8.PromiseExecutorTests::test_restored_executor_capability_cannot_share_a_join_result",
+      "passedIn": [
+        "native-release-composition-union"
+      ]
+    },
+    {
+      "identity": "tests.test_promise_executor_boundaries_v8.PromiseExecutorTests::test_throw_completion_cannot_restore_an_unconsumed_or_false_first_call",
+      "passedIn": [
+        "native-release-composition-union"
+      ]
+    },
+    {
+      "identity": "tests.test_promise_executor_boundaries_v8.PromiseExecutorTests::test_unscoped_completion_settlement_and_resolver_calls_are_rejected",
+      "passedIn": [
+        "native-release-composition-union"
+      ]
+    },
+    {
+      "identity": "tests.test_promise_executor_v8.PromiseExecutorV8Tests::test_foreign_shared_realm_adoption_keeps_common_heap_invariants",
+      "passedIn": [
+        "native-release-composition-union"
+      ]
+    },
+    {
+      "identity": "tests.test_promise_executor_v8.PromiseExecutorV8Tests::test_generic_return_and_direct_call_cannot_bypass_executor_records",
+      "passedIn": [
+        "native-release-composition-union"
+      ]
+    },
+    {
+      "identity": "tests.test_promise_executor_v8.PromiseExecutorV8Tests::test_nested_and_mutual_adoption_use_jobs_without_synchronous_cascade",
+      "passedIn": [
+        "native-release-composition-union"
+      ]
+    },
+    {
+      "identity": "tests.test_promise_executor_v8.PromiseExecutorV8Tests::test_overridden_promise_then_is_refused_before_resolver_mutation",
+      "passedIn": [
+        "native-release-composition-union"
+      ]
+    },
+    {
+      "identity": "tests.test_promise_executor_v8.PromiseExecutorV8Tests::test_owned_promise_resolution_uses_fifo_adoption_and_forwarding_jobs",
+      "passedIn": [
+        "native-release-composition-union"
+      ]
+    },
+    {
+      "identity": "tests.test_promise_executor_v8.PromiseExecutorV8Tests::test_reaction_returned_promise_is_bound_before_its_adoption_enqueue",
+      "passedIn": [
+        "native-release-composition-union"
+      ]
+    },
+    {
+      "identity": "tests.test_promise_executor_v8.PromiseExecutorV8Tests::test_resolution_adopts_no_objects_and_reject_first_call_wins",
+      "passedIn": [
+        "native-release-composition-union"
+      ]
+    },
+    {
+      "identity": "tests.test_promise_executor_v8.PromiseExecutorV8Tests::test_resolution_intent_cannot_be_skipped_or_retargeted",
+      "passedIn": [
+        "native-release-composition-union"
+      ]
+    },
+    {
+      "identity": "tests.test_promise_executor_v8.PromiseExecutorV8Tests::test_self_resolution_allocates_only_the_declared_typeerror",
+      "passedIn": [
+        "native-release-composition-union"
+      ]
+    },
+    {
+      "identity": "tests.test_promise_executor_v8.PromiseExecutorV8Tests::test_synchronous_executor_resolves_once_and_finishes_with_promise",
+      "passedIn": [
+        "native-release-composition-union"
+      ]
+    },
+    {
+      "identity": "tests.test_promise_executor_v8.PromiseExecutorV8Tests::test_throwing_executor_rejects_pending_promise",
+      "passedIn": [
+        "native-release-composition-union"
+      ]
+    },
+    {
+      "identity": "tests.test_promise_join_v8.PromiseJoinBoundaryTests::test_all_bound_reserves_array_length_without_reducing_race_bound",
+      "passedIn": [
+        "native-release-composition-union"
+      ]
+    },
+    {
+      "identity": "tests.test_promise_join_v8.PromiseJoinBoundaryTests::test_all_settled_empty_result_and_bound",
+      "passedIn": [
+        "native-release-composition-union"
+      ]
+    },
+    {
+      "identity": "tests.test_promise_join_v8.PromiseJoinBoundaryTests::test_all_settled_invalid_entry_or_settlement_is_atomic",
+      "passedIn": [
+        "native-release-composition-union"
+      ]
+    },
+    {
+      "identity": "tests.test_promise_join_v8.PromiseJoinBoundaryTests::test_all_settled_keeps_rejections_pending_and_duplicate_entries_distinct",
+      "passedIn": [
+        "native-release-composition-union"
+      ]
+    },
+    {
+      "identity": "tests.test_promise_join_v8.PromiseJoinBoundaryTests::test_empty_all_must_restore_fulfilled_while_empty_race_remains_pending",
+      "passedIn": [
+        "native-release-composition-union"
+      ]
+    },
+    {
+      "identity": "tests.test_promise_join_v8.PromiseJoinBoundaryTests::test_empty_and_final_output_reject_reserved_identities_atomically",
+      "passedIn": [
+        "native-release-composition-union"
+      ]
+    },
+    {
+      "identity": "tests.test_promise_join_v8.PromiseJoinBoundaryTests::test_join_jobs_cannot_migrate_between_controllers",
+      "passedIn": [
+        "native-release-composition-union"
+      ]
+    },
+    {
+      "identity": "tests.test_promise_join_v8.PromiseJoinBoundaryTests::test_join_result_cannot_already_be_adopted_or_external",
+      "passedIn": [
+        "native-release-composition-union"
+      ]
+    },
+    {
+      "identity": "tests.test_promise_join_v8.PromiseJoinBoundaryTests::test_legacy_settlement_cannot_bypass_join_result_ownership",
+      "passedIn": [
+        "native-release-composition-union"
+      ]
+    },
+    {
+      "identity": "tests.test_promise_join_v8.PromiseJoinBoundaryTests::test_observed_race_cannot_be_restored_to_pending",
+      "passedIn": [
+        "native-release-composition-union"
+      ]
+    },
+    {
+      "identity": "tests.test_promise_join_v8.PromiseJoinBoundaryTests::test_restore_requires_observation_and_job_completion_to_agree",
+      "passedIn": [
+        "native-release-composition-union"
+      ]
+    },
+    {
+      "identity": "tests.test_promise_join_v8.PromiseJoinBoundaryTests::test_shared_join_heap_retains_controller_ownership_after_root_return",
+      "passedIn": [
+        "native-release-composition-union"
+      ]
+    },
+    {
+      "identity": "tests.test_promise_scheduler_v8.PromiseSchedulerTests::test_adoption_lock_targets_and_external_settlements_fail_closed",
+      "passedIn": [
+        "native-release-composition-union"
+      ]
+    },
+    {
+      "identity": "tests.test_promise_scheduler_v8.PromiseSchedulerTests::test_bare_adoption_requires_assimilation_jobs_without_mutating_readiness",
+      "passedIn": [
+        "native-release-composition-union"
+      ]
+    },
+    {
+      "identity": "tests.test_promise_scheduler_v8.PromiseSchedulerTests::test_dispatch_waits_for_stack_and_terminal_waits_for_job",
+      "passedIn": [
+        "native-release-composition-union"
+      ]
+    },
+    {
+      "identity": "tests.test_promise_scheduler_v8.PromiseSchedulerTests::test_generator_and_resolver_callbacks_cannot_use_ordinary_jobs",
+      "passedIn": [
+        "native-release-composition-union"
+      ]
+    },
+    {
+      "identity": "tests.test_promise_scheduler_v8.PromiseSchedulerTests::test_normal_finally_completion_requires_cleanup_jobs_but_throw_is_direct",
+      "passedIn": [
+        "native-release-composition-union"
+      ]
+    },
+    {
+      "identity": "tests.test_promise_scheduler_v8.PromiseSchedulerTests::test_protocol_helpers_can_complete_inside_job_but_cannot_close_job",
+      "passedIn": [
+        "native-release-composition-union"
+      ]
+    },
+    {
+      "identity": "tests.test_promise_scheduler_v8.PromiseSchedulerTests::test_protocol_job_return_cannot_invent_promise_assimilation",
+      "passedIn": [
+        "native-release-composition-union"
+      ]
+    },
+    {
+      "identity": "tests.test_promise_scheduler_v8.PromiseSchedulerTests::test_protocol_reaction_receiver_survives_await_and_restores_owner",
+      "passedIn": [
+        "native-release-composition-union"
+      ]
+    },
+    {
+      "identity": "tests.test_promise_scheduler_v8.PromiseSchedulerTests::test_resolution_cannot_treat_unknown_intrinsic_prototypes_as_absent_then",
+      "passedIn": [
+        "native-release-composition-union"
+      ]
+    },
+    {
+      "identity": "tests.test_promise_scheduler_v8.PromiseSchedulerTests::test_thenable_resolution_checks_descriptors_without_invoking_them",
+      "passedIn": [
+        "native-release-composition-union"
+      ]
+    },
+    {
+      "identity": "tests.test_protocol_v8.ConstructionProtocolNativeTests::test_class_descriptor_and_constructor_receiver_follow_new_target",
+      "passedIn": [
+        "native-release-composition-union"
+      ]
+    },
+    {
+      "identity": "tests.test_protocol_v8.ConstructionProtocolNativeTests::test_derived_super_binding_runs_initializer_before_body_resumes",
+      "passedIn": [
+        "native-release-composition-union"
+      ]
+    },
+    {
+      "identity": "tests.test_protocol_v8.ConstructionProtocolNativeTests::test_hoisted_capture_cell_may_be_declared_before_initialization",
+      "passedIn": [
+        "native-release-composition-union"
+      ]
+    },
+    {
+      "identity": "tests.test_protocol_v8.ConstructionProtocolNativeTests::test_private_names_and_fields_share_heap_and_reject_false_claims",
+      "passedIn": [
+        "native-release-composition-union"
+      ]
+    },
+    {
+      "identity": "tests.test_protocol_v8.GeneratorProtocolNativeTests::test_direct_generator_calls_and_false_delegate_completion_are_rejected",
+      "passedIn": [
+        "native-release-composition-union"
+      ]
+    },
+    {
+      "identity": "tests.test_protocol_v8.GeneratorProtocolNativeTests::test_generator_lifecycle_handlers_and_delegation_replay",
+      "passedIn": [
+        "native-release-composition-union"
+      ]
+    },
+    {
+      "identity": "tests.test_protocol_v8.IteratorProtocolNativeTests::test_builtin_iterator_golden_cases_replay_exact_cursor_heap_and_results",
+      "passedIn": [
+        "native-release-composition-union"
+      ]
+    },
+    {
+      "identity": "tests.test_protocol_v8.IteratorProtocolNativeTests::test_noncanonical_and_false_iterator_identity_are_rejected",
+      "passedIn": [
+        "native-release-composition-union"
+      ]
+    },
+    {
+      "identity": "tests.test_protocol_v8.MemoryProtocolNativeTests::test_aliased_views_and_data_view_byte_order",
+      "passedIn": [
+        "native-release-composition-union"
+      ]
+    },
+    {
+      "identity": "tests.test_protocol_v8.MemoryProtocolNativeTests::test_binary_state_rejects_forged_bytes_views_and_ordinary_properties",
+      "passedIn": [
+        "native-release-composition-union"
+      ]
+    },
+    {
+      "identity": "tests.test_protocol_v8.MemoryProtocolNativeTests::test_false_binary_setter_completion_does_not_commit_backing_bytes",
+      "passedIn": [
+        "native-release-composition-union"
+      ]
+    },
+    {
+      "identity": "tests.test_protocol_v8.MemoryProtocolNativeTests::test_shared_growable_buffer_retains_tracking_view_and_atomics",
+      "passedIn": [
+        "native-release-composition-union"
+      ]
+    },
+    {
+      "identity": "tests.test_protocol_v8.PromiseJoinNativeTests::test_bounded_promise_all_join_uses_fifo_and_checks_settlement_claims",
+      "passedIn": [
+        "native-release-composition-union"
+      ]
+    },
+    {
+      "identity": "tests.test_protocol_v8.ProtocolV8CodecTests::test_interoperability_machine_cases_replay_and_restore_checkpoints",
+      "passedIn": [
+        "native-release-composition-union"
+      ]
+    },
+    {
+      "identity": "tests.test_protocol_v8.ProtocolV8CodecTests::test_protocol_snapshot_requires_full_symbols_and_exact_state_fields",
+      "passedIn": [
+        "native-release-composition-union"
+      ]
+    },
+    {
+      "identity": "tests.test_protocol_v8.ProtocolV8CodecTests::test_rejects_noncanonical_or_oversized_protocol_lines",
+      "passedIn": [
+        "native-release-composition-union"
+      ]
+    },
+    {
+      "identity": "tests.test_protocol_v8.ProtocolV8CodecTests::test_rejects_symbol_values_in_legacy_shape_and_malformed_protocol",
+      "passedIn": [
+        "native-release-composition-union"
+      ]
+    },
+    {
+      "identity": "tests.test_protocol_v8.ProtocolV8CodecTests::test_roundtrips_symbol_property_and_completion_records",
+      "passedIn": [
+        "native-release-composition-union"
+      ]
+    },
+    {
+      "identity": "tests.test_protocol_v8.ProtocolV8NativeReplayTests::test_active_protocol_state_rejects_symbol_values_in_legacy_detail",
+      "passedIn": [
+        "native-release-composition-union"
+      ]
+    },
+    {
+      "identity": "tests.test_protocol_v8.ProtocolV8NativeReplayTests::test_protocol_context_tampering_is_rejected",
+      "passedIn": [
+        "native-release-composition-union"
+      ]
+    },
+    {
+      "identity": "tests.test_protocol_v8.ProtocolV8NativeReplayTests::test_protocol_value_cannot_be_relabelled_as_legacy_detail",
+      "passedIn": [
+        "native-release-composition-union"
+      ]
+    },
+    {
+      "identity": "tests.test_protocol_v8.ProtocolV8NativeReplayTests::test_source_qualified_protocol_region_public_golden_replays_and_continues",
+      "passedIn": [
+        "native-release-composition-union"
+      ]
+    },
+    {
+      "identity": "tests.test_qualify_semantic_v8_lifecycle::test_census_report_is_bound_to_exact_registry_and_preserves_unique_vs_scored",
+      "passedIn": [
+        "native-release-composition-union"
+      ]
+    },
+    {
+      "identity": "tests.test_qualify_semantic_v8_lifecycle::test_checkpoint_census_with_changed_registry_is_refused",
+      "passedIn": [
+        "native-release-composition-union"
+      ]
+    },
+    {
+      "identity": "tests.test_qualify_semantic_v8_lifecycle::test_checkpoint_census_with_changed_step_history_is_refused",
+      "passedIn": [
+        "native-release-composition-union"
+      ]
+    },
+    {
+      "identity": "tests.test_qualify_semantic_v8_lifecycle::test_checkpoint_with_dropped_census_is_refused",
+      "passedIn": [
+        "native-release-composition-union"
+      ]
+    },
+    {
+      "identity": "tests.test_qualify_semantic_v8_lifecycle::test_resume_that_replaces_step_one_source_history_is_refused",
+      "passedIn": [
+        "native-release-composition-union"
+      ]
+    },
+    {
+      "identity": "tests.test_qualify_semantic_v8_lifecycle::test_resumed_census_must_name_exact_step_one_parent_digest",
+      "passedIn": [
+        "native-release-composition-union"
+      ]
+    },
+    {
+      "identity": "tests.test_qualify_semantic_v8_lifecycle_support::test_support_lifecycle_binds_sample_to_exact_prepared_train_member",
+      "passedIn": [
+        "native-release-composition-retry"
+      ]
+    },
+    {
+      "identity": "tests.test_qualify_semantic_v8_lifecycle_support::test_support_lifecycle_rejects_missing_and_duplicate_prepared_sources[duplicate]",
+      "passedIn": [
+        "native-release-composition-retry"
+      ]
+    },
+    {
+      "identity": "tests.test_qualify_semantic_v8_lifecycle_support::test_support_lifecycle_rejects_missing_and_duplicate_prepared_sources[missing]",
+      "passedIn": [
+        "native-release-composition-retry"
+      ]
+    },
+    {
+      "identity": "tests.test_qualify_semantic_v8_lifecycle_support::test_support_lifecycle_rejects_rehashed_sample_different_from_prepared[contexts]",
+      "passedIn": [
+        "native-release-composition-retry"
+      ]
+    },
+    {
+      "identity": "tests.test_qualify_semantic_v8_lifecycle_support::test_support_lifecycle_rejects_rehashed_sample_different_from_prepared[public]",
+      "passedIn": [
+        "native-release-composition-retry"
+      ]
+    },
+    {
+      "identity": "tests.test_qualify_semantic_v8_lifecycle_support::test_support_lifecycle_rejects_rehashed_sample_different_from_prepared[sourceArtifact]",
+      "passedIn": [
+        "native-release-composition-retry"
+      ]
+    },
+    {
+      "identity": "tests.test_qualify_semantic_v8_lifecycle_support::test_support_lifecycle_rejects_validation_or_test_sample[48]",
+      "passedIn": [
+        "native-release-composition-retry"
+      ]
+    },
+    {
+      "identity": "tests.test_qualify_semantic_v8_lifecycle_support::test_support_lifecycle_rejects_validation_or_test_sample[60]",
+      "passedIn": [
+        "native-release-composition-retry"
+      ]
+    },
+    {
+      "identity": "tests.test_semantic_bootstrap_recovery_v8::test_bootstrap_outcome_recovers_in_a_fresh_process",
+      "passedIn": [
+        "native-release-composition-union"
+      ]
+    },
+    {
+      "identity": "tests.test_semantic_bootstrap_recovery_v8::test_bootstrap_precheckpoint_must_equal_the_committed_create_poststate",
+      "passedIn": [
+        "native-release-composition-union"
+      ]
+    },
+    {
+      "identity": "tests.test_semantic_bootstrap_recovery_v8::test_bootstrap_recovery_never_admits_a_missing_outcome",
+      "passedIn": [
+        "native-release-composition-union"
+      ]
+    },
+    {
+      "identity": "tests.test_semantic_bootstrap_recovery_v8::test_bootstrap_recovery_rejects_identity_and_child_substitutions[child-request slot identity or exact bytes differ]",
+      "passedIn": [
+        "native-release-composition-union"
+      ]
+    },
+    {
+      "identity": "tests.test_semantic_bootstrap_recovery_v8::test_bootstrap_recovery_rejects_identity_and_child_substitutions[generation-generation differs]",
+      "passedIn": [
+        "native-release-composition-union"
+      ]
+    },
+    {
+      "identity": "tests.test_semantic_bootstrap_recovery_v8::test_bootstrap_recovery_rejects_identity_and_child_substitutions[model-model, tokenizer or training identity differs]",
+      "passedIn": [
+        "native-release-composition-union"
+      ]
+    },
+    {
+      "identity": "tests.test_semantic_bootstrap_recovery_v8::test_bootstrap_recovery_rejects_identity_and_child_substitutions[operation-only exact child bootstrap operations]",
+      "passedIn": [
+        "native-release-composition-union"
+      ]
+    },
+    {
+      "identity": "tests.test_semantic_bootstrap_recovery_v8::test_bootstrap_requires_a_completed_create_outcome",
+      "passedIn": [
+        "native-release-composition-union"
+      ]
+    },
+    {
+      "identity": "tests.test_semantic_bootstrap_recovery_v8::test_bootstrap_requires_create_to_be_the_latest_completed_native_request",
+      "passedIn": [
+        "native-release-composition-union"
+      ]
+    },
+    {
+      "identity": "tests.test_semantic_bootstrap_recovery_v8::test_bootstrap_requires_the_exact_original_create_bytes_and_precheckpoint[createPreCheckpointDigest]",
+      "passedIn": [
+        "native-release-composition-union"
+      ]
+    },
+    {
+      "identity": "tests.test_semantic_bootstrap_recovery_v8::test_bootstrap_requires_the_exact_original_create_bytes_and_precheckpoint[createRequestBase64]",
+      "passedIn": [
+        "native-release-composition-union"
+      ]
+    },
+    {
+      "identity": "tests.test_semantic_bootstrap_recovery_v8::test_bootstrap_requires_the_same_adjacent_create_identity[model_identity-<lambda>]",
+      "passedIn": [
+        "native-release-composition-union"
+      ]
+    },
+    {
+      "identity": "tests.test_semantic_bootstrap_recovery_v8::test_bootstrap_requires_the_same_adjacent_create_identity[ordinal-<lambda>]",
+      "passedIn": [
+        "native-release-composition-union"
+      ]
+    },
+    {
+      "identity": "tests.test_semantic_bootstrap_recovery_v8::test_bootstrap_requires_the_same_adjacent_create_identity[session_generation-<lambda>]",
+      "passedIn": [
+        "native-release-composition-union"
+      ]
+    },
+    {
+      "identity": "tests.test_semantic_bootstrap_recovery_v8::test_bootstrap_requires_the_same_adjacent_create_identity[session_id-<lambda>]",
+      "passedIn": [
+        "native-release-composition-union"
+      ]
+    },
+    {
+      "identity": "tests.test_semantic_bootstrap_recovery_v8::test_bootstrap_requires_the_same_adjacent_create_identity[stream_id-<lambda>]",
+      "passedIn": [
+        "native-release-composition-union"
+      ]
+    },
+    {
+      "identity": "tests.test_semantic_bootstrap_recovery_v8::test_bootstrap_unknown_outcome_is_not_retried_in_fresh_adapter",
+      "passedIn": [
+        "native-release-composition-union"
+      ]
+    },
+    {
+      "identity": "tests.test_semantic_bootstrap_recovery_v8::test_direct_child_bootstrap_is_refused_before_native_or_journal_mutation[bootstrap-orchestration-child]",
+      "passedIn": [
+        "native-release-composition-union"
+      ]
+    },
+    {
+      "identity": "tests.test_semantic_bootstrap_recovery_v8::test_direct_child_bootstrap_is_refused_before_native_or_journal_mutation[bootstrap-orchestration_child]",
+      "passedIn": [
+        "native-release-composition-union"
+      ]
+    },
+    {
+      "identity": "tests.test_semantic_bootstrap_recovery_v8::test_direct_child_bootstrap_is_refused_before_native_or_journal_mutation[bootstrap_orchestration-child]",
+      "passedIn": [
+        "native-release-composition-union"
+      ]
+    },
+    {
+      "identity": "tests.test_semantic_bootstrap_recovery_v8::test_direct_child_bootstrap_is_refused_before_native_or_journal_mutation[bootstrap_orchestration_child]",
+      "passedIn": [
+        "native-release-composition-union"
+      ]
+    },
+    {
+      "identity": "tests.test_semantic_bootstrap_recovery_v8::test_duplicate_durable_bootstrap_returns_the_retained_result_without_dispatch",
+      "passedIn": [
+        "native-release-composition-union"
+      ]
+    },
+    {
+      "identity": "tests.test_semantic_bootstrap_recovery_v8::test_later_native_mutation_supersedes_bootstrap_recovery",
+      "passedIn": [
+        "native-release-composition-union"
+      ]
+    },
+    {
+      "identity": "tests.test_semantic_bootstrap_recovery_v8::test_live_child_mismatch_fences_later_duplicate_before_journal_read",
+      "passedIn": [
+        "native-release-composition-union"
+      ]
+    },
+    {
+      "identity": "tests.test_semantic_bootstrap_recovery_v8::test_rehashed_bootstrap_poststate_rejects_mutated_history[attempts]",
+      "passedIn": [
+        "native-release-composition-union"
+      ]
+    },
+    {
+      "identity": "tests.test_semantic_bootstrap_recovery_v8::test_rehashed_bootstrap_poststate_rejects_mutated_history[operations]",
+      "passedIn": [
+        "native-release-composition-union"
+      ]
+    },
+    {
+      "identity": "tests.test_semantic_bootstrap_recovery_v8::test_rehashed_bootstrap_poststate_rejects_mutated_history[randomBefore]",
+      "passedIn": [
+        "native-release-composition-union"
+      ]
+    },
+    {
+      "identity": "tests.test_semantic_bootstrap_recovery_v8::test_rehashed_bootstrap_poststate_rejects_mutated_history[randomState]",
+      "passedIn": [
+        "native-release-composition-union"
+      ]
+    },
+    {
+      "identity": "tests.test_semantic_bootstrap_recovery_v8::test_rehashed_bootstrap_response_must_match_restored_track[wrong-budget]",
+      "passedIn": [
+        "native-release-composition-union"
+      ]
+    },
+    {
+      "identity": "tests.test_semantic_bootstrap_recovery_v8::test_rehashed_bootstrap_response_must_match_restored_track[wrong-parent]",
+      "passedIn": [
+        "native-release-composition-union"
+      ]
+    },
+    {
+      "identity": "tests.test_semantic_close_recovery_v8::test_active_session_cannot_enter_durable_terminal_close",
+      "passedIn": [
+        "native-release-composition-union"
+      ]
+    },
+    {
+      "identity": "tests.test_semantic_close_recovery_v8::test_changed_close_reason_and_rehashed_closed_archive_are_refused",
+      "passedIn": [
+        "native-release-composition-union"
+      ]
+    },
+    {
+      "identity": "tests.test_semantic_close_recovery_v8::test_duplicate_terminal_close_returns_known_outcome_without_a_second_close",
+      "passedIn": [
+        "native-release-composition-union"
+      ]
+    },
+    {
+      "identity": "tests.test_semantic_close_recovery_v8::test_later_live_sibling_mutation_supersedes_known_close_for_recovery",
+      "passedIn": [
+        "native-release-composition-union"
+      ]
+    },
+    {
+      "identity": "tests.test_semantic_close_recovery_v8::test_pending_sibling_selection_refuses_close_before_journal_admission",
+      "passedIn": [
+        "native-release-composition-union"
+      ]
+    },
+    {
+      "identity": "tests.test_semantic_close_recovery_v8::test_terminal_close_recovers_closed_archive_without_live_target[cancelled]",
+      "passedIn": [
+        "native-release-composition-union"
+      ]
+    },
+    {
+      "identity": "tests.test_semantic_close_recovery_v8::test_terminal_close_recovers_closed_archive_without_live_target[completed]",
+      "passedIn": [
+        "native-release-composition-union"
+      ]
+    },
+    {
+      "identity": "tests.test_semantic_close_recovery_v8::test_terminal_close_recovery_refuses_a_never_admitted_request",
+      "passedIn": [
+        "native-release-composition-union"
+      ]
+    },
+    {
+      "identity": "tests.test_semantic_close_recovery_v8::test_unknown_terminal_close_is_never_retried",
+      "passedIn": [
+        "native-release-composition-union"
+      ]
+    },
+    {
+      "identity": "tests.test_semantic_commit_recovery_v8::test_bootstrap_recovery_refuses_independent_reexecution_mismatch",
+      "passedIn": [
+        "native-release-composition-union"
+      ]
+    },
+    {
+      "identity": "tests.test_semantic_commit_recovery_v8::test_bootstrap_refuses_mutating_an_unrelated_session",
+      "passedIn": [
+        "native-release-composition-union"
+      ]
+    },
+    {
+      "identity": "tests.test_semantic_commit_recovery_v8::test_bootstrap_rejects_wrong_owner_model_generation_ordinal_and_create_frame",
+      "passedIn": [
+        "native-release-composition-union"
+      ]
+    },
+    {
+      "identity": "tests.test_semantic_commit_recovery_v8::test_completed_bootstrap_replay_is_blocked_after_later_mutation",
+      "passedIn": [
+        "native-release-composition-union"
+      ]
+    },
+    {
+      "identity": "tests.test_semantic_commit_recovery_v8::test_current_adapter_with_advanced_sibling_never_receives_old_response",
+      "passedIn": [
+        "native-release-composition-union"
+      ]
+    },
+    {
+      "identity": "tests.test_semantic_commit_recovery_v8::test_durable_bootstrap_child_recovers_lost_reply_by_full_reexecution",
+      "passedIn": [
+        "native-release-composition-union"
+      ]
+    },
+    {
+      "identity": "tests.test_semantic_commit_recovery_v8::test_earlier_commit_never_rolls_back_later_durable_intent[False]",
+      "passedIn": [
+        "native-release-composition-union"
+      ]
+    },
+    {
+      "identity": "tests.test_semantic_commit_recovery_v8::test_earlier_commit_never_rolls_back_later_durable_intent[True]",
+      "passedIn": [
+        "native-release-composition-union"
+      ]
+    },
+    {
+      "identity": "tests.test_semantic_commit_recovery_v8::test_exact_commit_bytes_recover_whole_native_adapter_without_recommitting",
+      "passedIn": [
+        "native-release-composition-union"
+      ]
+    },
+    {
+      "identity": "tests.test_semantic_commit_recovery_v8::test_execution_lock_refuses_replaced_inode_and_wrong_scope",
+      "passedIn": [
+        "native-release-composition-union"
+      ]
+    },
+    {
+      "identity": "tests.test_semantic_commit_recovery_v8::test_fresh_native_generation_cannot_mutate_before_existing_commit_is_recovered[initialize]",
+      "passedIn": [
+        "native-release-composition-union"
+      ]
+    },
+    {
+      "identity": "tests.test_semantic_commit_recovery_v8::test_fresh_native_generation_cannot_mutate_before_existing_commit_is_recovered[open-orchestration]",
+      "passedIn": [
+        "native-release-composition-union"
+      ]
+    },
+    {
+      "identity": "tests.test_semantic_commit_recovery_v8::test_fresh_native_generation_cannot_mutate_before_existing_commit_is_recovered[select]",
+      "passedIn": [
+        "native-release-composition-union"
+      ]
+    },
+    {
+      "identity": "tests.test_semantic_commit_recovery_v8::test_fresh_subprocess_reconstructs_persisted_commit_under_inherited_owner",
+      "passedIn": [
+        "native-release-composition-union"
+      ]
+    },
+    {
+      "identity": "tests.test_semantic_commit_recovery_v8::test_guarded_session_cannot_raw_dispatch_child_bootstrap",
+      "passedIn": [
+        "native-release-composition-union"
+      ]
+    },
+    {
+      "identity": "tests.test_semantic_commit_recovery_v8::test_invalid_child_bootstrap_is_rejected_before_admission",
+      "passedIn": [
+        "native-release-composition-union"
+      ]
+    },
+    {
+      "identity": "tests.test_semantic_commit_recovery_v8::test_later_native_mutation_durably_supersedes_commit_before_dispatch[cancel]",
+      "passedIn": [
+        "native-release-composition-union"
+      ]
+    },
+    {
+      "identity": "tests.test_semantic_commit_recovery_v8::test_later_native_mutation_durably_supersedes_commit_before_dispatch[select]",
+      "passedIn": [
+        "native-release-composition-union"
+      ]
+    },
+    {
+      "identity": "tests.test_semantic_commit_recovery_v8::test_live_inherited_descriptor_excludes_second_process",
+      "passedIn": [
+        "native-release-composition-union"
+      ]
+    },
+    {
+      "identity": "tests.test_semantic_commit_recovery_v8::test_lost_supersession_acknowledgement_prevents_later_native_mutation",
+      "passedIn": [
+        "native-release-composition-union"
+      ]
+    },
+    {
+      "identity": "tests.test_semantic_commit_recovery_v8::test_missing_outcome_after_native_commit_remains_unknown_and_cannot_retry",
+      "passedIn": [
+        "native-release-composition-union"
+      ]
+    },
+    {
+      "identity": "tests.test_semantic_commit_recovery_v8::test_native_execution_generation_is_fixed_and_new_generation_is_explicit",
+      "passedIn": [
+        "native-release-composition-union"
+      ]
+    },
+    {
+      "identity": "tests.test_semantic_commit_recovery_v8::test_new_durable_commit_reestablishes_exact_recoverable_poststate",
+      "passedIn": [
+        "native-release-composition-union"
+      ]
+    },
+    {
+      "identity": "tests.test_semantic_commit_recovery_v8::test_ordinary_restore_cannot_bypass_durable_commit_reconciliation",
+      "passedIn": [
+        "native-release-composition-union"
+      ]
+    },
+    {
+      "identity": "tests.test_semantic_commit_recovery_v8::test_original_request_must_be_one_exact_jsonl_frame[\\n\\n]",
+      "passedIn": [
+        "native-release-composition-union"
+      ]
+    },
+    {
+      "identity": "tests.test_semantic_commit_recovery_v8::test_original_request_must_be_one_exact_jsonl_frame[\\r\\n]",
+      "passedIn": [
+        "native-release-composition-union"
+      ]
+    },
+    {
+      "identity": "tests.test_semantic_commit_recovery_v8::test_original_request_must_be_one_exact_jsonl_frame[]",
+      "passedIn": [
+        "native-release-composition-union"
+      ]
+    },
+    {
+      "identity": "tests.test_semantic_commit_recovery_v8::test_outcome_lost_ack_fences_original_and_fresh_recovery_keeps_exact_response",
+      "passedIn": [
+        "native-release-composition-union"
+      ]
+    },
+    {
+      "identity": "tests.test_semantic_commit_recovery_v8::test_outliving_native_child_retains_lock_after_every_parent_descriptor_closes",
+      "passedIn": [
+        "native-release-composition-union"
+      ]
+    },
+    {
+      "identity": "tests.test_semantic_commit_recovery_v8::test_pending_sibling_is_refused_before_native_commit",
+      "passedIn": [
+        "native-release-composition-union"
+      ]
+    },
+    {
+      "identity": "tests.test_semantic_commit_recovery_v8::test_previously_superseded_create_is_not_bootstrap_authority",
+      "passedIn": [
+        "native-release-composition-union"
+      ]
+    },
+    {
+      "identity": "tests.test_semantic_commit_recovery_v8::test_read_only_native_rpcs_keep_commit_recoverable",
+      "passedIn": [
+        "native-release-composition-union"
+      ]
+    },
+    {
+      "identity": "tests.test_semantic_commit_recovery_v8::test_real_native_orchestration_commit_restores_reserved_child",
+      "passedIn": [
+        "native-release-composition-union"
+      ]
+    },
+    {
+      "identity": "tests.test_semantic_commit_recovery_v8::test_real_native_runtime_restores_committed_target_and_unchanged_sibling",
+      "passedIn": [
+        "native-release-composition-union"
+      ]
+    },
+    {
+      "identity": "tests.test_semantic_commit_recovery_v8::test_rehashed_saved_poststate_cannot_remove_prior_sibling",
+      "passedIn": [
+        "native-release-composition-union"
+      ]
+    },
+    {
+      "identity": "tests.test_semantic_commit_recovery_v8::test_request_substitutions_never_reuse_saved_outcome[bytes]",
+      "passedIn": [
+        "native-release-composition-union"
+      ]
+    },
+    {
+      "identity": "tests.test_semantic_commit_recovery_v8::test_request_substitutions_never_reuse_saved_outcome[checkpoint]",
+      "passedIn": [
+        "native-release-composition-union"
+      ]
+    },
+    {
+      "identity": "tests.test_semantic_commit_recovery_v8::test_request_substitutions_never_reuse_saved_outcome[model]",
+      "passedIn": [
+        "native-release-composition-union"
+      ]
+    },
+    {
+      "identity": "tests.test_semantic_commit_recovery_v8::test_request_substitutions_never_reuse_saved_outcome[operation]",
+      "passedIn": [
+        "native-release-composition-union"
+      ]
+    },
+    {
+      "identity": "tests.test_semantic_commit_recovery_v8::test_request_substitutions_never_reuse_saved_outcome[stream]",
+      "passedIn": [
+        "native-release-composition-union"
+      ]
+    },
+    {
+      "identity": "tests.test_semantic_commit_recovery_v8::test_rpc_requires_configured_bridge_and_blocks_unjournaled_commits",
+      "passedIn": [
+        "native-release-composition-union"
+      ]
+    },
+    {
+      "identity": "tests.test_semantic_commit_recovery_v8::test_unknown_bootstrap_intent_is_never_redispatched_or_create_recovered",
+      "passedIn": [
+        "native-release-composition-union"
+      ]
+    },
+    {
+      "identity": "tests.test_semantic_launch_v8::test_actual_model_checkpoint_keeps_v8_lineage_and_rejects_rebound_stream",
+      "passedIn": [
+        "native-release-composition-union"
+      ]
+    },
+    {
+      "identity": "tests.test_semantic_launch_v8::test_actual_two_split_supply_derives_the_ordinary_stream_without_writes",
+      "passedIn": [
+        "native-release-composition-union"
+      ]
+    },
+    {
+      "identity": "tests.test_semantic_launch_v8::test_actual_v8_launch_corpus_and_stream_run_with_legacy_clients_absent",
+      "passedIn": [
+        "native-release-composition-union"
+      ]
+    },
+    {
+      "identity": "tests.test_semantic_launch_v8::test_coordinator_receives_verified_checkpoint_and_bootstrap_gate_results",
+      "passedIn": [
+        "native-release-composition-union"
+      ]
+    },
+    {
+      "identity": "tests.test_semantic_launch_v8::test_empty_prepared_roots_are_bound_same_as_ordinary_training",
+      "passedIn": [
+        "native-release-composition-union"
+      ]
+    },
+    {
+      "identity": "tests.test_semantic_launch_v8::test_launch_configuration_rejects_duplicate_keys[.json-{\"phase\":\"SC\",\"phase\":\"SE\"}]",
+      "passedIn": [
+        "native-release-composition-union"
+      ]
+    },
+    {
+      "identity": "tests.test_semantic_launch_v8::test_launch_configuration_rejects_duplicate_keys[.yaml-phase: SC\\nphase: SE\\n]",
+      "passedIn": [
+        "native-release-composition-union"
+      ]
+    },
+    {
+      "identity": "tests.test_semantic_launch_v8::test_launch_output_cannot_overlap_raw_tokenizer_asset[child]",
+      "passedIn": [
+        "native-release-composition-union"
+      ]
+    },
+    {
+      "identity": "tests.test_semantic_launch_v8::test_launch_output_cannot_overlap_raw_tokenizer_asset[parent]",
+      "passedIn": [
+        "native-release-composition-union"
+      ]
+    },
+    {
+      "identity": "tests.test_semantic_launch_v8::test_launch_output_cannot_overlap_raw_tokenizer_asset[same]",
+      "passedIn": [
+        "native-release-composition-union"
+      ]
+    },
+    {
+      "identity": "tests.test_semantic_launch_v8::test_launch_output_cannot_overlap_raw_tokenizer_asset[symlink-child]",
+      "passedIn": [
+        "native-release-composition-union"
+      ]
+    },
+    {
+      "identity": "tests.test_semantic_launch_v8::test_real_production_v8_configuration_has_its_own_launch_authority",
+      "passedIn": [
+        "native-release-composition-union"
+      ]
+    },
+    {
+      "identity": "tests.test_semantic_launch_v8::test_resume_and_coordinator_require_the_actual_corpus_and_stream",
+      "passedIn": [
+        "native-release-composition-union"
+      ]
+    },
+    {
+      "identity": "tests.test_semantic_launch_v8::test_source_admitted_training_rows_do_not_replace_missing_validation",
+      "passedIn": [
+        "native-release-composition-union"
+      ]
+    },
+    {
+      "identity": "tests.test_semantic_launch_v8::test_supplied_repository_identities_cannot_stand_in_for_the_running_consumer",
+      "passedIn": [
+        "native-release-composition-union"
+      ]
+    },
+    {
+      "identity": "tests.test_semantic_launch_v8::test_v8_launch_retains_missing_assets_without_loading_legacy",
+      "passedIn": [
+        "native-release-composition-union"
+      ]
+    },
+    {
+      "identity": "tests.test_semantic_request_journal_v8::test_crash_after_intent_leaves_unknown_and_never_reexecutes",
+      "passedIn": [
+        "native-release-composition-union"
+      ]
+    },
+    {
+      "identity": "tests.test_semantic_request_journal_v8::test_crash_after_outcome_publication_is_readable_without_callback",
+      "passedIn": [
+        "native-release-composition-union"
+      ]
+    },
+    {
+      "identity": "tests.test_semantic_request_journal_v8::test_crash_before_intent_publication_is_never_admitted",
+      "passedIn": [
+        "native-release-composition-union"
+      ]
+    },
+    {
+      "identity": "tests.test_semantic_request_journal_v8::test_exact_result_persisted_and_same_slot_is_idempotent",
+      "passedIn": [
+        "native-release-composition-union"
+      ]
+    },
+    {
+      "identity": "tests.test_semantic_request_journal_v8::test_live_second_process_cannot_enter_same_scope",
+      "passedIn": [
+        "native-release-composition-union"
+      ]
+    },
+    {
+      "identity": "tests.test_semantic_request_journal_v8::test_lost_outcome_publication_ack_is_recovered_only_after_fresh_sync",
+      "passedIn": [
+        "native-release-composition-union"
+      ]
+    },
+    {
+      "identity": "tests.test_semantic_request_journal_v8::test_model_identity_is_frozen_for_session_generation",
+      "passedIn": [
+        "native-release-composition-union"
+      ]
+    },
+    {
+      "identity": "tests.test_semantic_request_journal_v8::test_ordinals_are_contiguous_and_scopes_are_separate",
+      "passedIn": [
+        "native-release-composition-union"
+      ]
+    },
+    {
+      "identity": "tests.test_semantic_request_journal_v8::test_orphan_outcome_and_missing_lower_slot_refuse",
+      "passedIn": [
+        "native-release-composition-union"
+      ]
+    },
+    {
+      "identity": "tests.test_semantic_request_journal_v8::test_payload_operation_and_model_substitution_conflict",
+      "passedIn": [
+        "native-release-composition-union"
+      ]
+    },
+    {
+      "identity": "tests.test_semantic_request_journal_v8::test_readback_sync_failure_is_not_reported_as_completed",
+      "passedIn": [
+        "native-release-composition-union"
+      ]
+    },
+    {
+      "identity": "tests.test_semantic_request_journal_v8::test_scope_creation_sync_failure_prevents_callback",
+      "passedIn": [
+        "native-release-composition-union"
+      ]
+    },
+    {
+      "identity": "tests.test_semantic_request_journal_v8::test_supersession_authority_binds_the_exact_later_mutation",
+      "passedIn": [
+        "native-release-composition-union"
+      ]
+    },
+    {
+      "identity": "tests.test_semantic_v8_closed_session_restore::test_actual_cpu_two_session_restore_preserves_attempts_without_claiming_semantic_success",
+      "passedIn": [
+        "native-release-composition-union"
+      ]
+    },
+    {
+      "identity": "tests.test_semantic_v8_closed_session_restore::test_cancel_before_opening_persists_a_tombstone_without_fabricated_costs",
+      "passedIn": [
+        "native-release-composition-union"
+      ]
+    },
+    {
+      "identity": "tests.test_semantic_v8_closed_session_restore::test_cancel_snapshot_failure_leaves_pending_attempt_and_session_untouched",
+      "passedIn": [
+        "native-release-composition-union"
+      ]
+    },
+    {
+      "identity": "tests.test_semantic_v8_closed_session_restore::test_cancelled_session_is_a_checkpointed_tombstone_and_repeat_close_is_idempotent",
+      "passedIn": [
+        "native-release-composition-union"
+      ]
+    },
+    {
+      "identity": "tests.test_semantic_v8_closed_session_restore::test_cancelled_sibling_keeps_its_attempt_and_opening_while_other_session_resumes",
+      "passedIn": [
+        "native-release-composition-union"
+      ]
+    },
+    {
+      "identity": "tests.test_semantic_v8_closed_session_restore::test_interleaved_session_outputs_replay_by_owner_then_the_active_session_continues",
+      "passedIn": [
+        "native-release-composition-union"
+      ]
+    },
+    {
+      "identity": "tests.test_semantic_v8_closed_session_restore::test_multiple_closed_sessions_restore_sequentially_at_one_session_capacity",
+      "passedIn": [
+        "native-release-composition-union"
+      ]
+    },
+    {
+      "identity": "tests.test_semantic_v8_closed_session_restore::test_rehashed_closed_session_receipt_cannot_change_its_verified_model_cut",
+      "passedIn": [
+        "native-release-composition-union"
+      ]
+    },
+    {
+      "identity": "tests.test_semantic_v8_export_without_legacy::test_actual_v8_preparation_exports_identical_shards_without_legacy[callback]",
+      "passedIn": [
+        "native-release-composition-retry"
+      ]
+    },
+    {
+      "identity": "tests.test_semantic_v8_export_without_legacy::test_actual_v8_preparation_exports_identical_shards_without_legacy[ordinary]",
+      "passedIn": [
+        "native-release-composition-retry"
+      ]
+    },
+    {
+      "identity": "tests.test_semantic_v8_export_without_legacy::test_actual_v8_preparation_exports_identical_shards_without_legacy[protocol]",
+      "passedIn": [
+        "native-release-composition-retry"
+      ]
+    },
+    {
+      "identity": "tests.test_semantic_v8_input_relocation::test_real_v8_next_update_survives_input_relocation_in_a_fresh_process",
+      "passedIn": [
+        "native-release-composition-retry"
+      ]
+    },
+    {
+      "identity": "tests.test_semantic_v8_input_relocation::test_relocated_input_substitution_refuses_before_model_construction[changed_codec-different codec]",
+      "passedIn": [
+        "native-release-composition-retry"
+      ]
+    },
+    {
+      "identity": "tests.test_semantic_v8_input_relocation::test_relocated_input_substitution_refuses_before_model_construction[changed_index-index checksum]",
+      "passedIn": [
+        "native-release-composition-retry"
+      ]
+    },
+    {
+      "identity": "tests.test_semantic_v8_input_relocation::test_relocated_input_substitution_refuses_before_model_construction[changed_loss-configuration changed loss_weights]",
+      "passedIn": [
+        "native-release-composition-retry"
+      ]
+    },
+    {
+      "identity": "tests.test_semantic_v8_input_relocation::test_relocated_input_substitution_refuses_before_model_construction[changed_policy-selected policy]",
+      "passedIn": [
+        "native-release-composition-retry"
+      ]
+    },
+    {
+      "identity": "tests.test_semantic_v8_input_relocation::test_relocated_input_substitution_refuses_before_model_construction[changed_registry-registry]",
+      "passedIn": [
+        "native-release-composition-retry"
+      ]
+    },
+    {
+      "identity": "tests.test_semantic_v8_input_relocation::test_relocated_input_substitution_refuses_before_model_construction[changed_shard-[Ss]hard checksum]",
+      "passedIn": [
+        "native-release-composition-retry"
+      ]
+    },
+    {
+      "identity": "tests.test_semantic_v8_input_relocation::test_relocated_input_substitution_refuses_before_model_construction[changed_window-configuration changed max_window_records]",
+      "passedIn": [
+        "native-release-composition-retry"
+      ]
+    },
+    {
+      "identity": "tests.test_semantic_v8_input_relocation::test_relocated_input_substitution_refuses_before_model_construction[duplicate_root-listed twice]",
+      "passedIn": [
+        "native-release-composition-retry"
+      ]
+    },
+    {
+      "identity": "tests.test_semantic_v8_input_relocation::test_relocated_input_substitution_refuses_before_model_construction[extra_empty_root-admitted input contents]",
+      "passedIn": [
+        "native-release-composition-retry"
+      ]
+    },
+    {
+      "identity": "tests.test_semantic_v8_input_relocation::test_relocated_input_substitution_refuses_before_model_construction[missing_empty_root-admitted input contents]",
+      "passedIn": [
+        "native-release-composition-retry"
+      ]
+    },
+    {
+      "identity": "tests.test_semantic_v8_input_relocation::test_relocated_input_substitution_refuses_before_model_construction[resealed_manifest-admitted input contents]",
+      "passedIn": [
+        "native-release-composition-retry"
+      ]
+    },
+    {
+      "identity": "tests.test_semantic_v8_input_relocation::test_relocated_production_tokenizer_does_not_accept_unpinned_bytes",
+      "passedIn": [
+        "native-release-composition-retry"
+      ]
+    },
+    {
+      "identity": "tests.test_semantic_v8_input_relocation::test_relocation_cannot_remove_the_explicit_v8_training_policy",
+      "passedIn": [
+        "native-release-composition-retry"
+      ]
+    },
+    {
+      "identity": "tests.test_semantic_v8_position_receipts::test_actual_categorical_selection_rejects_changed_support_or_label[support0-2]",
+      "passedIn": [
+        "native-release-composition-union"
+      ]
+    },
+    {
+      "identity": "tests.test_semantic_v8_position_receipts::test_actual_categorical_selection_rejects_changed_support_or_label[support1-3]",
+      "passedIn": [
+        "native-release-composition-union"
+      ]
+    },
+    {
+      "identity": "tests.test_semantic_v8_position_receipts::test_actual_categorical_selection_rejects_changed_support_or_label[support2-3]",
+      "passedIn": [
+        "native-release-composition-union"
+      ]
+    },
+    {
+      "identity": "tests.test_semantic_v8_position_receipts::test_actual_categorical_selection_rejects_changed_support_or_label[support3-4]",
+      "passedIn": [
+        "native-release-composition-union"
+      ]
+    },
+    {
+      "identity": "tests.test_semantic_v8_position_receipts::test_actual_decoder_receipts_leave_losses_and_gradients_unchanged",
+      "passedIn": [
+        "native-release-composition-union"
+      ]
+    },
+    {
+      "identity": "tests.test_semantic_v8_position_receipts::test_actual_selection_rejects_omitted_free_position_and_changed_alphabet",
+      "passedIn": [
+        "native-release-composition-union"
+      ]
+    },
+    {
+      "identity": "tests.test_semantic_v8_position_receipts::test_actual_selection_rejects_shift_duplicate_invention_or_wrong_label[coordinates0-labels0]",
+      "passedIn": [
+        "native-release-composition-union"
+      ]
+    },
+    {
+      "identity": "tests.test_semantic_v8_position_receipts::test_actual_selection_rejects_shift_duplicate_invention_or_wrong_label[coordinates1-labels1]",
+      "passedIn": [
+        "native-release-composition-union"
+      ]
+    },
+    {
+      "identity": "tests.test_semantic_v8_position_receipts::test_actual_selection_rejects_shift_duplicate_invention_or_wrong_label[coordinates2-labels2]",
+      "passedIn": [
+        "native-release-composition-union"
+      ]
+    },
+    {
+      "identity": "tests.test_semantic_v8_position_receipts::test_actual_selection_rejects_shift_duplicate_invention_or_wrong_label[coordinates3-labels3]",
+      "passedIn": [
+        "native-release-composition-union"
+      ]
+    },
+    {
+      "identity": "tests.test_semantic_v8_position_receipts::test_actual_selection_rejects_shift_duplicate_invention_or_wrong_label[coordinates4-labels4]",
+      "passedIn": [
+        "native-release-composition-union"
+      ]
+    },
+    {
+      "identity": "tests.test_semantic_v8_position_receipts::test_bounded_position_history_preserves_receipts_and_never_claims_full_pass[None]",
+      "passedIn": [
+        "native-release-composition-union"
+      ]
+    },
+    {
+      "identity": "tests.test_semantic_v8_position_receipts::test_bounded_position_history_preserves_receipts_and_never_claims_full_pass[changed_mask]",
+      "passedIn": [
+        "native-release-composition-union"
+      ]
+    },
+    {
+      "identity": "tests.test_semantic_v8_position_receipts::test_bounded_position_history_preserves_receipts_and_never_claims_full_pass[drop]",
+      "passedIn": [
+        "native-release-composition-union"
+      ]
+    },
+    {
+      "identity": "tests.test_semantic_v8_position_receipts::test_bounded_position_history_preserves_receipts_and_never_claims_full_pass[hidden_events]",
+      "passedIn": [
+        "native-release-composition-union"
+      ]
+    },
+    {
+      "identity": "tests.test_semantic_v8_position_receipts::test_bounded_position_history_preserves_receipts_and_never_claims_full_pass[metadata]",
+      "passedIn": [
+        "native-release-composition-union"
+      ]
+    },
+    {
+      "identity": "tests.test_semantic_v8_position_receipts::test_bounded_position_history_preserves_receipts_and_never_claims_full_pass[parent]",
+      "passedIn": [
+        "native-release-composition-union"
+      ]
+    },
+    {
+      "identity": "tests.test_semantic_v8_position_receipts::test_bounded_position_history_preserves_receipts_and_never_claims_full_pass[router_assignment_increment]",
+      "passedIn": [
+        "native-release-composition-union"
+      ]
+    },
+    {
+      "identity": "tests.test_semantic_v8_position_receipts::test_bounded_position_history_preserves_receipts_and_never_claims_full_pass[router_decrease]",
+      "passedIn": [
+        "native-release-composition-union"
+      ]
+    },
+    {
+      "identity": "tests.test_semantic_v8_position_receipts::test_bounded_position_history_preserves_receipts_and_never_claims_full_pass[router_invented]",
+      "passedIn": [
+        "native-release-composition-union"
+      ]
+    },
+    {
+      "identity": "tests.test_semantic_v8_position_receipts::test_bounded_position_history_preserves_receipts_and_never_claims_full_pass[router_invented_prior_receipt]",
+      "passedIn": [
+        "native-release-composition-union"
+      ]
+    },
+    {
+      "identity": "tests.test_semantic_v8_position_receipts::test_bounded_position_history_preserves_receipts_and_never_claims_full_pass[router_removed]",
+      "passedIn": [
+        "native-release-composition-union"
+      ]
+    },
+    {
+      "identity": "tests.test_semantic_v8_position_receipts::test_bounded_position_history_preserves_receipts_and_never_claims_full_pass[router_unrecorded_update]",
+      "passedIn": [
+        "native-release-composition-union"
+      ]
+    },
+    {
+      "identity": "tests.test_semantic_v8_position_receipts::test_complete_positions_distinguish_repeated_token_labels_and_zero_mask",
+      "passedIn": [
+        "native-release-composition-union"
+      ]
+    },
+    {
+      "identity": "tests.test_semantic_v8_position_receipts::test_explicit_stage_change_archives_old_objective_without_reusing_its_credit",
+      "passedIn": [
+        "native-release-composition-union"
+      ]
+    },
+    {
+      "identity": "tests.test_semantic_v8_position_receipts::test_final_comparison_is_independent_of_planner_and_optimizer_agreement[None]",
+      "passedIn": [
+        "native-release-composition-union"
+      ]
+    },
+    {
+      "identity": "tests.test_semantic_v8_position_receipts::test_final_comparison_is_independent_of_planner_and_optimizer_agreement[invented]",
+      "passedIn": [
+        "native-release-composition-union"
+      ]
+    },
+    {
+      "identity": "tests.test_semantic_v8_position_receipts::test_final_comparison_is_independent_of_planner_and_optimizer_agreement[joint_duplicate]",
+      "passedIn": [
+        "native-release-composition-union"
+      ]
+    },
+    {
+      "identity": "tests.test_semantic_v8_position_receipts::test_final_comparison_is_independent_of_planner_and_optimizer_agreement[joint_shift]",
+      "passedIn": [
+        "native-release-composition-union"
+      ]
+    },
+    {
+      "identity": "tests.test_semantic_v8_position_receipts::test_final_comparison_is_independent_of_planner_and_optimizer_agreement[omitted]",
+      "passedIn": [
+        "native-release-composition-union"
+      ]
+    },
+    {
+      "identity": "tests.test_semantic_v8_position_receipts::test_full_controlled_corpus_executes_exact_independent_positions",
+      "passedIn": [
+        "native-release-composition-union"
+      ]
+    },
+    {
+      "identity": "tests.test_semantic_v8_position_receipts::test_independent_inventory_keeps_logical_and_physical_parts_and_ignores_observations",
+      "passedIn": [
+        "native-release-composition-union"
+      ]
+    },
+    {
+      "identity": "tests.test_semantic_v8_position_receipts::test_independent_oracle_intersects_exact_byte_span_and_emitted_mask",
+      "passedIn": [
+        "native-release-composition-union"
+      ]
+    },
+    {
+      "identity": "tests.test_semantic_v8_position_receipts::test_independent_oracle_rejects_observation_empty_or_noncanonical_input[value0]",
+      "passedIn": [
+        "native-release-composition-union"
+      ]
+    },
+    {
+      "identity": "tests.test_semantic_v8_position_receipts::test_independent_oracle_rejects_observation_empty_or_noncanonical_input[value1]",
+      "passedIn": [
+        "native-release-composition-union"
+      ]
+    },
+    {
+      "identity": "tests.test_semantic_v8_position_receipts::test_independent_oracle_rejects_observation_empty_or_noncanonical_input[value2]",
+      "passedIn": [
+        "native-release-composition-union"
+      ]
+    },
+    {
+      "identity": "tests.test_semantic_v8_position_receipts::test_independent_oracle_rejects_observation_empty_or_noncanonical_input[value3]",
+      "passedIn": [
+        "native-release-composition-union"
+      ]
+    },
+    {
+      "identity": "tests.test_semantic_v8_position_receipts::test_observation_only_window_receives_no_position_credit_or_invented_targets",
+      "passedIn": [
+        "native-release-composition-union"
+      ]
+    },
+    {
+      "identity": "tests.test_semantic_v8_position_receipts::test_position_state_resumes_exactly_and_counts_repeated_optimizer_occurrences",
+      "passedIn": [
+        "native-release-composition-union"
+      ]
+    },
+    {
+      "identity": "tests.test_semantic_v8_position_receipts::test_readout_refuses_missing_pass_decision_or_noncanonical_row",
+      "passedIn": [
+        "native-release-composition-union"
+      ]
+    },
+    {
+      "identity": "tests.test_semantic_v8_position_receipts::test_resealed_checkpoint_cannot_forge_position_receipts[duplicate]",
+      "passedIn": [
+        "native-release-composition-union"
+      ]
+    },
+    {
+      "identity": "tests.test_semantic_v8_position_receipts::test_resealed_checkpoint_cannot_forge_position_receipts[mask]",
+      "passedIn": [
+        "native-release-composition-union"
+      ]
+    },
+    {
+      "identity": "tests.test_semantic_v8_position_receipts::test_resealed_checkpoint_cannot_forge_position_receipts[missing_pass]",
+      "passedIn": [
+        "native-release-composition-union"
+      ]
+    },
+    {
+      "identity": "tests.test_semantic_v8_position_receipts::test_resealed_checkpoint_cannot_forge_position_receipts[objective_bool]",
+      "passedIn": [
+        "native-release-composition-union"
+      ]
+    },
+    {
+      "identity": "tests.test_semantic_v8_position_receipts::test_resealed_checkpoint_cannot_forge_position_receipts[shift]",
+      "passedIn": [
+        "native-release-composition-union"
+      ]
+    },
+    {
+      "identity": "tests.test_semantic_v8_position_receipts::test_resealed_checkpoint_cannot_forge_position_receipts[support_bool]",
+      "passedIn": [
+        "native-release-composition-union"
+      ]
+    },
+    {
+      "identity": "tests.test_semantic_v8_position_receipts::test_resume_and_stage_transition_require_metadata_to_bind_position_history[global_step]",
+      "passedIn": [
+        "native-release-composition-union"
+      ]
+    },
+    {
+      "identity": "tests.test_semantic_v8_position_receipts::test_resume_and_stage_transition_require_metadata_to_bind_position_history[semantic_v8_position_digest]",
+      "passedIn": [
+        "native-release-composition-union"
+      ]
+    },
+    {
+      "identity": "tests.test_semantic_v8_position_receipts::test_router_count_history_rejects_impossible_resealed_aggregates[assignments_below_rows]",
+      "passedIn": [
+        "native-release-composition-union"
+      ]
+    },
+    {
+      "identity": "tests.test_semantic_v8_position_receipts::test_router_count_history_rejects_impossible_resealed_aggregates[assignments_without_rows]",
+      "passedIn": [
+        "native-release-composition-union"
+      ]
+    },
+    {
+      "identity": "tests.test_semantic_v8_position_receipts::test_router_count_history_rejects_impossible_resealed_aggregates[zero_audits_with_rows]",
+      "passedIn": [
+        "native-release-composition-union"
+      ]
+    },
+    {
+      "identity": "tests.test_semantic_v8_position_receipts::test_router_count_history_rejects_impossible_resealed_aggregates[zero_audits_with_selector]",
+      "passedIn": [
+        "native-release-composition-union"
+      ]
+    },
+    {
+      "identity": "tests.test_semantic_v8_position_receipts::test_router_count_increment_cannot_hide_behind_prior_adapter_assignments[0-1]",
+      "passedIn": [
+        "native-release-composition-union"
+      ]
+    },
+    {
+      "identity": "tests.test_semantic_v8_position_receipts::test_router_count_increment_cannot_hide_behind_prior_adapter_assignments[2-1]",
+      "passedIn": [
+        "native-release-composition-union"
+      ]
+    },
+    {
+      "identity": "tests.test_semantic_v8_position_receipts::test_unsupported_structured_branch_never_receives_verified_position_credit",
+      "passedIn": [
+        "native-release-composition-union"
+      ]
+    },
+    {
+      "identity": "tests.test_semantic_v8_release_verifier::test_actual_loaded_state_comparison_rejects_plausible_forgery[dtype]",
+      "passedIn": [
+        "native-release-composition-union",
+        "native-release-composition-retry"
+      ]
+    },
+    {
+      "identity": "tests.test_semantic_v8_release_verifier::test_actual_loaded_state_comparison_rejects_plausible_forgery[key]",
+      "passedIn": [
+        "native-release-composition-union",
+        "native-release-composition-retry"
+      ]
+    },
+    {
+      "identity": "tests.test_semantic_v8_release_verifier::test_actual_loaded_state_comparison_rejects_plausible_forgery[scalar-type]",
+      "passedIn": [
+        "native-release-composition-union",
+        "native-release-composition-retry"
+      ]
+    },
+    {
+      "identity": "tests.test_semantic_v8_release_verifier::test_actual_loaded_state_comparison_rejects_plausible_forgery[shape]",
+      "passedIn": [
+        "native-release-composition-union",
+        "native-release-composition-retry"
+      ]
+    },
+    {
+      "identity": "tests.test_semantic_v8_release_verifier::test_actual_loaded_state_comparison_rejects_plausible_forgery[value]",
+      "passedIn": [
+        "native-release-composition-union",
+        "native-release-composition-retry"
+      ]
+    },
+    {
+      "identity": "tests.test_semantic_v8_release_verifier::test_checkpoint_companion_metadata_is_strict_and_never_resolves_pointers[duplicate]",
+      "passedIn": [
+        "native-release-composition-retry"
+      ]
+    },
+    {
+      "identity": "tests.test_semantic_v8_release_verifier::test_checkpoint_companion_metadata_is_strict_and_never_resolves_pointers[latest-marker]",
+      "passedIn": [
+        "native-release-composition-retry"
+      ]
+    },
+    {
+      "identity": "tests.test_semantic_v8_release_verifier::test_checkpoint_companion_metadata_is_strict_and_never_resolves_pointers[latest-root]",
+      "passedIn": [
+        "native-release-composition-retry"
+      ]
+    },
+    {
+      "identity": "tests.test_semantic_v8_release_verifier::test_checkpoint_companion_metadata_is_strict_and_never_resolves_pointers[nonfinite]",
+      "passedIn": [
+        "native-release-composition-retry"
+      ]
+    },
+    {
+      "identity": "tests.test_semantic_v8_release_verifier::test_checkpoint_companion_metadata_is_strict_and_never_resolves_pointers[symlink-attachment]",
+      "passedIn": [
+        "native-release-composition-retry"
+      ]
+    },
+    {
+      "identity": "tests.test_semantic_v8_release_verifier::test_checkpoint_refusal_never_repairs_or_moves_input_files",
+      "passedIn": [
+        "native-release-composition-retry"
+      ]
+    },
+    {
+      "identity": "tests.test_semantic_v8_release_verifier::test_native_json_comparison_preserves_scalar_types[1-1.0]",
+      "passedIn": [
+        "native-release-composition-union",
+        "native-release-composition-retry"
+      ]
+    },
+    {
+      "identity": "tests.test_semantic_v8_release_verifier::test_native_json_comparison_preserves_scalar_types[False-0]",
+      "passedIn": [
+        "native-release-composition-union",
+        "native-release-composition-retry"
+      ]
+    },
+    {
+      "identity": "tests.test_semantic_v8_release_verifier::test_native_json_comparison_preserves_scalar_types[True-1]",
+      "passedIn": [
+        "native-release-composition-union",
+        "native-release-composition-retry"
+      ]
+    },
+    {
+      "identity": "tests.test_semantic_v8_release_verifier::test_native_json_comparison_preserves_scalar_types[left3-right3]",
+      "passedIn": [
+        "native-release-composition-union",
+        "native-release-composition-retry"
+      ]
+    },
+    {
+      "identity": "tests.test_semantic_v8_release_verifier::test_real_controlled_checkpoint_export_and_resealed_weight_refusal",
+      "passedIn": [
+        "native-release-composition-retry"
+      ]
+    },
+    {
+      "identity": "tests.test_semantic_v8_release_verifier::test_release_descriptor_and_hidden_member_inventory",
+      "passedIn": [
+        "native-release-composition-retry"
+      ]
+    },
+    {
+      "identity": "tests.test_semantic_v8_release_verifier::test_release_descriptor_refuses_ambiguous_membership[contract]",
+      "passedIn": [
+        "native-release-composition-retry"
+      ]
+    },
+    {
+      "identity": "tests.test_semantic_v8_release_verifier::test_release_descriptor_refuses_ambiguous_membership[duplicate-case]",
+      "passedIn": [
+        "native-release-composition-retry"
+      ]
+    },
+    {
+      "identity": "tests.test_semantic_v8_release_verifier::test_release_descriptor_refuses_ambiguous_membership[field]",
+      "passedIn": [
+        "native-release-composition-retry"
+      ]
+    },
+    {
+      "identity": "tests.test_semantic_v8_release_verifier::test_release_descriptor_refuses_ambiguous_membership[nested-role]",
+      "passedIn": [
+        "native-release-composition-retry"
+      ]
+    },
+    {
+      "identity": "tests.test_semantic_v8_release_verifier::test_release_descriptor_refuses_ambiguous_membership[outside-source]",
+      "passedIn": [
+        "native-release-composition-retry"
+      ]
+    },
+    {
+      "identity": "tests.test_semantic_v8_release_verifier::test_release_descriptor_refuses_ambiguous_membership[two-roots]",
+      "passedIn": [
+        "native-release-composition-retry"
+      ]
+    },
+    {
+      "identity": "tests.test_semantic_v8_release_verifier::test_release_paths_refuse_escapes_and_aliases[../outside]",
+      "passedIn": [
+        "native-release-composition-union",
+        "native-release-composition-retry"
+      ]
+    },
+    {
+      "identity": "tests.test_semantic_v8_release_verifier::test_release_paths_refuse_escapes_and_aliases[..]",
+      "passedIn": [
+        "native-release-composition-union",
+        "native-release-composition-retry"
+      ]
+    },
+    {
+      "identity": "tests.test_semantic_v8_release_verifier::test_release_paths_refuse_escapes_and_aliases[.]",
+      "passedIn": [
+        "native-release-composition-union",
+        "native-release-composition-retry"
+      ]
+    },
+    {
+      "identity": "tests.test_semantic_v8_release_verifier::test_release_paths_refuse_escapes_and_aliases[/absolute]",
+      "passedIn": [
+        "native-release-composition-union",
+        "native-release-composition-retry"
+      ]
+    },
+    {
+      "identity": "tests.test_semantic_v8_release_verifier::test_release_paths_refuse_escapes_and_aliases[C:x]",
+      "passedIn": [
+        "native-release-composition-union",
+        "native-release-composition-retry"
+      ]
+    },
+    {
+      "identity": "tests.test_semantic_v8_release_verifier::test_release_paths_refuse_escapes_and_aliases[]",
+      "passedIn": [
+        "native-release-composition-union",
+        "native-release-composition-retry"
+      ]
+    },
+    {
+      "identity": "tests.test_semantic_v8_release_verifier::test_release_paths_refuse_escapes_and_aliases[x/../y]",
+      "passedIn": [
+        "native-release-composition-union",
+        "native-release-composition-retry"
+      ]
+    },
+    {
+      "identity": "tests.test_semantic_v8_release_verifier::test_release_paths_refuse_escapes_and_aliases[x/./y]",
+      "passedIn": [
+        "native-release-composition-union",
+        "native-release-composition-retry"
+      ]
+    },
+    {
+      "identity": "tests.test_semantic_v8_release_verifier::test_release_paths_refuse_escapes_and_aliases[x//y]",
+      "passedIn": [
+        "native-release-composition-union",
+        "native-release-composition-retry"
+      ]
+    },
+    {
+      "identity": "tests.test_semantic_v8_release_verifier::test_release_paths_refuse_escapes_and_aliases[x/]",
+      "passedIn": [
+        "native-release-composition-union",
+        "native-release-composition-retry"
+      ]
+    },
+    {
+      "identity": "tests.test_semantic_v8_release_verifier::test_release_paths_refuse_escapes_and_aliases[x\\\\y]",
+      "passedIn": [
+        "native-release-composition-union",
+        "native-release-composition-retry"
+      ]
+    },
+    {
+      "identity": "tests.test_semantic_v8_release_verifier::test_release_paths_refuse_escapes_and_aliases[x\\x00y]",
+      "passedIn": [
+        "native-release-composition-union",
+        "native-release-composition-retry"
+      ]
+    },
+    {
+      "identity": "tests.test_semantic_v8_release_verifier::test_release_recipe_preserves_physical_provenance_and_binds_only_declared_inputs",
+      "passedIn": [
+        "native-release-composition-retry"
+      ]
+    },
+    {
+      "identity": "tests.test_semantic_v8_release_verifier::test_release_recipe_refuses_unbound_assets_and_routes[codec-../tokenizer.json]",
+      "passedIn": [
+        "native-release-composition-retry"
+      ]
+    },
+    {
+      "identity": "tests.test_semantic_v8_release_verifier::test_release_recipe_refuses_unbound_assets_and_routes[datasets-value1]",
+      "passedIn": [
+        "native-release-composition-retry"
+      ]
+    },
+    {
+      "identity": "tests.test_semantic_v8_release_verifier::test_release_recipe_refuses_unbound_assets_and_routes[engram_import-external-donor]",
+      "passedIn": [
+        "native-release-composition-retry"
+      ]
+    },
+    {
+      "identity": "tests.test_semantic_v8_release_verifier::test_release_recipe_refuses_unbound_assets_and_routes[engram_imports-value7]",
+      "passedIn": [
+        "native-release-composition-retry"
+      ]
+    },
+    {
+      "identity": "tests.test_semantic_v8_release_verifier::test_release_recipe_refuses_unbound_assets_and_routes[hindsight_targets-external-hindsight.jsonl]",
+      "passedIn": [
+        "native-release-composition-retry"
+      ]
+    },
+    {
+      "identity": "tests.test_semantic_v8_release_verifier::test_release_recipe_refuses_unbound_assets_and_routes[model-external-model.json]",
+      "passedIn": [
+        "native-release-composition-retry"
+      ]
+    },
+    {
+      "identity": "tests.test_semantic_v8_release_verifier::test_release_recipe_refuses_unbound_assets_and_routes[packs-external-packs.json]",
+      "passedIn": [
+        "native-release-composition-retry"
+      ]
+    },
+    {
+      "identity": "tests.test_semantic_v8_release_verifier::test_release_recipe_refuses_unbound_assets_and_routes[text_anchors-external-anchors.jsonl]",
+      "passedIn": [
+        "native-release-composition-retry"
+      ]
+    },
+    {
+      "identity": "tests.test_semantic_v8_release_verifier::test_release_recipe_refuses_unbound_assets_and_routes[use_effort_mixture-True]",
+      "passedIn": [
+        "native-release-composition-retry"
+      ]
+    },
+    {
+      "identity": "tests.test_semantic_v8_release_verifier::test_release_recipe_refuses_unbound_assets_and_routes[use_stage_mixture-True]",
+      "passedIn": [
+        "native-release-composition-retry"
+      ]
+    },
+    {
+      "identity": "tests.test_semantic_v8_release_verifier::test_release_source_membership_rejects_two_cases_for_one_physical_source",
+      "passedIn": [
+        "native-release-composition-retry"
+      ]
+    },
+    {
+      "identity": "tests.test_semantic_v8_release_verifier::test_release_strict_json_refuses_duplicate_keys_and_nonfinite_numbers",
+      "passedIn": [
+        "native-release-composition-retry"
+      ]
+    },
+    {
+      "identity": "tests.test_semantic_v8_release_verifier::test_release_symlinks_refused_in_role_tree_and_ancestors",
+      "passedIn": [
+        "native-release-composition-retry"
+      ]
+    },
+    {
+      "identity": "tests.test_semantic_v8_release_verifier::test_reprepare_refuses_membership_drift_before_starting_child[changed-split]",
+      "passedIn": [
+        "native-release-composition-retry"
+      ]
+    },
+    {
+      "identity": "tests.test_semantic_v8_release_verifier::test_reprepare_refuses_membership_drift_before_starting_child[duplicate-prepared]",
+      "passedIn": [
+        "native-release-composition-retry"
+      ]
+    },
+    {
+      "identity": "tests.test_semantic_v8_release_verifier::test_reprepare_refuses_membership_drift_before_starting_child[duplicate-source]",
+      "passedIn": [
+        "native-release-composition-retry"
+      ]
+    },
+    {
+      "identity": "tests.test_semantic_v8_release_verifier::test_reprepare_refuses_membership_drift_before_starting_child[invented-source]",
+      "passedIn": [
+        "native-release-composition-retry"
+      ]
+    },
+    {
+      "identity": "tests.test_semantic_v8_release_verifier::test_reprepare_refuses_membership_drift_before_starting_child[missing-prepared]",
+      "passedIn": [
+        "native-release-composition-retry"
+      ]
+    },
+    {
+      "identity": "tests.test_semantic_v8_release_verifier::test_reprepare_refuses_membership_drift_before_starting_child[missing-source]",
+      "passedIn": [
+        "native-release-composition-retry"
+      ]
+    },
+    {
+      "identity": "tests.test_semantic_v8_release_verifier::test_reprepare_uses_physical_prepared_order_without_rewriting_inputs",
+      "passedIn": [
+        "native-release-composition-retry"
+      ]
+    },
+    {
+      "identity": "tests.test_semantic_v8_release_verifier::test_reprepared_semantics_compare_every_physical_field_and_index_scope",
+      "passedIn": [
+        "native-release-composition-retry"
+      ]
+    },
+    {
+      "identity": "tests.test_semantic_v8_release_verifier::test_resealed_prepared_label_change_is_not_hidden_by_valid_file_hashes[cached-label]",
+      "passedIn": [
+        "native-release-composition-retry"
+      ]
+    },
+    {
+      "identity": "tests.test_semantic_v8_release_verifier::test_resealed_prepared_label_change_is_not_hidden_by_valid_file_hashes[free-mask]",
+      "passedIn": [
+        "native-release-composition-retry"
+      ]
+    },
+    {
+      "identity": "tests.test_semantic_v8_release_verifier::test_served_companion_json_refuses_duplicate_fields_before_loading[manifest.json]",
+      "passedIn": [
+        "native-release-composition-retry"
+      ]
+    },
+    {
+      "identity": "tests.test_semantic_v8_release_verifier::test_served_companion_json_refuses_duplicate_fields_before_loading[model_config.json]",
+      "passedIn": [
+        "native-release-composition-retry"
+      ]
+    },
+    {
+      "identity": "tests.test_semantic_v8_release_verifier::test_served_companion_json_refuses_duplicate_fields_before_loading[semantic-v8-lineage.json]",
+      "passedIn": [
+        "native-release-composition-retry"
+      ]
+    },
+    {
+      "identity": "tests.test_semantic_v8_target_inventory::test_all_keys_can_be_present_while_occurrence_census_still_differs",
+      "passedIn": [
+        "native-release-composition-union"
+      ]
+    },
+    {
+      "identity": "tests.test_semantic_v8_target_inventory::test_complete_inventory_keeps_program_identity_and_exact_prepared_targets[None]",
+      "passedIn": [
+        "native-release-composition-retry"
+      ]
+    },
+    {
+      "identity": "tests.test_semantic_v8_target_inventory::test_complete_inventory_keeps_program_identity_and_exact_prepared_targets[invented]",
+      "passedIn": [
+        "native-release-composition-retry"
+      ]
+    },
+    {
+      "identity": "tests.test_semantic_v8_target_inventory::test_complete_inventory_keeps_program_identity_and_exact_prepared_targets[omitted]",
+      "passedIn": [
+        "native-release-composition-retry"
+      ]
+    },
+    {
+      "identity": "tests.test_semantic_v8_target_inventory::test_duplicate_window_ids_in_inventory_are_refused",
+      "passedIn": [
+        "native-release-composition-union"
+      ]
+    },
+    {
+      "identity": "tests.test_semantic_v8_target_inventory::test_exact_occurrence_windows_and_denominators_prove_one_pass_census",
+      "passedIn": [
+        "native-release-composition-union"
+      ]
+    },
+    {
+      "identity": "tests.test_semantic_v8_target_inventory::test_exact_target_presence_passes_without_claiming_position_coverage",
+      "passedIn": [
+        "native-release-composition-union"
+      ]
+    },
+    {
+      "identity": "tests.test_semantic_v8_target_inventory::test_inventory_bound_to_other_run_identity_is_refused[codecFingerprint]",
+      "passedIn": [
+        "native-release-composition-union"
+      ]
+    },
+    {
+      "identity": "tests.test_semantic_v8_target_inventory::test_inventory_bound_to_other_run_identity_is_refused[modelConfigDigest]",
+      "passedIn": [
+        "native-release-composition-union"
+      ]
+    },
+    {
+      "identity": "tests.test_semantic_v8_target_inventory::test_inventory_bound_to_other_run_identity_is_refused[preparedManifestFingerprint]",
+      "passedIn": [
+        "native-release-composition-union"
+      ]
+    },
+    {
+      "identity": "tests.test_semantic_v8_target_inventory::test_inventory_bound_to_other_run_identity_is_refused[registryDigest]",
+      "passedIn": [
+        "native-release-composition-union"
+      ]
+    },
+    {
+      "identity": "tests.test_semantic_v8_target_inventory::test_inventory_bound_to_other_run_identity_is_refused[trainingConfigDigest]",
+      "passedIn": [
+        "native-release-composition-union"
+      ]
+    },
+    {
+      "identity": "tests.test_semantic_v8_target_inventory::test_inventory_never_promotes_validation_episode_or_falls_back_to_adapter_lineage",
+      "passedIn": [
+        "native-release-composition-union"
+      ]
+    },
+    {
+      "identity": "tests.test_semantic_v8_target_inventory::test_inventory_omitting_train_source_or_duplicate_source_id_is_refused",
+      "passedIn": [
+        "native-release-composition-union"
+      ]
+    },
+    {
+      "identity": "tests.test_semantic_v8_target_inventory::test_inventory_rejects_annotation_and_dataset_binding_disagreement[binding_changes0]",
+      "passedIn": [
+        "native-release-composition-union"
+      ]
+    },
+    {
+      "identity": "tests.test_semantic_v8_target_inventory::test_inventory_rejects_annotation_and_dataset_binding_disagreement[binding_changes1]",
+      "passedIn": [
+        "native-release-composition-union"
+      ]
+    },
+    {
+      "identity": "tests.test_semantic_v8_target_inventory::test_inventory_rejects_annotation_and_dataset_binding_disagreement[binding_changes2]",
+      "passedIn": [
+        "native-release-composition-union"
+      ]
+    },
+    {
+      "identity": "tests.test_semantic_v8_target_inventory::test_inventory_uses_distinct_bound_program_ids_despite_shared_adapter_lineage",
+      "passedIn": [
+        "native-release-composition-union"
+      ]
+    },
+    {
+      "identity": "tests.test_semantic_v8_target_inventory::test_missing_inventory_targets_are_reported_without_inflating_coverage",
+      "passedIn": [
+        "native-release-composition-union"
+      ]
+    },
+    {
+      "identity": "tests.test_semantic_v8_target_inventory::test_rehashed_forged_target_keys_still_fail_count_invariant",
+      "passedIn": [
+        "native-release-composition-union"
+      ]
+    },
+    {
+      "identity": "tests.test_semantic_v8_target_inventory::test_rehashed_inventory_that_disagrees_with_rederived_planner_is_refused",
+      "passedIn": [
+        "native-release-composition-union"
+      ]
+    },
+    {
+      "identity": "tests.test_semantic_v8_target_inventory::test_repeated_window_occurrence_is_reported_separately_from_unique_target_coverage",
+      "passedIn": [
+        "native-release-composition-union"
+      ]
+    },
+    {
+      "identity": "tests.test_semantic_v8_target_inventory::test_unexpected_optimizer_target_is_integrity_failure",
+      "passedIn": [
+        "native-release-composition-union"
+      ]
+    },
+    {
+      "identity": "tests.test_semantic_v8_training_lifecycle::test_v8_diloco_initialize_handshake_export_and_served_reload",
+      "passedIn": [
+        "native-release-composition-spawn-retry"
+      ]
+    },
+    {
+      "identity": "tests.test_semantic_v8_training_lifecycle::test_v8_normal_update_checkpoint_fresh_process_resume",
+      "passedIn": [
+        "native-release-composition-retry"
+      ]
+    },
+    {
+      "identity": "tests.test_semantic_v8_training_policy::test_freshly_prepared_v8_supply_passes_complete_native_batch_admission[False]",
+      "passedIn": [
+        "native-release-composition-retry"
+      ]
+    },
+    {
+      "identity": "tests.test_semantic_v8_training_policy::test_freshly_prepared_v8_supply_passes_complete_native_batch_admission[True]",
+      "passedIn": [
+        "native-release-composition-retry"
+      ]
+    },
+    {
+      "identity": "tests.test_semantic_v8_training_policy::test_generic_unverified_flag_cannot_hide_or_relabel_a_semantic_schema",
+      "passedIn": [
+        "native-release-composition-union"
+      ]
+    },
+    {
+      "identity": "tests.test_semantic_v8_training_policy::test_readiness_loads_the_actual_pinned_tokenizer_when_available",
+      "passedIn": [
+        "native-release-composition-retry"
+      ]
+    },
+    {
+      "identity": "tests.test_semantic_v8_training_policy::test_readiness_refuses_missing_and_mismatched_v8_admission",
+      "passedIn": [
+        "native-release-composition-retry"
+      ]
+    },
+    {
+      "identity": "tests.test_semantic_v8_training_policy::test_readiness_refuses_old_or_unknown_semantic_schema_even_when_unverified[semantic-execution/7]",
+      "passedIn": [
+        "native-release-composition-retry"
+      ]
+    },
+    {
+      "identity": "tests.test_semantic_v8_training_policy::test_readiness_refuses_old_or_unknown_semantic_schema_even_when_unverified[semantic-execution/999]",
+      "passedIn": [
+        "native-release-composition-retry"
+      ]
+    },
+    {
+      "identity": "tests.test_semantic_v8_training_policy::test_readiness_refuses_v8_rows_without_preparation_manifest",
+      "passedIn": [
+        "native-release-composition-retry"
+      ]
+    },
+    {
+      "identity": "tests.test_semantic_v8_training_policy::test_readiness_uses_v8_policy_and_strict_codec_preflight",
+      "passedIn": [
+        "native-release-composition-retry"
+      ]
+    },
+    {
+      "identity": "tests.test_semantic_v8_training_policy::test_semantic_v8_production_template_passes_real_config_validation",
+      "passedIn": [
+        "native-release-composition-retry"
+      ]
+    },
+    {
+      "identity": "tests.test_semantic_v8_training_policy::test_unverified_data_flag_cannot_admit_unqualified_v8_targets",
+      "passedIn": [
+        "native-release-composition-retry"
+      ]
+    },
+    {
+      "identity": "tests.test_semantic_v8_training_policy::test_v8_codec_rejects_byte_fallback_and_unpinned_file",
+      "passedIn": [
+        "native-release-composition-retry"
+      ]
+    },
+    {
+      "identity": "tests.test_semantic_v8_training_policy::test_v8_policy_is_exact_and_pinned",
+      "passedIn": [
+        "native-release-composition-union"
+      ]
+    },
+    {
+      "identity": "tests.test_serve_semantic_v8::test_jsonl_rejects_ambiguous_or_nonstandard_json_and_recovers",
+      "passedIn": [
+        "native-release-composition-union"
+      ]
+    },
+    {
+      "identity": "tests.test_training_integration::test_resume_compatibility_covers_every_setting_that_changes_the_trajectory",
+      "passedIn": [
+        "native-release-composition-union"
+      ]
+    },
+    {
+      "identity": "tests.test_training_integration::test_resume_rejects_changed_objective",
+      "passedIn": [
+        "native-release-composition-union"
+      ]
+    },
+    {
+      "identity": "tests.test_training_integration::test_uninterrupted_matches_exact_resume",
+      "passedIn": [
+        "native-release-composition-union"
+      ]
+    }
+  ]
+}
