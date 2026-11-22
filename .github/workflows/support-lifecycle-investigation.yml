@@ -1,0 +1,45 @@
+name: Support lifecycle implementation controls
+on:
+  push:
+    branches: [codex/v8-support-lifecycle-validation-20261122]
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  controls:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.sha }}
+          persist-credentials: false
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12.14'
+      - run: python -m pip install -e '.[dev]'
+      - name: Format candidate and retain exact tested source
+        shell: bash
+        run: |
+          python -m ruff format scripts/qualify_semantic_v8_lifecycle.py tests/test_qualify_semantic_v8_lifecycle_support.py
+          python - <<'PY'
+          import json
+          from pathlib import Path
+          for name in ('scripts/qualify_semantic_v8_lifecycle.py', 'tests/test_qualify_semantic_v8_lifecycle_support.py'):
+              print('FORMATTED_SOURCE_JSON ' + json.dumps({'path': name, 'content': Path(name).read_text()}))
+          PY
+      - name: Check source binding and complete inventory controls
+        shell: bash
+        run: |
+          set -o pipefail
+          python -m ruff check scripts/qualify_semantic_v8_lifecycle.py tests/test_qualify_semantic_v8_lifecycle_support.py
+          python -m ruff format --check scripts/qualify_semantic_v8_lifecycle.py tests/test_qualify_semantic_v8_lifecycle_support.py
+          python -m pytest -q tests/test_qualify_semantic_v8_lifecycle_support.py tests/test_qualify_semantic_v8_supply.py --junitxml="$RUNNER_TEMP/support-controls.xml" 2>&1 | tee "$RUNNER_TEMP/support-controls.log"
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: support-lifecycle-controls
+          retention-days: 30
+          path: |
+            ${{ runner.temp }}/support-controls.xml
+            ${{ runner.temp }}/support-controls.log
