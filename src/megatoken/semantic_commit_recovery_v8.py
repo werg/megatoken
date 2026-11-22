@@ -32,6 +32,7 @@ _HEX64 = re.compile(r"[0-9a-f]{64}")
 _EXECUTION_ID = re.compile(r"[a-z][a-z0-9:_-]{0,255}")
 _COMMITS = {"commit", "commit-orchestration"}
 _BOOTSTRAPS = {"bootstrap-orchestration-child"}
+_CLOSES = {"cancel"}
 _MUTATIONS = {
     "initialize",
     "select",
@@ -476,6 +477,195 @@ class DurableNativeCommitBridge:
         )
         return value, response_raw, response
 
+    def _close_input(self, identity, requestBase64, preCheckpointDigest):
+        identity = copy.deepcopy(_validate_identity(identity))
+        lease = self.execution_lease
+        lease.assert_held()
+        if identity["session_id"] != lease.session_id or identity["stream_id"] != lease.stream_id:
+            _fail("request identity differs from execution ownership")
+        if identity["session_generation"] != self.session_generation:
+            _fail("request generation differs from configured native execution")
+        if identity["operation"] not in _CLOSES:
+            _fail("only exact terminal close operations are recoverable")
+        expected = {
+            "checkpoint": self.adapter.model_identity,
+            "tokenizer": self.adapter.codec.fingerprint,
+        }
+        if self.adapter.training_identity is not None:
+            expected["training"] = self.adapter.training_identity
+        if identity["model_identity"] != expected:
+            _fail("request model, tokenizer or training identity differs")
+        if type(preCheckpointDigest) is not str or not _HEX64.fullmatch(preCheckpointDigest):
+            _fail("a complete pre-request checkpoint digest is required")
+        raw = _decode(requestBase64, MAX_COMMIT_REQUEST_BYTES, "close request")
+        if not raw.endswith(b"\n") or b"\n" in raw[:-1] or b"\r" in raw:
+            _fail("close request must be one exact JSONL frame ending in a newline")
+        try:
+            request = strict_json_loads(raw.decode("utf-8", errors="strict"))
+        except (ValueError, UnicodeError) as exc:
+            raise NativeRequestJournalError(
+                "Native close request is not strict UTF-8 JSON"
+            ) from exc
+        if (
+            type(request) is not dict
+            or type(request.get("id")) is not str
+            or not request["id"]
+            or request.get("op") != "cancel"
+            or request.get("session") != identity["session_id"]
+            or set(request) != {"id", "op", "session", "reason"}
+            or type(request.get("reason")) is not str
+            or not request["reason"]
+            or identity["operation"] != request["op"]
+        ):
+            _fail("exact close request ID, operation, session or reason differs")
+        frame = _canonical(
+            {
+                "schema": "semantic-native-durable-close-request/8",
+                "preCheckpointDigest": preCheckpointDigest,
+                "requestBase64": requestBase64,
+            }
+        )
+        return identity, raw, request, frame
+
+    def _assert_terminal_close(self, request, checkpoint):
+        sessions = checkpoint.get("sessions")
+        closed = checkpoint.get("closedSessions")
+        if type(sessions) is not dict or type(closed) is not dict:
+            _fail("terminal close requires complete active and closed session inventories")
+        if any(
+            type(saved) is not dict or saved.get("unacknowledgedSelection") is not None
+            for saved in sessions.values()
+        ):
+            _fail("terminal close cannot retain pending selections in any session")
+        if request["session"] in closed:
+            _fail("terminal close requires the exact active session")
+        work = self.adapter.sessions.get(request["session"])
+        if work is None or work.orchestration is None:
+            _fail("durable close requires a terminal orchestration coordinator")
+        state = work.orchestration
+        coordinator = work.runtime.tracks.tracks.get(state.get("track"))
+        if (
+            coordinator is None
+            or coordinator.status not in {"completed", "cancelled"}
+            or work.pending is not None
+            or any(
+                track.status not in {"completed", "cancelled"}
+                for track in work.runtime.tracks.tracks.values()
+            )
+        ):
+            _fail("durable close requires every owned native track to be terminal")
+        if coordinator.status == "cancelled" and not state.get("cancelled"):
+            _fail("cancelled coordinator lacks its exact acknowledged cancellation")
+        if coordinator.status == "completed" and state.get("cancelled") is not None:
+            _fail("completed coordinator carries a cancellation outcome")
+        if len(closed) >= self.adapter.max_attempts:
+            _fail("closed-session history capacity exhausted")
+        return work
+
+    def _check_close_checkpoints(self, request, response, checkpoint, before, before_digest):
+        if (
+            type(before) is not dict
+            or before.get("digest") != before_digest
+            or before_digest
+            != stable_algorithm_hash({key: value for key, value in before.items() if key != "digest"})
+        ):
+            _fail("saved precheckpoint does not bind the producer's original digest")
+        if (
+            type(checkpoint) is not dict
+            or checkpoint.get("digest")
+            != stable_algorithm_hash(
+                {key: value for key, value in checkpoint.items() if key != "digest"}
+            )
+        ):
+            _fail("saved postcheckpoint digest differs")
+        before_sessions, sessions = before.get("sessions"), checkpoint.get("sessions")
+        before_closed, closed = before.get("closedSessions"), checkpoint.get("closedSessions")
+        if (
+            type(before_sessions) is not dict
+            or type(sessions) is not dict
+            or request["session"] not in before_sessions
+            or set(sessions) != set(before_sessions) - {request["session"]}
+            or any(
+                type(saved) is not dict or saved.get("unacknowledgedSelection") is not None
+                for saved in before_sessions.values()
+            )
+            or any(
+                type(saved) is not dict or saved.get("unacknowledgedSelection") is not None
+                for saved in sessions.values()
+            )
+            or type(before_closed) is not dict
+            or type(closed) is not dict
+            or request["session"] in before_closed
+            or set(closed) != set(before_closed) | {request["session"]}
+        ):
+            _fail("close changed the complete active or closed session inventory")
+        for session, saved in before_sessions.items():
+            if session != request["session"] and not _same(saved, sessions[session]):
+                _fail("close changed a sibling session")
+        for session, saved in before_closed.items():
+            if not _same(saved, closed[session]):
+                _fail("close changed an earlier closed-session archive")
+        target = before_sessions[request["session"]]
+        if (
+            type(target) is not dict
+            or target.get("unacknowledgedSelection") is not None
+            or type(closed.get(request["session"])) is not dict
+            or not _same(closed[request["session"]], target)
+        ):
+            _fail("closed-session archive differs from the exact terminal precheckpoint")
+        for field in (
+            "schema",
+            "equivalence",
+            "contractDigest",
+            "initialization",
+            "settings",
+            "randomState",
+            "attempts",
+            "openings",
+        ):
+            if not _same(before.get(field), checkpoint.get(field)):
+                _fail("close changed whole-adapter " + field)
+        expected = {
+            "id": request["id"],
+            "ok": True,
+            "result": {
+                "schema": "semantic-native-close/8",
+                "session": request["session"],
+                "closed": True,
+                "reason": request["reason"],
+            },
+        }
+        if not _same(response, expected):
+            _fail("stored response differs from the exact terminal close request")
+
+    def _close_envelope(self, stored, request, raw, pre_digest):
+        value = strict_json_loads(stored.decode("utf-8", errors="strict"))
+        if (
+            type(value) is not dict
+            or set(value)
+            != {
+                "schema",
+                "requestSha256",
+                "preCheckpointDigest",
+                "responseBase64",
+                "postCheckpoint",
+                "preCheckpoint",
+            }
+            or value["schema"] != "semantic-native-durable-close-outcome/8"
+            or value["requestSha256"] != _sha(raw)
+            or value["preCheckpointDigest"] != pre_digest
+            or _canonical(value) != stored
+        ):
+            _fail("saved terminal close outcome binding differs")
+        response_raw = _decode(value["responseBase64"], MAX_COMMIT_REQUEST_BYTES, "close response")
+        response = strict_json_loads(response_raw.decode("utf-8", errors="strict"))
+        if _reply_bytes(response) != response_raw:
+            _fail("saved terminal close response bytes differ")
+        self._check_close_checkpoints(
+            request, response, value["postCheckpoint"], value["preCheckpoint"], pre_digest
+        )
+        return value, response_raw, response
+
     def _check_post(self, request, response, checkpoint, before, before_digest):
         if (
             type(before) is not dict
@@ -844,6 +1034,163 @@ class DurableNativeCommitBridge:
                 self._recoverable = (copy.deepcopy(identity), frame)
                 self._started = True
                 return self._bootstrap_receipt(
+                    identity,
+                    raw,
+                    value,
+                    response_raw,
+                    readback["request_id"],
+                    restored,
+                )
+            except BaseException:
+                self.fenced = True
+                raise
+
+    def _close_receipt(self, identity, raw, value, response_raw, request_id, restored=None):
+        return {
+            "schema": "semantic-native-durable-close/8",
+            "requestId": request_id,
+            "identity": copy.deepcopy(identity),
+            "requestSha256": _sha(raw),
+            "preCheckpointDigest": value["preCheckpointDigest"],
+            "postCheckpointDigest": value["postCheckpoint"]["digest"],
+            "responseBase64": value["responseBase64"],
+            "responseSha256": _sha(response_raw),
+            "postCheckpoint": copy.deepcopy(value["postCheckpoint"]),
+            "recovered": restored is not None,
+            "restoreReceipt": restored,
+        }
+
+    def _assert_closed_adapter(self, request, checkpoint, restore_receipt=None):
+        if request["session"] in self.adapter.sessions:
+            _fail("closed session was restored as a live native session")
+        if request["session"] not in self.adapter.closed_sessions:
+            _fail("closed session is missing its retained archive")
+        expected_memories = {
+            work.runtime.memory.session_id for work in self.adapter.sessions.values()
+        }
+        if set(self.adapter.runtime.memory.sessions) != expected_memories:
+            _fail("closed session retained native runtime memory")
+        if (
+            set(self.adapter.sessions) != set(checkpoint["sessions"])
+            or not _same(self.adapter.closed_sessions, checkpoint["closedSessions"])
+            or not _same(self.adapter.attempts, checkpoint["attempts"])
+            or not _same(self.adapter.openings, checkpoint["openings"])
+        ):
+            _fail("live closed adapter differs from its exact checkpoint archive")
+        if restore_receipt is not None and (
+            restore_receipt.get("hostDispatches") != 0
+            or restore_receipt.get("restoredSessions") != len(checkpoint["sessions"])
+            or restore_receipt.get("restored") is not True
+        ):
+            _fail("closed checkpoint recovery dispatched host work or retained a live target")
+
+    def durable_close(self, *, identity, requestBase64, preCheckpointDigest):
+        self.assert_operation("durable-close")
+        identity, raw, request, frame = self._close_input(
+            identity, requestBase64, preCheckpointDigest
+        )
+        with self.adapter.lock:
+            try:
+                readback = self.journal.inspect(identity, frame, require_latest=True)
+                if readback["status"] == "unknown":
+                    raise NativeRequestOutcomeUnknown(
+                        "Native close outcome is unknown; durable close cannot be retried"
+                    )
+                if readback["status"] == "completed":
+                    value, response_raw, _response = self._close_envelope(
+                        readback["result_bytes"], request, raw, preCheckpointDigest
+                    )
+                    if not _same(self.adapter.checkpoint(), value["postCheckpoint"]):
+                        _fail("live adapter differs from the retained terminal close poststate")
+                    self._assert_closed_adapter(request, value["postCheckpoint"])
+                    return self._close_receipt(
+                        identity, raw, value, response_raw, readback["request_id"]
+                    )
+
+                before = self.adapter.checkpoint()
+                if before["digest"] != preCheckpointDigest:
+                    raise NativeRequestConflict("Native pre-request checkpoint differs")
+                self._assert_terminal_close(request, before)
+
+                def execute(_frame):
+                    current = self.adapter.checkpoint()
+                    if current["digest"] != preCheckpointDigest:
+                        raise NativeRequestConflict("Native pre-request checkpoint differs")
+                    self._assert_terminal_close(request, current)
+                    response = self.adapter.cancel(
+                        session=request["session"], reason=request["reason"]
+                    )
+                    post = self.adapter.checkpoint()
+                    reply = {"id": request["id"], "ok": True, "result": response}
+                    self._check_close_checkpoints(
+                        request, reply, post, current, preCheckpointDigest
+                    )
+                    return _canonical(
+                        {
+                            "schema": "semantic-native-durable-close-outcome/8",
+                            "requestSha256": _sha(raw),
+                            "preCheckpointDigest": preCheckpointDigest,
+                            "responseBase64": base64.b64encode(_reply_bytes(reply)).decode(
+                                "ascii"
+                            ),
+                            "postCheckpoint": post,
+                            "preCheckpoint": current,
+                        }
+                    )
+
+                stored = self.journal.execute(identity, frame, execute)
+                value, response_raw, _response = self._close_envelope(
+                    stored, request, raw, preCheckpointDigest
+                )
+                if not _same(self.adapter.checkpoint(), value["postCheckpoint"]):
+                    _fail("whole live adapter differs from saved terminal close poststate")
+                self._assert_closed_adapter(request, value["postCheckpoint"])
+                readback = self.journal.inspect(identity, frame, require_latest=True)
+                if readback.get("result_bytes") != stored:
+                    _fail("independent durable terminal close readback differs")
+                self._recoverable = (copy.deepcopy(identity), frame)
+                self._started = True
+                return self._close_receipt(
+                    identity, raw, value, response_raw, readback["request_id"]
+                )
+            except BaseException:
+                self.fenced = True
+                raise
+
+    def recover_close(self, *, identity, requestBase64, preCheckpointDigest):
+        self.assert_operation("recover-close")
+        identity, raw, request, frame = self._close_input(
+            identity, requestBase64, preCheckpointDigest
+        )
+        with self.adapter.lock:
+            if (
+                self.adapter.sessions
+                or self.adapter.attempts
+                or self.adapter.closed_sessions
+                or self.adapter.openings
+                or self.adapter.runtime.memory.sessions
+            ):
+                _fail("recovery requires a fresh entire native adapter")
+            readback = self.journal.inspect(identity, frame, require_latest=True)
+            if readback["status"] == "never-admitted":
+                raise NativeRequestConflict(
+                    "Native close was never admitted; recovery cannot execute it"
+                )
+            if readback["status"] != "completed":
+                raise NativeRequestOutcomeUnknown(
+                    "Native close outcome is unknown; recovery cannot retry it"
+                )
+            value, response_raw, _response = self._close_envelope(
+                readback["result_bytes"], request, raw, preCheckpointDigest
+            )
+            try:
+                restored = self.adapter.restore(checkpoint=value["postCheckpoint"])
+                if not _same(self.adapter.checkpoint(), value["postCheckpoint"]):
+                    _fail("whole restored adapter differs from saved terminal close poststate")
+                self._assert_closed_adapter(request, value["postCheckpoint"], restored)
+                self._recoverable = (copy.deepcopy(identity), frame)
+                self._started = True
+                return self._close_receipt(
                     identity,
                     raw,
                     value,

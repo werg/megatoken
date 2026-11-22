@@ -42,6 +42,8 @@ def _dispatch(adapter, request, *, commit_bridge=None):
         "recover-commit",
         "durable-bootstrap",
         "recover-bootstrap",
+        "durable-close",
+        "recover-close",
     }:
         if commit_bridge is None:
             raise ValueError(
