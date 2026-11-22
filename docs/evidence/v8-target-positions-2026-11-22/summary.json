@@ -1,0 +1,298 @@
+{
+  "schema": "semantic-v8-position-implementation-evidence/1",
+  "producerImplementation": {
+    "localCommit": "e95e90c1d79eaa8869c07c8c78400d61fc74a946",
+    "publishedCommit": "183966c94413e2f31cda12c487671020eae70a15",
+    "tree": "ca7e1b0961c18c90d26331c1440017db3f02f7b5",
+    "base": "e8cd1475dc89648bc00e2d69afc55042bc6eece1"
+  },
+  "validation": {
+    "positionAndLifecycleControls": {
+      "passed": 54,
+      "failed": 0,
+      "deselected": 1,
+      "seconds": 1.33,
+      "note": "The complete controlled optimizer test was separately executed below, not skipped.",
+      "sourceCommit": "655ea580de8d15d5a82d00637d82ef81cca1fcee"
+    },
+    "actualCompleteStageAndFreshResumeTests": {
+      "passed": 2,
+      "failed": 0,
+      "seconds": 39.8
+    },
+    "affectedOrdinaryPathsAtEarlierIdenticalDecoderEngine": {
+      "sourceCommit": "01414662998967aef279595ac1aa301b1db6b56c",
+      "passed": 90,
+      "failed": 0,
+      "seconds": 25.77
+    },
+    "producerControls": {
+      "passed": 16,
+      "failed": 0,
+      "skipped": 0
+    },
+    "ruff": "passed"
+  },
+  "controlledComplete": {
+    "digest": "a899709e51582d8bf7a8563f3e6d2d657bec20ea6b93d4512dc0a8709f3fd544",
+    "runtime": {
+      "torch": "2.10.0+cpu",
+      "device": "cpu",
+      "precision": "fp32",
+      "seed": 17
+    },
+    "boundaries": {
+      "sourceAdmission": "injected fixture receipt",
+      "tokenizerAdmission": "injected byte-fallback fixture",
+      "sourcePopulation": "one controlled prepared fixture, not the 64-source support population"
+    },
+    "elapsedSeconds": 16.112156489998597,
+    "windowCount": 9,
+    "optimizerUpdates": 3,
+    "totalOptimizerUpdatesExecuted": 4,
+    "optimizerPositionSummary": {
+      "schema": "semantic-v8-optimizer-position-exposure/1",
+      "digest": "d1bf358dce849aab1bd6db710bdf51b3b26bba4444717d3873e6503e2318a87a",
+      "startingGlobalStep": 0,
+      "lastGlobalStep": 3,
+      "optimizerUpdates": 3,
+      "previousStageDigest": null,
+      "sourceCount": 1,
+      "logicalTargetCount": 2,
+      "physicalTargetRecordCount": 4,
+      "verifiedPhysicalTargets": 4,
+      "unmeasuredPhysicalTargets": 0,
+      "scoredOccurrences": 4,
+      "positiveWeightPositionCounts": {
+        "lexical": 413,
+        "reconstruction": 413,
+        "structure": 16,
+        "terminal": 8,
+        "modality": 4
+      },
+      "unmeasuredObjectiveCounts": {
+        "router_z": 4
+      },
+      "positionScope": "Actual plain-text lexical/reconstruction rows and length/mode/terminal/modality categorical labels and public supports",
+      "routerInternalPositionCoverage": "unmeasured",
+      "otherObjectiveScope": "Routing regularizers, representation coordinates, media/structured-action masks and transducer/retrieval losses are not granted token-position credit by this audit",
+      "learnedSuccess": null
+    },
+    "comparison": {
+      "independentPreparedPhysicalTargets": 4,
+      "observedPhysicalTargets": 4,
+      "missingPhysicalTargets": [],
+      "unexpectedPhysicalTargets": [],
+      "preparedOracleMismatches": [],
+      "independentOccurrenceMismatches": [],
+      "targetCensusWindowOrOccurrenceMismatches": [],
+      "targetCensusWithoutPositionReceipt": [],
+      "unmeasuredPhysicalTargets": [],
+      "positiveWeightPositionCountsMatch": true,
+      "exactOnePassPreparedTextPositions": true,
+      "routerInternalPositionCoverage": "unmeasured",
+      "learnedSuccess": null
+    }
+  },
+  "retainedPreparedOracle": {
+    "auditImplementationCommit": "01414662998967aef279595ac1aa301b1db6b56c",
+    "rawBytes": 3673211,
+    "rawSha256": "4ca852295774a3a7be1c8c99bb51d2976a55c65a3955bc223e6bd63146664da1",
+    "compressedFile": "retained-old-input-position-oracle.json.gz",
+    "optimizerUpdates": 0,
+    "claim": "Prepared positional truth only; old optimizer checkpoints have no position receipts and remain unmeasured."
+  },
+  "runtimeArchive": {
+    "file": "controlled-runtime-reports.tar.gz",
+    "members": {
+      "complete/checkpoints/SC-000000003-periodic/metadata.json": {
+        "bytes": 1129,
+        "sha256": "210cc2a7013971fe2205e47a888fd7716e266c322d6745a9335642453d5b2c98"
+      },
+      "complete/checkpoints/latest.json": {
+        "bytes": 133,
+        "sha256": "022ecca9cf1482418ede935e49d43ecc016ef43e3481505d63871058fdf808dc"
+      },
+      "complete/config.json": {
+        "bytes": 2573,
+        "sha256": "adef1e9f85f3f9defe71035c820f40359a7098612e6a46e724fa5d74e245884e"
+      },
+      "complete/metrics.jsonl": {
+        "bytes": 26817,
+        "sha256": "6e5b514d142a77d044cdff7a7098a8fafbd21d6ec2ee057f2dc658d620ff1166"
+      },
+      "complete/parameters.json": {
+        "bytes": 77540,
+        "sha256": "009e2d231b186268e93f184f6ec4c0b54243a5f971fb3ef74e3a8eec4d83d1ec"
+      },
+      "complete/runtime.json": {
+        "bytes": 413,
+        "sha256": "bcf555bdb95aac674ee374865d28ef42f74a88025d8bbb01a1915512d153215f"
+      },
+      "complete/tensor-accounting.json": {
+        "bytes": 2214,
+        "sha256": "d12fb73a6bdd2242fe04dd441948bae93e762b7338a254fccae5f16f1cc41a0d"
+      },
+      "earlier-controlled-0141466/position-proof.json": {
+        "bytes": 181454,
+        "sha256": "dad2ce68ef1ce8e4a3699e7b7dba97a4a37000621fdbba6646e1144a69b708fa"
+      },
+      "earlier-controlled-0141466/test.log": {
+        "bytes": 99,
+        "sha256": "a18b61cf6a9ccd00fe9d378de1f98000cc6bfdf666ddc93baa427de2660fce36"
+      },
+      "resume/checkpoints/SC-000000002-periodic/metadata.json": {
+        "bytes": 1129,
+        "sha256": "2ac89c86c2db2e9e2616831f5b6fb2b3898ec09d839e12ae7da84cf30e292c45"
+      },
+      "resume/checkpoints/latest.json": {
+        "bytes": 133,
+        "sha256": "2647a11449024f958380e149f6b54aac2fa7c2d3271a9dae4fd34963f02f8f94"
+      },
+      "resume/config.json": {
+        "bytes": 2573,
+        "sha256": "fb4fdb1f160855e4d1c666e34ebe962fa4ad4eb096ec9ef08830d638ffcacc8f"
+      },
+      "resume/metrics.jsonl": {
+        "bytes": 21969,
+        "sha256": "7bb83d062c83e4eef2be7f97bb1baaf19097eea94b21d465feb246aaab4134a1"
+      },
+      "resume/parameters.json": {
+        "bytes": 77944,
+        "sha256": "9582239303fef9ddff3341f884bc1898a5c97950a4db7ef6b46beb8d89c3d3c8"
+      },
+      "resume/runtime.json": {
+        "bytes": 413,
+        "sha256": "bcf555bdb95aac674ee374865d28ef42f74a88025d8bbb01a1915512d153215f"
+      },
+      "resume/tensor-accounting.json": {
+        "bytes": 2467,
+        "sha256": "2996c809df35a9ba19036981ee11835b75e2977197f289e6e1b58a7ecf2365be"
+      },
+      "transition/checkpoints/SE-000000003-phase-start/metadata.json": {
+        "bytes": 1091,
+        "sha256": "2d01efb9ff0abedd9cd3b69363927a9d95df16c6cb85875faf08516449c13634"
+      },
+      "transition/checkpoints/SE-000000004-periodic/metadata.json": {
+        "bytes": 1129,
+        "sha256": "77cf7bd5198e2a51e00d74f8fdd4921b341c06c3fd21abcd65178ccaeaea1e2a"
+      },
+      "transition/checkpoints/latest.json": {
+        "bytes": 133,
+        "sha256": "1cdc0384f0fd719a53fe680f1c5b2c08ac2fff67d870a1c036a24f672a198974"
+      },
+      "transition/config.json": {
+        "bytes": 2584,
+        "sha256": "7a0d612a9c2e7c8a2c494597b747f6cacd8db9d9548f7877cb0f15a163294f9a"
+      },
+      "transition/metrics.jsonl": {
+        "bytes": 11657,
+        "sha256": "bc5ad74fe9109ad3dba50cd789b4468d48af137838bf05593ef887e7798472b7"
+      },
+      "transition/parameters.json": {
+        "bytes": 77540,
+        "sha256": "009e2d231b186268e93f184f6ec4c0b54243a5f971fb3ef74e3a8eec4d83d1ec"
+      },
+      "transition/runtime.json": {
+        "bytes": 413,
+        "sha256": "bcf555bdb95aac674ee374865d28ef42f74a88025d8bbb01a1915512d153215f"
+      },
+      "transition/tensor-accounting.json": {
+        "bytes": 2214,
+        "sha256": "d12fb73a6bdd2242fe04dd441948bae93e762b7338a254fccae5f16f1cc41a0d"
+      }
+    }
+  },
+  "artifacts": {
+    "README.md": {
+      "bytes": 7870,
+      "sha256": "8f1e326f138a0d4758cfe9492ffe5c5e79fabed4ead8924c473f7f87310cfb2f"
+    },
+    "affected-path-regressions-0141466.log": {
+      "bytes": 180,
+      "sha256": "e0880198aca3bb9dfb7f37d726950e8268930871271a2f86ac2662185199a936"
+    },
+    "controlled-complete-position-proof.json": {
+      "bytes": 412217,
+      "sha256": "12b4bf161e3f6a84ecf527e3c2d81dcf421321bf0516867a70e7bb884f71c3f1"
+    },
+    "controlled-execution-tests.log": {
+      "bytes": 99,
+      "sha256": "576b9ff053a819b0def90a8de13da6e9fd12792a4ae1fe5c9d7ea8f2cd3bdf56"
+    },
+    "controlled-resume-position-proof.json": {
+      "bytes": 235806,
+      "sha256": "05873476a9786fce33ff4a05e495868f16d0d1a47d2f55c59d3974073196d517"
+    },
+    "controlled-runtime-reports.tar.gz": {
+      "bytes": 40323,
+      "sha256": "54c703191b600d7ee23fcea4e22851e343ad97b7bb95c537b9365269da7a0952"
+    },
+    "position-and-lifecycle-controls.log": {
+      "bytes": 113,
+      "sha256": "43571aa278f0c8a507ae012fb8776dd18877969e0ebd3a16fda62a7f88e64eb8"
+    },
+    "recheck-retained-positions.py": {
+      "bytes": 4556,
+      "sha256": "9b8aa77e6d5165f534a28e6af4d86866ec3c972bb07d8951b515195d44aeeba2"
+    },
+    "retained-old-input-position-oracle.json.gz": {
+      "bytes": 224953,
+      "sha256": "4469a0bb4921c91dd094b44eaa0a9ae2e29c98e3b72528bbd896045ae86b89da"
+    },
+    "stricter-position-validation.json": {
+      "bytes": 1605,
+      "sha256": "1c4648b5499f8ec0773615c8f5af3e2de8e313f8a14c75b84dd928db46207ce4"
+    }
+  },
+  "fullSupportPositionQualification": "pending fresh current-contract complete pass; not launched",
+  "routerInternalPositionCoverage": "unmeasured",
+  "learnedSuccess": null,
+  "nativeActualOptimizerImplementation": {
+    "localCommit": "436b129d46cc3c4c4bf97bab3779e93803472656",
+    "publishedCommit": "16b6a989c79d5e4a1910a03ccee73e8817b5a95b",
+    "tree": "598b34ea08a4c940c802ad15e285496a6c689edb",
+    "base": "0066888f733c0d27d7ac7c0e92dc390231575f2e"
+  },
+  "nativeValidationImplementation": {
+    "publishedCommit": "8eae121e86cd0cb2735a5bc4f1e3e82026d738f9",
+    "localCommit": "655ea580de8d15d5a82d00637d82ef81cca1fcee",
+    "tree": "dc1a4e07b555a7889d8e153959a8fb650dcde361",
+    "optimizerUpdatesPerformed": 0
+  },
+  "stricterActualReceiptRecheck": {
+    "schema": "semantic-v8-stricter-position-validation/1",
+    "status": "passed",
+    "auditCommit": "8eae121e86cd0cb2735a5bc4f1e3e82026d738f9",
+    "actualOptimizerCommit": "16b6a989c79d5e4a1910a03ccee73e8817b5a95b",
+    "actualLocalOptimizerCommit": "436b129d46cc3c4c4bf97bab3779e93803472656",
+    "optimizerUpdatesPerformed": 0,
+    "independentPreparedInventoriesRebuilt": 2,
+    "preparedManifestBindingsChecked": 2,
+    "actualPositionStatesValidated": 4,
+    "completePositionComparison": {
+      "independentPreparedPhysicalTargets": 4,
+      "observedPhysicalTargets": 4,
+      "missingPhysicalTargets": [],
+      "unexpectedPhysicalTargets": [],
+      "preparedOracleMismatches": [],
+      "independentOccurrenceMismatches": [],
+      "targetCensusWindowOrOccurrenceMismatches": [],
+      "targetCensusWithoutPositionReceipt": [],
+      "unmeasuredPhysicalTargets": [],
+      "positiveWeightPositionCountsMatch": true,
+      "exactOnePassPreparedTextPositions": true,
+      "routerInternalPositionCoverage": "unmeasured",
+      "learnedSuccess": null
+    },
+    "exactPriorStagePreserved": true,
+    "exactResumeParentPreserved": true,
+    "proofSha256": {
+      "controlled-complete-position-proof.json": "12b4bf161e3f6a84ecf527e3c2d81dcf421321bf0516867a70e7bb884f71c3f1",
+      "controlled-resume-position-proof.json": "05873476a9786fce33ff4a05e495868f16d0d1a47d2f55c59d3974073196d517"
+    },
+    "scope": "Stricter canonical objective validation of unchanged actual fixture receipts, with fresh prepared-record reconstruction; source/tokenizer boundaries remain injected",
+    "routerInternalPositionCoverage": "unmeasured",
+    "learnedSuccess": null
+  }
+}

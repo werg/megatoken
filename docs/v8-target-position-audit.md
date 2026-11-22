@@ -78,8 +78,8 @@ audit does not establish that exposure or learned semantic quality.
   shifted prepared-plan/execution mask whose counts and repeated token labels
   still agree, and a duplicated target that both older accounting paths repeat.
 - The dedicated full qualification driver requires the independent comparison;
-  historical target-only evidence cannot satisfy it. An initial bounded complete
-  four-target fixture run passed on the frozen implementation preceding the
-  archived-stage addition. The same actual run and explicit stage transition
-  will be checked together after the updated source is frozen. No new full
-  348-update run has been launched for this audit yet.
+  historical target-only evidence cannot satisfy it. The frozen implementation
+  passed a complete four-target actual fixture run, then an actual explicit stage
+  transition; separate fresh-process resume evidence correctly remains a partial
+  three-of-four-target subset. See [retained bounded evidence](evidence/v8-target-positions-2026-11-22/README.md).
+  No new full 348-update run has been launched for this audit yet.
