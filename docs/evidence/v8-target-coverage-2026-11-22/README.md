@@ -29,3 +29,21 @@ It now skips steps without loss plans, exactly as the optimizer exposure collect
 does, retaining strict record/plan pairing whenever a loss plan exists. The complete
 local failure is retained as `observation-only-inventory-failure.log`; no optimizer
 work had started in that attempt either.
+
+The full training split contains 348 ordinary windows across 48 sources. A direct
+measurement found adjacent windows from one immutable source each spent about
+2.5 seconds repeating complete native admission. The model now keeps at most eight
+complete input-admission results, keyed by the full immutable episode value, codec
+instance and fingerprint, exact registry/policy bytes, geometry and expected split.
+Every window still rereads the registry and builds its own model/target/loss plans.
+No activations, weights or decoded model state are reused. A fresh model/resume has
+no admission cache. Nonstandard episode or codec objects continue to validate on
+every call. Changed source proofs, physical bytes, registry, policy, geometry and
+split all refuse after a positive cached admission; another codec instance performs
+fresh native admission even when its fingerprint matches.
+
+All 53 focused inventory/census/admission/policy controls passed locally with the
+pinned tokenizer and zero skips. Complete local logs and JUnit cases are retained.
+The initial control test changed payload length without updating its byte span;
+that test-construction failure is retained separately and corrected to change bytes
+at the same length, so the cache-refusal check reaches actual admission.

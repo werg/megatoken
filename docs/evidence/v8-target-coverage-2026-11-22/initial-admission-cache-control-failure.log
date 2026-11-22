@@ -1,0 +1,84 @@
+..F..................................................                    [100%]
+=================================== FAILURES ===================================
+_ test_changed_admission_inputs_never_hit_an_existing_positive_entry[physical-record] _
+
+admitted = (Episode(episode_id='semantic:v8:b704bd98130eb8fe86434206', records=(PhysicalRecord(record_id='aa928e6fa7bcfeac7ae3bf7...antic-region-family-components/1', 'traceFormat': 'semantic-trace/8', 'coreSchema': 'semantic-algorithm/2', ...}}, [1])
+changed = 'physical-record'
+
+    @pytest.mark.parametrize(
+        "changed", ["source-proof", "physical-record", "registry", "policy", "geometry", "split"]
+    )
+    def test_changed_admission_inputs_never_hit_an_existing_positive_entry(admitted, changed):
+        episode, options, _ = admitted
+        cache = SemanticV8EpisodeAdmissionCache()
+        cache.validate(episode, **options)
+        replacement = episode
+        changed_options = dict(options)
+        if changed == "source-proof":
+            annotations = json.loads(episode.supervision.annotations_json)
+            annotations["semantic_execution"]["sourceAdmission"]["sourceIdentityDigest"] = "0" * 64
+            replacement = replace(
+                episode,
+                supervision=replace(episode.supervision, annotations_json=json.dumps(annotations)),
+            )
+        elif changed == "physical-record":
+            records = list(episode.records)
+>           records[0] = replace(records[0], payload=records[0].payload + b" ")
+                         ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+tests/test_semantic_v8_admission_cache.py:69: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+/opt/codex/runtimes/codex-primary-runtime/dependencies/python/lib/python3.12/dataclasses.py:1588: in replace
+    return obj.__class__(**changes)
+           ^^^^^^^^^^^^^^^^^^^^^^^^
+<string>:31: in __init__
+    ???
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+
+self = PhysicalRecord(record_id='aa928e6fa7bcfeac7ae3bf7ab532d29a0b93b39a9c984dd813db607a5ae949d6', role='user', payload=b'{"..._chunk_split=False, chunk_context=('text:paragraph', 'text:sentence'), chunk_languages=('text',), chunk_diagnostics=())
+
+    def __post_init__(self) -> None:
+        if self.role not in ROLE_TO_ID:
+            raise ValueError(f"Unknown record role: {self.role}")
+        if self.provenance not in {
+            "natural",
+            "teacher",
+            "student",
+            "executed",
+            "simulated",
+            "unknown",
+        }:
+            raise ValueError(f"Unknown provenance: {self.provenance}")
+        if not self.record_id or not isinstance(self.payload, bytes):
+            raise TypeError("Records need an identity and immutable payload bytes")
+        if self.edit_continuation not in ("", "recorded", "student"):
+            raise ValueError("Edit continuations must identify actual recorded/student source")
+        if self.base_artifact_version and not self.artifact_version:
+            raise ValueError("An edited record needs its new artifact version")
+        if self.turn_index < 0 or not 0 <= self.part_index < self.part_count:
+            raise ValueError("Invalid turn/physical part index")
+        if (self.chunk_boundary is None) != (self.chunking_fingerprint is None):
+            raise ValueError("Semantic records require both boundary and chunking identity")
+        for name in ("chunk_context", "chunk_languages", "chunk_diagnostics"):
+            values = getattr(self, name)
+            if not isinstance(values, tuple) or any(not isinstance(item, str) for item in values):
+                raise TypeError(f"{name} must be an immutable tuple of strings")
+        if self.policy_mask and self.role not in {"assistant", "document"}:
+            raise ValueError("Only assistant/document emission can carry policy loss")
+        if self.action_id and (self.role != "assistant" or self.result_of):
+            raise ValueError("A tool action must be assistant-owned and cannot also be its result")
+        if self.result_of and self.role not in {"tool", "environment"}:
+            raise ValueError("A result must be an environmental record")
+        # A feature descriptor's span locates the original source bytes it encodes.
+        if (
+            self.source_span
+            and self.media_type != MEDIA_RECORD_TYPE
+            and self.source_span.end - self.source_span.start != len(self.payload)
+        ):
+>           raise ValueError("Source span length differs from physical byte length")
+E           ValueError: Source span length differs from physical byte length
+
+src/megatoken/data/schema.py:442: ValueError
+=========================== short test summary info ============================
+FAILED tests/test_semantic_v8_admission_cache.py::test_changed_admission_inputs_never_hit_an_existing_positive_entry[physical-record]
+1 failed, 52 passed in 18.84s

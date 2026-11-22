@@ -162,7 +162,7 @@ def prepare_batches(
                 max_positions=model.config.max_capacity,
             )
         elif semantic_version == "semantic-execution/8":
-            from .semantic_v8 import validate_semantic_episode_v8
+            from .semantic_v8 import SemanticV8EpisodeAdmissionCache
 
             if config.semantic_experiment is not None or config.semantic_v7_policy is not None:
                 raise ValueError("V8 data cannot use an older semantic training contract")
@@ -177,7 +177,11 @@ def prepare_batches(
             if registry_path is None:
                 raise ValueError("V8 training root lost its frozen source-family registry")
             registry = json.loads(registry_path.read_text())
-            validate_semantic_episode_v8(
+            cache = getattr(model, "_semantic_v8_episode_admission_cache", None)
+            if cache is None:
+                cache = SemanticV8EpisodeAdmissionCache()
+                model._semantic_v8_episode_admission_cache = cache
+            cache.validate(
                 episode,
                 codec=model.codec,
                 policy=config.semantic_v8_policy,
