@@ -776,7 +776,12 @@ def qualify_launch(
             existing = existing.parent
         if not existing.is_dir() or not os.access(existing, os.W_OK | os.X_OK):
             raise ValueError("Training output has no writable parent directory")
-        for root in [*config.datasets, *(config.engram_imports or []), config.hindsight_targets]:
+        for root in [
+            config.codec,
+            *config.datasets,
+            *(config.engram_imports or []),
+            config.hindsight_targets,
+        ]:
             asset = Path(root).resolve()
             if target == asset or asset in target.parents or target in asset.parents:
                 raise ValueError("Training output overlaps immutable input assets")

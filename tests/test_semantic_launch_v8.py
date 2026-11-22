@@ -279,6 +279,36 @@ print(json.dumps(report))
     assert digest == content_hash(report)
 
 
+@pytest.mark.parametrize("overlap", ["same", "child", "parent", "symlink-child"])
+def test_launch_output_cannot_overlap_raw_tokenizer_asset(tmp_path, overlap):
+    value, _ = production_config(tmp_path)
+    codec = tmp_path / "immutable-tokenizer"
+    codec.mkdir()
+    value["codec"] = str(codec)
+    if overlap == "same":
+        output = codec
+    elif overlap == "child":
+        output = codec / "runs" / "training"
+    elif overlap == "parent":
+        output = tmp_path
+    else:
+        alias = tmp_path / "tokenizer-alias"
+        alias.symlink_to(codec, target_is_directory=True)
+        output = alias / "training"
+    value["output"] = str(output)
+    config_path = tmp_path / f"launch-{overlap}.yaml"
+    config_path.write_text(yaml.safe_dump(value))
+
+    report = qualify_launch(config_path, repositories={}, require_cuda=False)
+
+    gate = report["gates"]["outputLocation"]
+    assert gate["status"] == "blocked"
+    assert gate["reason"] == "Training output overlaps immutable input assets"
+    assert report["optimizerSteps"] == 0 and report["learnerStarted"] is False
+    if overlap == "child":
+        assert not output.exists()
+
+
 def test_actual_two_split_supply_derives_the_ordinary_stream_without_writes(two_split_supply):
     from megatoken.data.recipes import stage_recipe
     from megatoken.training.stream import MixtureWindowStream
