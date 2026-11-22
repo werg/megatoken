@@ -1,12 +1,15 @@
 """Exact positive-loss inventory and optimizer target-presence comparison controls."""
 
+import json
 from copy import deepcopy
+from types import SimpleNamespace
 
 import pytest
 
 from megatoken.data.semantic_json import stable_algorithm_hash
 from megatoken.training.target_inventory_v8 import (
     compare_target_inventory,
+    inventory_episode_source_id,
     validate_target_inventory,
 )
 
@@ -15,6 +18,57 @@ MANIFEST = "b" * 64
 CODEC = "c" * 64
 TRAINING = "d" * 64
 MODEL = "e" * 64
+
+
+def _prepared_episode(*, source="source-a", split="train", binding_changes=None):
+    binding = {"sourceId": source, "registryDigest": REGISTRY, "split": split}
+    binding.update(binding_changes or {})
+    return SimpleNamespace(
+        stream="semantic_execution",
+        lineage=SimpleNamespace(source_id="semantic-execution-v8", frozen_split=split),
+        supervision=SimpleNamespace(
+            annotations_json=json.dumps(
+                {
+                    "semantic_execution": {
+                        "schema": "semantic-execution/8",
+                        "sourceId": source,
+                        "datasetBinding": binding,
+                    }
+                }
+            )
+        ),
+    )
+
+
+def test_inventory_uses_distinct_bound_program_ids_despite_shared_adapter_lineage():
+    episodes = [_prepared_episode(source=name) for name in ("source-a", "source-b")]
+    assert {episode.lineage.source_id for episode in episodes} == {"semantic-execution-v8"}
+    assert [
+        inventory_episode_source_id(episode, registry_digest=REGISTRY) for episode in episodes
+    ] == [
+        "source-a",
+        "source-b",
+    ]
+
+
+@pytest.mark.parametrize(
+    "binding_changes",
+    [{"sourceId": "other-source"}, {"registryDigest": "f" * 64}, {"split": "validation"}],
+)
+def test_inventory_rejects_annotation_and_dataset_binding_disagreement(binding_changes):
+    with pytest.raises(ValueError, match="changed V8 source or split binding"):
+        inventory_episode_source_id(
+            _prepared_episode(binding_changes=binding_changes), registry_digest=REGISTRY
+        )
+
+
+def test_inventory_never_promotes_validation_episode_or_falls_back_to_adapter_lineage():
+    with pytest.raises(ValueError, match="changed V8 source or split binding"):
+        inventory_episode_source_id(_prepared_episode(split="validation"), registry_digest=REGISTRY)
+    episode = _prepared_episode()
+    episode.supervision.annotations_json = "{}"
+    with pytest.raises(ValueError, match="no bound V8 source identity"):
+        inventory_episode_source_id(episode, registry_digest=REGISTRY)
 
 
 def _inventory():

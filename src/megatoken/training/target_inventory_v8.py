@@ -2,7 +2,38 @@
 
 from __future__ import annotations
 
+import json
+
 from megatoken.data.semantic_json import stable_algorithm_hash
+
+
+def inventory_episode_source_id(episode, *, registry_digest):
+    """Read the source binding already verified by the complete V8 preflight.
+
+    ``lineage.source_id`` names the prepared-data adapter, not a source program.
+    The optimizer census uses the annotation's source ID and dataset binding;
+    inventory must use that same identity even for windows with no scored work.
+    """
+    try:
+        annotations = json.loads(episode.supervision.annotations_json)
+        semantic = annotations["semantic_execution"]
+        source_id = semantic["sourceId"]
+        binding = semantic["datasetBinding"]
+    except (KeyError, TypeError, json.JSONDecodeError) as error:
+        raise ValueError("Prepared inventory episode has no bound V8 source identity") from error
+    if (
+        episode.stream != "semantic_execution"
+        or semantic.get("schema") != "semantic-execution/8"
+        or not isinstance(source_id, str)
+        or not source_id
+        or not isinstance(binding, dict)
+        or binding.get("sourceId") != source_id
+        or binding.get("registryDigest") != registry_digest
+        or binding.get("split") != "train"
+        or episode.lineage.frozen_split != "train"
+    ):
+        raise ValueError("Prepared inventory episode has a changed V8 source or split binding")
+    return source_id
 
 
 def validate_target_inventory(

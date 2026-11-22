@@ -2,7 +2,7 @@ name: Native durable request and optimizer inventory controls
 
 on:
   push:
-    branches: [codex/v8-recovery-inventory-validation-20261122]
+    branches: [codex/v8-recovery-inventory-validation-20261122, codex/v8-target-coverage-completion-20261122]
 
 permissions:
   contents: read

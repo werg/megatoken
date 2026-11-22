@@ -26,6 +26,7 @@ from megatoken.training.semantic_v8 import (
     semantic_v8_target_step_summary,
 )
 from megatoken.training.stream import EpisodeWindow
+from megatoken.training.target_inventory_v8 import inventory_episode_source_id
 
 
 def require(condition: bool, message: str) -> None:
@@ -173,7 +174,7 @@ def target_inventory(config_source, expected_source_ids_source=None):
         )
         for index in range(len(corpus)):
             episode, assets = corpus.fetch(index)
-            source_id = episode.lineage.source_id
+            source_id = inventory_episode_source_id(episode, registry_digest=registry_digest)
             require(
                 source_id in expected_train_ids,
                 "Prepared training episode is outside the frozen train source inventory",
