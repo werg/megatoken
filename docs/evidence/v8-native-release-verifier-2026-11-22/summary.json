@@ -1,0 +1,62 @@
+{
+  "schema": "semantic-v8-native-release-verifier-controls/1",
+  "sourceRemoteRevision": "9150a11c9a0741bf63bbed335c343dc67ad2a23f",
+  "sourceLocalRevision": "fa5bb6f47ba742182369bf36dbb11b9d7c679dcd",
+  "sourceTree": "93ae12b9c73b8be5e9352dbc47d52418c2ac9ea2",
+  "baseRevision": "7741c003c8887da0000f7912ab6d6cdbee9ec3a1",
+  "status": "focused-controls-passed",
+  "attempts": [
+    {
+      "name": "pytest",
+      "errors": "0",
+      "failures": "4",
+      "skipped": "0",
+      "tests": "41",
+      "time": "9.523",
+      "timestamp": "2026-11-22T16:13:04.791539+01:00",
+      "hostname": "07bf85b14210",
+      "actualControlledTrainingUpdates": 1,
+      "frozenSourceQualification": false
+    },
+    {
+      "name": "pytest",
+      "errors": "0",
+      "failures": "1",
+      "skipped": "0",
+      "tests": "41",
+      "time": "8.112",
+      "timestamp": "2026-11-22T16:15:36.967643+01:00",
+      "hostname": "07bf85b14210",
+      "actualControlledTrainingUpdates": 1,
+      "frozenSourceQualification": false
+    },
+    {
+      "name": "pytest",
+      "errors": "0",
+      "failures": "0",
+      "skipped": "0",
+      "tests": "42",
+      "time": "10.456",
+      "timestamp": "2026-11-22T16:18:05.321371+01:00",
+      "hostname": "07bf85b14210",
+      "actualControlledTrainingUpdates": 1,
+      "frozenSourceQualification": true
+    }
+  ],
+  "finalDistinctCases": 42,
+  "finalFailures": 0,
+  "finalErrors": 0,
+  "finalSkips": 0,
+  "finalControlledOptimizerUpdates": 1,
+  "allDevelopmentAttemptsControlledOptimizerUpdates": 3,
+  "productionTokenizerQualification": false,
+  "freshProducerSourceReplay": false,
+  "fullPairedReleaseQualification": false,
+  "scope": "Strict descriptor/path/configuration and actual prepared-index/token/mask comparator controls plus real controlled checkpoint/export loading and resealed model/bank refusal. Source and byte-codec admission are explicit fixtures. No learned/default/recovery claim.",
+  "lessons": [
+    "Episode dataclasses contain tuples; normalize into standard JSON arrays without dropping any fields before semantic sealing.",
+    "Transducer loading intentionally increments cache invalidation version. Compare raw export exactly to the checkpoint-loaded snapshot, then require exactly one additional increment after ServedBundle loading.",
+    "Malformed policy-mask edits can be refused earlier by episode dependency validation; the final rehashed label/mask controls mutate valid cached labels or lexical free spans and reach the independent comparison."
+  ],
+  "laterCompositionRequired": "Corrected bootstrap/terminal/recovery source and direct producer package/restore must be composed and frozen before new genuine paired assets; the standalone7741-based verifier cannot qualify those later changes."
+}

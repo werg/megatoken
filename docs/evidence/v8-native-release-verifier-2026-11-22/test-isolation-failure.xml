@@ -1,0 +1,67 @@
+<?xml version="1.0" encoding="utf-8"?><testsuites name="pytest tests"><testsuite name="pytest" errors="0" failures="1" skipped="0" tests="55" time="8.280" timestamp="2026-11-22T16:46:25.295130+01:00" hostname="07bf85b14210"><testcase classname="tests.test_semantic_v8_release_verifier" name="test_release_descriptor_and_hidden_member_inventory" time="0.005" /><testcase classname="tests.test_semantic_v8_release_verifier" name="test_release_paths_refuse_escapes_and_aliases[]" time="0.001" /><testcase classname="tests.test_semantic_v8_release_verifier" name="test_release_paths_refuse_escapes_and_aliases[.]" time="0.000" /><testcase classname="tests.test_semantic_v8_release_verifier" name="test_release_paths_refuse_escapes_and_aliases[..]" time="0.000" /><testcase classname="tests.test_semantic_v8_release_verifier" name="test_release_paths_refuse_escapes_and_aliases[../outside]" time="0.000" /><testcase classname="tests.test_semantic_v8_release_verifier" name="test_release_paths_refuse_escapes_and_aliases[/absolute]" time="0.000" /><testcase classname="tests.test_semantic_v8_release_verifier" name="test_release_paths_refuse_escapes_and_aliases[x/../y]" time="0.000" /><testcase classname="tests.test_semantic_v8_release_verifier" name="test_release_paths_refuse_escapes_and_aliases[x/./y]" time="0.000" /><testcase classname="tests.test_semantic_v8_release_verifier" name="test_release_paths_refuse_escapes_and_aliases[x//y]" time="0.000" /><testcase classname="tests.test_semantic_v8_release_verifier" name="test_release_paths_refuse_escapes_and_aliases[x/]" time="0.000" /><testcase classname="tests.test_semantic_v8_release_verifier" name="test_release_paths_refuse_escapes_and_aliases[x\\y]" time="0.000" /><testcase classname="tests.test_semantic_v8_release_verifier" name="test_release_paths_refuse_escapes_and_aliases[C:x]" time="0.000" /><testcase classname="tests.test_semantic_v8_release_verifier" name="test_release_paths_refuse_escapes_and_aliases[x\x00y]" time="0.000" /><testcase classname="tests.test_semantic_v8_release_verifier" name="test_release_symlinks_refused_in_role_tree_and_ancestors" time="0.003" /><testcase classname="tests.test_semantic_v8_release_verifier" name="test_release_descriptor_refuses_ambiguous_membership[field]" time="0.001" /><testcase classname="tests.test_semantic_v8_release_verifier" name="test_release_descriptor_refuses_ambiguous_membership[contract]" time="0.001" /><testcase classname="tests.test_semantic_v8_release_verifier" name="test_release_descriptor_refuses_ambiguous_membership[two-roots]" time="0.001" /><testcase classname="tests.test_semantic_v8_release_verifier" name="test_release_descriptor_refuses_ambiguous_membership[duplicate-case]" time="0.002" /><testcase classname="tests.test_semantic_v8_release_verifier" name="test_release_descriptor_refuses_ambiguous_membership[outside-source]" time="0.002" /><testcase classname="tests.test_semantic_v8_release_verifier" name="test_release_descriptor_refuses_ambiguous_membership[nested-role]" time="0.002" /><testcase classname="tests.test_semantic_v8_release_verifier" name="test_release_recipe_refuses_unbound_assets_and_routes[codec-../tokenizer.json]" time="0.002" /><testcase classname="tests.test_semantic_v8_release_verifier" name="test_release_recipe_refuses_unbound_assets_and_routes[datasets-value1]" time="0.002" /><testcase classname="tests.test_semantic_v8_release_verifier" name="test_release_recipe_refuses_unbound_assets_and_routes[model-external-model.json]" time="0.002" /><testcase classname="tests.test_semantic_v8_release_verifier" name="test_release_recipe_refuses_unbound_assets_and_routes[packs-external-packs.json]" time="0.002" /><testcase classname="tests.test_semantic_v8_release_verifier" name="test_release_recipe_refuses_unbound_assets_and_routes[text_anchors-external-anchors.jsonl]" time="0.002" /><testcase classname="tests.test_semantic_v8_release_verifier" name="test_release_recipe_refuses_unbound_assets_and_routes[hindsight_targets-external-hindsight.jsonl]" time="0.002" /><testcase classname="tests.test_semantic_v8_release_verifier" name="test_release_recipe_refuses_unbound_assets_and_routes[engram_import-external-donor]" time="0.002" /><testcase classname="tests.test_semantic_v8_release_verifier" name="test_release_recipe_refuses_unbound_assets_and_routes[engram_imports-value7]" time="0.002" /><testcase classname="tests.test_semantic_v8_release_verifier" name="test_release_recipe_refuses_unbound_assets_and_routes[use_stage_mixture-True]" time="0.002" /><testcase classname="tests.test_semantic_v8_release_verifier" name="test_release_recipe_refuses_unbound_assets_and_routes[use_effort_mixture-True]" time="0.001" /><testcase classname="tests.test_semantic_v8_release_verifier" name="test_release_recipe_preserves_physical_provenance_and_binds_only_declared_inputs" time="0.002" /><testcase classname="tests.test_semantic_v8_release_verifier" name="test_release_source_membership_rejects_two_cases_for_one_physical_source" time="0.002" /><testcase classname="tests.test_semantic_v8_release_verifier" name="test_release_strict_json_refuses_duplicate_keys_and_nonfinite_numbers" time="0.001" /><testcase classname="tests.test_semantic_v8_release_verifier" name="test_native_json_comparison_preserves_scalar_types[False-0]" time="0.000" /><testcase classname="tests.test_semantic_v8_release_verifier" name="test_native_json_comparison_preserves_scalar_types[True-1]" time="0.001" /><testcase classname="tests.test_semantic_v8_release_verifier" name="test_native_json_comparison_preserves_scalar_types[1-1.0]" time="0.001" /><testcase classname="tests.test_semantic_v8_release_verifier" name="test_native_json_comparison_preserves_scalar_types[left3-right3]" time="0.000" /><testcase classname="tests.test_semantic_v8_release_verifier" name="test_checkpoint_companion_metadata_is_strict_and_never_resolves_pointers[duplicate]" time="0.002" /><testcase classname="tests.test_semantic_v8_release_verifier" name="test_checkpoint_companion_metadata_is_strict_and_never_resolves_pointers[nonfinite]" time="0.002" /><testcase classname="tests.test_semantic_v8_release_verifier" name="test_checkpoint_companion_metadata_is_strict_and_never_resolves_pointers[latest-root]" time="0.001" /><testcase classname="tests.test_semantic_v8_release_verifier" name="test_checkpoint_companion_metadata_is_strict_and_never_resolves_pointers[latest-marker]" time="0.001" /><testcase classname="tests.test_semantic_v8_release_verifier" name="test_checkpoint_companion_metadata_is_strict_and_never_resolves_pointers[symlink-attachment]" time="0.001" /><testcase classname="tests.test_semantic_v8_release_verifier" name="test_served_companion_json_refuses_duplicate_fields_before_loading[manifest.json]" time="0.036" /><testcase classname="tests.test_semantic_v8_release_verifier" name="test_served_companion_json_refuses_duplicate_fields_before_loading[model_config.json]" time="0.002" /><testcase classname="tests.test_semantic_v8_release_verifier" name="test_served_companion_json_refuses_duplicate_fields_before_loading[semantic-v8-lineage.json]" time="0.001" /><testcase classname="tests.test_semantic_v8_release_verifier" name="test_reprepared_semantics_compare_every_physical_field_and_index_scope" time="0.789" /><testcase classname="tests.test_semantic_v8_release_verifier" name="test_resealed_prepared_label_change_is_not_hidden_by_valid_file_hashes[cached-label]" time="0.340" /><testcase classname="tests.test_semantic_v8_release_verifier" name="test_resealed_prepared_label_change_is_not_hidden_by_valid_file_hashes[free-mask]" time="0.323" /><testcase classname="tests.test_semantic_v8_release_verifier" name="test_actual_loaded_state_comparison_rejects_plausible_forgery[value]" time="0.003" /><testcase classname="tests.test_semantic_v8_release_verifier" name="test_actual_loaded_state_comparison_rejects_plausible_forgery[dtype]" time="0.001" /><testcase classname="tests.test_semantic_v8_release_verifier" name="test_actual_loaded_state_comparison_rejects_plausible_forgery[shape]" time="0.001" /><testcase classname="tests.test_semantic_v8_release_verifier" name="test_actual_loaded_state_comparison_rejects_plausible_forgery[key]" time="0.000" /><testcase classname="tests.test_semantic_v8_release_verifier" name="test_actual_loaded_state_comparison_rejects_plausible_forgery[scalar-type]" time="0.001" /><testcase classname="tests.test_semantic_v8_release_verifier" name="test_checkpoint_refusal_never_repairs_or_moves_input_files" time="0.005" /><testcase classname="tests.test_semantic_v8_release_verifier" name="test_real_controlled_checkpoint_export_and_resealed_weight_refusal" time="6.534"><failure message="AssertionError: Ambiguous JSON must fail before model or checkpoint loading">tmp_path = PosixPath('/workspace/scratch/05d92519587f/archive-test-tmp/pytest-of-agent/pytest-6/test_real_controlled_checkpoin0')
+monkeypatch = &lt;_pytest.monkeypatch.MonkeyPatch object at 0x7ff3cfc4bb00&gt;
+
+    def test_real_controlled_checkpoint_export_and_resealed_weight_refusal(tmp_path, monkeypatch):
+        """One real optimizer update; fixture source/byte codec are explicitly injected.
+    
+        This exercises real checkpoint, cursor, position history, tensor export and
+        ServedBundle loading. It does not qualify a production tokenizer, source
+        replay, the complete release descriptor or the active paired repositories.
+        """
+        from safetensors.torch import load_file, save_file
+    
+        import megatoken.training.semantic_v8 as semantic_v8
+        from megatoken.generation.codec import ByteCodec
+        from megatoken.loading import load_model_config
+        from megatoken.served import export_served
+        from megatoken.training.engine import train
+    
+        torch.set_num_threads(1)
+        _, codec, policy, prepared = prepared_v8_fixture(tmp_path)
+        tokenizer = tmp_path / "tokenizer.fixture"
+        tokenizer.write_bytes(b"explicit controlled release byte codec\n")
+    
+        def fixture_codec(path, *, vocab_size):
+            assert type(vocab_size) is int and vocab_size == codec.vocab_size
+            assert Path(path).read_bytes() == tokenizer.read_bytes()
+            return ByteCodec.byte_fallback()
+    
+        monkeypatch.setattr(semantic_v8, "load_semantic_v8_codec", fixture_codec)
+        config = TrainConfig(
+            purpose="diagnostic",
+            phase="SC",
+            model="tiny",
+            codec=str(tokenizer),
+            datasets=[str(prepared)],
+            output=str(tmp_path / "fit"),
+            device="cpu",
+            precision="fp32",
+            max_steps=1,
+            checkpoint_every=1,
+            keep_checkpoints=1,
+            microbatch_episodes=1,
+            accumulate_scored=1,
+            accumulate_ingested=1,
+            max_accumulation_windows=1,
+            allow_unverified_data=True,
+            semantic_v8_policy=policy,
+        )
+        result = train(config)
+        served = tmp_path / "served"
+&gt;       export_served(result["checkpoint"], served, codec_path=str(tokenizer))
+
+tests/test_semantic_v8_release_verifier.py:416: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+src/megatoken/served.py:35: in export_served
+    trained = load_trained(checkpoint, codec_path=codec_path, packs=packs)
+              ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+
+args = ('/workspace/scratch/05d92519587f/archive-test-tmp/pytest-of-agent/pytest-6/test_real_controlled_checkpoin0/fit/checkpoints/SC-000000001-periodic',)
+kwargs = {'codec_path': '/workspace/scratch/05d92519587f/archive-test-tmp/pytest-of-agent/pytest-6/test_real_controlled_checkpoin0/tokenizer.fixture', 'packs': None}
+
+    def forbidden_load(*args, **kwargs):
+&gt;       raise AssertionError("Ambiguous JSON must fail before model or checkpoint loading")
+E       AssertionError: Ambiguous JSON must fail before model or checkpoint loading
+
+tests/test_semantic_v8_release_verifier.py:268: AssertionError</failure></testcase></testsuite></testsuites>

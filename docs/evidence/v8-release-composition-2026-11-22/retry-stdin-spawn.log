@@ -1,0 +1,117 @@
+...............F........................................................ [ 69%]
+...............................                                          [100%]
+=================================== FAILURES ===================================
+_________ test_v8_diloco_initialize_handshake_export_and_served_reload _________
+
+tmp_path = PosixPath('/workspace/scratch/05d92519587f/native-release-composition-retry-tmp/test_v8_diloco_initialize_hand0')
+monkeypatch = <_pytest.monkeypatch.MonkeyPatch object at 0x7fb59cd55220>
+
+    def test_v8_diloco_initialize_handshake_export_and_served_reload(tmp_path, monkeypatch):
+        """Use pinned tokenizer bytes with explicit source-verifier fixture boundaries."""
+        from argparse import Namespace
+        from dataclasses import asdict
+    
+        from megatoken.cli import _diloco_initialize
+        from megatoken.data import PreparedCorpus
+        from megatoken.generation.codec import LING_VOCAB_SIZE
+        from megatoken.io import content_hash
+        from megatoken.loading import build_model, load_model_config
+        from megatoken.served import ServedBundle, export_served
+        from megatoken.training.checkpoint import load_checkpoint
+        from megatoken.training.config import DecoupledConfig, TrainConfig
+        from megatoken.training.diloco_client import DecoupledWorker
+        from megatoken.training.diloco_export import export_coordinator
+        from megatoken.training.diloco_protocol import training_identity
+        from megatoken.training.diloco_server import serve_coordinator
+        from megatoken.training.semantic_v8 import load_semantic_v8_codec
+    
+        torch.set_num_threads(1)
+        tokenizer = pinned_tokenizer_path()
+        if not tokenizer.exists():
+            pytest.skip("The separately provisioned pinned tokenizer is unavailable")
+        codec = load_semantic_v8_codec(tokenizer, vocab_size=LING_VOCAB_SIZE)
+        _, _, policy, prepared = prepared_v8_fixture(tmp_path, codec=codec)
+        with socket.socket() as sock:
+            sock.bind(("127.0.0.1", 0))
+            port = sock.getsockname()[1]
+        settings = DecoupledConfig(
+            coordinator_url=f"http://127.0.0.1:{port}",
+            allow_private_http=True,
+            workers=1,
+            worker_id=0,
+            run_id="semantic-v8-lifecycle",
+            local_steps=1,
+            io_workers=1,
+            timeout_seconds=3,
+        )
+        token = "test-semantic-v8-diloco-token-" + "a" * 32
+        monkeypatch.setenv("MEGATOKEN_DILOCO_TOKEN", token)
+        config = TrainConfig(
+            purpose="diagnostic",
+            phase="SC",
+            model="tiny",
+            codec=str(tokenizer),
+            model_overrides={"vocab_size": LING_VOCAB_SIZE},
+            datasets=[str(prepared)],
+            output=str(tmp_path / "worker-output"),
+            device="cpu",
+            max_steps=1,
+            allow_unverified_data=True,
+            semantic_v8_policy=policy,
+            decoupled=settings,
+        )
+        config_path = tmp_path / "diloco-v8.json"
+        config_path.write_text(json.dumps(asdict(config)))
+        coordinator_root = tmp_path / "coordinator"
+        _diloco_initialize(
+            Namespace(
+                config=str(config_path),
+                root=str(coordinator_root),
+                resume=None,
+                quorum=1,
+                fragment_mib=1,
+                outer_lr=0.7,
+                outer_momentum=0.9,
+                grace_seconds=0.0,
+                max_staleness=2,
+            )
+        )
+        manifest = json.loads((coordinator_root / "manifest.json").read_text())
+        assert manifest["semantic_v8_policy"] == policy
+        assert (
+            manifest["semantic_v8_lineage"]["preparedCorpusDigest"] == manifest["dataset_fingerprint"]
+        )
+        assert manifest["semantic_v8_lineage"]["streamDigest"] != manifest["dataset_fingerprint"]
+    
+        server = multiprocessing.get_context("spawn").Process(
+            target=serve_coordinator, args=(str(coordinator_root), "127.0.0.1", port, token)
+        )
+        server.start()
+        worker = None
+        try:
+            deadline = time.monotonic() + 30
+            while time.monotonic() < deadline:
+                if not server.is_alive():
+>                   raise AssertionError(f"Coordinator exited during startup: {server.exitcode}")
+E                   AssertionError: Coordinator exited during startup: 1
+
+tests/test_semantic_v8_training_lifecycle.py:347: AssertionError
+----------------------------- Captured stderr call -----------------------------
+Traceback (most recent call last):
+  File "<string>", line 1, in <module>
+  File "/opt/codex/runtimes/codex-primary-runtime/dependencies/python/lib/python3.12/multiprocessing/spawn.py", line 122, in spawn_main
+    exitcode = _main(fd, parent_sentinel)
+               ^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/opt/codex/runtimes/codex-primary-runtime/dependencies/python/lib/python3.12/multiprocessing/spawn.py", line 131, in _main
+    prepare(preparation_data)
+  File "/opt/codex/runtimes/codex-primary-runtime/dependencies/python/lib/python3.12/multiprocessing/spawn.py", line 246, in prepare
+    _fixup_main_from_path(data['init_main_from_path'])
+  File "/opt/codex/runtimes/codex-primary-runtime/dependencies/python/lib/python3.12/multiprocessing/spawn.py", line 297, in _fixup_main_from_path
+    main_content = runpy.run_path(main_path,
+                   ^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "<frozen runpy>", line 286, in run_path
+  File "<frozen runpy>", line 254, in _get_code_from_file
+FileNotFoundError: [Errno 2] No such file or directory: '/workspace/scratch/05d92519587f/native-v8-release-composition-qualification/<stdin>'
+=========================== short test summary info ============================
+FAILED tests/test_semantic_v8_training_lifecycle.py::test_v8_diloco_initialize_handshake_export_and_served_reload
+1 failed, 102 passed in 93.97s (0:01:33)

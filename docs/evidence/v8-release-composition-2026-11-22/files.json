@@ -1,0 +1,135 @@
+{
+  "schema": "semantic-v8-evidence-files/1",
+  "files": [
+    {
+      "path": "README.md",
+      "bytes": 6095,
+      "sha256": "891ee3c94b1849bc823fd2373e22e340e5d8a254870fec77acef3131d69d82e1"
+    },
+    {
+      "path": "composition-source-map-before-order-fix.json",
+      "bytes": 26290,
+      "sha256": "b91f7006990630a7bb379b57efb225ccf332848f3fc306cd376a63ff18818035"
+    },
+    {
+      "path": "composition-source-map.json",
+      "bytes": 21556,
+      "sha256": "0d7a084351290354189149b87a0a111c7a61f6d54e07f9e06d19dcce25f6a4a7"
+    },
+    {
+      "path": "final-source-collection.log",
+      "bytes": 46727,
+      "sha256": "e691197e697ed6713b5bfc525e7fe7919fb873984bcf1b62df35047216fbb790"
+    },
+    {
+      "path": "neutral-imports.json",
+      "bytes": 367,
+      "sha256": "62910f6e8ec153c9f0e90cce98e22ea2ab1d222d7b5d17e60b409c23857a1c9f"
+    },
+    {
+      "path": "position-proof.json.gz",
+      "bytes": 24208,
+      "sha256": "73b683f45d7242594b55fd45982c4916e81212ad76b3478cba7c937b59da9852"
+    },
+    {
+      "path": "position-resume-proof.json.gz",
+      "bytes": 14761,
+      "sha256": "95ee354fa3dfce5aff4d6db3b225f81a238ed613c773042d97489f726c977cd6"
+    },
+    {
+      "path": "qualified-union.json",
+      "bytes": 92232,
+      "sha256": "7a714978f74040e959fd6335f173d597d41caf5d755cdde50aa4a78a4823f4be"
+    },
+    {
+      "path": "raw-artifacts.json",
+      "bytes": 4508,
+      "sha256": "1b9a662f11348b8ef78bc216bb8dbe8377a532829ee477eff2373f3177162a53"
+    },
+    {
+      "path": "release-invocation-plan.md",
+      "bytes": 6786,
+      "sha256": "3106bc2b3be5aa87755011ce15aa20d4710718d7111fc525f937f360cc1a8b57"
+    },
+    {
+      "path": "relocation-proof.json.gz",
+      "bytes": 7297,
+      "sha256": "f5ff520f4ba79f1cf8c46e0c62a00b386f34542fa9a23a18ff5a11141c4eef58"
+    },
+    {
+      "path": "retry-selectors.json",
+      "bytes": 5467,
+      "sha256": "840ccb504f4a4112d14581b1971328e786b0f8b1f4d7c15f8f7367492426651b"
+    },
+    {
+      "path": "retry-stdin-spawn.log",
+      "bytes": 5967,
+      "sha256": "4f6cc2d36e1ac173dbc946050254eff7ed884be1cbc9d9e29a23230155b229dc"
+    },
+    {
+      "path": "retry-stdin-spawn.xml",
+      "bytes": 20983,
+      "sha256": "0d3c844a5e558d1ff3c3af83bd0555cf850f8c079c991ed2db2d11c43e9bc029"
+    },
+    {
+      "path": "ruff.log",
+      "bytes": 19,
+      "sha256": "82b3e6a6c090a57601d22943bd23fca9218d1031dbe5a7b754092f9a156b4f18"
+    },
+    {
+      "path": "source-order-fix-map.json",
+      "bytes": 1404,
+      "sha256": "33c352e8a8b49b1eb5568df4041e7d766ab57d4788f19bc954b62bf13f9d19fa"
+    },
+    {
+      "path": "source-order-green.log",
+      "bytes": 100,
+      "sha256": "f28fa55dc2e199124a39c67219629b9406f0349a2b2bf1a303556f4424a7eee2"
+    },
+    {
+      "path": "source-order-green.xml",
+      "bytes": 9825,
+      "sha256": "a0f26a47beaab128daca45b2cf5bc6af9ddb78d861fb79a223544fdf00015a6a"
+    },
+    {
+      "path": "source-order-red.json",
+      "bytes": 1044,
+      "sha256": "c067e07f13f5a8af345a033c95aa392f6a6c6bfc0401d2191ee5f653ceb4659e"
+    },
+    {
+      "path": "source-order-red.log",
+      "bytes": 5441,
+      "sha256": "c9ef54af6869c3b7b9cadedcc80af702eb3ad2d29867446508fb7536535a073d"
+    },
+    {
+      "path": "source-order-red.xml",
+      "bytes": 5884,
+      "sha256": "8b02571550d1573987aaeab09a82a5e96692a9167113ad38f68b3a1592a0e0f0"
+    },
+    {
+      "path": "spawn-retry-green.log",
+      "bytes": 99,
+      "sha256": "429fcc870bb527634e713460e2866f44b735095affc49a3535c35063eb54a7ef"
+    },
+    {
+      "path": "spawn-retry-green.xml",
+      "bytes": 397,
+      "sha256": "1cba6ac15215c9482b4b1fb0badf9f487939273eb85de7297fe11d8faeae9a89"
+    },
+    {
+      "path": "union-enospc.log.gz",
+      "bytes": 11513,
+      "sha256": "a2a47bbe55cc1f34d875d1d2974ab02b847ab6d61d633937b0a42ade59decfe4"
+    },
+    {
+      "path": "union-enospc.xml.gz",
+      "bytes": 18430,
+      "sha256": "3f29fc11573555214e1b4465247dc4936c1c17890d724366698f94fe4c72a26f"
+    },
+    {
+      "path": "union-selectors.json",
+      "bytes": 1397,
+      "sha256": "c3b2baa19beed93f3d17894952196125666d0c33b84647dbeb6fcbec63ed46bc"
+    }
+  ]
+}

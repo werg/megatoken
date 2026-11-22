@@ -1,0 +1,28 @@
+{
+  "repository": "werg/megatoken",
+  "base": "7741c003c8887da0000f7912ab6d6cdbee9ec3a1",
+  "localHead": "fa5bb6f47ba742182369bf36dbb11b9d7c679dcd",
+  "tree": "93ae12b9c73b8be5e9352dbc47d52418c2ac9ea2",
+  "files": [
+    {
+      "path": "docs/v8-release-verification.md",
+      "blob": "36ff197a2d44fe0e5af574d84418efb768443f94",
+      "bytes": 6568,
+      "sha256": "1f097656314300a154a127d7c807cd93b77b25b92d057de769484ab6bbad852c"
+    },
+    {
+      "path": "scripts/verify_semantic_v8_release.py",
+      "blob": "e69ddcad5212bfab48bb8834f11156448ac85bb9",
+      "bytes": 33356,
+      "sha256": "a1fd9ee7488d59773acb7680209d353234009132ebd7882a12385db08c0e063a"
+    },
+    {
+      "path": "tests/test_semantic_v8_release_verifier.py",
+      "blob": "24b6b71a2bb6df102ee1a87b96edd42e70bc3a33",
+      "bytes": 15560,
+      "sha256": "1dc358d366b1542ccd80ef570391150ffc9d155719ad44ff9683908b9ed389b9"
+    }
+  ],
+  "remoteHead": "9150a11c9a0741bf63bbed335c343dc67ad2a23f",
+  "branch": "codex/direct-v8-release-verifier-20261122"
+}

@@ -1,0 +1,28 @@
+{
+  "schema": "native-release-source-identity-main-qualification/1",
+  "sourceRevision": "74cb4c5117d554b40882a2bf415f1863fd1c32a7",
+  "sourceTree": "110ba702d2c17513936cd0803820e024d2165876",
+  "runtime": {
+    "python": "3.12.14",
+    "torch": "2.10.0+cpu",
+    "pytest": "9.2.0",
+    "device": "cpu",
+    "pytestDeviation": "Only existing Python3.12/Torch2.10 environment has pytest9.2.0, outside required >=8.3,<9; hosted pytest8.4.2 remains required."
+  },
+  "counts": {
+    "tests": 69,
+    "failures": 0,
+    "errors": 0,
+    "skipped": 0
+  },
+  "seconds": 13.616,
+  "previousVerifierCases": 62,
+  "sourceIdentityControls": 7,
+  "controlledActualOptimizerUpdates": 1,
+  "freshSourceReplays": 0,
+  "completePairedPackageRestoreQualified": false,
+  "testsOutsideAffectedModuleRun": 0,
+  "preservedMainPromiseTestsRerun": false,
+  "command": "TMPDIR=/workspace/scratch/05d92519587f/archive-test-tmp PYTHONPATH=src:. MEGATOKEN_TOKENIZER_JSON=/workspace/scratch/05d92519587f/semantic-v8-tokenizer.json OMP_NUM_THREADS=1 MKL_NUM_THREADS=1 /workspace/scratch/05d92519587f/target-coverage-venv/bin/python -m pytest -q tests/test_semantic_v8_release_verifier.py --basetemp=/workspace/scratch/05d92519587f/native-source-id-main-controls-tmp --junitxml=/workspace/scratch/05d92519587f/native-source-id-main-controls.xml",
+  "pairedDescriptorRequirement": "Producer must emit expected sourceId from the verified snapshot taskArtifactBinding.membership.sourceId; caseId stays independent. The current two-field descriptor cannot be used with this native revision."
+}

@@ -1,0 +1,20 @@
+<?xml version="1.0" encoding="utf-8"?><testsuites name="pytest tests"><testsuite name="pytest" errors="0" failures="1" skipped="0" tests="1" time="0.198" timestamp="2026-11-22T16:39:05.518417+01:00" hostname="07bf85b14210"><testcase classname="tests.test_semantic_v8_release_verifier" name="test_checkpoint_refusal_never_repairs_or_moves_input_files" time="0.010"><failure message="AssertionError: assert [{'path': 'me...8190e7cef5c'}] == [{'path': '.s...8190e7cef5c'}]&#10;  &#10;  At index 0 diff: {'path': 'metadata.json', 'bytes': 3, 'sha256': 'ca3d163bab055381827226140568f3bef7eaac187cebd76878e0b63e9e442356'} != {'path': '.superseded-side-1/preserved.bin', 'bytes': 37, 'sha256': '8eb6bd7c3a6a6bfc428453345fb651567a700a25401c37a0b91879597ef3e75c'}&#10;  Use -v to get more diff">tmp_path = PosixPath('/workspace/scratch/05d92519587f/archive-test-tmp/pytest-of-agent/pytest-4/test_checkpoint_refusal_never_0')
+
+    def test_checkpoint_refusal_never_repairs_or_moves_input_files(tmp_path):
+        checkpoint = tmp_path / "checkpoint"
+        checkpoint.mkdir()
+        (checkpoint / "state.pt").write_bytes(b"not a checkpoint\n")
+        (checkpoint / "metadata.json").write_text("{}\n")
+        aside = checkpoint / ".superseded-side-1"
+        aside.mkdir()
+        (aside / "preserved.bin").write_bytes(b"original evidence must stay in place\n")
+        before = release.bundle_inventory(checkpoint)
+        with pytest.raises(ValueError):
+            release.checkpoint_consistency(None, None, None, {"checkpoint": checkpoint}, [])
+&gt;       assert release.bundle_inventory(checkpoint) == before
+E       AssertionError: assert [{'path': 'me...8190e7cef5c'}] == [{'path': '.s...8190e7cef5c'}]
+E         
+E         At index 0 diff: {'path': 'metadata.json', 'bytes': 3, 'sha256': 'ca3d163bab055381827226140568f3bef7eaac187cebd76878e0b63e9e442356'} != {'path': '.superseded-side-1/preserved.bin', 'bytes': 37, 'sha256': '8eb6bd7c3a6a6bfc428453345fb651567a700a25401c37a0b91879597ef3e75c'}
+E         Use -v to get more diff
+
+tests/test_semantic_v8_release_verifier.py:297: AssertionError</failure></testcase></testsuite></testsuites>

@@ -1,0 +1,98 @@
+F                                                                        [100%]
+=================================== FAILURES ===================================
+_____ test_reprepare_uses_physical_prepared_order_without_rewriting_inputs _____
+
+tmp_path = PosixPath('/workspace/scratch/05d92519587f/archive-test-tmp/pytest-of-agent/pytest-8/test_reprepare_uses_physical_p0')
+monkeypatch = <_pytest.monkeypatch.MonkeyPatch object at 0x7f67f8daf590>
+two_split_supply = (PosixPath('/workspace/scratch/05d92519587f/archive-test-tmp/pytest-of-agent/pytest-8/v8-launch-corpus0'), {'purpose':..., PosixPath('/workspace/scratch/05d92519587f/archive-test-tmp/pytest-of-agent/pytest-8/v8-launch-corpus0/both-splits'))
+
+    def test_reprepare_uses_physical_prepared_order_without_rewriting_inputs(
+        tmp_path, monkeypatch, two_split_supply
+    ):
+        """Real two-source prepared order differs from the controlled journal order."""
+        _, _, config, _codec, model, prepared = two_split_supply
+        bundled = release.prepared_semantics(prepared)
+        assert [row["sourceId"] for row in bundled["membership"]] == ["source-0", "source-1"]
+        descriptor = descriptor_fixture(tmp_path)
+        source_rows = []
+        for row in reversed(bundled["membership"]):
+            relative = f"source-qualification/{row['sourceId']}.original.json"
+            (tmp_path / relative).write_text(
+                json.dumps(
+                    {
+                        "public": {"schema": "semantic-execution/8"},
+                        "sidecar": {
+                            "datasetBinding": {
+                                "sourceId": row["sourceId"],
+                                "split": row["split"],
+                                "registryDigest": config.semantic_v8_policy["registryDigest"],
+                            }
+                        },
+                    }
+                )
+            )
+            source_rows.append({"caseId": row["sourceId"], "path": relative})
+        descriptor["roles"]["prepared"][0]["sourceArtifacts"] = source_rows
+        sources = release.source_membership(
+            descriptor, tmp_path, config.semantic_v8_policy["registryDigest"]
+        )
+        assert [row["sourceId"] for row in sources] == ["source-1", "source-0"]
+        before_bundle = release.bundle_inventory(tmp_path)
+        before_prepared = release.bundle_inventory(prepared)
+        expected = [
+            str(tmp_path / f"source-qualification/{source}.original.json")
+            for source in ("source-0", "source-1")
+        ]
+        observed = []
+    
+        def prepare(command, **_kwargs):
+            inputs = [command[i + 1] for i, value in enumerate(command) if value == "--input"]
+            observed.append(inputs)
+            assert inputs == expected
+            return SimpleNamespace(
+                returncode=0,
+                stderr="",
+                stdout=json.dumps(
+                    {
+                        "report": {
+                            "counts": {"attempted": 2, "admitted": 2, "refused": 0},
+                            "refusals": [],
+                        }
+                    }
+                ),
+            )
+    
+        monkeypatch.setattr(release.subprocess, "run", prepare)
+        monkeypatch.setattr(release, "prepared_semantics", lambda _root: copy.deepcopy(bundled))
+>       regenerated, _ = release.regenerate_prepared(
+            tmp_path,
+            descriptor,
+            {"tokenizer": tmp_path / "tokenizer/tokenizer.json"},
+            producer_root=tmp_path,
+            consumer_root=tmp_path,
+            model_config=model,
+            timeout_seconds=1,
+        )
+
+tests/test_semantic_v8_release_verifier.py:364: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+scripts/verify_semantic_v8_release.py:457: in regenerate_prepared
+    completed = subprocess.run(
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+
+command = ['/workspace/scratch/05d92519587f/target-coverage-venv/bin/python', '/workspace/scratch/05d92519587f/archive-test-tmp/...oot', '/workspace/scratch/05d92519587f/archive-test-tmp/pytest-of-agent/pytest-8/test_reprepare_uses_physical_p0', ...]
+_kwargs = {'cwd': PosixPath('/workspace/scratch/05d92519587f/archive-test-tmp/pytest-of-agent/pytest-8/test_reprepare_uses_physi...r.json', 'TMPDIR': '/workspace/scratch/05d92519587f/archive-test-tmp', ...}, 'capture_output': True, 'text': True, ...}
+
+    def prepare(command, **_kwargs):
+        inputs = [command[i + 1] for i, value in enumerate(command) if value == "--input"]
+        observed.append(inputs)
+>       assert inputs == expected
+E       AssertionError: assert ['/workspace/...riginal.json'] == ['/workspace/...riginal.json']
+E         
+E         At index 0 diff: '/workspace/scratch/05d92519587f/archive-test-tmp/pytest-of-agent/pytest-8/test_reprepare_uses_physical_p0/source-qualification/source-1.original.json' != '/workspace/scratch/05d92519587f/archive-test-tmp/pytest-of-agent/pytest-8/test_reprepare_uses_physical_p0/source-qualification/source-0.original.json'
+E         Use -v to get more diff
+
+tests/test_semantic_v8_release_verifier.py:348: AssertionError
+=========================== short test summary info ============================
+FAILED tests/test_semantic_v8_release_verifier.py::test_reprepare_uses_physical_prepared_order_without_rewriting_inputs
+1 failed in 4.90s
