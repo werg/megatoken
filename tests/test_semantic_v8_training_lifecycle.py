@@ -160,9 +160,10 @@ print(json.dumps({'global_step':result['global_step'],'termination':result['term
         },
         attachments=transducer_attachment(lambda: transducer_state),
     )
-    forged_code = resume_code.replace(
-        "result=train(config,resume=sys.argv[2])\nassert not blocked.intersection(sys.modules)\nprint(json.dumps({'global_step':result['global_step'],'termination':result['termination']}))",
-        "try:\n train(config,resume=sys.argv[2])\nexcept ValueError as error:\n assert 'nonsemantic checkpoint' in str(error), error\nelse:\n raise AssertionError('forged experiment state was accepted')\nassert not blocked.intersection(sys.modules)\nprint('forged-state-rejected')",
+    resume_setup, separator, _ = resume_code.partition("result=train(config,resume=sys.argv[2])")
+    assert separator, "Resume subprocess entrypoint changed"
+    forged_code = resume_setup + (
+        "try:\n train(config,resume=sys.argv[2])\nexcept ValueError as error:\n assert 'nonsemantic checkpoint' in str(error), error\nelse:\n raise AssertionError('forged experiment state was accepted')\nassert not blocked.intersection(sys.modules)\nprint('forged-state-rejected')"
     )
     rejected = subprocess.run(
         [sys.executable, "-c", forged_code, str(config_path), str(forged)],

@@ -871,8 +871,8 @@ def train(
             from .semantic_v8 import (
                 advance_semantic_v8_target_exposure,
                 merge_semantic_v8_target_exposures,
-                semantic_v8_target_exposure_from_batches,
                 restore_semantic_v8_target_exposure,
+                semantic_v8_target_exposure_from_batches,
                 semantic_v8_target_exposure_report,
                 semantic_v8_target_step_summary,
             )
@@ -1313,19 +1313,21 @@ def train(
                     budget_overshoot=max(0, consumed - phase.budget),
                     **semantic_training_state(exposure, cohort_digest=cohort_digest),
                     **(
-                        {"semantic_v8_target_exposure_step": semantic_v8_target_step_summary(
-                            target_exposure_step
-                        ),
-                         "semantic_v8_target_exposure_totals": {
-                            key: target_exposure_receipt[key]
-                            for key in (
-                                "sourceCount",
-                                "logicalTargetCount",
-                                "physicalTargetRecordCount",
-                                "scoredOccurrences",
-                                "lossDenominators",
-                            )
-                        }}
+                        {
+                            "semantic_v8_target_exposure_step": semantic_v8_target_step_summary(
+                                target_exposure_step
+                            ),
+                            "semantic_v8_target_exposure_totals": {
+                                key: target_exposure_receipt[key]
+                                for key in (
+                                    "sourceCount",
+                                    "logicalTargetCount",
+                                    "physicalTargetRecordCount",
+                                    "scoredOccurrences",
+                                    "lossDenominators",
+                                )
+                            },
+                        }
                         if target_exposure_receipt is not None
                         else {}
                     ),
@@ -1400,9 +1402,11 @@ def train(
             "counters": asdict(counters),
             **semantic_training_state(exposure, cohort_digest=cohort_digest),
             **(
-                {"semantic_v8_target_exposure": semantic_v8_target_exposure_report(
-                    semantic_v8_target_exposure
-                )}
+                {
+                    "semantic_v8_target_exposure": semantic_v8_target_exposure_report(
+                        semantic_v8_target_exposure
+                    )
+                }
                 if semantic_v8_target_exposure is not None
                 else {}
             ),

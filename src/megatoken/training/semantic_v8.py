@@ -17,13 +17,14 @@ from megatoken.data.semantic_contract_v8 import (
 from megatoken.data.semantic_json import stable_algorithm_hash
 from megatoken.generation.codec import LING_TOKENIZER_SHA256
 
-
-
 V8_TARGET_EXPOSURE_SCHEMA = "semantic-v8-optimizer-target-exposure/1"
 
 
 def empty_semantic_v8_target_exposure(registry_digest, *, starting_global_step=0):
-    if not isinstance(registry_digest, str) or re.fullmatch(r"[0-9a-f]{64}", registry_digest) is None:
+    if (
+        not isinstance(registry_digest, str)
+        or re.fullmatch(r"[0-9a-f]{64}", registry_digest) is None
+    ):
         raise ValueError("V8 target exposure requires the pinned family registry digest")
     if type(starting_global_step) is not int or starting_global_step < 0:
         raise ValueError("V8 target exposure starting step must be a nonnegative integer")
@@ -51,9 +52,7 @@ def restore_semantic_v8_target_exposure(
     if type(global_step) is not int or global_step < 0:
         raise ValueError("V8 target-exposure restore step must be a nonnegative integer")
     if payload is None:
-        return empty_semantic_v8_target_exposure(
-            registry_digest, starting_global_step=global_step
-        )
+        return empty_semantic_v8_target_exposure(registry_digest, starting_global_step=global_step)
     previous = payload.get("train_config", {}).get("semantic_v8_policy")
     saved = payload.get("semantic_v8_target_exposure")
     if previous is not None and saved is None:
@@ -63,9 +62,7 @@ def restore_semantic_v8_target_exposure(
             raise ValueError("Starting a V8 target-exposure census requires a fresh stage")
         if saved is not None:
             raise ValueError("A non-V8 checkpoint cannot carry V8 target-exposure state")
-        return empty_semantic_v8_target_exposure(
-            registry_digest, starting_global_step=global_step
-        )
+        return empty_semantic_v8_target_exposure(registry_digest, starting_global_step=global_step)
     state = validate_semantic_v8_target_exposure(saved, registry_digest=registry_digest)
     if state["lastGlobalStep"] != global_step:
         raise ValueError("V8 target-exposure resume state differs from checkpoint step")
@@ -136,9 +133,7 @@ def validate_semantic_v8_target_exposure(state, *, registry_digest):
                     or len(record["windowIndices"]) != len(set(record["windowIndices"]))
                     or not isinstance(record["lossDenominators"], dict)
                     or any(
-                        not isinstance(name, str)
-                        or type(count) is not int
-                        or count < 0
+                        not isinstance(name, str) or type(count) is not int or count < 0
                         for name, count in record["lossDenominators"].items()
                     )
                     or not any(record["lossDenominators"].values())
@@ -191,9 +186,7 @@ def _validate_semantic_v8_target_occurrence(occurrence, registry_digest):
     return occurrence
 
 
-def semantic_v8_target_exposure_from_batches(
-    batches, *, registry_digest, effective_loss_weights
-):
+def semantic_v8_target_exposure_from_batches(batches, *, registry_digest, effective_loss_weights):
     """Collect exact loss-bearing source targets from ordinary prepared Meridian batches."""
     occurrences = []
     if not isinstance(effective_loss_weights, dict) or any(
@@ -235,9 +228,8 @@ def semantic_v8_target_exposure_from_batches(
                 if not record.policy_mask:
                     raise ValueError("V8 optimizer plan exposes a record outside the target mask")
                 denominators = plan.denominators
-                if (
-                    not isinstance(denominators, Mapping)
-                    or any(type(value) is not int or value < 0 for value in denominators.values())
+                if not isinstance(denominators, Mapping) or any(
+                    type(value) is not int or value < 0 for value in denominators.values()
                 ):
                     raise ValueError("V8 optimizer plan has invalid loss denominators")
                 positive = {
@@ -286,9 +278,7 @@ def merge_semantic_v8_target_exposures(exposures, *, registry_digest):
             )
             if source["split"] != row["split"]:
                 raise ValueError("Distributed V8 target source changed split")
-            logical = source["logicalTargets"].setdefault(
-                row["logicalTargetId"], {"records": {}}
-            )
+            logical = source["logicalTargets"].setdefault(row["logicalTargetId"], {"records": {}})
             record = logical["records"].setdefault(
                 row["physicalRecordId"],
                 {
@@ -297,14 +287,10 @@ def merge_semantic_v8_target_exposures(exposures, *, registry_digest):
                     "scoredOccurrences": 0,
                 },
             )
-            record["windowIndices"] = sorted(
-                set(record["windowIndices"]) | {row["windowIndex"]}
-            )
+            record["windowIndices"] = sorted(set(record["windowIndices"]) | {row["windowIndex"]})
             record["scoredOccurrences"] += 1
             for name, count in row["lossDenominators"].items():
-                record["lossDenominators"][name] = (
-                    record["lossDenominators"].get(name, 0) + count
-                )
+                record["lossDenominators"][name] = record["lossDenominators"].get(name, 0) + count
     return merged
 
 
@@ -329,9 +315,7 @@ def advance_semantic_v8_target_exposure(state, step_exposure, *, optimizer_step,
         if dest_source["split"] != source["split"]:
             raise ValueError("V8 target exposure source changed split")
         for logical_id, target in source["logicalTargets"].items():
-            dest_target = dest_source["logicalTargets"].setdefault(
-                logical_id, {"records": {}}
-            )
+            dest_target = dest_source["logicalTargets"].setdefault(logical_id, {"records": {}})
             for record_id, current in target["records"].items():
                 old = dest_target["records"].get(record_id)
                 if old is None:
@@ -430,7 +414,6 @@ def semantic_v8_target_step_summary(step_exposure):
         "scoredOccurrences": occurrences,
         "lossDenominators": denominators,
     }
-
 
 
 def validate_semantic_training_policy_v8(policy):

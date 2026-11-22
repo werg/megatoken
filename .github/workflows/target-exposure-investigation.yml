@@ -48,23 +48,24 @@ jobs:
           PY
       - name: Format candidate and retain exact tested source
         run: |
-          python -m ruff check --fix src/megatoken/training/semantic_v8.py src/megatoken/training/engine.py tests/test_semantic_v8_target_exposure.py tests/test_semantic_v8_training_lifecycle.py
-          python -m ruff format src/megatoken/training/semantic_v8.py src/megatoken/training/engine.py tests/test_semantic_v8_target_exposure.py tests/test_semantic_v8_training_lifecycle.py
+          python -m ruff check --fix src/megatoken/training/semantic_v8.py src/megatoken/training/engine.py tests/test_semantic_v8_target_exposure.py tests/test_semantic_v8_training_lifecycle.py scripts/qualify_semantic_v8_lifecycle.py tests/test_qualify_semantic_v8_lifecycle.py tests/test_qualify_semantic_v8_lifecycle_support.py
+          python -m ruff format src/megatoken/training/semantic_v8.py src/megatoken/training/engine.py tests/test_semantic_v8_target_exposure.py tests/test_semantic_v8_training_lifecycle.py scripts/qualify_semantic_v8_lifecycle.py tests/test_qualify_semantic_v8_lifecycle.py tests/test_qualify_semantic_v8_lifecycle_support.py
           git diff -- tests/test_semantic_v8_training_lifecycle.py
           python - <<'PY'
           import json
           from pathlib import Path
           for path in ('src/megatoken/training/semantic_v8.py', 'src/megatoken/training/engine.py',
-                       'tests/test_semantic_v8_target_exposure.py', 'tests/test_semantic_v8_training_lifecycle.py'):
+                       'tests/test_semantic_v8_target_exposure.py', 'scripts/qualify_semantic_v8_lifecycle.py',
+                       'tests/test_qualify_semantic_v8_lifecycle.py', 'tests/test_qualify_semantic_v8_lifecycle_support.py'):
               print('FORMATTED_SOURCE_JSON ' + json.dumps({'path': path, 'content': Path(path).read_text()}))
           PY
       - name: Verify weighted target coverage and ordinary checkpoint resume
         shell: bash
         run: |
           set -o pipefail
-          python -m ruff check src/megatoken/training/semantic_v8.py src/megatoken/training/engine.py tests/test_semantic_v8_target_exposure.py tests/test_semantic_v8_training_lifecycle.py
-          python -m ruff format --check src/megatoken/training/semantic_v8.py src/megatoken/training/engine.py tests/test_semantic_v8_target_exposure.py tests/test_semantic_v8_training_lifecycle.py
-          python -m pytest -q tests/test_semantic_v8_target_exposure.py tests/test_semantic_v8_training_lifecycle.py tests/test_semantic_v8_training_policy.py tests/test_semantic_v8_lineage.py tests/test_semantic_launch_v8.py --junitxml="$RUNNER_TEMP/target-exposure-controls.xml" 2>&1 | tee "$RUNNER_TEMP/target-exposure-controls.log"
+          python -m ruff check src/megatoken/training/semantic_v8.py src/megatoken/training/engine.py tests/test_semantic_v8_target_exposure.py tests/test_semantic_v8_training_lifecycle.py scripts/qualify_semantic_v8_lifecycle.py tests/test_qualify_semantic_v8_lifecycle.py tests/test_qualify_semantic_v8_lifecycle_support.py
+          python -m ruff format --check src/megatoken/training/semantic_v8.py src/megatoken/training/engine.py tests/test_semantic_v8_target_exposure.py tests/test_semantic_v8_training_lifecycle.py scripts/qualify_semantic_v8_lifecycle.py tests/test_qualify_semantic_v8_lifecycle.py tests/test_qualify_semantic_v8_lifecycle_support.py
+          python -m pytest -q tests/test_semantic_v8_target_exposure.py tests/test_semantic_v8_training_lifecycle.py tests/test_semantic_v8_training_policy.py tests/test_semantic_v8_lineage.py tests/test_semantic_launch_v8.py tests/test_qualify_semantic_v8_lifecycle.py tests/test_qualify_semantic_v8_lifecycle_support.py --junitxml="$RUNNER_TEMP/target-exposure-controls.xml" 2>&1 | tee "$RUNNER_TEMP/target-exposure-controls.log"
           python - <<'PY'
           import os
           from pathlib import Path
