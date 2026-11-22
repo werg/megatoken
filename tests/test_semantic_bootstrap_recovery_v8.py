@@ -94,6 +94,9 @@ def bootstrap_case(tmp_path, lease, open_adapter, journal=None):
             "ascii"
         ),
         "preCheckpointDigest": adapter.checkpoint()["digest"],
+        "createIdentity": create_args["identity"],
+        "createRequestBase64": create_args["requestBase64"],
+        "createPreCheckpointDigest": create_args["preCheckpointDigest"],
     }
     return adapter, opened, bridge, bootstrap_args, committed
 
@@ -124,7 +127,7 @@ def test_bootstrap_outcome_recovers_in_a_fresh_process(tmp_path):
             )
             completed = dispatch(
                 adapter,
-                {"id": "outer-bootstrap", "op": "durable-bootstrap", **args},
+                {"id": "outer-bootstrap", "op": "durable-bootstrap-child", **args},
                 commit_bridge=bridge,
             )
             assert completed["recovered"] is False
@@ -146,7 +149,7 @@ lease=NativeExecutionLease(int(sys.argv[4]),sys.argv[3],'teacher1','stream-a')
 with real_runtime() as (open_adapter,_):
     adapter=open_adapter()
     bridge=DurableNativeCommitBridge(adapter,DurableNativeRequestJournal(sys.argv[2]),lease)
-    print(json.dumps(bridge.recover_bootstrap(**args)))
+    print(json.dumps(bridge.recover_bootstrap_child(**args)))
 lease.close()
 """
             result = subprocess.run(
@@ -167,7 +170,7 @@ lease.close()
                 check=True,
             )
             recovered = json.loads(result.stdout)
-            assert recovered["schema"] == "semantic-native-durable-bootstrap/8"
+            assert recovered["schema"] == "semantic-native-durable-bootstrap-child/8"
             assert recovered["recovered"] is True
             assert recovered["responseBase64"] == completed["responseBase64"]
             assert recovered["postCheckpoint"] == completed["postCheckpoint"]
@@ -183,7 +186,7 @@ def test_bootstrap_recovery_never_admits_a_missing_outcome(tmp_path):
             fresh = open_adapter()
             fresh_bridge = DurableNativeCommitBridge(fresh, bridge.journal, lease)
             with pytest.raises(NativeRequestConflict, match="never admitted"):
-                fresh_bridge.recover_bootstrap(**args)
+                fresh_bridge.recover_bootstrap_child(**args)
             assert not fresh.sessions and not fresh.attempts
             assert not fresh.runtime.memory.sessions
 
@@ -201,7 +204,7 @@ def test_bootstrap_unknown_outcome_is_not_retried_in_fresh_adapter(tmp_path):
                 tmp_path, lease, open_adapter, journal=journal
             )
             with pytest.raises(OSError, match="outcome not published"):
-                bridge.durable_bootstrap(**args)
+                bridge.durable_bootstrap_child(**args)
             assert bridge.fenced
             assert adapter.sessions[args["identity"]["session_id"]].orchestration["children"][
                 0
@@ -221,7 +224,7 @@ def test_bootstrap_unknown_outcome_is_not_retried_in_fresh_adapter(tmp_path):
                 lease,
             )
             with pytest.raises(NativeRequestOutcomeUnknown, match="cannot retry"):
-                fresh_bridge.recover_bootstrap(**args)
+                fresh_bridge.recover_bootstrap_child(**args)
             assert calls == []
             assert not fresh.sessions and not fresh.attempts
             assert not fresh.runtime.memory.sessions
@@ -233,7 +236,7 @@ def test_later_native_mutation_supersedes_bootstrap_recovery(tmp_path):
             adapter, opened, bridge, args, _created = bootstrap_case(
                 tmp_path, lease, open_adapter
             )
-            bridge.durable_bootstrap(**args)
+            bridge.durable_bootstrap_child(**args)
             dispatch(
                 adapter,
                 {
@@ -247,7 +250,7 @@ def test_later_native_mutation_supersedes_bootstrap_recovery(tmp_path):
             fresh = open_adapter()
             fresh_bridge = DurableNativeCommitBridge(fresh, bridge.journal, lease)
             with pytest.raises(NativeRequestConflict, match="superseded"):
-                fresh_bridge.recover_bootstrap(**args)
+                fresh_bridge.recover_bootstrap_child(**args)
             assert not fresh.sessions and not fresh.attempts
             assert not fresh.runtime.memory.sessions
 
@@ -257,7 +260,7 @@ def test_later_native_mutation_supersedes_bootstrap_recovery(tmp_path):
     [
         ("generation", "generation differs"),
         ("model", "model, tokenizer or training identity differs"),
-        ("operation", "only exact child bootstrap operations"),
+        ("operation", "only child bootstrap operations use bootstrap recovery"),
         ("child", "exact bytes differ"),
     ],
 )
@@ -269,7 +272,7 @@ def test_bootstrap_recovery_rejects_identity_and_child_substitutions(
             adapter, _opened, bridge, args, _created = bootstrap_case(
                 tmp_path, lease, open_adapter
             )
-            bridge.durable_bootstrap(**args)
+            bridge.durable_bootstrap_child(**args)
             changed = copy.deepcopy(args)
             if mutation == "generation":
                 changed["identity"]["session_generation"] = 2
@@ -286,7 +289,7 @@ def test_bootstrap_recovery_rejects_identity_and_child_substitutions(
             fresh = open_adapter()
             fresh_bridge = DurableNativeCommitBridge(fresh, bridge.journal, lease)
             with pytest.raises(NativeRequestJournalError, match=message):
-                fresh_bridge.recover_bootstrap(**changed)
+                fresh_bridge.recover_bootstrap_child(**changed)
             assert not fresh.sessions and not fresh.attempts
             assert not fresh.runtime.memory.sessions
 
@@ -305,17 +308,20 @@ def test_rehashed_bootstrap_response_must_match_restored_track(tmp_path, mutate)
             adapter, _opened, bridge, args, _created = bootstrap_case(
                 tmp_path, lease, open_adapter
             )
-            completed = bridge.durable_bootstrap(**args)
+            completed = bridge.durable_bootstrap_child(**args)
             tamper_bootstrap_outcome(
                 bridge.journal,
                 lambda outcome: rewrite_response(outcome, mutate),
             )
             fresh = open_adapter()
             fresh_bridge = DurableNativeCommitBridge(fresh, bridge.journal, lease)
-            with pytest.raises(NativeRequestJournalError, match="restored child differs"):
-                fresh_bridge.recover_bootstrap(**args)
+            with pytest.raises(NativeRequestJournalError, match="bootstrap response"):
+                fresh_bridge.recover_bootstrap_child(**args)
             assert fresh_bridge.fenced
-            assert fresh.checkpoint() == completed["postCheckpoint"]
+            # Exact create/bootstrap evidence is checked before recovery
+            # opens model state, so a malformed response cannot restore an
+            # otherwise valid postcheckpoint into this adapter.
+            assert not fresh.sessions and not fresh.attempts
 
 
 @pytest.mark.parametrize("field", ["operations", "attempts"])
@@ -325,7 +331,7 @@ def test_rehashed_bootstrap_poststate_rejects_mutated_history(tmp_path, field):
             adapter, _opened, bridge, args, _created = bootstrap_case(
                 tmp_path, lease, open_adapter
             )
-            bridge.durable_bootstrap(**args)
+            bridge.durable_bootstrap_child(**args)
 
             def change(outcome):
                 post = outcome["postCheckpoint"]
@@ -340,7 +346,7 @@ def test_rehashed_bootstrap_poststate_rejects_mutated_history(tmp_path, field):
             fresh = open_adapter()
             fresh_bridge = DurableNativeCommitBridge(fresh, bridge.journal, lease)
             with pytest.raises(NativeRequestJournalError):
-                fresh_bridge.recover_bootstrap(**args)
+                fresh_bridge.recover_bootstrap_child(**args)
             assert not fresh.sessions and not fresh.attempts
             assert not fresh.runtime.memory.sessions
 
@@ -359,7 +365,7 @@ def test_duplicate_durable_bootstrap_returns_the_retained_result_without_dispatc
             adapter, _opened, bridge, args, _created = bootstrap_case(
                 tmp_path, lease, open_adapter
             )
-            first = bridge.durable_bootstrap(**args)
+            first = bridge.durable_bootstrap_child(**args)
             calls = []
             original = adapter.bootstrap_orchestration_child
 
@@ -370,7 +376,7 @@ def test_duplicate_durable_bootstrap_returns_the_retained_result_without_dispatc
             adapter.bootstrap_orchestration_child = observed_bootstrap
             duplicate = dispatch(
                 adapter,
-                {"id": "duplicate-bootstrap", "op": "durable-bootstrap", **args},
+                {"id": "duplicate-bootstrap", "op": "durable-bootstrap-child", **args},
                 commit_bridge=bridge,
             )
             assert duplicate == first
