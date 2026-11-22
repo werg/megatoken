@@ -1664,6 +1664,11 @@ def validate_protocol_state(snapshot, heap_ids=(), shared_state=None):
         validate_primitive_conversion_state(conversion_machine)
     if shared_state is not None:
         active_machine = _internal_machine(shared_state)
+        continuations = active_machine.get("continuations", [])
+        for continuation in dict(continuations).values():
+            validate_pending_scope(
+                active_machine, continuation.get("pending", {}), [continuation["invocation"]]
+            )
         for binding, cell in active_machine.get("captureAliases", {}).items():
             if (
                 not isinstance(binding, str)
@@ -1938,6 +1943,29 @@ def validate_completion_detail(shared_state, kind, fields):
                     target = targets.get(pending["target"])
                     if not target or pending["kind"] == "continue" and not target["continue"]:
                         _fail("ordinary completion target is absent or cannot continue")
+    return True
+
+
+def validate_pending_scope(machine, pending, invocations=None):
+    """Check retained cleanup against its suspended invocation or saved caller stack."""
+    if pending is None:
+        return True
+    has_handler = isinstance(pending, dict) and "handler" in pending
+    _exact(pending, {"kind", "value"} | ({"handler"} if has_handler else set()),
+           "retained pending scope")
+    if pending["kind"] not in {"return", "throw", "cleanup"}:
+        _fail("retained pending kind")
+    _known(machine, pending["value"])
+    handler = pending.get("handler")
+    if isinstance(handler, dict) and handler.get("schema") == "semantic-handler-scopes/1":
+        retained = {**machine, "stack": machine["stack"] if invocations is None else invocations}
+        if not validate_completion_detail(_external_machine(retained), "transfer", pending):
+            _fail("retained handler scope")
+    elif has_handler:
+        if handler is not None and not isinstance(handler, str):
+            _fail("retained pending handler")
+    elif pending["kind"] == "cleanup":
+        _fail("cleanup requires its retained handler scope")
     return True
 
 

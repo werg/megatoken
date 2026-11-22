@@ -237,7 +237,9 @@ def apply_detail(machine, kind, fields, *, root, functions=()):
             "sequence": scheduler["registration"],
             "activeJob": machine.get("activeJob"),
             "captureAliases": [[key, value] for key, value in machine["captureAliases"].items()],
+            "pending": copy.deepcopy(machine.get("pending")),
         }
+        machine["pending"] = None
         if machine.get("protocol") is not None:
             continuations[fields["continuation"]]["receiver"] = copy.deepcopy(machine["receiver"])
         if machine.get("activeJob"):
@@ -266,6 +268,7 @@ def apply_detail(machine, kind, fields, *, root, functions=()):
         machine["stack"].append(continuation["invocation"])
         machine["activeJob"] = continuation["activeJob"]
         machine["captureAliases"] = dict(continuation["captureAliases"])
+        machine["pending"] = copy.deepcopy(continuation["pending"])
         if machine.get("protocol") is not None and "receiver" in continuation:
             machine["receiver"] = copy.deepcopy(continuation["receiver"])
     elif kind == "job":
