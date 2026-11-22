@@ -1,0 +1,341 @@
+{
+  "schema": "semantic-v8-complete-hosted-target-qualification-summary/1",
+  "status": "passed",
+  "producerRevision": "7c468f8f3d06e32e43e3ebb482137840bdce676d",
+  "consumerRevision": "a1d7f83dc46e4829ca4226e4040519cd5835f365",
+  "contractDigest": "0df031301d75122edad5f0efbbbe041ddbe90ebaac3cf2d6e6705540acd71a47",
+  "workflowRunId": 45009024141,
+  "workflowJobId": 137167042015,
+  "artifactId": 14751643088,
+  "originalArtifactSha256": "2b0d30937a05b992500a2567c0d3d98cf8a72aa96a72b03c22e1ccbab046671e",
+  "sourceNativeQualification": {
+    "declared": 64,
+    "sourceQualified": 64,
+    "nativeAdmitted": 64,
+    "populationDigest": "cb983ac3585a56ca221c76d7e375e9223431b13ebeb7441ebe6a23eb6b21346a",
+    "registryDigest": "306a20791e1a76fa53872f6b1b856bba66f1308c1428a3a745171d28322b3e6c",
+    "supportCohortDigest": "13d83029df2237294608be8a127a1d8556fef24a9076d52b0f36741da5f74a15"
+  },
+  "tokenizerAndPacking": {
+    "declared": 64,
+    "sourceQualified": 64,
+    "sourceDispositions": {
+      "passed": 64
+    },
+    "compactEpisodes": 64,
+    "whollyDetailedEpisodes": 0,
+    "regionCoverage": {
+      "measuredEpisodes": 64,
+      "unmeasuredEpisodes": 0,
+      "compact": 80,
+      "detailed": 128,
+      "compactRecords": 80,
+      "detailedRecords": 784
+    },
+    "flat": {
+      "sourceQualified": 64,
+      "measured": 64,
+      "unmeasured": 0,
+      "dispositions": {
+        "passed": 64
+      },
+      "bytes": {
+        "generated": 115679,
+        "detailed": 87696,
+        "detailedShare": 0.7580978397116158,
+        "cumulativeContext": 4886668,
+        "peakContext": 9113
+      },
+      "tokenMeasurement": "passed",
+      "tokenMeasuredEpisodes": 64,
+      "tokens": {
+        "generated": 34865,
+        "detailed": 25444,
+        "detailedShare": 0.7297863186576796,
+        "terminal": 928,
+        "observedAndContext": 1683092,
+        "total": 1718885,
+        "peakContext": 3061
+      },
+      "scope": "Sums cover measured episodes only; source refusals and measurement limits remain in the declared denominator."
+    },
+    "nativePacking": {
+      "status": "measured",
+      "measuredEpisodes": 64,
+      "unmeasuredEpisodes": 0,
+      "generatedTokens": 34865,
+      "observedTokens": 1869474,
+      "terminalTokens": 0,
+      "physicalRecords": 4604,
+      "logicalRecords": 1456,
+      "scope": "Actual retained native training packing receipts. Physical records include inserted contexts and framing; these counts do not measure serving latency or model success."
+    },
+    "model": {
+      "status": "unmeasured",
+      "nextStep": null,
+      "completedExecution": null,
+      "latencyMs": null
+    },
+    "nativeServing": {
+      "status": "unmeasured",
+      "latencyMs": null,
+      "cacheSavings": null
+    },
+    "defaultPromotion": "not-qualified"
+  },
+  "strictSupply": {
+    "status": "passed",
+    "sourceCount": 64,
+    "splitCounts": {
+      "train": 48,
+      "validation": 12,
+      "test": 4
+    },
+    "registryDigest": "306a20791e1a76fa53872f6b1b856bba66f1308c1428a3a745171d28322b3e6c",
+    "preparedManifestFingerprint": "92e8307d08ea99f09552194bcace44cf024a8dc59fe3f1b4e7411d08b1c2877a",
+    "corpusIdentity": "39bbfd911ec5276e72259e2fc749bb0d7b93db26376ce1aa0d2ae7157dcca376"
+  },
+  "controls": {
+    "cases": 5,
+    "failures": 0,
+    "errors": 0,
+    "skips": 0
+  },
+  "ordinaryLifecycle": {
+    "optimizerUpdates": 2,
+    "firstGlobalStep": 1,
+    "resumedGlobalStep": 2,
+    "firstCheckpointSha256": "207af9b668f27a304ef551728547f0ea41f6aeb989d0998b8a57645bbdd43596",
+    "resumedCheckpointSha256": "a1dfd28a7382e05fcfa9299a07d79d76f4aa0d5943a8a809335a8239dfc46d64",
+    "retainedMomentOwners": 315,
+    "advancedMomentOwners": 272,
+    "changedMasterWeights": 270,
+    "historyContinued": true,
+    "firstCheckpointCounts": {
+      "sourceCount": 1,
+      "logicalTargetCount": 2,
+      "physicalTargetRecordCount": 4,
+      "scoredOccurrences": 4,
+      "lossDenominators": {
+        "lexical": 295,
+        "reconstruction": 295,
+        "structure": 16,
+        "terminal": 8,
+        "router_z": 4
+      }
+    },
+    "resumedCounts": {
+      "sourceCount": 1,
+      "logicalTargetCount": 4,
+      "physicalTargetRecordCount": 6,
+      "scoredOccurrences": 6,
+      "lossDenominators": {
+        "lexical": 372,
+        "reconstruction": 372,
+        "structure": 24,
+        "terminal": 12,
+        "router_z": 6
+      }
+    },
+    "allTargetsExposedByTwoUpdateRoute": false,
+    "freshProcessRestoration": {
+      "schema": "semantic-model-restore/8",
+      "checkpointDigest": "d39e63c8f28df1e2b70ef6f89148af72c4e2da296e72052bf7e7ee5d0bab9464",
+      "restoredSessions": 1,
+      "reexecutedSelections": 0,
+      "consumedAttempts": 1,
+      "hostDispatches": 0,
+      "equivalence": "verified-model-reexecution",
+      "restored": true
+    },
+    "nextSelectionExact": true,
+    "acknowledgedModelSelections": 0,
+    "selectionFamily": "orchestration",
+    "servingScope": "Actual trained CPU weights and pinned tokenizer; original token selection and fresh-process initial-state/RNG continuation. No semantic record was acknowledged."
+  },
+  "separateCoverageFit": {
+    "globalStep": 348,
+    "sourceCount": 48,
+    "positiveWeight": {
+      "sourceCount": 48,
+      "logicalTargetCount": 696,
+      "physicalTargetRecordCount": 720,
+      "scoredOccurrences": 720,
+      "lossDenominators": {
+        "lexical": 26027,
+        "reconstruction": 26027,
+        "structure": 2880,
+        "terminal": 1440,
+        "router_z": 720
+      }
+    },
+    "windowCount": 348,
+    "optimizerWindowCount": 348,
+    "phaseMeter": "P",
+    "phaseBudget": 200000000,
+    "onePassMeterCount": 52054,
+    "comparison": {
+      "schema": "semantic-v8-target-presence-comparison/1",
+      "inventoryDigest": "08dc4b97ec973651b447de7f1393e63a8a410f660f3942bc6be007a8dde38385",
+      "expectedPositiveWeightPhysicalTargets": 720,
+      "coveredPositiveWeightPhysicalTargets": 720,
+      "expectedPositiveWeightLogicalTargets": 696,
+      "coveredPositiveWeightLogicalTargets": 696,
+      "missingPositiveWeightPhysicalTargets": [],
+      "unexpectedPhysicalTargets": [],
+      "targetPresenceCoverage": 1.0,
+      "allPositiveWeightTargetsExposed": true,
+      "exactOnePassCensus": true,
+      "scoredOccurrenceMismatches": [],
+      "windowIndexMismatches": [],
+      "positiveWeightDenominatorMismatches": [],
+      "repeatedWindowExposureObserved": false,
+      "tokenOrMaskPositionCoverage": "unmeasured",
+      "learnedSuccess": null
+    },
+    "inventoryDigest": "08dc4b97ec973651b447de7f1393e63a8a410f660f3942bc6be007a8dde38385",
+    "trainingConfigDigest": "bd442cef584ece94bc7d412f7fff647f5f48bc6181494a12c070dfdd61f4ff6b",
+    "modelConfigDigest": "b125d8f5b2c06e4cd09ed8b3a140373d90ee462c09154a6f9ce24d637903134a",
+    "coverageDigest": "3a422a003b5c5c9c9b54a74b8de9e2fa58b8174207b6c6a4df8d4b937cb87959",
+    "optimizerTargetExposureDigest": "6e5179a1bfb737a1c4707eeede0dd6067c681c75528c7ece316e0d1b73e528f9",
+    "checkpointStateSha256": "8b5a4924b064af097c5cae3cac3fa67ce1d767443d58d11201b09a6ddab189d7",
+    "elapsedSeconds": 3997.842019281,
+    "stageDurationMs": 3999484,
+    "termination": "step_limit",
+    "seed": 17,
+    "model": "tiny",
+    "device": "cpu",
+    "precision": "fp32",
+    "runtime": {
+      "cuda_build": null,
+      "cudnn": null,
+      "devices": [],
+      "errors": [],
+      "ok": true,
+      "packages": {
+        "numpy": "2.5.5",
+        "safetensors": "0.8.0",
+        "tokenizers": "0.23.3",
+        "torch": "2.10.0+cpu",
+        "triton": null
+      },
+      "platform": "Linux-7.0.0-1014-aws-x86_64-with-glibc2.39",
+      "python": "3.12.14",
+      "warnings": [
+        "CPU reference mode: CUDA kernels, memory fit, and throughput are unverified"
+      ]
+    }
+  },
+  "optimizerUpdateCounts": {
+    "lifecycle": 2,
+    "coverage": 348,
+    "total": 350
+  },
+  "updateCountScope": "Two independent optimizer trajectories: the ordinary two-update resume/export/service route, plus a separate fresh 348-update full target pass. The combined 350 count is not one cumulative trajectory.",
+  "independentPreparedTargetAudit": {
+    "digest": "ad9f948a730705156f1cbc3d70b78f45a086ec1b7009f8c4c5d716e3771071b1",
+    "guardExecutableRevision": "2479a9d59793569954a85d0f911085bfd4ee29f6",
+    "scriptSha256": "f19a3e45a8810ac1e35d16043345cf56b845422863c2e4c43926340afce7d6ae",
+    "runtime": {
+      "torch": "2.10.0+cpu",
+      "device": "cpu"
+    },
+    "originalOptimizerUpdates": 348,
+    "additionalOptimizerUpdates": 0,
+    "preparedPolicyTargetCount": 720,
+    "plannedPositiveTargetCount": 720,
+    "actualPositiveTargetCount": 720,
+    "retainedPlannerAndActualCensusRowsEqual": true,
+    "originalInputsSha256": {
+      "inventory": "bc9153942f69e32d63a439d89bf42afac6363cdc934845fd7fc6bc4345fab0f5",
+      "coverage": "17296da01167c61ee91b72a3f9814406bccc34a97b5950322c3b1d2ab551e692",
+      "trainingConfig": "15750e44e8d07e32470b7d6034f450c65fd43f1f7bd6ea4ec761f7ccc053c1c8",
+      "preparedManifest": "1671784703f1f1ac201976bf706c8981b63eea38a8a2b1a032fce07d3024076d",
+      "registry": "640d484b10d6687562b9292f54c55eb0264763875601fdecdaa9a9640c3e08b8"
+    },
+    "runtimeInputRelocations": {
+      "originalPreparedRoots": [
+        "/home/runner/work/_temp/v8-support-prepared"
+      ],
+      "validationPreparedRoot": "/workspace/scratch/05d92519587f/target-coverage-hosted-7c-a1/v8-support-prepared",
+      "originalTokenizerPath": "/home/runner/work/tracing-js-self/tracing-js-self/semantic-v8-tokenizer.json",
+      "validationTokenizerPath": "/workspace/scratch/05d92519587f/semantic-v8-tokenizer.json"
+    }
+  },
+  "stageResults": [
+    {
+      "stage": "requalify-support-supply",
+      "exitCode": 0,
+      "signal": null,
+      "error": null,
+      "durationMs": 65437,
+      "log": "requalify-support-supply.log"
+    },
+    {
+      "stage": "inventory-positive-loss-targets",
+      "exitCode": 0,
+      "signal": null,
+      "error": null,
+      "durationMs": 123561,
+      "log": "inventory-positive-loss-targets.log"
+    },
+    {
+      "stage": "train-first",
+      "exitCode": 0,
+      "signal": null,
+      "error": null,
+      "durationMs": 77778,
+      "log": "train-first.log"
+    },
+    {
+      "stage": "train-resume",
+      "exitCode": 0,
+      "signal": null,
+      "error": null,
+      "durationMs": 75041,
+      "log": "train-resume.log"
+    },
+    {
+      "stage": "export",
+      "exitCode": 0,
+      "signal": null,
+      "error": null,
+      "durationMs": 2859,
+      "log": "export.log"
+    },
+    {
+      "stage": "qualify-lifecycle",
+      "exitCode": 0,
+      "signal": null,
+      "error": null,
+      "durationMs": 259223,
+      "log": "qualify-lifecycle.log"
+    },
+    {
+      "stage": "train-full-target-window-pass",
+      "exitCode": 0,
+      "signal": null,
+      "error": null,
+      "durationMs": 3999484,
+      "log": "train-full-target-window-pass.log"
+    },
+    {
+      "stage": "qualify-full-target-window-pass",
+      "exitCode": 0,
+      "signal": null,
+      "error": null,
+      "durationMs": 123200,
+      "log": "qualify-full-target-window-pass.log"
+    }
+  ],
+  "limits": [
+    "Target-presence comparison counts exact positive-weight physical target records; token or mask-position coverage remains unmeasured.",
+    "Two optimizer updates do not qualify learned execution quality or prove every positive-loss target was exposed.",
+    "Fresh-process recovery retained original failed/unacknowledged selections; accepted-record recovery was not exercised.",
+    "Artifact hashes identify local complete bundles. Durable external bundle publication is a separate recorded step."
+  ],
+  "currentExpandedContractQualified": false,
+  "productionLaunchQualified": false,
+  "tokenOrMaskPositionCoverage": "unmeasured",
+  "learnedSuccess": null
+}
