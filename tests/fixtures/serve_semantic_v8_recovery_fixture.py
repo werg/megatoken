@@ -153,7 +153,7 @@ class _FragmentingFixtureDecoder:
         return (payload,), (token_ids,), (True,), (terminal,), (None,)
 
 
-def _serve(decoder_log_path):
+def _serve(decoder_log_path, durability=None):
     model, codec = _build_model()
     identity = _model_identity(model)
     runtime = MultiTrackRuntime(MultiTrackGenerator.of(model))
@@ -166,6 +166,30 @@ def _serve(decoder_log_path):
         max_sessions=16,
         max_attempts=4096,
     )
+    commit_bridge = execution_lease = None
+    if durability is not None:
+        from megatoken.semantic_commit_recovery_v8 import (
+            DurableNativeCommitBridge,
+            NativeExecutionLease,
+        )
+        from megatoken.semantic_request_journal_v8 import DurableNativeRequestJournal
+
+        execution_lease = NativeExecutionLease(
+            durability.execution_lock_fd,
+            durability.execution_lock_path,
+            durability.execution_session_id,
+            durability.execution_stream_id,
+        )
+        commit_bridge = DurableNativeCommitBridge(
+            adapter,
+            DurableNativeRequestJournal(
+                durability.request_journal_dir,
+                max_request_bytes=64 << 20,
+                max_result_bytes=64 << 20,
+                max_log_bytes=512 << 20,
+            ),
+            execution_lease,
+        )
     decoder_log_path.parent.mkdir(parents=True, exist_ok=True)
     decoder_log = decoder_log_path.open("x", encoding="utf-8")
     decoder = _FragmentingFixtureDecoder(_fixture_records(), codec, decoder_log)
@@ -188,7 +212,7 @@ def _serve(decoder_log_path):
 
                 request = strict_json_loads(raw.decode("utf-8", errors="strict"))
                 with torch.inference_mode():
-                    result = dispatch(adapter, request)
+                    result = dispatch(adapter, request, commit_bridge=commit_bridge)
                 reply = {"id": request["id"], "ok": True, "result": result}
             except Exception as error:
                 reply = {
@@ -215,19 +239,37 @@ def _serve(decoder_log_path):
         MultiTrackGenerator._realize = original_realize
         runtime.close()
         decoder_log.close()
+        if execution_lease is not None:
+            execution_lease.close()
 
 
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--describe", action="store_true")
     parser.add_argument("--decoder-log", type=Path)
+    parser.add_argument("--request-journal-dir", type=Path)
+    parser.add_argument("--execution-lock-fd", type=int)
+    parser.add_argument("--execution-lock-path", type=Path)
+    parser.add_argument("--execution-session-id")
+    parser.add_argument("--execution-stream-id")
     arguments = parser.parse_args()
+    durability = (
+        arguments.request_journal_dir,
+        arguments.execution_lock_fd,
+        arguments.execution_lock_path,
+        arguments.execution_session_id,
+        arguments.execution_stream_id,
+    )
+    if any(value is not None for value in durability) and not all(
+        value is not None for value in durability
+    ):
+        parser.error("Every native durability argument must be supplied together")
     if arguments.describe:
         print(json.dumps(_describe(), ensure_ascii=False, separators=(",", ":"), allow_nan=False))
         return 0
     if arguments.decoder_log is None:
         parser.error("--decoder-log is required for the JSONL recovery fixture")
-    _serve(arguments.decoder_log)
+    _serve(arguments.decoder_log, arguments if arguments.request_journal_dir is not None else None)
     return 0
 
 

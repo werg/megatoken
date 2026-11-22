@@ -22,10 +22,22 @@ MAX_REQUEST_BYTES = 40 << 20
 
 
 @torch.inference_mode()
-def dispatch(adapter, request):
+def dispatch(adapter, request, *, commit_bridge=None):
     if not isinstance(request, dict) or not isinstance(request.get("id"), str):
         raise ValueError("V8 RPC requires a stable request ID")
     operation = request.get("op")
+    if commit_bridge is not None:
+        commit_bridge.assert_operation(operation)
+    if operation in {"durable-commit", "recover-commit"}:
+        if commit_bridge is None:
+            raise ValueError(
+                "Native commit durability requires a configured execution lease and journal"
+            )
+        if set(request) != {"id", "op", "identity", "requestBase64", "preCheckpointDigest"}:
+            raise ValueError("Native durable commit RPC fields differ")
+        return getattr(commit_bridge, operation.replace("-", "_"))(
+            **{key: value for key, value in request.items() if key not in {"id", "op"}}
+        )
     if operation in {"metrics", "status"}:
         return adapter.metrics()
     methods = {
@@ -65,7 +77,35 @@ def main():
     parser.add_argument("--max-sessions", type=int, default=16)
     parser.add_argument("--threads", type=int, default=1)
     parser.add_argument("--profile-output", type=Path)
+    parser.add_argument("--request-journal-dir", type=Path)
+    parser.add_argument("--execution-lock-fd", type=int)
+    parser.add_argument("--execution-lock-path", type=Path)
+    parser.add_argument("--execution-session-id")
+    parser.add_argument("--execution-stream-id")
     args = parser.parse_args()
+    durability = (
+        args.request_journal_dir,
+        args.execution_lock_fd,
+        args.execution_lock_path,
+        args.execution_session_id,
+        args.execution_stream_id,
+    )
+    if any(value is not None for value in durability) and not all(
+        value is not None for value in durability
+    ):
+        parser.error(
+            "Native durability requires the journal directory and every inherited execution-lock argument"
+        )
+    execution_lease = None
+    if args.request_journal_dir is not None:
+        from megatoken.semantic_commit_recovery_v8 import NativeExecutionLease
+
+        execution_lease = NativeExecutionLease(
+            args.execution_lock_fd,
+            args.execution_lock_path,
+            args.execution_session_id,
+            args.execution_stream_id,
+        )
     if args.profile_output is not None and args.profile_output.exists():
         parser.error("Native v8 profiles are immutable; choose a new output path")
     if args.threads < 1:
@@ -89,6 +129,21 @@ def main():
         max_fragments=args.max_fragments,
         max_sessions=args.max_sessions,
     )
+    commit_bridge = None
+    if execution_lease is not None:
+        from megatoken.semantic_commit_recovery_v8 import DurableNativeCommitBridge
+        from megatoken.semantic_request_journal_v8 import DurableNativeRequestJournal
+
+        commit_bridge = DurableNativeCommitBridge(
+            adapter,
+            DurableNativeRequestJournal(
+                args.request_journal_dir,
+                max_request_bytes=64 << 20,
+                max_result_bytes=64 << 20,
+                max_log_bytes=512 << 20,
+            ),
+            execution_lease,
+        )
     synchronize()
     cold_seconds = time.perf_counter() - started
     try:
@@ -102,7 +157,7 @@ def main():
             request_started = time.perf_counter()
             try:
                 request = strict_json_loads(raw.decode("utf-8", errors="strict"))
-                result = dispatch(adapter, request)
+                result = dispatch(adapter, request, commit_bridge=commit_bridge)
                 reply = {"id": request["id"], "ok": True, "result": result}
             except Exception as error:
                 reply = {
@@ -129,6 +184,8 @@ def main():
         for identity in list(adapter.sessions):
             adapter.cancel(session=identity, reason="process-closed")
         runtime.close()
+        if execution_lease is not None:
+            execution_lease.close()
         if args.profile_output is not None:
             args.profile_output.parent.mkdir(parents=True, exist_ok=True)
             with args.profile_output.open("x", encoding="utf-8") as output:
