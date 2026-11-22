@@ -365,6 +365,8 @@ def test_reprepare_uses_physical_prepared_order_without_rewriting_inputs(
         tmp_path,
         descriptor,
         {"tokenizer": tmp_path / "tokenizer/tokenizer.json"},
+        bundled=bundled,
+        sources=sources,
         producer_root=tmp_path,
         consumer_root=tmp_path,
         model_config=model,
@@ -374,6 +376,59 @@ def test_reprepare_uses_physical_prepared_order_without_rewriting_inputs(
     assert release.compare_prepared_semantics(bundled, regenerated, sources)["sourceCount"] == 2
     assert release.bundle_inventory(tmp_path) == before_bundle
     assert release.bundle_inventory(prepared) == before_prepared
+
+
+@pytest.mark.parametrize(
+    "mutation",
+    [
+        "duplicate-prepared",
+        "duplicate-source",
+        "missing-prepared",
+        "missing-source",
+        "invented-source",
+        "changed-split",
+    ],
+)
+def test_reprepare_refuses_membership_drift_before_starting_child(tmp_path, monkeypatch, mutation):
+    bundled = {
+        "membership": [
+            {"sourceId": "a", "split": "train"},
+            {"sourceId": "b", "split": "validation"},
+        ]
+    }
+    sources = [
+        {"sourceId": "b", "split": "validation", "path": "original-b.json"},
+        {"sourceId": "a", "split": "train", "path": "original-a.json"},
+    ]
+    if mutation == "duplicate-prepared":
+        bundled["membership"][1] = copy.deepcopy(bundled["membership"][0])
+    elif mutation == "duplicate-source":
+        sources[1] = copy.deepcopy(sources[0])
+    elif mutation == "missing-prepared":
+        bundled["membership"].pop()
+    elif mutation == "missing-source":
+        sources.pop()
+    elif mutation == "invented-source":
+        sources[0]["sourceId"] = "not-prepared"
+    else:
+        sources[0]["split"] = "test"
+
+    def forbidden(*_args, **_kwargs):
+        raise AssertionError("Membership drift must fail before fresh preparation starts")
+
+    monkeypatch.setattr(release.subprocess, "run", forbidden)
+    with pytest.raises(ValueError, match="Prepared source order"):
+        release.regenerate_prepared(
+            tmp_path,
+            {},
+            {},
+            bundled=bundled,
+            sources=sources,
+            producer_root=tmp_path,
+            consumer_root=tmp_path,
+            model_config=None,
+            timeout_seconds=1,
+        )
 
 
 @pytest.mark.parametrize("mutation", ["cached-label", "free-mask"])

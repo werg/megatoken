@@ -421,10 +421,40 @@ def compare_prepared_semantics(bundled, regenerated, sources):
     }
 
 
+def prepared_source_order(bundled, sources):
+    """Use actual index order only after proving exact complete source membership."""
+    membership = bundled["membership"]
+    source_ids = [row["sourceId"] for row in sources]
+    prepared_ids = [row["sourceId"] for row in membership]
+    require(
+        bool(source_ids)
+        and len(source_ids) == len(set(source_ids))
+        and len(prepared_ids) == len(set(prepared_ids))
+        and len(source_ids) == len(prepared_ids)
+        and set(source_ids) == set(prepared_ids),
+        "Prepared source order requires exact unique complete supplied membership",
+    )
+    by_source = {row["sourceId"]: row for row in sources}
+    require(
+        all(by_source[row["sourceId"]]["split"] == row["split"] for row in membership),
+        "Prepared source order changed a supplied source split",
+    )
+    return [by_source[source_id] for source_id in prepared_ids]
+
+
 def regenerate_prepared(
-    root, descriptor, paths, *, producer_root, consumer_root, model_config, timeout_seconds
+    root,
+    descriptor,
+    paths,
+    *,
+    bundled,
+    sources,
+    producer_root,
+    consumer_root,
+    model_config,
+    timeout_seconds,
 ):
-    sources = descriptor["roles"]["prepared"][0]["sourceArtifacts"]
+    sources = prepared_source_order(bundled, sources)
     require(
         type(timeout_seconds) is int and 1 <= timeout_seconds <= 900,
         "Source recheck timeout must be an integer from 1 through 900 seconds",
@@ -783,6 +813,8 @@ def verify_release(bundle_root, descriptor_path, producer_root, consumer_revisio
         root,
         descriptor,
         paths,
+        bundled=bundled,
+        sources=sources,
         producer_root=producer_root,
         consumer_root=consumer_root,
         model_config=model_config,
