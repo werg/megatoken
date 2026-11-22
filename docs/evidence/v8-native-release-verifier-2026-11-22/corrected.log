@@ -1,0 +1,22 @@
+..................................F......                                [100%]
+=================================== FAILURES ===================================
+____ test_resealed_prepared_label_change_is_not_hidden_by_valid_file_hashes ____
+
+tmp_path = PosixPath('/workspace/scratch/05d92519587f/archive-test-tmp/pytest-of-agent/pytest-1/test_resealed_prepared_label_c0')
+
+    def test_resealed_prepared_label_change_is_not_hidden_by_valid_file_hashes(tmp_path):
+        _, _, _, prepared = prepared_v8_fixture(tmp_path)
+        original = release.prepared_semantics(prepared)
+        manifest_path = prepared / "manifest.json"
+        manifest = json.loads(manifest_path.read_text())
+        shard = prepared / manifest["shards"][0]["path"]
+        value = json.loads(shard.read_text())
+        record = next(row for row in value["records"] if row["policy_mask"])
+>       record["emitted_free_mask"][0] = not record["emitted_free_mask"][0]
+                                             ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+E       TypeError: 'NoneType' object is not subscriptable
+
+tests/test_semantic_v8_release_verifier.py:242: TypeError
+=========================== short test summary info ============================
+FAILED tests/test_semantic_v8_release_verifier.py::test_resealed_prepared_label_change_is_not_hidden_by_valid_file_hashes
+1 failed, 40 passed in 8.11s

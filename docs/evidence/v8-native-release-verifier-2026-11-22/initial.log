@@ -1,0 +1,575 @@
+..............................F..FF.....F                                [100%]
+=================================== FAILURES ===================================
+_ test_release_recipe_preserves_physical_provenance_and_binds_only_declared_inputs _
+
+tmp_path = PosixPath('/workspace/scratch/05d92519587f/native-v8-release-verifier/pytest-of-agent/pytest-0/test_release_recipe_preserves_0')
+
+    def test_release_recipe_preserves_physical_provenance_and_binds_only_declared_inputs(tmp_path):
+        descriptor = descriptor_fixture(tmp_path)
+        raw = recipe_fixture()
+        before = copy.deepcopy(raw)
+>       parsed = release.release_recipe(raw, descriptor, tmp_path)
+                 ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+tests/test_semantic_v8_release_verifier.py:167: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+scripts/verify_semantic_v8_release.py:203: in release_recipe
+    config = TrainConfig.from_dict(raw)
+             ^^^^^^^^^^^^^^^^^^^^^^^^^^
+src/megatoken/training/config.py:382: in from_dict
+    return cls(**merged)
+           ^^^^^^^^^^^^^
+<string>:63: in __init__
+    ???
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+
+self = TrainConfig(purpose='diagnostic', phase='SC', model='tiny', datasets=['prepared/000'], output='runs/bootstrap', codec=...000000000000000000000000'}, use_stage_mixture=False, use_effort_mixture=False, engram_import=None, engram_imports=None)
+
+    def __post_init__(self) -> None:
+        if self.semantic_v7_policy is not None:
+            from .semantic_v7 import validate_semantic_training_policy_v7
+    
+            validate_semantic_training_policy_v7(self.semantic_v7_policy)
+            if self.semantic_experiment is not None:
+                raise ValueError(
+                    "V7 training cannot reuse a historical semantic experiment contract"
+                )
+        if self.semantic_v8_policy is not None:
+            from .semantic_v8 import validate_semantic_training_policy_v8
+    
+            validate_semantic_training_policy_v8(self.semantic_v8_policy)
+            if self.semantic_experiment is not None or self.semantic_v7_policy is not None:
+                raise ValueError("V8 training cannot reuse an older semantic training contract")
+            if self.codec == "byte" or self.allow_byte_codec:
+                raise ValueError(
+                    "V8 training requires the pinned raw tokenizer, never the byte fallback"
+                )
+        if self.semantic_experiment is not None:
+            from .semantic_budget import SemanticExperimentConfig
+    
+            experiment = SemanticExperimentConfig(**self.semantic_experiment)
+            if self.phase not in {"SE", "SC"}:
+                raise ValueError(
+                    "Semantic experiment budgets require their declared native training stage"
+                )
+            if experiment.representation != "compact":
+                raise ValueError("Only the canonical semantic representation is trainable")
+            if self.microbatch_episodes != 1 or self.max_accumulation_windows != 1:
+                raise ValueError(
+                    "Comparable semantic runs use one atomic window per budget decision"
+                )
+            if experiment.regime == "fixed-tokens" and self.max_window_records != 1:
+                raise ValueError(
+                    "Fixed-token experiments require one physical record per atomic window"
+                )
+        elif self.phase in {"SE", "SC"} and self.semantic_v8_policy is None:
+            raise ValueError(
+                "Semantic training requires a frozen experiment and engineering-completion receipt"
+            )
+        if self.purpose not in {"production", "diagnostic"}:
+            raise ValueError("purpose must be production or diagnostic")
+        recipe = stage_recipe(self.phase)
+        defaults = dict(recipe.training)
+        if self.purpose == "diagnostic":
+            defaults.update(
+                navigation_weight=0.0,
+                eval_every=0,
+                inner_optimizer="adamw",
+                use_stage_mixture=False,
+                use_effort_mixture=False,
+                representation_mode="auto",
+                trainable="all",
+                scored_decisions=2,
+            )
+        for name, value in defaults.items():
+            if getattr(self, name) is None:
+                object.__setattr__(self, name, value)
+        if isinstance(self.decoupled, dict):
+            object.__setattr__(self, "decoupled", DecoupledConfig.from_dict(self.decoupled))
+        if self.decoupled is not None and not isinstance(self.decoupled, DecoupledConfig):
+            raise ValueError("decoupled must be a settings object or mapping")
+        if (
+            self.semantic_experiment is not None
+            and self.decoupled is not None
+            and self.decoupled.workers != 1
+        ):
+            raise ValueError("Semantic comparison budgets require one explicitly metered worker")
+        if self.router_balance_mode != "global":
+            raise ValueError(
+                "The local router fairness objective is removed; "
+                "all training uses optimizer-step global router replay"
+            )
+        if self.inner_optimizer not in {"adamw", "muon"}:
+            raise ValueError("inner_optimizer must be adamw or muon")
+        if self.engram_import is not None and self.engram_imports:
+            raise ValueError("Use engram_import for one asset or engram_imports for several")
+        if self.engram_imports is not None and (
+            not isinstance(self.engram_imports, list)
+            or not self.engram_imports
+            or not all(isinstance(path, str) and path for path in self.engram_imports)
+        ):
+            raise ValueError("engram_imports must be a nonempty ordered list of asset paths")
+        if self.phase not in PHASES:
+            raise ValueError(f"phase must be one of {tuple(PHASES)}")
+        if self.precision not in {"bf16", "fp32"}:
+            raise ValueError("Only bf16 or fp32 are supported; FP8 requires a measured extension")
+        if self.effort not in {1, 2, 3, 6}:
+            raise ValueError("effort must be one of 1, 2, 3, 6")
+        if self.expert_backend not in {"auto", "torch", "triton"}:
+            raise ValueError("expert_backend must be auto, torch, or triton")
+        if self.representation_mode not in {"auto", "bootstrap", "recurrent"}:
+            raise ValueError("representation_mode must be auto, bootstrap, or recurrent")
+        if self.trainable not in {"all", "media_bridge", "latent_policy"}:
+            raise ValueError("trainable is all, media_bridge, or latent_policy")
+        policy_only = self.trainable == "latent_policy" and self.phase == "D"
+        if not policy_only and self.trainable != recipe.training["trainable"]:
+            raise ValueError(f"Stage {self.phase} trains {self.trainable!r} parameters only")
+        if self.trainable == "media_bridge" and self.packs is None:
+            raise ValueError("Media bridge training needs the realizer packs")
+        import math
+    
+        for name in ("hindsight_distill_weight", "navigation_weight"):
+            value = getattr(self, name)
+            if not math.isfinite(value) or not 0 <= value <= 1:
+                raise ValueError(f"{name} must be finite and in [0, 1]")
+        if self.hindsight_targets is not None and not self.hindsight_targets:
+            raise ValueError("hindsight_targets must name an immutable target tranche")
+        if not 1 <= self.navigation_examples <= 64 or not 1 <= self.navigation_negatives <= 256:
+            raise ValueError("Navigation teaching limits exceed the bounded per-window budget")
+        if not 0 < self.text_anchor_weight <= 1:
+            raise ValueError("Text anchor weight must be in (0, 1]")
+        if self.packs is not None and not self.packs:
+            raise ValueError("Pack manifest path must be nonempty")
+        if not isinstance(self.datasets, list) or not self.datasets:
+            raise ValueError("datasets must be a nonempty list of prepared roots")
+        if not all(isinstance(root, str) and root for root in self.datasets):
+            raise ValueError("datasets must be nonempty path strings")
+        positive = (
+            "microbatch_episodes",
+            "accumulate_events",
+            "accumulate_scored",
+            "accumulate_ingested",
+            "max_accumulation_windows",
+            "max_history_tokens",
+            "max_window_records",
+            "max_media_events_per_window",
+            "scored_decisions",
+            "max_record_bytes",
+            "generated_capacity",
+            "keep_checkpoints",
+            "log_every",
+            "eval_windows",
+        )
+        for name in positive:
+            if getattr(self, name) <= 0:
+                raise ValueError(f"{name} must be positive")
+        for name in ("checkpoint_every", "eval_every"):
+            if getattr(self, name) < 0:
+                raise ValueError(f"{name} cannot be negative")
+        if self.max_steps is not None and self.max_steps <= 0:
+            raise ValueError("max_steps must be positive when supplied")
+        if self.budget is not None and not 0 < self.budget <= PHASES[self.phase].budget:
+            raise ValueError(
+                f"budget is in stage {self.phase}'s meter {PHASES[self.phase].meter} and must "
+                f"be in (0, {PHASES[self.phase].budget}], the stage's own limit"
+            )
+        if self.grad_clip <= 0 or self.weight_decay < 0:
+            raise ValueError("Invalid gradient clipping or decay")
+        if set(self.loss_weights) != set(DEFAULT_LOSS_WEIGHTS):
+            raise ValueError(f"loss_weights must define exactly {tuple(DEFAULT_LOSS_WEIGHTS)}")
+        if any(value < 0 for value in self.loss_weights.values()):
+            raise ValueError("Loss weights cannot be negative")
+        if self.purpose == "production" and (
+            not self.hindsight_targets
+            or self.navigation_weight <= 0
+            or self.hindsight_distill_weight <= 0
+        ):
+            raise ValueError(
+                "The default teacher/structure recipe requires hindsight_targets, "
+                "positive navigation_weight and positive hindsight_distill_weight"
+            )
+        if self.purpose == "production":
+            locked = set(recipe.training) - {"eval_every"}
+            for name in sorted(locked):
+                if getattr(self, name) != recipe.training[name]:
+                    raise ValueError(
+                        f"Production {name} must follow the canonical stage recipe "
+                        f"({recipe.training[name]!r})"
+                    )
+            if self.loss_weights != DEFAULT_LOSS_WEIGHTS:
+                raise ValueError(
+                    "Production loss_weights must follow the shared objective contract"
+                )
+            if self.decoupled is None:
+                raise ValueError("Production training requires independent DiLoCo learners")
+            if self.checkpoint_every <= 0:
+                raise ValueError("Production training requires periodic checkpoints")
+            if self.engram_import is not None or len(self.engram_imports or []) != len(
+                recipe.required_donor_profiles
+            ):
+                raise ValueError(
+                    "Production stages require both selected donor imports after "
+                    "media alignment and no donor imports before it"
+                )
+            if recipe.constraints.get("requires_text_anchors") and not self.text_anchors:
+                raise ValueError("Production media alignment requires prepared text anchors")
+            if self.eval_every <= 0:
+                raise ValueError("Production training requires held-out evaluation")
+            if self.allow_byte_codec or self.allow_unverified_data:
+                raise ValueError("Production training cannot bypass codec or data verification")
+        elif self.max_steps is None and self.budget is None:
+>           raise ValueError("Diagnostic training requires an explicit max_steps or budget limit")
+E           ValueError: Diagnostic training requires an explicit max_steps or budget limit
+
+src/megatoken/training/config.py:358: ValueError
+____ test_reprepared_semantics_compare_every_physical_field_and_index_scope ____
+
+tmp_path = PosixPath('/workspace/scratch/05d92519587f/native-v8-release-verifier/pytest-of-agent/pytest-0/test_reprepared_semantics_comp0')
+
+    def test_reprepared_semantics_compare_every_physical_field_and_index_scope(tmp_path):
+        first = tmp_path / "first"
+        second = tmp_path / "second"
+        first.mkdir()
+        second.mkdir()
+        document, codec, _policy, prepared = prepared_v8_fixture(first)
+        _, _, _, regenerated = prepared_v8_fixture(
+            second, document=copy.deepcopy(document), codec=codec
+        )
+        original = release.prepared_semantics(prepared)
+        fresh = release.prepared_semantics(regenerated)
+        sources = [{"sourceId": "source-1", "split": "train"}]
+>       proof = release.compare_prepared_semantics(original, fresh, sources)
+                ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+tests/test_semantic_v8_release_verifier.py:219: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+scripts/verify_semantic_v8_release.py:388: in compare_prepared_semantics
+    "semanticDigest": stable_algorithm_hash(bundled),
+                      ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+src/megatoken/data/semantic_json.py:191: in stable_algorithm_hash
+    text = value if type(value) is str else stable_algorithm_json(value)
+                                            ^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+src/megatoken/data/semantic_json.py:186: in stable_algorithm_json
+    return _stable_json(value, set())
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^
+src/megatoken/data/semantic_json.py:173: in _stable_json
+    + ",".join(
+src/megatoken/data/semantic_json.py:174: in <genexpr>
+    _quote_string(key) + ":" + _stable_json(value[key], active) for key in keys
+                               ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+src/megatoken/data/semantic_json.py:153: in _stable_json
+    return "[" + ",".join(_stable_json(item, active) for item in value) + "]"
+                 ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+src/megatoken/data/semantic_json.py:153: in <genexpr>
+    return "[" + ",".join(_stable_json(item, active) for item in value) + "]"
+                          ^^^^^^^^^^^^^^^^^^^^^^^^^^
+src/megatoken/data/semantic_json.py:173: in _stable_json
+    + ",".join(
+src/megatoken/data/semantic_json.py:174: in <genexpr>
+    _quote_string(key) + ":" + _stable_json(value[key], active) for key in keys
+                               ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+src/megatoken/data/semantic_json.py:180: in _stable_json
+    _error("noncanonical JSON data")
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+
+message = 'noncanonical JSON data'
+
+    def _error(message: str) -> None:
+>       raise SemanticJSONError("Invalid semantic data: " + message)
+E       megatoken.data.semantic_json.SemanticJSONError: Invalid semantic data: noncanonical JSON data
+
+src/megatoken/data/semantic_json.py:15: SemanticJSONError
+____ test_resealed_prepared_label_change_is_not_hidden_by_valid_file_hashes ____
+
+tmp_path = PosixPath('/workspace/scratch/05d92519587f/native-v8-release-verifier/pytest-of-agent/pytest-0/test_resealed_prepared_label_c0')
+
+    def test_resealed_prepared_label_change_is_not_hidden_by_valid_file_hashes(tmp_path):
+        _, _, _, prepared = prepared_v8_fixture(tmp_path)
+        original = release.prepared_semantics(prepared)
+        manifest_path = prepared / "manifest.json"
+        manifest = json.loads(manifest_path.read_text())
+        shard = prepared / manifest["shards"][0]["path"]
+        value = json.loads(shard.read_text())
+        record = next(row for row in value["records"] if row["policy_mask"])
+        record["policy_mask"] = False
+        line = json.dumps(value, separators=(",", ":")).encode() + b"\n"
+        shard.write_bytes(line)
+        index = prepared / manifest["index"]["path"]
+        with sqlite3.connect(index) as connection:
+            connection.execute(
+                "UPDATE episodes SET length=?,sha256=?",
+                (len(line), sha256_file(shard)),
+            )
+        manifest["shards"][0].update(sha256=sha256_file(shard), bytes=len(line))
+        manifest["index"]["sha256"] = sha256_file(index)
+        manifest["fingerprint"] = content_hash(
+            {k: v for k, v in manifest.items() if k != "fingerprint"}
+        )
+        manifest_path.write_text(json.dumps(manifest))
+>       altered = release.prepared_semantics(prepared)
+                  ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+tests/test_semantic_v8_release_verifier.py:256: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+scripts/verify_semantic_v8_release.py:304: in prepared_semantics
+    episode = dataset[index]
+              ^^^^^^^^^^^^^^
+src/megatoken/data/storage.py:467: in __getitem__
+    return self._read(self.index_entry(index))
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+src/megatoken/data/storage.py:461: in _read
+    episode = Episode.from_dict(json.loads(line))
+              ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+src/megatoken/data/schema.py:832: in from_dict
+    return cls(**obj)
+           ^^^^^^^^^^
+<string>:19: in __init__
+    ???
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+
+self = Episode(episode_id='semantic:v8:b704bd98130eb8fe86434206', records=(PhysicalRecord(record_id='aa928e6fa7bcfeac7ae3bf7a...irection='', available_at_ns=None, source_revision=''),), selected_at_ns=None)), omni_relations=(), track_revisions=())
+
+    def __post_init__(self) -> None:
+        if not self.episode_id or not self.records or not isinstance(self.records, tuple):
+            raise ValueError("An episode needs an identity and nonempty immutable records")
+        if self.control_reference and self.reference_origin not in {
+            "external_evidence",
+            "earlier_history",
+        }:
+            raise ValueError("Reference controls require a causal origin")
+        if not isinstance(json.loads(self.tools_json), list):
+            raise ValueError("Tool schemas must be a JSON list")
+        ids: dict[str, int] = {}
+        completed: set[str] = set()
+        logical_seen: set[str] = set()
+        action_map = {action.action_id: action for action in self.actions}
+        if len(action_map) != len(self.actions) or len({a.call_id for a in self.actions}) != len(
+            self.actions
+        ):
+            raise ValueError("Duplicate action/call identity")
+        result_logical: dict[str, str] = {}
+        previous_turn = -1
+        previous_logical = ""
+        for index, record in enumerate(self.records):
+            if record.record_id in ids or record.turn_index < previous_turn:
+                raise ValueError("Duplicate record or reordered turn")
+            ids[record.record_id] = index
+            previous_turn = record.turn_index
+            logical = record.logical_id or record.record_id
+            if logical != previous_logical:
+                if logical in logical_seen or record.part_index != 0:
+                    raise ValueError("Logical record parts must be contiguous and start at zero")
+                if (
+                    index
+                    and self.records[index - 1].part_index + 1 != self.records[index - 1].part_count
+                ):
+                    raise ValueError("Incomplete preceding logical record")
+                logical_seen.add(logical)
+            else:
+                previous = self.records[index - 1]
+                if (
+                    record.part_index != previous.part_index + 1
+                    or record.part_count != previous.part_count
+                    or record.role != previous.role
+                    or record.action_id != previous.action_id
+                    or record.result_of != previous.result_of
+                    or record.execution_id != previous.execution_id
+                ):
+                    raise ValueError("Physical parts disagree about their logical record")
+            previous_logical = logical
+            if record.action_id:
+                action = action_map.get(record.action_id)
+                if action is None or record.record_id not in action.record_ids:
+                    raise ValueError("Physical action has no matching complete logical action")
+                if record.part_index + 1 == record.part_count:
+                    completed.add(record.action_id)
+            if record.result_of:
+                if record.result_of not in completed:
+                    raise ValueError("An observation precedes its complete action")
+                action = action_map[record.result_of]
+                if action.execution_id != record.execution_id:
+                    raise ValueError("Result execution identity does not match its action")
+                if record.provenance == "executed" and not record.execution_id:
+                    raise ValueError("Executed observations require an execution identity")
+                if (
+                    record.result_of in result_logical
+                    and result_logical[record.result_of] != logical
+                ):
+                    raise ValueError("A logical action must execute exactly once")
+                result_logical[record.result_of] = logical
+        logical_ids = {record.logical_id for record in self.records}
+        known_tracks = {t.track_id for t in self.tracks}
+        revisions = {}
+        last_revision_record = -1
+        for revision in self.track_revisions:
+            position = ids.get(revision.record_id, -1)
+            if (
+                revision.track_id not in known_tracks
+                or position < last_revision_record
+                or position < 0
+                or self.records[position].policy_mask
+                or self.records[position].role == "assistant"
+                or revision.revision <= revisions.get(revision.track_id, -1)
+            ):
+                raise ValueError(
+                    "Track revisions must follow distinct available observation records in order"
+                )
+            announcement = self.records[position]
+            if announcement.part_index + 1 != announcement.part_count:
+                raise ValueError("Track purpose is public only after its complete announcement")
+            logical = announcement.logical_id or announcement.record_id
+            payload = b"".join(
+                r.payload for r in self.records if (r.logical_id or r.record_id) == logical
+            )
+            try:
+                public = json.loads(payload)
+                public = public.get("track", public)
+                if (
+                    public.get("purpose") != revision.purpose
+                    or public.get("revision") != revision.revision
+                    or public.get("address", revision.track_id) != revision.track_id
+                ):
+                    raise ValueError("Purpose differs from the public announcement")
+            except (ValueError, TypeError, AttributeError) as exc:
+                raise ValueError("Track revision must match its exact public announcement") from exc
+            revisions[revision.track_id] = revision.revision
+            last_revision_record = position
+        if any(
+            relation.left not in logical_ids or relation.right not in logical_ids
+            for relation in self.omni_relations
+        ):
+            raise ValueError("Omnimodal relation references a missing source artifact")
+        if self.records[-1].part_index + 1 != self.records[-1].part_count:
+            raise ValueError("Incomplete final logical record")
+        for action in self.actions:
+            try:
+                positions = [ids[record_id] for record_id in action.record_ids]
+            except KeyError as exc:
+                raise ValueError("Logical action refers to an absent physical record") from exc
+            if positions != list(range(positions[0], positions[0] + len(positions))):
+                raise ValueError("Logical action records are not contiguous/in order")
+            physical = tuple(self.records[pos] for pos in positions)
+            if any(record.action_id != action.action_id for record in physical):
+                raise ValueError("Logical action and physical action identities differ")
+            if (
+                digest_bytes(b"".join(record.payload for record in physical))
+                != action.serialized_sha256
+            ):
+                raise ValueError("Logical action digest differs from actual emitted bytes")
+        for dependency in self.dependencies:
+            if dependency.writer_id not in ids or dependency.reader_id not in ids:
+                raise ValueError("Dependency refers to an absent physical record")
+            if ids[dependency.writer_id] >= ids[dependency.reader_id]:
+                raise ValueError("Future evidence cannot be a writer for an earlier reader")
+            if not self.records[ids[dependency.reader_id]].policy_mask:
+>               raise ValueError("A declared dependent prediction must carry policy loss")
+E               ValueError: A declared dependent prediction must carry policy loss
+
+src/megatoken/data/schema.py:665: ValueError
+______ test_real_controlled_checkpoint_export_and_resealed_weight_refusal ______
+
+tmp_path = PosixPath('/workspace/scratch/05d92519587f/native-v8-release-verifier/pytest-of-agent/pytest-0/test_real_controlled_checkpoin0')
+monkeypatch = <_pytest.monkeypatch.MonkeyPatch object at 0x7f7333a90230>
+
+    def test_real_controlled_checkpoint_export_and_resealed_weight_refusal(tmp_path, monkeypatch):
+        """One real optimizer update; fixture source/byte codec are explicitly injected.
+    
+        This exercises real checkpoint, cursor, position history, tensor export and
+        ServedBundle loading. It does not qualify a production tokenizer, source
+        replay, the complete release descriptor or the active paired repositories.
+        """
+        import megatoken.training.semantic_v8 as semantic_v8
+        from megatoken.generation.codec import ByteCodec
+        from megatoken.loading import load_model_config
+        from megatoken.served import export_served
+        from megatoken.training.engine import train
+        from safetensors.torch import load_file, save_file
+    
+        torch.set_num_threads(1)
+        _, codec, policy, prepared = prepared_v8_fixture(tmp_path)
+        tokenizer = tmp_path / "tokenizer.fixture"
+        tokenizer.write_bytes(b"explicit controlled release byte codec\n")
+    
+        def fixture_codec(path, *, vocab_size):
+            assert type(vocab_size) is int and vocab_size == codec.vocab_size
+            assert Path(path).read_bytes() == tokenizer.read_bytes()
+            return ByteCodec.byte_fallback()
+    
+        monkeypatch.setattr(semantic_v8, "load_semantic_v8_codec", fixture_codec)
+        config = TrainConfig(
+            purpose="diagnostic",
+            phase="SC",
+            model="tiny",
+            codec=str(tokenizer),
+            datasets=[str(prepared)],
+            output=str(tmp_path / "fit"),
+            device="cpu",
+            precision="fp32",
+            max_steps=1,
+            checkpoint_every=1,
+            keep_checkpoints=1,
+            microbatch_episodes=1,
+            accumulate_scored=1,
+            accumulate_ingested=1,
+            max_accumulation_windows=1,
+            allow_unverified_data=True,
+            semantic_v8_policy=policy,
+        )
+        result = train(config)
+        served = tmp_path / "served"
+        export_served(result["checkpoint"], served, codec_path=str(tokenizer))
+        relocated = tmp_path / "copied-data"
+        shutil.copytree(prepared, relocated)
+        moved = TrainConfig.from_dict({**asdict(config), "datasets": [str(relocated)]})
+        model_config = load_model_config(
+            config.model,
+            expert_backend=config.expert_backend,
+            checkpoint_stages=config.gradient_checkpointing,
+        )
+        paths = {
+            "prepared": relocated,
+            "checkpoint": Path(result["checkpoint"]),
+            "tokenizer": tokenizer,
+            "served": served,
+        }
+        payload, metadata, checkpoint = release.checkpoint_consistency(
+            moved,
+            model_config,
+            codec,
+            paths,
+            [{"sourceId": "source-1", "split": "train"}],
+        )
+        assert checkpoint["globalStep"] == 1
+        assert checkpoint["positionComparison"]["unexpectedPhysicalTargets"] == []
+>       proof = release.served_consistency(paths, payload, metadata)
+                ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+tests/test_semantic_v8_release_verifier.py:351: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+scripts/verify_semantic_v8_release.py:644: in served_consistency
+    assert_same_state(
+scripts/verify_semantic_v8_release.py:470: in assert_same_state
+    assert_same_state(left[key], right[key], f"{name}.{key}")
+scripts/verify_semantic_v8_release.py:479: in assert_same_state
+    require(
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+
+condition = False
+message = 'Served state value differs from the checkpoint: transducer.bank.version'
+
+    def require(condition, message):
+        if not condition:
+>           raise ValueError(message)
+E           ValueError: Served state value differs from the checkpoint: transducer.bank.version
+
+scripts/verify_semantic_v8_release.py:40: ValueError
+----------------------------- Captured stdout call -----------------------------
+{"budget": 200000000, "elapsed_seconds": 1.8182235739950556, "event": "start", "meter": "P", "mode": "synchronous", "model": "tiny", "phase": "SC", "served_parameters": 1528792, "world_size": 1}
+{"D_per_second": 73.84936502120482, "G_per_second": 0.6103253307537588, "I_per_second": 1059.9316577423613, "P_per_second": 98.87270358210894, "Q_per_second": 0.40688355383583924, "batch_sizes": [1], "budget_overshoot": 0, "counters": {"D": 363, "G": 3, "I": 5210, "P": 486, "Q": 2, "audio_samples": 0, "control_encodes": 0, "facet_encodes": 2, "image_events": 0, "media_events": 0, "raw_facet_replays": 0, "reconstruction_records": 40, "reconstruction_tokens": 4847, "record_ingestions": 43, "scored_windows": 1, "source_bytes": 5210, "video_frames": 0, "writer_reader_windows": 1}, "decoupled": null, "decoupled_step": {}, "denominators": {"audio_prediction": 0, "audio_reconstruction": 0, "binding": 0, "encoder_alignment": 0, "facet_prediction": 0, "lexical": 243, "modality": 2, "placement": 0, "policy_outcome": 0, "query_alignment": 0, "reconstruction": 243, "relation": 0, "relation_semantic": 0, "retrieval_ranking": 0, "router_balance": 2, "router_z": 2, "structure": 8, "terminal": 4, "visual_prediction": 0, "visual_reconstruction": 0}, "efforts": [6], "elapsed_seconds": 6.734611820997088, "event": "train", "experts": {"p": {"active_experts": 8, "dispatches": 432.0, "eligible_counts": [324.0, 324.0, 324.0, 324.0, 324.0, 324.0, 324.0, 324.0], "learning_rows": [54.0, 136.0, 52.0, 58.0, 161.0, 84.0, 195.0, 124.0], "load_entropy": 1.9493662853214242, "normalized_load_entropy": 0.937447024236453, "padded_rows": 53024.0, "padding_ratio": 20.45679012345679, "routed_rows": [160.0, 309.0, 181.0, 168.0, 546.0, 196.0, 600.0, 432.0], "total_rows": 2592}, "u": {"active_experts": 8, "dispatches": 617.0, "eligible_counts": [594.0, 603.0, 599.0, 615.0, 599.0, 602.0, 617.0, 615.0], "learning_rows": [599.0, 343.0, 296.0, 327.0, 231.0, 222.0, 462.0, 236.0], "load_entropy": 2.0523457726878065, "normalized_load_entropy": 0.9869696894820421, "padded_rows": 91968.0, "padding_ratio": 17.850931677018632, "routed_rows": [962.0, 585.0, 513.0, 604.0, 473.0, 623.0, 824.0, 568.0], "total_rows": 5152}}, "generator": {"balance_adapter_c_assignments": 32.0, "balance_adapter_c_loss": 0.004000837914645672, "balance_adapter_e_assignments": 6.0, "balance_adapter_e_loss": 0.0040785991586744785, "balance_adapter_p_assignments": 144.0, "balance_adapter_p_loss": 0.005264165345579386, "balance_adapter_r_assignments": 4.0, "balance_adapter_r_loss": 0.00535553740337491, "balance_p_assignments": 432.0, "balance_p_loss": 0.0025054768193513155, "balance_shape_bootstrap_assignments": 106.0, "balance_shape_bootstrap_loss": 0.002508942037820816, "balance_shape_pool_linear_128_32__pool_assignments": 0.0, "balance_shape_pool_linear_32_1024__pool_assignments": 0.0, "balance_shape_pool_linear_32_128__pool_assignments": 12.0, "balance_shape_pool_linear_32_128__pool_loss": 0.0024954902473837137, "balance_shape_pool_linear_32_32__pool_assignments": 4626.0, "balance_shape_pool_linear_32_32__pool_loss": 0.002500088419765234, "balance_shape_pool_linear_32_64__pool_assignments": 364.0, "balance_shape_pool_linear_32_64__pool_loss": 0.00249916547909379, "balance_shape_pool_linear_512_32__pool_assignments": 0.0, "balance_shape_pool_linear_64_32__pool_assignments": 58.0, "balance_shape_pool_linear_64_32__pool_loss": 0.002500180620700121, "balance_shape_pool_swiglu_32__pool_assignments": 944.0, "balance_shape_pool_swiglu_32__pool_loss": 0.0024997710715979338, "balance_shape_pool_swiglu_64__pool_assignments": 432.0, "balance_shape_pool_swiglu_64__pool_loss": 0.002500883536413312, "balance_u_assignments": 508.0, "balance_u_loss": 0.002496063243597746, "causal_student_windows": 1.0, "context_cache_bytes_sum": 4096.0, "context_retained_events_sum": 8.0, "context_windows": 1.0, "encoded_facet_norm": 7.740620136260986, "encoded_facet_norm_sum": 15.481240272521973, "encoder_alignment_coordinates": 0.0, "encoder_alignment_loss_sum": 0.0, "facet_alignment_coordinates": 256.0, "facet_alignment_squared_error_sum": 396.7357482910156, "facet_examples": 2.0, "facet_prediction_coordinates": 0.0, "facet_prediction_loss_sum": 0.0, "forecast_encoder_distance_mse": 1.5497490167617798, "grouped_native_replays": 0.0, "grouped_selected_events": 2.0, "grouped_supervised_meridians": 2.0, "grouped_training_windows": 1.0, "modality_correct": 0.0, "modality_events": 0.0, "prediction_facet_norm": 11.674825668334961, "prediction_facet_norm_sum": 23.349651336669922, "prior_examples": 2.0, "prior_lexical_ce": 5.575417349858539, "prior_lexical_loss_sum": 1354.826416015625, "prior_lexical_positions": 243.0, "reconstruction_contextual_examples": 0.0, "reconstruction_direct_examples": 2.0, "reconstruction_examples": 2.0, "reconstruction_lexical_ce": 5.657298398115998, "reconstruction_lexical_loss_sum": 1374.7235107421875, "reconstruction_lexical_positions": 243.0, "relation_semantic_loss_sum": 0.0, "relation_semantic_pairs": 0.0, "teacher_forced_action_continuations": 2.0, "transducer_lookups": 7.0, "transducer_observed": 1.0, "transducer_writes": 0.0}, "global_step": 1, "gradient_norm": 1.84101140499115, "gradient_norm_encoder": 0.08694469183683395, "gradient_norm_model": 1.406561017036438, "gradient_norm_shared": 1.1846306324005127, "loss": {"lexical": 5.575417349858539, "modality": 0.0, "reconstruction": 5.657298398115998, "router_balance": 7.061749458312988, "router_z": 51.0631103515625, "structure": 2.448014497756958, "terminal": 0.7273162603378296}, "lr": 1.0000000000000002e-06, "media_events_per_second": 0.0, "optimizer_seconds": 0.01575180600048043, "peak_memory_bytes": 0, "phase": "SC", "phase_consumed": 486, "phase_meter": "P", "reconstruction_tokens_per_second": 986.0822927211564, "record_ingestions_per_second": 8.747996407470543, "semantic_v8_position_exposure": {"digest": "28aee72e0ab881faf7a647499bb3e8b6fa6650342a6e413d006f0b91f70b05c9", "lastGlobalStep": 1, "learnedSuccess": null, "logicalTargetCount": 1, "optimizerUpdates": 1, "otherObjectiveScope": "Routing regularizers, representation coordinates, media/structured-action masks and transducer/retrieval losses are not granted token-position credit by this audit", "physicalTargetRecordCount": 2, "positionScope": "Actual plain-text lexical/reconstruction rows and length/mode/terminal/modality categorical labels and public supports", "positiveWeightPositionCounts": {"lexical": 243, "modality": 2, "reconstruction": 243, "structure": 8, "terminal": 4}, "previousStageDigest": null, "routerInternalAssignmentCount": 7668, "routerInternalAssignmentCounts": {"adapter_c": 32, "adapter_e": 6, "adapter_p": 144, "adapter_r": 4, "p": 432, "shape_bootstrap": 106, "shape_pool_linear_128_32__pool": 0, "shape_pool_linear_32_1024__pool": 0, "shape_pool_linear_32_128__pool": 12, "shape_pool_linear_32_32__pool": 4626, "shape_pool_linear_32_64__pool": 364, "shape_pool_linear_512_32__pool": 0, "shape_pool_linear_64_32__pool": 58, "shape_pool_swiglu_32__pool": 944, "shape_pool_swiglu_64__pool": 432, "u": 508}, "routerInternalPositionAccounting": "complete-per-update", "routerInternalPositionAuditUpdates": 1, "routerInternalPositionCount": 7575, "routerInternalPositionCounts": {"adapter_c": 16, "adapter_e": 3, "adapter_p": 72, "adapter_r": 2, "p": 432, "shape_bootstrap": 106, "shape_pool_linear_128_32__pool": 0, "shape_pool_linear_32_1024__pool": 0, "shape_pool_linear_32_128__pool": 12, "shape_pool_linear_32_32__pool": 4626, "shape_pool_linear_32_64__pool": 364, "shape_pool_linear_512_32__pool": 0, "shape_pool_linear_64_32__pool": 58, "shape_pool_swiglu_32__pool": 944, "shape_pool_swiglu_64__pool": 432, "u": 508}, "routerInternalPositionCoverage": "unmeasured", "schema": "semantic-v8-optimizer-position-exposure/1", "scoredOccurrences": 2, "sourceCount": 1, "startingGlobalStep": 0, "unmeasuredObjectiveCounts": {"router_z": 2}, "unmeasuredPhysicalTargets": 0, "verifiedPhysicalTargets": 2}, "semantic_v8_target_exposure_step": {"logicalTargetCount": 1, "lossDenominators": {"lexical": 243, "reconstruction": 243, "router_z": 2, "structure": 8, "terminal": 4}, "physicalTargetRecordCount": 2, "scoredOccurrences": 2, "sourceCount": 1}, "semantic_v8_target_exposure_totals": {"logicalTargetCount": 1, "lossDenominators": {"lexical": 243, "reconstruction": 243, "router_z": 2, "structure": 8, "terminal": 4}, "physicalTargetRecordCount": 2, "scoredOccurrences": 2, "sourceCount": 1}, "source_bytes_per_second": 1059.9316577423613, "step_counters": {"D": 363, "G": 3, "I": 5210, "P": 486, "Q": 2, "audio_samples": 0, "control_encodes": 0, "facet_encodes": 2, "image_events": 0, "media_events": 0, "raw_facet_replays": 0, "reconstruction_records": 40, "reconstruction_tokens": 4847, "record_ingestions": 43, "scored_windows": 1, "source_bytes": 5210, "video_frames": 0, "writer_reader_windows": 1}, "step_seconds": 4.915411255002255, "transducer_edges": 0, "transducer_updated_fields": 0, "transducer_writeouts": 0, "transducer_written_values": 0}
+{"checkpoint": "/workspace/scratch/05d92519587f/native-v8-release-verifier/pytest-of-agent/pytest-0/test_real_controlled_checkpoin0/fit/checkpoints/SC-000000001-periodic", "complete": false, "counters": {"D": 363, "G": 3, "I": 5210, "P": 486, "Q": 2, "audio_samples": 0, "control_encodes": 0, "facet_encodes": 2, "image_events": 0, "media_events": 0, "raw_facet_replays": 0, "reconstruction_records": 40, "reconstruction_tokens": 4847, "record_ingestions": 43, "scored_windows": 1, "source_bytes": 5210, "video_frames": 0, "writer_reader_windows": 1}, "elapsed_seconds": 6.8043822219988215, "event": "finished", "global_step": 1, "phase": "SC", "phase_consumed": 486, "semantic_v8_position_exposure": {"digest": "28aee72e0ab881faf7a647499bb3e8b6fa6650342a6e413d006f0b91f70b05c9", "lastGlobalStep": 1, "learnedSuccess": null, "logicalTargetCount": 1, "optimizerUpdates": 1, "otherObjectiveScope": "Routing regularizers, representation coordinates, media/structured-action masks and transducer/retrieval losses are not granted token-position credit by this audit", "physicalTargetRecordCount": 2, "positionScope": "Actual plain-text lexical/reconstruction rows and length/mode/terminal/modality categorical labels and public supports", "positiveWeightPositionCounts": {"lexical": 243, "modality": 2, "reconstruction": 243, "structure": 8, "terminal": 4}, "previousStageDigest": null, "routerInternalAssignmentCount": 7668, "routerInternalAssignmentCounts": {"adapter_c": 32, "adapter_e": 6, "adapter_p": 144, "adapter_r": 4, "p": 432, "shape_bootstrap": 106, "shape_pool_linear_128_32__pool": 0, "shape_pool_linear_32_1024__pool": 0, "shape_pool_linear_32_128__pool": 12, "shape_pool_linear_32_32__pool": 4626, "shape_pool_linear_32_64__pool": 364, "shape_pool_linear_512_32__pool": 0, "shape_pool_linear_64_32__pool": 58, "shape_pool_swiglu_32__pool": 944, "shape_pool_swiglu_64__pool": 432, "u": 508}, "routerInternalPositionAccounting": "complete-per-update", "routerInternalPositionAuditUpdates": 1, "routerInternalPositionCount": 7575, "routerInternalPositionCounts": {"adapter_c": 16, "adapter_e": 3, "adapter_p": 72, "adapter_r": 2, "p": 432, "shape_bootstrap": 106, "shape_pool_linear_128_32__pool": 0, "shape_pool_linear_32_1024__pool": 0, "shape_pool_linear_32_128__pool": 12, "shape_pool_linear_32_32__pool": 4626, "shape_pool_linear_32_64__pool": 364, "shape_pool_linear_512_32__pool": 0, "shape_pool_linear_64_32__pool": 58, "shape_pool_swiglu_32__pool": 944, "shape_pool_swiglu_64__pool": 432, "u": 508}, "routerInternalPositionCoverage": "unmeasured", "schema": "semantic-v8-optimizer-position-exposure/1", "scoredOccurrences": 2, "sourceCount": 1, "startingGlobalStep": 0, "unmeasuredObjectiveCounts": {"router_z": 2}, "unmeasuredPhysicalTargets": 0, "verifiedPhysicalTargets": 2}, "semantic_v8_target_exposure": {"digest": "209c455b5b5c3a2458f88c41a90a2b3ba932f782cc6e87b7962ffe22d31958a5", "lastGlobalStep": 1, "logicalTargetCount": 1, "lossDenominators": {"lexical": 243, "reconstruction": 243, "router_z": 2, "structure": 8, "terminal": 4}, "optimizerUpdates": 1, "physicalTargetRecordCount": 2, "previousDigest": "7abcb49bff16117594aace3d0d2d0f2c7a21ac1ef0ccdae18b769f0c242fddde", "registryDigest": "398cd810b4aa8d59e5299f880b9c0b7cdfd0cc924aa26947b6e50c1a1a6271ed", "schema": "semantic-v8-optimizer-target-exposure/2", "scoredOccurrences": 2, "sourceCount": 1, "sources": {"source-1": {"logicalTargetIds": ["semantic:v8:target:3"], "physicalTargetRecords": {"semantic:v8:target:3": {"2b6e5144929b8d023475065ee1a7cc82b168058517546db124660a23b3a09c35": {"firstGlobalStep": 1, "lastGlobalStep": 1, "lossDenominators": {"lexical": 122, "reconstruction": 122, "router_z": 1, "structure": 4, "terminal": 2}, "optimizerUpdates": 1, "scoredOccurrences": 1, "windowIndices": [5]}, "aa55f1c1f4719ee19697c86c8b3b754ae9b22a1ce8cb9e2fd4d105fee48e125f": {"firstGlobalStep": 1, "lastGlobalStep": 1, "lossDenominators": {"lexical": 121, "reconstruction": 121, "router_z": 1, "structure": 4, "terminal": 2}, "optimizerUpdates": 1, "scoredOccurrences": 1, "windowIndices": [5]}}}, "split": "train"}}, "startingGlobalStep": 0}, "termination": "step_limit"}
+=========================== short test summary info ============================
+FAILED tests/test_semantic_v8_release_verifier.py::test_release_recipe_preserves_physical_provenance_and_binds_only_declared_inputs
+FAILED tests/test_semantic_v8_release_verifier.py::test_reprepared_semantics_compare_every_physical_field_and_index_scope
+FAILED tests/test_semantic_v8_release_verifier.py::test_resealed_prepared_label_change_is_not_hidden_by_valid_file_hashes
+FAILED tests/test_semantic_v8_release_verifier.py::test_real_controlled_checkpoint_export_and_resealed_weight_refusal
+4 failed, 37 passed in 9.52s
