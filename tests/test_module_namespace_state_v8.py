@@ -12,20 +12,31 @@ from megatoken.data.module_namespace_state_v8 import (
 )
 from megatoken.data.semantic_json import stable_algorithm_hash
 
-
 MODULES = {
     "main.js": 'import * as ns from "./cells.js"; export function run(){ return Object.keys(ns); }',
     "cells.js": "export let value=1; export {value as alias}; export const fixed=2;",
 }
 CELLS = [
-    {"file": "cells.js", "local": "value", "kind": "let", "mutable": True, "loweredName": "__traced_eval_m1_value"},
-    {"file": "cells.js", "local": "fixed", "kind": "const", "mutable": False, "loweredName": "__traced_eval_m1_fixed"},
+    {
+        "file": "cells.js",
+        "local": "value",
+        "kind": "let",
+        "mutable": True,
+        "loweredName": "__traced_eval_m1_value",
+    },
+    {
+        "file": "cells.js",
+        "local": "fixed",
+        "kind": "const",
+        "mutable": False,
+        "loweredName": "__traced_eval_m1_fixed",
+    },
 ]
 NAMESPACES = [
     {
         "file": "cells.js",
         "namespaceName": "__traced_eval_namespace_0",
-            "exports": [
+        "exports": [
             {"name": "alias", "file": "cells.js", "local": "value"},
             {"name": "fixed", "file": "cells.js", "local": "fixed"},
             {"name": "value", "file": "cells.js", "local": "value"},
@@ -104,14 +115,20 @@ def test_utf16_export_sort_and_numeric_index_names_match_javascript_order():
     plan = build_experimental_module_namespace_plan(
         modules={"main.js": "", "cells.js": ""},
         entry_module="main.js",
-        cells=[{"file": "cells.js", "local": "value", "kind": "var", "mutable": True, "loweredName": "__traced_eval_m1_value"}],
+        cells=[
+            {
+                "file": "cells.js",
+                "local": "value",
+                "kind": "var",
+                "mutable": True,
+                "loweredName": "__traced_eval_m1_value",
+            }
+        ],
         namespaces=[
             {
                 "file": "cells.js",
                 "namespaceName": "__traced_eval_namespace_0",
-            "exports": [
-                    {"name": name, "file": "cells.js", "local": "value"} for name in names
-                ],
+                "exports": [{"name": name, "file": "cells.js", "local": "value"} for name in names],
             }
         ],
     )
@@ -133,9 +150,7 @@ def test_utf16_export_sort_and_numeric_index_names_match_javascript_order():
                 {
                     "file": "cells.js",
                     "namespaceName": "__traced_eval_namespace_0",
-            "exports": [
-                        {"name": "4294967294", "file": "cells.js", "local": "value"}
-                    ],
+                    "exports": [{"name": "4294967294", "file": "cells.js", "local": "value"}],
                 }
             ],
         )
@@ -233,7 +248,11 @@ def test_bad_cell_and_namespace_state_shapes_refuse_without_mutation():
             {"kind": "namespace.create", "namespaceId": "o1", "moduleFile": "cells.js"},
         )
     malformed = deepcopy(state)
-    malformed["namespaces"]["o1"] = {"file": "cells.js", "namespaceName": "__traced_eval_namespace_0", "exports": []}
+    malformed["namespaces"]["o1"] = {
+        "file": "cells.js",
+        "namespaceName": "__traced_eval_namespace_0",
+        "exports": [],
+    }
     with pytest.raises(ValueError, match="namespace identity state is malformed"):
         apply_experimental_module_namespace_transition(
             plan,
@@ -273,7 +292,6 @@ def test_explicit_null_initial_cells_is_not_the_omitted_default():
         create_experimental_module_namespace_state(_plan(), None)
 
 
-
 @pytest.mark.parametrize("value", [["num", -0.0], ["num", 9007199254740993]])
 def test_noncanonical_negative_zero_and_inexact_js_integers_are_refused(value):
     with pytest.raises(ValueError, match="initial cell value is malformed"):
@@ -281,7 +299,6 @@ def test_noncanonical_negative_zero_and_inexact_js_integers_are_refused(value):
             _plan(),
             {"cells.js#value": {"initialized": True, "value": value}},
         )
-
 
 
 def test_lowered_cell_names_match_local_and_uniquely_identify_each_module():

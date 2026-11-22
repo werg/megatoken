@@ -1,21 +1,24 @@
 """Controls for experimental namespace effects on shared heap and locals."""
 
-from copy import deepcopy
 import json
+from copy import deepcopy
 
 import pytest
 
-from megatoken.data.module_namespace_state_v8 import build_experimental_module_namespace_plan
-from megatoken.data.protocol_v8 import ProtocolV8Error, _internal_machine, _node
 from megatoken.data.module_namespace_machine_v8 import (
     apply_experimental_module_namespace_shared_transition,
     validate_experimental_module_namespace_shared_state,
 )
+from megatoken.data.module_namespace_state_v8 import build_experimental_module_namespace_plan
+from megatoken.data.protocol_v8 import ProtocolV8Error, _internal_machine, _node
 
 
 def _plan():
     return build_experimental_module_namespace_plan(
-        modules={"main.js": "import * as ns from './cells.js';", "cells.js": "export let value=1; export {value as alias};"},
+        modules={
+            "main.js": "import * as ns from './cells.js';",
+            "cells.js": "export let value=1; export {value as alias};",
+        },
         entry_module="main.js",
         cells=[
             {

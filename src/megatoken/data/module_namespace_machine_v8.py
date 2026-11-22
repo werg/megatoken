@@ -75,8 +75,7 @@ def _verify_namespace_node(node: Any, identity: str, plan: dict[str, Any]) -> di
         or node.get("namespaceName") != expected["namespaceName"]
         or node.get("namespaceExports") != expected["exports"]
         or node.get("namespaceExportNames") != [item["name"] for item in expected["exports"]]
-        or node.get("properties")
-        != [[["symbol", "well-known:toStringTag"], ["str", "Module"]]]
+        or node.get("properties") != [[["symbol", "well-known:toStringTag"], ["str", "Module"]]]
     ):
         _fail("namespace heap object differs from its source-owned plan")
     return expected
@@ -180,10 +179,7 @@ def apply_experimental_module_namespace_shared_transition(
             "enumerable": True,
             "configurable": False,
         }
-        if (
-            not _canonical_value(current)
-            or transition["result"] != expected_result
-        ):
+        if not _canonical_value(current) or transition["result"] != expected_result:
             _fail("namespace descriptor differs from current live source cell")
         result_id = transition["resultId"]
         _fresh(next_heap, result_id)
@@ -208,9 +204,7 @@ def apply_experimental_module_namespace_shared_transition(
     return result
 
 
-def validate_experimental_module_namespace_shared_state(
-    shared_state: Any, plan: Any
-) -> bool:
+def validate_experimental_module_namespace_shared_state(shared_state: Any, plan: Any) -> bool:
     """Validate retained exotic heap nodes after JSON checkpoint restoration."""
     verify_experimental_module_namespace_plan(plan)
     if not isinstance(shared_state, dict):

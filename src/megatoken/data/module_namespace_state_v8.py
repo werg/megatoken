@@ -15,15 +15,12 @@ from typing import Any
 
 from megatoken.data.semantic_json import stable_algorithm_hash
 
-
 _PLAN_SCHEMA = "semantic-module-namespace-plan/1"
 _STATE_SCHEMA = "semantic-module-namespace-state/1"
 _HASH = re.compile(r"^[a-f0-9]{64}$")
 _LOCAL = re.compile(r"^[A-Za-z_$][A-Za-z0-9_$]*$")
 _NAMESPACE_NAME = re.compile(r"^__traced_eval_namespace_(0|[1-9][0-9]*)$")
-_LOWERED_LOCAL = re.compile(
-    r"^__traced_eval_m([1-9][0-9]*)_([A-Za-z_$][A-Za-z0-9_$]*)$"
-)
+_LOWERED_LOCAL = re.compile(r"^__traced_eval_m([1-9][0-9]*)_([A-Za-z_$][A-Za-z0-9_$]*)$")
 _BIGINT = re.compile(r"^(?:0|-?[1-9][0-9]*)$")
 _ARRAY_INDEX = re.compile(r"^(?:0|[1-9][0-9]*)$")
 _SPECIAL_NUMBERS = {"-0", "NaN", "+Infinity", "-Infinity"}
@@ -99,9 +96,7 @@ def _canonical_value(value: Any) -> bool:
             if type(payload) is int:
                 converted = float(payload)
                 return math.isfinite(converted) and int(converted) == payload
-            return math.isfinite(payload) and not (
-                payload == 0 and math.copysign(1.0, payload) < 0
-            )
+            return math.isfinite(payload) and not (payload == 0 and math.copysign(1.0, payload) < 0)
         except OverflowError:
             return False
     return False
@@ -153,14 +148,11 @@ def build_experimental_module_namespace_plan(
     ):
         _fail("module graph, entry or linker records are malformed")
     files = sorted(modules, key=_js_sort_key)
-    if (
-        not 1 <= len(files) <= 64
-        or any(
-            not _canonical_path(file)
-            or not isinstance(modules[file], str)
-            or _js_length(modules[file]) > 65536
-            for file in files
-        )
+    if not 1 <= len(files) <= 64 or any(
+        not _canonical_path(file)
+        or not isinstance(modules[file], str)
+        or _js_length(modules[file]) > 65536
+        for file in files
     ):
         _fail("module graph exceeds bounds or contains an invalid source")
 
@@ -243,13 +235,10 @@ def build_experimental_module_namespace_plan(
         "schema": _PLAN_SCHEMA,
         "entryModule": entry_module,
         "modules": [
-            {"file": file, "sourceDigest": stable_algorithm_hash(modules[file])}
-            for file in files
+            {"file": file, "sourceDigest": stable_algorithm_hash(modules[file])} for file in files
         ],
         "cells": sorted(cell_map.values(), key=lambda row: _js_sort_key(row["id"])),
-        "namespaces": sorted(
-            namespace_map.values(), key=lambda row: _js_sort_key(row["file"])
-        ),
+        "namespaces": sorted(namespace_map.values(), key=lambda row: _js_sort_key(row["file"])),
     }
     return {**body, "digest": stable_algorithm_hash(body)}
 
@@ -429,7 +418,7 @@ def _verify_state(plan: dict[str, Any], state: Any) -> None:
         if (
             not isinstance(identity, str)
             or not re.fullmatch(r"o[1-9][0-9]*", identity)
-            or not _exact(row, {"file", "exports"})
+            or not _exact(row, {"file", "namespaceName", "exports"})
             or not _deep_strict_equal(planned, row)
         ):
             _fail("namespace identity state is malformed")
@@ -453,9 +442,7 @@ def apply_experimental_module_namespace_transition(
         if not isinstance(identity, str) or identity not in next_state["namespaces"]:
             _fail("transition references an uncreated namespace")
         row = next_state["namespaces"][identity]
-        bound = next(
-            (item for item in plan["namespaces"] if item["file"] == row["file"]), None
-        )
+        bound = next((item for item in plan["namespaces"] if item["file"] == row["file"]), None)
         if bound is None or not _deep_strict_equal(row["exports"], bound["exports"]):
             _fail("namespace identity or source export table changed")
         return bound
@@ -468,8 +455,7 @@ def apply_experimental_module_namespace_transition(
             or not re.fullmatch(r"o[1-9][0-9]*", transition["namespaceId"])
             or transition["namespaceId"] in next_state["namespaces"]
             or any(
-                row["file"] == transition["moduleFile"]
-                for row in next_state["namespaces"].values()
+                row["file"] == transition["moduleFile"] for row in next_state["namespaces"].values()
             )
         ):
             _fail("namespace allocation identity is malformed or duplicated")
