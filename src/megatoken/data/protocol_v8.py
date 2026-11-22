@@ -60,6 +60,14 @@ from .proxy_v8 import validate_state as validate_proxy_state
 from .semantic_json import stable_algorithm_json
 
 PREFIX = "protocol "
+NAMESPACE_RECORD_KINDS = {
+    "cell.initialize",
+    "cell.write",
+    "namespace.create",
+    "namespace.keys",
+    "namespace.read",
+    "namespace.descriptor",
+}
 SCHEMA = "semantic-protocol-record/1"
 STATE_SCHEMA = "semantic-protocol-state/1"
 WELL_KNOWN = (
@@ -93,6 +101,12 @@ FIELDS = {
         "lexicalReceiver",
     },
     "bind": {"kind", "name", "value"},
+    "cell.initialize": {"kind", "cell", "loweredName", "value"},
+    "cell.write": {"kind", "cell", "loweredName", "value"},
+    "namespace.create": {"kind", "namespaceId", "moduleFile"},
+    "namespace.keys": {"kind", "namespaceId", "names", "resultId"},
+    "namespace.read": {"kind", "namespaceId", "exportName", "value"},
+    "namespace.descriptor": {"kind", "namespaceId", "exportName", "value", "resultId"},
     "compute": {"kind", "expr", "result", "bind"},
     "choose": {"kind", "expr", "decision", "path"},
     "call": {"kind", "child", "callee", "receiver", "arguments"},
@@ -292,13 +306,13 @@ def validate_protocol_record(record):
     if type(record) is not dict or record.get("kind") not in FIELDS:
         _fail("record kind")
     _exact(record, FIELDS[record["kind"]], "record")
-    for key in ("id", "name", "object", "child", "invocation"):
+    for key in ("id", "name", "object", "child", "invocation", "namespaceId", "resultId"):
         if key in record:
             _identity(record[key])
     if "bind" in record and record["bind"] is not None:
         _identity(record["bind"])
     for key in ("value", "result", "decision", "receiver", "callee", "symbol"):
-        if key in record:
+        if key in record and not (record["kind"] == "namespace.descriptor" and key == "value"):
             validate_protocol_value(record[key])
     if "success" in record and type(record["success"]) is not bool:
         _fail("success boolean")
@@ -307,7 +321,40 @@ def validate_protocol_record(record):
     if record["kind"].startswith("property.") and "key" in record:
         validate_protocol_key(record["key"])
     kind = record["kind"]
-    if kind == "symbol.create":
+    if kind in ("cell.initialize", "cell.write"):
+        _identity(record["cell"])
+        _identity(record["loweredName"])
+        validate_protocol_value(record["value"])
+    elif kind == "namespace.create":
+        if not isinstance(record["moduleFile"], str):
+            _fail("namespace module file")
+    elif kind == "namespace.keys":
+        if not isinstance(record["names"], list) or any(
+            not isinstance(name, str) for name in record["names"]
+        ):
+            _fail("namespace key list")
+    elif kind == "namespace.read":
+        if not isinstance(record["exportName"], str):
+            _fail("namespace export name")
+        validate_protocol_value(record["value"])
+    elif kind == "namespace.descriptor":
+        if not isinstance(record["exportName"], str) or type(record["value"]) is not dict:
+            _fail("namespace descriptor")
+        descriptor = record["value"]
+        _exact(
+            descriptor, {"value", "writable", "enumerable", "configurable"}, "namespace descriptor"
+        )
+        validate_protocol_value(descriptor["value"])
+        if (
+            type(descriptor["writable"]) is not bool
+            or type(descriptor["enumerable"]) is not bool
+            or type(descriptor["configurable"]) is not bool
+            or descriptor["writable"] is not True
+            or descriptor["enumerable"] is not True
+            or descriptor["configurable"] is not False
+        ):
+            _fail("namespace descriptor flags")
+    elif kind == "symbol.create":
         validate_protocol_value(record["description"])
         if record["description"][0] not in ("str", "undefined"):
             _fail("symbol description")
@@ -1389,27 +1436,25 @@ def _external_machine(machine):
     return result
 
 
-def replay_protocol_case(case):
+def replay_protocol_case(case, *, namespace_plan=None):
     if not isinstance(case, dict) or not isinstance(case.get("lines"), list):
         _fail("protocol case shape")
-    machine = _internal_machine(case["initialState"])
+    state = copy.deepcopy(case["initialState"])
     for number, line in enumerate(case["lines"]):
         try:
-            record = decode_protocol_record(line)
+            decode_protocol_record(line)
         except ProtocolV8Error as error:
             raise ProtocolV8Error(f"protocol line {number}: {error}") from error
-        apply_protocol_record(machine, record)
+        state = apply_protocol_to_shared_state(state, line, namespace_plan=namespace_plan)
         if number + 1 in case.get("checkpoints", []):
-            serialized = json.loads(
-                json.dumps(_external_machine(machine), separators=(",", ":"), ensure_ascii=False)
-            )
-            machine = _internal_machine(serialized)
+            state = json.loads(json.dumps(state, separators=(",", ":"), ensure_ascii=False))
+            machine = _internal_machine(state)
             if machine["protocol"]["sequence"] != number + 1:
                 _fail("checkpoint sequence")
             validate_protocol_state(
                 machine["protocol"], machine["heap"], _external_machine(machine)
             )
-    return _external_machine(machine)
+    return state
 
 
 def validate_protocol_state(snapshot, heap_ids=(), shared_state=None):
@@ -1637,16 +1682,89 @@ def validate_protocol_state(snapshot, heap_ids=(), shared_state=None):
     return True
 
 
-def apply_protocol_to_shared_state(shared_state, line):
+def _assert_no_generic_source_cell_write(machine, record, namespace_plan):
+    if namespace_plan is None or record["kind"] not in {"bind", "compute", "symbol.read"}:
+        return
+    from .module_namespace_state_v8 import verify_experimental_module_namespace_plan
+
+    verify_experimental_module_namespace_plan(namespace_plan)
+    source_cells = {
+        cell["id"]: cell
+        for cell in namespace_plan["cells"]
+        if any(
+            export["cell"] == cell["id"]
+            for namespace in namespace_plan["namespaces"]
+            for export in namespace["exports"]
+        )
+    }
+    aliases = machine.get("captureAliases", {})
+    protected = {
+        aliases.get(cell["loweredName"], cell["loweredName"]) for cell in source_cells.values()
+    }
+    protected.update(
+        aliases.get(namespace["namespaceName"], namespace["namespaceName"])
+        for namespace in namespace_plan["namespaces"]
+    )
+    target = record.get("name") if record["kind"] == "bind" else record.get("bind")
+    if target is not None and aliases.get(target, target) in protected:
+        _fail("namespace owner and source cells require their declared lifecycle records")
+
+
+def apply_protocol_to_shared_state(shared_state, line, *, namespace_plan=None):
     """Apply a protocol/1 line to the v8 shared heap/locals/call stack."""
     record = decode_protocol_record(line)
     machine = _internal_machine(shared_state)
     if machine.get("protocol") is None:
         machine["protocol"] = create_protocol_state()
+    _assert_no_generic_source_cell_write(machine, record, namespace_plan)
     external = _external_machine(machine)
     validate_protocol_state(external["protocol"], external["heap"], external)
-    apply_protocol_record(machine, record)
-    return _external_machine(machine)
+
+    if record["kind"] not in NAMESPACE_RECORD_KINDS:
+        before = copy.deepcopy(external)
+        apply_protocol_record(machine, record)
+        external_updated = _external_machine(machine)
+        if namespace_plan is not None:
+            from .module_namespace_machine_v8 import (
+                assert_experimental_module_namespace_state_unchanged,
+            )
+
+            assert_experimental_module_namespace_state_unchanged(
+                before, external_updated, namespace_plan
+            )
+        return external_updated
+
+    if namespace_plan is None:
+        _fail("source-derived namespace plan is required")
+    p = machine["protocol"]
+    if not machine.get("stack") or machine.get("completion") is not None or p["pendingCalls"]:
+        _fail("active invocation with no pending property child required for namespace transition")
+    if p["sequence"] >= 32768:
+        _fail("protocol step budget")
+    # Preserve the exact global ordering guards used by ordinary protocol records.
+    assert_number_next(machine, record)
+    assert_primitive_conversion_next(machine, record)
+    assert_generator_next(machine, record)
+    assert_proxy_next(machine, record)
+    assert_promise_executor_next(machine, record)
+    assert_promise_join_next(machine, record)
+    if p.get("construction") is not None:
+        assert_construction_next(machine, record)
+
+    from .module_namespace_machine_v8 import (
+        apply_experimental_module_namespace_shared_transition,
+        validate_experimental_module_namespace_shared_state,
+    )
+
+    staged = apply_experimental_module_namespace_shared_transition(
+        _external_machine(machine), namespace_plan, record
+    )
+    updated = _internal_machine(staged)
+    updated["protocol"]["sequence"] = p["sequence"] + 1
+    external_updated = _external_machine(updated)
+    validate_protocol_state(updated["protocol"], updated["heap"], external_updated)
+    validate_experimental_module_namespace_shared_state(external_updated, namespace_plan)
+    return external_updated
 
 
 def validate_completion_detail(shared_state, kind, fields):
@@ -1751,13 +1869,39 @@ def validate_completion_detail(shared_state, kind, fields):
     return True
 
 
-def assert_detailed_record_compatible(shared_state, kind, fields):
+def _assert_no_detailed_source_cell_write(machine, kind, fields, namespace_plan):
+    if namespace_plan is None or kind not in {"bind", "compute"}:
+        return
+    from .module_namespace_state_v8 import verify_experimental_module_namespace_plan
+
+    verify_experimental_module_namespace_plan(namespace_plan)
+    aliases = machine.get("captureAliases", {})
+    protected = {
+        aliases.get(cell["loweredName"], cell["loweredName"])
+        for cell in namespace_plan["cells"]
+        if any(
+            export["cell"] == cell["id"]
+            for namespace in namespace_plan["namespaces"]
+            for export in namespace["exports"]
+        )
+    }
+    protected.update(
+        aliases.get(namespace["namespaceName"], namespace["namespaceName"])
+        for namespace in namespace_plan["namespaces"]
+    )
+    target = fields.get("name") if kind == "bind" else fields.get("bind")
+    if target is not None and aliases.get(target, target) in protected:
+        _fail("Detailed write to namespace owner/source cell bypasses lifecycle record")
+
+
+def assert_detailed_record_compatible(shared_state, kind, fields, *, namespace_plan=None):
     """Reject legacy detail that would bypass rich protocol property state."""
     validate_completion_detail(shared_state, kind, fields)
+    machine = _internal_machine(shared_state)
+    _assert_no_detailed_source_cell_write(machine, kind, fields, namespace_plan)
     protocol = shared_state.get("protocol")
     if protocol is None:
         return True
-    machine = _internal_machine(shared_state)
     if protocol["pendingCalls"] and protocol["pendingCalls"][-1]["child"] not in machine["stack"]:
         _fail("pending property completion requires protocol finish")
     assert_construction_next(machine, {"kind": kind, **fields})

@@ -23,6 +23,11 @@ from . import semantic_primitives as primitives
 from .algorithm_v8 import replay_algorithm_line
 from .detailed_v8 import encode_record, parse_record
 from .detailed_v8 import value as validate_value
+from .module_namespace_machine_v8 import (
+    assert_experimental_module_namespace_state_unchanged,
+    validate_experimental_module_namespace_shared_state,
+)
+from .module_namespace_state_v8 import verify_experimental_module_namespace_plan
 from .protocol_v8 import (
     ProtocolV8Error,
     _array_index,
@@ -190,6 +195,7 @@ def validate_v8_artifact(document):
                 validate_protocol_state(state["protocol"], state["heap"], state)
             except ProtocolV8Error as e:
                 raise NativeV8Error(f"Malformed shared protocol state: {e}") from e
+
         if (
             not isinstance(context["regionCursor"], dict)
             or set(context["regionCursor"]) != {"active", "consumed"}
@@ -224,6 +230,13 @@ def validate_v8_artifact(document):
                 {k: v for k, v in program.items() if k != "definitionDigest"}
             ):
                 _fail("Region definition digest")
+            if "moduleNamespacePlan" in program:
+                try:
+                    verify_experimental_module_namespace_plan(program["moduleNamespacePlan"])
+                except ValueError as error:
+                    raise NativeV8Error(
+                        f"Invalid experimental module namespace plan: {error}"
+                    ) from error
             source_rows = [
                 r["fields"]
                 for r in timeline[:cutoff]
@@ -242,13 +255,22 @@ def validate_v8_artifact(document):
             "inputGraph"
         ):
             _fail("Context input graph was not previously observed")
+        active_context_program = programs.get(prior_invocations[-1].get("programId"))
+        if active_context_program is None:
+            _fail("Active invocation program is not publicly available in the context")
+        namespace_plan = active_context_program.get("moduleNamespacePlan")
+        if state["protocol"] is not None and namespace_plan is not None:
+            try:
+                validate_experimental_module_namespace_shared_state(state, namespace_plan)
+            except ValueError as error:
+                raise NativeV8Error(f"Malformed shared namespace state: {error}") from error
         fields = row["fields"]
         if row["kind"] in ("algorithm", "region", "semantic", "protocol"):
             # A target must follow a program and invocation publication inside
             # the exact model-visible prefix. No importer cache can satisfy it.
             if not context["programs"]:
                 _fail("Generated target has no publicly visible region definition")
-            program = context["programs"][-1]["program"]
+            program = active_context_program
             if row["kind"] == "algorithm":
                 core = program.get("algorithm")
                 if core is None:
@@ -281,7 +303,13 @@ def validate_v8_artifact(document):
                 replay_algorithm_line(core, graph, fields.get("line"))
                 algorithm_count += 1
             elif row["kind"] == "region":
-                _replay_region(program, context, fields.get("line"), fields.get("entry"))
+                _replay_region(
+                    program,
+                    context,
+                    fields.get("line"),
+                    fields.get("entry"),
+                    namespace_plan=program.get("moduleNamespacePlan"),
+                )
                 region_count += 1
             else:
                 line = fields.get("line")
@@ -682,7 +710,7 @@ def region_entry_v8(program, context, region):
     }
 
 
-def _replay_region(program, context, line, entry):
+def _replay_region(program, context, line, entry, *, namespace_plan=None):
     if not isinstance(line, str) or not line.startswith("region "):
         _fail("V8 region prefix")
     try:
@@ -711,6 +739,8 @@ def _replay_region(program, context, line, entry):
         or entry["regionDigest"] != definition["digest"]
     ):
         _fail("Unknown region definition")
+    if namespace_plan is not None:
+        _fail("Compact regions are unsupported with an active module namespace plan")
     local_values = {name: value for name, value in context["state"].get("locals", [])}
     locals_ = {
         name: local_values.get(cell)
@@ -1251,7 +1281,14 @@ def _replay_shared_state(
             program, functions, _ = published[invocation_metadata[active_invocation]["programId"]]
             if kind == "region":
                 frame = state["stack"][-1] if state["stack"] else fields["invocationId"]
-                target = _replay_region(program, context, fields["line"], fields["entry"])
+                namespace_plan = program.get("moduleNamespacePlan")
+                target = _replay_region(
+                    program,
+                    context,
+                    fields["line"],
+                    fields["entry"],
+                    namespace_plan=namespace_plan,
+                )
                 _apply_region(state, target)
                 consumed.append(
                     {
@@ -1261,6 +1298,8 @@ def _replay_shared_state(
                     }
                 )
             elif kind == "algorithm":
+                if program.get("moduleNamespacePlan") is not None:
+                    _fail("Whole algorithm route cannot bypass namespace cell lifecycle records")
                 frame = state["stack"][-1] if state["stack"] else fields["invocationId"]
                 _apply_algorithm(
                     state, program["algorithm"], context["input"]["graph"], fields["line"]
@@ -1295,7 +1334,15 @@ def _replay_shared_state(
                 ):
                     _fail("The first protocol profile requires a checked invocation turn")
                 try:
-                    state = apply_protocol_to_shared_state(state, fields["line"])
+                    invocation_program = published.get(invocation_metadata[invocation]["programId"])
+                    active_namespace_plan = (
+                        invocation_program[0].get("moduleNamespacePlan")
+                        if invocation_program is not None
+                        else None
+                    )
+                    state = apply_protocol_to_shared_state(
+                        state, fields["line"], namespace_plan=active_namespace_plan
+                    )
                 except ProtocolV8Error as e:
                     raise NativeV8Error(
                         f"Invalid independently replayed protocol transition: {e}"
@@ -1313,11 +1360,22 @@ def _replay_shared_state(
                         active_invocation,
                         payload["continuation"] if k == "resume" else payload["job"],
                     )
-                if state.get("protocol") is not None:
+                invocation_program = published.get(invocation_metadata[invocation]["programId"])
+                active_namespace_plan = (
+                    invocation_program[0].get("moduleNamespacePlan")
+                    if invocation_program is not None
+                    else None
+                )
+                if state.get("protocol") is not None or active_namespace_plan is not None:
                     try:
-                        assert_detailed_record_compatible(state, k, payload)
+                        assert_detailed_record_compatible(
+                            state, k, payload, namespace_plan=active_namespace_plan
+                        )
                     except ProtocolV8Error as e:
                         raise NativeV8Error(f"Detailed record bypasses protocol state: {e}") from e
+                namespace_state_before = (
+                    copy.deepcopy(state) if active_namespace_plan is not None else None
+                )
                 _apply_detail(
                     state,
                     k,
@@ -1332,6 +1390,15 @@ def _replay_shared_state(
                     invocation_metadata=invocation_metadata[active_invocation],
                     callback_allocator=callback_allocator,
                 )
+                if active_namespace_plan is not None:
+                    try:
+                        assert_experimental_module_namespace_state_unchanged(
+                            namespace_state_before, state, active_namespace_plan
+                        )
+                    except ValueError as error:
+                        raise NativeV8Error(
+                            f"Detailed transition changed namespace state: {error}"
+                        ) from error
         elif kind in ("dispatch", "result", "reconcile"):
             target = controllers.get(fields.get("invocationId"))
             if target is None:

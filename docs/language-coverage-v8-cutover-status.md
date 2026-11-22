@@ -1,5 +1,55 @@
 # Native V8 cutover implementation status
 
+## Bounded original-module namespace admission — 22 November 2026
+
+The exact native namespace core at `9a5b87f3959d7c1e034f7ccc75e0d7e11c06d876`,
+paired with producer `4a39059878dc556ff38a681be76d4f0bfa21a03b`, passed
+**846 native controls, 40 namespace controls and 79 paired transport controls,
+all zero skips**, plus the one actual original-module artifact, in
+[run 45002727473](https://github.com/werg/tracing-js-self/actions/runs/45002727473).
+The producer's separate gates passed 178 focused individual JUnit controls and
+17 source/compiler controls. The new guarded artifact test at native
+`b6e0bf97963a135a5cb9280555cc03c77eac7b37` / producer
+`550387918313393b49017397d47bd66e9d4b5e82` passed its complete-asset gate
+(**1 pass, zero skips**) and explicit absent/partial asset dispositions in
+[run 45003132223](https://github.com/werg/tracing-js-self/actions/runs/45003132223).
+Those exact implementation blobs are promoted here. Main-head general and
+reverse-paired CI are separate new observations and are pending on this commit.
+
+The bounded explicit profile independently implements namespace identities,
+live cell initialization/write, keys, read and descriptors. Original-module
+sources are freshly checked against independent ESM observations and unique
+owned event groups; a rehashed plan cannot substitute a wrong reexport binding.
+Generic detail, property operations and compact-region shortcuts cannot bypass
+cell ownership. The native public machine selects the plan by active program ID.
+
+The artifact evidence retains the raw prepared report and manifest, their
+digests, all six operation kinds and exact positive-loss token-mask identities.
+It contains **15 packed windows, seven namespace/cell physical target occurrences
+and 225 scored token positions**, with **zero optimizer updates**. That one-member
+technical registry does not alter the 665/66/11/64 production denominators or
+establish learned quality. The default profile continues to refuse unsupported
+namespace graphs; async module scheduling, cycles, broader reflection, persistent
+sessions, production-source expansion and learned exposure remain open.
+
+Recurring paired CI now pins qualified producer `5503879`, tests the exact
+consumer head through an external policy, runs the actual namespace artifact
+gate in the interoperability lane, and includes the actual JS/Python namespace
+state comparison. General CI with no paired assets records one explicit artifact
+skip; partial assets fail, and the dedicated complete-asset gate permits no skip.
+
+The previous native main `e9817ad` passed both CPU lanes (Python 3.11/3.12:
+3,730 passed, 83 skipped, 20 warnings each) and reverse-paired 66/11 populations.
+Its complete 64-source census route passed at producer `3cf0e47`:
+two updates scored one source and four logical targets. These measured results
+supersede the historical pending notes below; full scored-target exposure is
+still open. The native request journal and target-inventory changes remain
+isolated from this promotion.
+
+**0/17 complete acceptance packages are closed; both PRs remain drafts.**
+The main tally and permanent evidence are maintained in
+[producer PR 47](https://github.com/werg/tracing-js-self/pull/47).
+
 ## Current optimizer target-exposure increment — 22 November 2026
 
 The ordinary optimizer now records the actual positive-weight scored source,

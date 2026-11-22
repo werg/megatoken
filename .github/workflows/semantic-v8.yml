@@ -45,7 +45,7 @@ jobs:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           repository: werg/tracing-js-self
-          ref: c640f2b1dfed112d5e2bc5f60195234a40c3dec1 # exact producer with verified composite history
+          ref: 550387918313393b49017397d47bd66e9d4b5e82 # exact composed service, namespace and lock candidate
           path: tracing-js-self
           persist-credentials: false
       - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
@@ -94,6 +94,22 @@ jobs:
         run: |
           npm run semantic:v8:contract --prefix tracing-js-self 2>&1 | tee "$RUNNER_TEMP/semantic-v8-contract.log"
           cmp tracing-js-self/contracts/semantic-execution-v8.json megatoken/src/megatoken/data/contracts/semantic-execution-v8.json
+      - name: Admit and pack the actual original-module namespace artifact
+        if: ${{ matrix.population == 'interoperability' }}
+        working-directory: megatoken
+        run: |
+          python -m pytest -q -s tests/integration/test_module_namespace_artifact_packing.py \
+            --basetemp="$RUNNER_TEMP/v8-namespace-artifact" \
+            --junitxml="$RUNNER_TEMP/semantic-v8-namespace-artifact.xml" \
+            2>&1 | tee "$RUNNER_TEMP/semantic-v8-namespace-artifact.log"
+          python - <<'PY'
+          import os, xml.etree.ElementTree as ET
+          from pathlib import Path
+          cases = list(ET.parse(Path(os.environ['RUNNER_TEMP']) / 'semantic-v8-namespace-artifact.xml').getroot().iter('testcase'))
+          if len(cases) != 1 or any(case.find(kind) is not None for case in cases for kind in ('failure', 'error', 'skipped')):
+              raise ValueError('The actual namespace artifact must pass source/native/token/packing checks with zero skips')
+          print('One actual namespace artifact passed; six operation kinds packed; zero optimizer updates')
+          PY
       - name: Check the paired coordinator and source-qualified teacher boundaries
         working-directory: tracing-js-self
         run: |
@@ -102,6 +118,7 @@ jobs:
             test/semantic-orchestration-training-v8.test.js test/semantic-native-v8.test.js \
             test/semantic-selected-orchestration-checkpoint-v8.test.js \
             test/semantic-native-orchestration-recovery-v8.test.js \
+            test/semantic-native-module-namespace-state-v8.test.js \
             2>&1 | tee "$RUNNER_TEMP/semantic-v8-transport-tests.xml"
           python - <<'PY'
           import os, xml.etree.ElementTree as ET
@@ -185,6 +202,9 @@ jobs:
             ${{ runner.temp }}/semantic-v8-tests.xml
             ${{ runner.temp }}/semantic-v8-tests.log
             ${{ runner.temp }}/semantic-v8-transport-tests.xml
+            ${{ runner.temp }}/semantic-v8-namespace-artifact.xml
+            ${{ runner.temp }}/semantic-v8-namespace-artifact.log
+            ${{ runner.temp }}/v8-namespace-artifact/
             ${{ runner.temp }}/semantic-v8-qualification.log
             ${{ runner.temp }}/semantic-v8-costs.log
             ${{ runner.temp }}/v8-admitted/
