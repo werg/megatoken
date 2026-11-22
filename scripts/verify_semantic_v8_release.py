@@ -193,23 +193,27 @@ def validate_descriptor(document, root):
     )
     sources = prepared[0]["sourceArtifacts"]
     require(isinstance(sources, list) and bool(sources), "Release source membership is empty")
-    case_ids, source_paths = set(), set()
+    case_ids, source_ids, source_paths = set(), set(), set()
     for row in sources:
         require(
             isinstance(row, dict)
-            and set(row) == {"caseId", "path"}
+            and set(row) == {"caseId", "sourceId", "path"}
             and isinstance(row["caseId"], str)
-            and bool(row["caseId"]),
+            and bool(row["caseId"])
+            and isinstance(row["sourceId"], str)
+            and bool(row["sourceId"]),
             "Release source membership row is malformed",
         )
         path = bound_path(root, row["path"])
         require(
             path.is_relative_to(paths["qualification"])
             and row["caseId"] not in case_ids
+            and row["sourceId"] not in source_ids
             and path not in source_paths,
             "Release source membership is duplicated or outside qualification",
         )
         case_ids.add(row["caseId"])
+        source_ids.add(row["sourceId"])
         source_paths.add(path)
     return paths
 
@@ -301,11 +305,14 @@ def source_membership(descriptor, root, registry_digest):
             and binding.get("split") in {"train", "validation", "test"},
             "Release source artifact identity, registry or unique membership differs",
         )
+        require(
+            member.get("sourceId") == source_id,
+            "Release source artifact differs from its declared sourceId",
+        )
         identities.add(source_id)
         rows.append(
             {
                 **member,
-                "sourceId": source_id,
                 "split": binding["split"],
                 "sha256": sha256_file(path),
                 "datasetBindingDigest": stable_algorithm_hash(binding),

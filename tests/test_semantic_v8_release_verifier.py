@@ -48,7 +48,11 @@ def descriptor_fixture(root):
                 {
                     "path": "prepared/000",
                     "sourceArtifacts": [
-                        {"caseId": "case-1", "path": "source-qualification/source-1.admitted.json"}
+                        {
+                            "caseId": "case-1",
+                            "sourceId": "source-1",
+                            "path": "source-qualification/source-1.admitted.json",
+                        }
                     ],
                 }
             ],
@@ -129,6 +133,32 @@ def test_release_descriptor_refuses_ambiguous_membership(tmp_path, mutation):
         release.validate_descriptor(value, tmp_path)
 
 
+@pytest.mark.parametrize("mutation", ["missing", "empty", "non-string", "duplicate", "extra-field"])
+def test_release_descriptor_requires_unique_explicit_source_ids(tmp_path, mutation):
+    descriptor = descriptor_fixture(tmp_path)
+    sources = descriptor["roles"]["prepared"][0]["sourceArtifacts"]
+    if mutation == "missing":
+        del sources[0]["sourceId"]
+    elif mutation == "empty":
+        sources[0]["sourceId"] = ""
+    elif mutation == "non-string":
+        sources[0]["sourceId"] = True
+    elif mutation == "duplicate":
+        second = tmp_path / "source-qualification/different-case.original.json"
+        second.write_text("{}\n")
+        sources.append(
+            {
+                "caseId": "different-case",
+                "sourceId": sources[0]["sourceId"],
+                "path": second.relative_to(tmp_path).as_posix(),
+            }
+        )
+    else:
+        sources[0]["expectedSourceId"] = sources[0]["sourceId"]
+    with pytest.raises(ValueError, match="source membership"):
+        release.validate_descriptor(descriptor, tmp_path)
+
+
 def recipe_fixture():
     return {
         "purpose": "diagnostic",
@@ -193,10 +223,89 @@ def test_release_source_membership_rejects_two_cases_for_one_physical_source(tmp
     second = path.with_name("different-case.admitted.json")
     second.write_bytes(path.read_bytes())
     descriptor["roles"]["prepared"][0]["sourceArtifacts"].append(
-        {"caseId": "different-case", "path": second.relative_to(tmp_path).as_posix()}
+        {
+            "caseId": "different-case",
+            "sourceId": "source-1",
+            "path": second.relative_to(tmp_path).as_posix(),
+        }
     )
     with pytest.raises(ValueError, match="unique membership"):
         release.source_membership(descriptor, tmp_path, POLICY["registryDigest"])
+
+
+def test_release_refuses_mislabeled_source_before_fresh_preparation(tmp_path, monkeypatch):
+    from megatoken.training import semantic_v8
+
+    descriptor = descriptor_fixture(tmp_path)
+    member = descriptor["roles"]["prepared"][0]["sourceArtifacts"][0]
+    artifact = {
+        "public": {"schema": "semantic-execution/8"},
+        "sidecar": {
+            "datasetBinding": {
+                "sourceId": "different-physical-source",
+                "split": "train",
+                "registryDigest": POLICY["registryDigest"],
+            }
+        },
+    }
+    (tmp_path / member["path"]).write_text(json.dumps(artifact))
+    (tmp_path / "release-inputs.json").write_text(json.dumps(descriptor))
+    (tmp_path / "training/recipe.json").write_text(json.dumps(recipe_fixture()))
+    before = release.bundle_inventory(tmp_path)
+    observed = []
+
+    def unexpected_call(*_args, **_kwargs):
+        observed.append("fresh verification or subprocess")
+        raise AssertionError("Mislabeled source reached fresh verification")
+
+    monkeypatch.setattr(release, "checked_repository", lambda *_args, **_kwargs: {})
+    monkeypatch.setattr(semantic_v8, "load_semantic_v8_codec", lambda *_args, **_kwargs: object())
+    monkeypatch.setattr(semantic_v8, "preflight_semantic_training_v8", unexpected_call)
+    monkeypatch.setattr(release, "regenerate_prepared", unexpected_call)
+    monkeypatch.setattr(release.subprocess, "run", unexpected_call)
+    with pytest.raises(ValueError, match="declared sourceId"):
+        release.verify_release(
+            tmp_path,
+            "release-inputs.json",
+            tmp_path / "producer",
+            descriptor["consumerRevision"],
+            30,
+        )
+    assert observed == []
+    assert release.bundle_inventory(tmp_path) == before
+
+
+def test_release_case_label_can_differ_from_digest_suffixed_source_id(tmp_path):
+    descriptor = descriptor_fixture(tmp_path)
+    member = descriptor["roles"]["prepared"][0]["sourceArtifacts"][0]
+    # The producer's regionFamilyMembership derives this suffix from source evidence.
+    evidence = {
+        "source": "function run(a,b){return (a+b)*2;}",
+        "entry": "run",
+        "family": "rectangle-family",
+        "episodeDigest": None,
+    }
+    source_id = "declared-case:" + stable_algorithm_hash(evidence)[:40]
+    member.update(caseId="declared-case", sourceId=source_id)
+    artifact = {
+        "public": {"schema": "semantic-execution/8"},
+        "sidecar": {
+            "datasetBinding": {
+                "sourceId": source_id,
+                "split": "train",
+                "registryDigest": POLICY["registryDigest"],
+            }
+        },
+    }
+    path = tmp_path / member["path"]
+    path.write_text(json.dumps(artifact))
+    before = path.read_bytes()
+    release.validate_descriptor(descriptor, tmp_path)
+    sources = release.source_membership(descriptor, tmp_path, POLICY["registryDigest"])
+    assert sources[0]["caseId"] == "declared-case"
+    assert sources[0]["sourceId"] == source_id
+    assert sources[0]["caseId"] != sources[0]["sourceId"]
+    assert path.read_bytes() == before
 
 
 def test_release_strict_json_refuses_duplicate_keys_and_nonfinite_numbers(tmp_path):
@@ -328,7 +437,9 @@ def test_reprepare_uses_physical_prepared_order_without_rewriting_inputs(
                 }
             )
         )
-        source_rows.append({"caseId": row["sourceId"], "path": relative})
+        source_rows.append(
+            {"caseId": row["sourceId"], "sourceId": row["sourceId"], "path": relative}
+        )
     descriptor["roles"]["prepared"][0]["sourceArtifacts"] = source_rows
     sources = release.source_membership(
         descriptor, tmp_path, config.semantic_v8_policy["registryDigest"]
