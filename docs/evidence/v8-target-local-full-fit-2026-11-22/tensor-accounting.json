@@ -1,0 +1,93 @@
+{
+  "adam_optimizer_total_bytes_upper_bound": 48475680,
+  "fp32_optimizer_master_bytes_upper_bound": 16158560,
+  "gpu_fit": "not_claimed",
+  "logical_tensors": [
+    {
+      "buffer_tensors": 5,
+      "device": "cpu",
+      "dtype": "torch.bool",
+      "elements": 630272,
+      "owner": "shared_core_frozen",
+      "parameter_tensors": 0,
+      "unmaterialized_tensors": 0
+    },
+    {
+      "buffer_tensors": 3,
+      "device": "cpu",
+      "dtype": "torch.float32",
+      "elements": 0,
+      "owner": "shared_core_frozen",
+      "parameter_tensors": 0,
+      "unmaterialized_tensors": 0
+    },
+    {
+      "buffer_tensors": 0,
+      "device": "cpu",
+      "dtype": "torch.float32",
+      "elements": 4039640,
+      "owner": "shared_core_trainable",
+      "parameter_tensors": 404,
+      "unmaterialized_tensors": 0
+    },
+    {
+      "buffer_tensors": 55,
+      "device": "cpu",
+      "dtype": "torch.int64",
+      "elements": 2372,
+      "owner": "shared_core_frozen",
+      "parameter_tensors": 0,
+      "unmaterialized_tensors": 0
+    }
+  ],
+  "optimizer_master_bytes_actual": 0,
+  "optimizer_parameter_tensors": 404,
+  "optimizer_state_bytes_actual": 22690028,
+  "physical_storage": [
+    {
+      "device": "cpu",
+      "dtype": "mixed",
+      "dtypes": [
+        "torch.float32",
+        "torch.int64"
+      ],
+      "owner": "shared_storage_alias",
+      "storage_bytes": 0,
+      "storage_count": 1
+    },
+    {
+      "device": "cpu",
+      "dtype": "torch.bool",
+      "dtypes": [
+        "torch.bool"
+      ],
+      "owner": "shared_core_frozen",
+      "storage_bytes": 630272,
+      "storage_count": 5
+    },
+    {
+      "device": "cpu",
+      "dtype": "torch.float32",
+      "dtypes": [
+        "torch.float32"
+      ],
+      "owner": "shared_core_trainable",
+      "storage_bytes": 16158560,
+      "storage_count": 404
+    },
+    {
+      "device": "cpu",
+      "dtype": "torch.int64",
+      "dtypes": [
+        "torch.int64"
+      ],
+      "owner": "shared_core_frozen",
+      "storage_bytes": 18976,
+      "storage_count": 54
+    }
+  ],
+  "runtime_workspace_bytes": "unmeasured",
+  "schema": "megatoken.training.tensor-accounting/1",
+  "trainable_parameter_tensors": 404,
+  "unique_storage_count": 464
+}

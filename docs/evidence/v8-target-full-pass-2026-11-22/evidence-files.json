@@ -1,0 +1,81 @@
+{
+  "schema": "semantic-v8-native-hosted-target-evidence-files/1",
+  "producerEvidenceRevision": "af3df6454352cf127fc4cabd6e1b93aff4b0582f",
+  "producerEvidenceDirectory": "docs/evidence/v8-target-full-pass-2026-11-22",
+  "producerReportsArchiveGitBlob": "dcec2a513bf63b4f4e9e9038a206f7e6206ab150",
+  "producerReportsArchiveSha256": "f82c1125ff650267405fde4aeac1cd7152e6b32ef66e980e2c9b40fbabb5ea09",
+  "files": [
+    {
+      "retainedPath": "summary.json",
+      "originalPath": "/workspace/scratch/05d92519587f/tracing-target-coverage/docs/evidence/v8-target-full-pass-2026-11-22/summary.json",
+      "originalBytes": 11817,
+      "originalSha256": "8d539f0e1249c9b5319d13fa3493fe21653ac3c2b802bb743c3fba58c80eca89",
+      "retainedBytes": 11817,
+      "retainedSha256": "8d539f0e1249c9b5319d13fa3493fe21653ac3c2b802bb743c3fba58c80eca89",
+      "compression": null
+    },
+    {
+      "retainedPath": "target-coverage.json.gz",
+      "originalPath": "/workspace/scratch/05d92519587f/target-coverage-hosted-7c-a1/v8-support-lifecycle/target-coverage-evidence.json",
+      "originalBytes": 477476,
+      "originalSha256": "17296da01167c61ee91b72a3f9814406bccc34a97b5950322c3b1d2ab551e692",
+      "retainedBytes": 39557,
+      "retainedSha256": "b52bd3d725ecddbc1a7198db72b8f398683989e24cbad8a925a887beb802a3e6",
+      "compression": "gzip"
+    },
+    {
+      "retainedPath": "target-inventory.json.gz",
+      "originalPath": "/workspace/scratch/05d92519587f/target-coverage-hosted-7c-a1/v8-support-lifecycle/target-inventory.json",
+      "originalBytes": 368707,
+      "originalSha256": "bc9153942f69e32d63a439d89bf42afac6363cdc934845fd7fc6bc4345fab0f5",
+      "retainedBytes": 19292,
+      "retainedSha256": "4ae8451115b0b8bec605fbf271981950bcdcfb9d0121b345cd7aceca28767d31",
+      "compression": "gzip"
+    },
+    {
+      "retainedPath": "coverage-training-config.json",
+      "originalPath": "/workspace/scratch/05d92519587f/target-coverage-hosted-7c-a1/v8-support-lifecycle/coverage-training-config.json",
+      "originalBytes": 1106,
+      "originalSha256": "15750e44e8d07e32470b7d6034f450c65fd43f1f7bd6ea4ec761f7ccc053c1c8",
+      "retainedBytes": 1106,
+      "retainedSha256": "15750e44e8d07e32470b7d6034f450c65fd43f1f7bd6ea4ec761f7ccc053c1c8",
+      "compression": null
+    },
+    {
+      "retainedPath": "coverage-runtime.json",
+      "originalPath": "/workspace/scratch/05d92519587f/target-coverage-hosted-7c-a1/v8-support-lifecycle/fit-coverage/runtime.json",
+      "originalBytes": 420,
+      "originalSha256": "7715d7fe19a5df1c98df1c85ca44141bac49b780b5b49fc49e368b4cbd685797",
+      "retainedBytes": 420,
+      "retainedSha256": "7715d7fe19a5df1c98df1c85ca44141bac49b780b5b49fc49e368b4cbd685797",
+      "compression": null
+    },
+    {
+      "retainedPath": "coverage-checkpoint-metadata.json",
+      "originalPath": "/workspace/scratch/05d92519587f/target-coverage-hosted-7c-a1/v8-support-lifecycle/fit-coverage/checkpoints/SE-000000348-periodic/metadata.json",
+      "originalBytes": 1034,
+      "originalSha256": "26873276ab1060b0a7b70fe43bfebc119d074e77722960265827dd3513b104f8",
+      "retainedBytes": 1034,
+      "retainedSha256": "26873276ab1060b0a7b70fe43bfebc119d074e77722960265827dd3513b104f8",
+      "compression": null
+    },
+    {
+      "retainedPath": "independent-prepared-policy-audit.json.gz",
+      "originalPath": "/workspace/scratch/05d92519587f/target-coverage-hosted-7c-a1-independent-audit.json",
+      "originalBytes": 126840,
+      "originalSha256": "aa8576fc1a2a19b469656f6a305ad74869a00888f517645fa8852f09a952972a",
+      "retainedBytes": 17807,
+      "retainedSha256": "36bd4b82061376b18e3d6cfdd726e5c0d9213b9c09dfb9fe91a5a4817ac96ef2",
+      "compression": "gzip"
+    },
+    {
+      "retainedPath": "independent-prepared-policy-audit.log",
+      "originalPath": "/workspace/scratch/05d92519587f/target-coverage-hosted-7c-a1-independent-audit.log",
+      "originalBytes": 272,
+      "originalSha256": "afbbb33238400ba921dc073f61fc24002953ed99537085cae57bb1b82996dff0",
+      "retainedBytes": 272,
+      "retainedSha256": "afbbb33238400ba921dc073f61fc24002953ed99537085cae57bb1b82996dff0",
+      "compression": null
+    }
+  ]
+}

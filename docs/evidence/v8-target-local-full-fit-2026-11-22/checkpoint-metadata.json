@@ -1,0 +1,26 @@
+{
+  "checkpoint_name": "SE-000000348-periodic",
+  "chunking_fingerprint": "09a55e6b4e1697c8eb05579ab63bed60cdcbbcf46fdfa875bfc37108d2ccb8b5",
+  "codec_fingerprint": "7f52faca2fe82273a889023defd2f1a6fd6080a21096ec77e97f4798a0a370b2",
+  "config_fingerprint": "791dc122678242d40cd6762265082ccfab5fd619633b240178d194fc34720ad7",
+  "dataset_fingerprint": "856cc1b11f9318872595dc78770109a5c307b26f2711e84a7473d0ab1ea41356",
+  "format_version": 22,
+  "global_step": 348,
+  "packs_fingerprint": null,
+  "phase": "SE",
+  "phase_consumed": 52054,
+  "pinned": false,
+  "routing_version": 4,
+  "semantic_v8_lineage_digest": "7e71119a38d86a1c67f4dc1ef86ebcfee64843f54754856ab2ed44870fe76bf5",
+  "source_sampling": {
+    "complete_history": true,
+    "source_windows": {
+      "semantic-execution-v8": 348
+    }
+  },
+  "state_sha256": "ceaa39848375f601d468f22669b50261a9bf23733706ac159dbcc86ac9d8c371",
+  "transducer_checkpoint": {
+    "file": "transducer.pt",
+    "sha256": "0c964cb88b5d707f8a2c717199303d81cdcb2fdb8067c2bbb57580deca219382"
+  }
+}
