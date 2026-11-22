@@ -876,8 +876,17 @@ def validate_position_exposure(state, *, registry_digest, objective):
             type(name) is str and bool(name) and type(count) is int and count >= 0
             for name, count in state["routerInternalAssignmentCounts"].items()
         )
+        and all(
+            state["routerInternalAssignmentCounts"][name] >= count
+            and (count > 0 or state["routerInternalAssignmentCounts"][name] == 0)
+            for name, count in state["routerInternalPositionCounts"].items()
+        )
         and type(state["routerInternalPositionAuditUpdates"]) is int
         and 0 <= state["routerInternalPositionAuditUpdates"] <= state["optimizerUpdates"]
+        and (
+            state["routerInternalPositionAuditUpdates"] > 0
+            or not state["routerInternalPositionCounts"]
+        )
         and all(
             type(name) is str and type(count) is int and count > 0
             for name, count in state["unmeasuredObjectives"].items()
@@ -1050,7 +1059,12 @@ def advance_position_exposure(
                 type(name) is str and bool(name) and type(count) is int and count >= 0
                 for name, count in router_internal_assignments.items()
             )
-            and set(router_internal_positions) == set(router_internal_assignments),
+            and set(router_internal_positions) == set(router_internal_assignments)
+            and all(
+                router_internal_assignments[name] >= count
+                and (count > 0 or router_internal_assignments[name] == 0)
+                for name, count in router_internal_positions.items()
+            ),
             "actual router internal-assignment counts are malformed",
         )
         _require(
@@ -1430,6 +1444,36 @@ def qualify_position_history(first, resumed, *, inventory, first_metadata, resum
     _require(
         after["previousDigest"] == before["digest"], "resumed position history changed its parent"
     )
+    previous_router_updates = before["routerInternalPositionAuditUpdates"]
+    resumed_router_updates = after["routerInternalPositionAuditUpdates"]
+    _require(
+        previous_router_updates <= resumed_router_updates <= previous_router_updates + 1,
+        "resumed router history dropped or invented an audited optimizer update",
+    )
+    previous_router_rows = before["routerInternalPositionCounts"]
+    resumed_router_rows = after["routerInternalPositionCounts"]
+    previous_router_assignments = before["routerInternalAssignmentCounts"]
+    resumed_router_assignments = after["routerInternalAssignmentCounts"]
+    if previous_router_updates:
+        _require(
+            set(resumed_router_rows) == set(previous_router_rows),
+            "resumed router history changed its selector set",
+        )
+    if resumed_router_updates == previous_router_updates:
+        _require(
+            resumed_router_rows == previous_router_rows
+            and resumed_router_assignments == previous_router_assignments,
+            "resumed router counts changed without an audited optimizer update",
+        )
+    for name, count in previous_router_rows.items():
+        row_delta = resumed_router_rows[name] - count
+        assignment_delta = resumed_router_assignments[name] - previous_router_assignments[name]
+        _require(
+            row_delta >= 0
+            and assignment_delta >= row_delta
+            and (row_delta > 0 or assignment_delta == 0),
+            "resumed router history dropped counts or retained an impossible increment",
+        )
     _require(
         all(
             after["unmeasuredObjectives"].get(name, 0) >= count

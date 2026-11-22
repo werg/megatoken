@@ -56,6 +56,17 @@ choose several experts for one context row, so these counts are not interchangea
 The checkpoint retains only the aggregates and the number of optimizer updates
 with a router-count receipt; it does not retain expert IDs, contexts or individual
 assignment lists.
+These counts cover forward routes enrolled in that balancing recorder.
+Reconstruction branches that suppress routing losses, work under `torch.no_grad`,
+and later auxiliary passes after the recorder is detached are excluded.
+`complete-per-update` means every recorded optimizer update supplied this bounded
+receipt; it does not claim an inventory of every routing operation in the model.
+
+Canonical histories require empty count maps before the first router receipt,
+at least one expert assignment per recorded row, and no assignments without a
+row. The bounded resume comparison preserves selector membership and cumulative
+counts, rejects changed counts without a new receipt, and cannot credit more
+router receipts than the one optimizer update between its two checkpoints.
 This provides actual router-row accounting, while **router internal position
 coverage remains unmeasured** because the prepared-data oracle cannot independently
 reconstruct hidden router rows. The
@@ -95,5 +106,6 @@ audit does not establish that exposure or learned semantic quality.
   The router balance recorder now contributes per-selector internal-row counts
   to optimizer position history, and resume rejects checkpoint metadata whose
   digest or global step does not bind that history. Focused actual optimization,
-  resume, stage transition and router-count controls cover these checks. No new
-  full 348-update run has been launched for this audit yet.
+  resume, stage transition and router-count controls cover these checks. Full
+  support campaigns retain their own exact executed producer/consumer identities;
+  these focused controls do not substitute for their final checkpoint comparisons.
