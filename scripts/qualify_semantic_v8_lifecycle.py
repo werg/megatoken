@@ -283,6 +283,7 @@ def qualify_checkpoints(
     manifest,
     registry_digest,
     allowed_source_ids=None,
+    target_inventory_path=None,
 ):
     import torch
 
@@ -332,6 +333,40 @@ def qualify_checkpoints(
         registry_digest=registry_digest,
         allowed_source_ids=allowed_source_ids,
     )
+    if target_inventory_path is not None:
+        require(
+            allowed_source_ids is not None,
+            "Positive-loss target inventory is only valid for the exact support population",
+        )
+        from qualify_semantic_v8_target_inventory import target_inventory
+
+        from megatoken.training.target_inventory_v8 import compare_target_inventory
+
+        stored_inventory = read_json(target_inventory_path)
+        derived_inventory = target_inventory(first["train_config"], allowed_source_ids)
+        resumed_inventory = target_inventory(resumed["train_config"], allowed_source_ids)
+        require(
+            derived_inventory == resumed_inventory,
+            "Resumed target-affecting config differs from the inventoried objective",
+        )
+        comparison = compare_target_inventory(
+            stored_inventory,
+            resumed["semantic_v8_target_exposure"]["sources"],
+            rederived_inventory=derived_inventory,
+            registry_digest=registry_digest,
+            prepared_manifest_fingerprint=prepared["fingerprint"],
+            codec_fingerprint=prepared["codec_fingerprint"],
+            training_config_digest=derived_inventory["trainingConfigDigest"],
+            model_config_digest=derived_inventory["modelConfigDigest"],
+        )
+        target_exposure["targetPresenceComparison"] = comparison
+        target_exposure["allTargetsExposed"] = comparison["allPositiveWeightTargetsExposed"]
+        target_exposure["targetInventory"] = {
+            "digest": derived_inventory["digest"],
+            "windowCount": derived_inventory["windowCount"],
+            "available": derived_inventory["available"],
+            "positiveWeight": derived_inventory["positiveWeight"],
+        }
     served_lineage = read_json(served / "semantic-v8-lineage.json")
     validate_served_lineage_v8(served_lineage, manifest)
     require(served_lineage["training"] == resumed_lineage, "Serving lineage changed")
@@ -577,6 +612,7 @@ def validate_support_population(prepared_root, source_path, inventory_path):
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--expected-source-ids", type=Path)
+    parser.add_argument("--target-inventory", type=Path)
     for name in (
         "consumer-root",
         "prepared",
@@ -602,6 +638,10 @@ def main():
     report = read_json(options.prepared / "semantic-v8-report.json")
     require(report["consumerRevision"] == head, "Prepared data names another consumer revision")
     if options.expected_source_ids:
+        require(
+            options.target_inventory is not None,
+            "Support lifecycle requires the immutable positive-loss target inventory",
+        )
         support = validate_support_population(
             options.prepared, options.source, options.expected_source_ids
         )
@@ -631,6 +671,7 @@ def main():
         manifest,
         registry_digest=registry["digest"],
         allowed_source_ids=None if support is None else support["sourceInventory"],
+        target_inventory_path=options.target_inventory,
     )
     serving = qualify_serving(root, options.served.resolve(), options.source, output, manifest)
     artifacts = [
@@ -638,6 +679,7 @@ def main():
         options.prepared / "manifest.json",
         options.prepared / "semantic-v8-report.json",
         *([options.expected_source_ids] if options.expected_source_ids else []),
+        *([options.target_inventory] if options.target_inventory else []),
     ]
     for directory in (options.first_checkpoint, options.resumed_checkpoint, options.served):
         artifacts.extend(sorted(path for path in directory.rglob("*") if path.is_file()))
@@ -662,7 +704,8 @@ def main():
         "artifacts": [file_identity(path) for path in artifacts],
         "learnedSuccess": None,
         "limits": [
-            "Two optimizer steps do not qualify learned execution quality or prove exposure of every source target.",
+            "Target-presence comparison counts exact positive-weight physical target records; token or mask-position coverage remains unmeasured.",
+            "Two optimizer updates do not qualify learned execution quality or prove every positive-loss target was exposed.",
             *(
                 []
                 if support is not None

@@ -5,6 +5,7 @@ from __future__ import annotations
 import json
 import math
 import re
+from collections import OrderedDict
 from collections.abc import Mapping
 from dataclasses import replace
 from pathlib import Path
@@ -520,6 +521,62 @@ def _verify_registry(registry, expected_digest):
     if set(membership) != set(ids):
         raise ValueError("V8 registry does not assign every inventoried source exactly once")
     return sources, membership
+
+
+class SemanticV8EpisodeAdmissionCache:
+    """Bounded, model-local reuse of complete immutable input admission.
+
+    This retains no model, window, loss-plan, activation or generated state.
+    Every input affecting independent admission belongs to the key, and registry
+    bytes are still reread by the caller before each window. Fresh models/resume
+    start with an empty cache. Nonstandard episode/codec objects are never cached.
+    """
+
+    def __init__(self):
+        self._entries = OrderedDict()
+
+    def validate(
+        self,
+        episode,
+        *,
+        codec,
+        policy,
+        registry,
+        max_history=None,
+        max_positions=None,
+        expected_split=None,
+    ):
+        from megatoken.data.schema import Episode
+        from megatoken.generation.codec import ByteCodec
+
+        options = dict(
+            codec=codec,
+            policy=policy,
+            registry=registry,
+            max_history=max_history,
+            max_positions=max_positions,
+            expected_split=expected_split,
+        )
+        if type(episode) is not Episode or type(codec) is not ByteCodec:
+            return validate_semantic_episode_v8(episode, **options)
+        key = (
+            episode,
+            codec,
+            codec.fingerprint,
+            json.dumps(policy, sort_keys=True, separators=(",", ":"), allow_nan=False),
+            json.dumps(registry, sort_keys=True, separators=(",", ":"), allow_nan=False),
+            max_history,
+            max_positions,
+            expected_split,
+        )
+        if key in self._entries:
+            self._entries.move_to_end(key)
+            return dict(self._entries[key])
+        result = validate_semantic_episode_v8(episode, **options)
+        self._entries[key] = dict(result)
+        if len(self._entries) > 8:
+            self._entries.popitem(last=False)
+        return dict(result)
 
 
 def validate_semantic_episode_v8(
