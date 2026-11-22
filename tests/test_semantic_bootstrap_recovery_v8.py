@@ -50,26 +50,29 @@ def bootstrap_case(tmp_path, lease, open_adapter, journal=None):
     if journal is None:
         journal = DurableNativeRequestJournal(tmp_path / "journal")
     bridge = DurableNativeCommitBridge(adapter, journal, lease)
-    create_args = {
-        "identity": {
-            "schema": "semantic-native-request-identity/1",
-            "session_id": opened["session"],
-            "stream_id": lease.stream_id,
-            "session_generation": 1,
-            "ordinal": 1,
-            "operation": "commit-orchestration",
-            "model_identity": {
-                "checkpoint": adapter.model_identity,
-                "tokenizer": adapter.codec.fingerprint,
-            },
+    create_identity = {
+        "schema": "semantic-native-request-identity/1",
+        "session_id": opened["session"],
+        "stream_id": lease.stream_id,
+        "session_generation": 1,
+        "ordinal": 1,
+        "operation": "commit-orchestration",
+        "model_identity": {
+            "checkpoint": adapter.model_identity,
+            "tokenizer": adapter.codec.fingerprint,
         },
-        "requestBase64": base64.b64encode(_canonical(request) + b"\n").decode("ascii"),
-        "preCheckpointDigest": adapter.checkpoint()["digest"],
+    }
+    create_request_base64 = base64.b64encode(_canonical(request) + b"\n").decode("ascii")
+    create_pre_checkpoint_digest = adapter.checkpoint()["digest"]
+    create_args = {
+        "identity": create_identity,
+        "requestBase64": create_request_base64,
+        "preCheckpointDigest": create_pre_checkpoint_digest,
     }
     committed = bridge.durable_commit(**create_args)
-    child = committed["postCheckpoint"]["sessions"][opened["session"]]["orchestration"][
-        "children"
-    ][0]["track"]
+    child = committed["postCheckpoint"]["sessions"][opened["session"]]["orchestration"]["children"][
+        0
+    ]["track"]
     bootstrap_request = {
         "id": "child-bootstrap",
         "op": "bootstrap-orchestration-child",
@@ -90,10 +93,11 @@ def bootstrap_case(tmp_path, lease, open_adapter, journal=None):
                 "tokenizer": adapter.codec.fingerprint,
             },
         },
-        "requestBase64": base64.b64encode(_canonical(bootstrap_request) + b"\n").decode(
-            "ascii"
-        ),
+        "requestBase64": base64.b64encode(_canonical(bootstrap_request) + b"\n").decode("ascii"),
         "preCheckpointDigest": adapter.checkpoint()["digest"],
+        "createIdentity": create_identity,
+        "createRequestBase64": create_request_base64,
+        "createPreCheckpointDigest": create_pre_checkpoint_digest,
     }
     return adapter, opened, bridge, bootstrap_args, committed
 
@@ -119,18 +123,19 @@ def rewrite_response(outcome, mutate):
 def test_bootstrap_outcome_recovers_in_a_fresh_process(tmp_path):
     with real_runtime() as (open_adapter, _decoder):
         with execution_lease(tmp_path / "owner", session="teacher1") as lease:
-            adapter, opened, bridge, args, created = bootstrap_case(
-                tmp_path, lease, open_adapter
-            )
+            adapter, opened, bridge, args, created = bootstrap_case(tmp_path, lease, open_adapter)
             completed = dispatch(
                 adapter,
                 {"id": "outer-bootstrap", "op": "durable-bootstrap", **args},
                 commit_bridge=bridge,
             )
             assert completed["recovered"] is False
-            assert completed["postCheckpoint"]["sessions"][opened["session"]]["orchestration"][
-                "operations"
-            ][-1]["kind"] == "bootstrap"
+            assert (
+                completed["postCheckpoint"]["sessions"][opened["session"]]["orchestration"][
+                    "operations"
+                ][-1]["kind"]
+                == "bootstrap"
+            )
             assert completed["identity"]["ordinal"] == 2
             assert completed["preCheckpointDigest"] == created["postCheckpointDigest"]
             source = tmp_path / "bootstrap-request.json"
@@ -174,12 +179,120 @@ lease.close()
             assert recovered["restoreReceipt"]["hostDispatches"] == 0
 
 
+def test_direct_child_bootstrap_is_refused_before_native_or_journal_mutation(tmp_path):
+    with real_runtime() as (open_adapter, _decoder):
+        with execution_lease(tmp_path / "owner", session="teacher1") as lease:
+            adapter, opened, bridge, args, created = bootstrap_case(tmp_path, lease, open_adapter)
+            with pytest.raises(NativeRequestJournalError, match="require durable-bootstrap"):
+                dispatch(
+                    adapter,
+                    {
+                        "id": "direct-bootstrap-bypass",
+                        "op": "bootstrap-orchestration-child",
+                        "session": opened["session"],
+                        "track": opened["track"],
+                        "childTrack": json.loads(
+                            base64.b64decode(args["requestBase64"]).decode("utf-8")
+                        )["childTrack"],
+                    },
+                    commit_bridge=bridge,
+                )
+            assert adapter.checkpoint() == created["postCheckpoint"]
+            assert not list(bridge.journal.root.glob("*/00000000000000000002.intent.json"))
+
+
+@pytest.mark.parametrize(
+    ("field", "change"),
+    [
+        ("session_id", lambda value: "another-session"),
+        ("stream_id", lambda value: "another-stream"),
+        ("session_generation", lambda value: value + 1),
+        ("ordinal", lambda value: value + 1),
+        ("model_identity", lambda value: {**value, "checkpoint": "f" * 64}),
+    ],
+)
+def test_bootstrap_requires_the_same_adjacent_create_identity(tmp_path, field, change):
+    with real_runtime() as (open_adapter, _decoder):
+        with execution_lease(tmp_path / "owner", session="teacher1") as lease:
+            adapter, _opened, bridge, args, created = bootstrap_case(tmp_path, lease, open_adapter)
+            changed = copy.deepcopy(args)
+            changed["createIdentity"][field] = change(changed["createIdentity"][field])
+            with pytest.raises((NativeRequestConflict, NativeRequestJournalError, TypeError)):
+                bridge.durable_bootstrap(**changed)
+            assert adapter.checkpoint() == created["postCheckpoint"]
+
+
+@pytest.mark.parametrize("field", ["createRequestBase64", "createPreCheckpointDigest"])
+def test_bootstrap_requires_the_exact_original_create_bytes_and_precheckpoint(tmp_path, field):
+    with real_runtime() as (open_adapter, _decoder):
+        with execution_lease(tmp_path / "owner", session="teacher1") as lease:
+            adapter, _opened, bridge, args, created = bootstrap_case(tmp_path, lease, open_adapter)
+            changed = copy.deepcopy(args)
+            if field == "createRequestBase64":
+                decoded = json.loads(base64.b64decode(changed[field]).decode("utf-8"))
+                decoded["id"] = "different-create-id"
+                changed[field] = base64.b64encode(_canonical(decoded) + b"\n").decode("ascii")
+            else:
+                changed[field] = "f" * 64
+            with pytest.raises((NativeRequestConflict, NativeRequestJournalError, TypeError)):
+                bridge.durable_bootstrap(**changed)
+            assert adapter.checkpoint() == created["postCheckpoint"]
+
+
+def test_bootstrap_requires_create_to_be_the_latest_completed_native_request(tmp_path):
+    with real_runtime() as (open_adapter, _decoder):
+        with execution_lease(tmp_path / "owner", session="teacher1") as lease:
+            adapter, _opened, bridge, args, created = bootstrap_case(tmp_path, lease, open_adapter)
+            extra_identity = {
+                **args["createIdentity"],
+                "ordinal": 2,
+                "operation": "status-orchestration",
+            }
+            extra_bytes = b'{"id":"intervening","op":"status-orchestration"}\n'
+            extra_frame = _canonical(
+                {
+                    "schema": "intervening-native-request/1",
+                    "requestBase64": base64.b64encode(extra_bytes).decode("ascii"),
+                }
+            )
+            bridge.journal.execute(extra_identity, extra_frame, lambda _frame: b"{}")
+            changed = copy.deepcopy(args)
+            changed["identity"]["ordinal"] = 3
+            with pytest.raises(NativeRequestJournalError, match="immediately follow"):
+                bridge.durable_bootstrap(**changed)
+            assert adapter.checkpoint() == created["postCheckpoint"]
+
+
+def test_bootstrap_requires_a_completed_create_outcome(tmp_path):
+    with real_runtime() as (open_adapter, _decoder):
+        with execution_lease(tmp_path / "owner", session="teacher1") as lease:
+            adapter, _opened, bridge, args, created = bootstrap_case(tmp_path, lease, open_adapter)
+            outcome = next(bridge.journal.root.glob("*/00000000000000000001.outcome.json"))
+            outcome.unlink()
+            with pytest.raises(NativeRequestOutcomeUnknown):
+                bridge.durable_bootstrap(**args)
+            assert adapter.checkpoint() == created["postCheckpoint"]
+
+
+def test_bootstrap_precheckpoint_must_equal_the_committed_create_poststate(tmp_path):
+    with real_runtime() as (open_adapter, _decoder):
+        with execution_lease(tmp_path / "owner", session="teacher1") as lease:
+            adapter, opened, bridge, args, created = bootstrap_case(tmp_path, lease, open_adapter)
+            adapter.cancel_orchestration(
+                session=opened["session"], track=opened["track"], reason="changed after create"
+            )
+            changed = copy.deepcopy(args)
+            changed["preCheckpointDigest"] = adapter.checkpoint()["digest"]
+            with pytest.raises(NativeRequestConflict, match="precheckpoint differs"):
+                bridge.durable_bootstrap(**changed)
+            assert adapter.checkpoint() != created["postCheckpoint"]
+            assert not list(bridge.journal.root.glob("*/00000000000000000002.intent.json"))
+
+
 def test_bootstrap_recovery_never_admits_a_missing_outcome(tmp_path):
     with real_runtime() as (open_adapter, _decoder):
         with execution_lease(tmp_path / "owner", session="teacher1") as lease:
-            adapter, _opened, bridge, args, _created = bootstrap_case(
-                tmp_path, lease, open_adapter
-            )
+            adapter, _opened, bridge, args, _created = bootstrap_case(tmp_path, lease, open_adapter)
             fresh = open_adapter()
             fresh_bridge = DurableNativeCommitBridge(fresh, bridge.journal, lease)
             with pytest.raises(NativeRequestConflict, match="never admitted"):
@@ -203,9 +316,9 @@ def test_bootstrap_unknown_outcome_is_not_retried_in_fresh_adapter(tmp_path):
             with pytest.raises(OSError, match="outcome not published"):
                 bridge.durable_bootstrap(**args)
             assert bridge.fenced
-            assert adapter.sessions[args["identity"]["session_id"]].orchestration["children"][
-                0
-            ]["track"]
+            assert adapter.sessions[args["identity"]["session_id"]].orchestration["children"][0][
+                "track"
+            ]
             fresh = open_adapter()
             calls = []
             original = fresh.bootstrap_orchestration_child
@@ -230,9 +343,7 @@ def test_bootstrap_unknown_outcome_is_not_retried_in_fresh_adapter(tmp_path):
 def test_later_native_mutation_supersedes_bootstrap_recovery(tmp_path):
     with real_runtime() as (open_adapter, _decoder):
         with execution_lease(tmp_path / "owner", session="teacher1") as lease:
-            adapter, opened, bridge, args, _created = bootstrap_case(
-                tmp_path, lease, open_adapter
-            )
+            adapter, opened, bridge, args, _created = bootstrap_case(tmp_path, lease, open_adapter)
             bridge.durable_bootstrap(**args)
             dispatch(
                 adapter,
@@ -261,14 +372,10 @@ def test_later_native_mutation_supersedes_bootstrap_recovery(tmp_path):
         ("child", "exact bytes differ"),
     ],
 )
-def test_bootstrap_recovery_rejects_identity_and_child_substitutions(
-    tmp_path, mutation, message
-):
+def test_bootstrap_recovery_rejects_identity_and_child_substitutions(tmp_path, mutation, message):
     with real_runtime() as (open_adapter, _decoder):
         with execution_lease(tmp_path / "owner", session="teacher1") as lease:
-            adapter, _opened, bridge, args, _created = bootstrap_case(
-                tmp_path, lease, open_adapter
-            )
+            adapter, _opened, bridge, args, _created = bootstrap_case(tmp_path, lease, open_adapter)
             bridge.durable_bootstrap(**args)
             changed = copy.deepcopy(args)
             if mutation == "generation":
@@ -280,9 +387,9 @@ def test_bootstrap_recovery_rejects_identity_and_child_substitutions(
             else:
                 request = json.loads(base64.b64decode(changed["requestBase64"]))
                 request["childTrack"] += ":foreign"
-                changed["requestBase64"] = base64.b64encode(
-                    _canonical(request) + b"\n"
-                ).decode("ascii")
+                changed["requestBase64"] = base64.b64encode(_canonical(request) + b"\n").decode(
+                    "ascii"
+                )
             fresh = open_adapter()
             fresh_bridge = DurableNativeCommitBridge(fresh, bridge.journal, lease)
             with pytest.raises(NativeRequestJournalError, match=message):
@@ -302,9 +409,7 @@ def test_bootstrap_recovery_rejects_identity_and_child_substitutions(
 def test_rehashed_bootstrap_response_must_match_restored_track(tmp_path, mutate):
     with real_runtime() as (open_adapter, _decoder):
         with execution_lease(tmp_path / "owner", session="teacher1") as lease:
-            adapter, _opened, bridge, args, _created = bootstrap_case(
-                tmp_path, lease, open_adapter
-            )
+            adapter, _opened, bridge, args, _created = bootstrap_case(tmp_path, lease, open_adapter)
             completed = bridge.durable_bootstrap(**args)
             tamper_bootstrap_outcome(
                 bridge.journal,
@@ -322,9 +427,7 @@ def test_rehashed_bootstrap_response_must_match_restored_track(tmp_path, mutate)
 def test_rehashed_bootstrap_poststate_rejects_mutated_history(tmp_path, field):
     with real_runtime() as (open_adapter, _decoder):
         with execution_lease(tmp_path / "owner", session="teacher1") as lease:
-            adapter, _opened, bridge, args, _created = bootstrap_case(
-                tmp_path, lease, open_adapter
-            )
+            adapter, _opened, bridge, args, _created = bootstrap_case(tmp_path, lease, open_adapter)
             bridge.durable_bootstrap(**args)
 
             def change(outcome):
@@ -356,9 +459,7 @@ def _checkpoint_digest(checkpoint):
 def test_duplicate_durable_bootstrap_returns_the_retained_result_without_dispatch(tmp_path):
     with real_runtime() as (open_adapter, _decoder):
         with execution_lease(tmp_path / "owner", session="teacher1") as lease:
-            adapter, _opened, bridge, args, _created = bootstrap_case(
-                tmp_path, lease, open_adapter
-            )
+            adapter, _opened, bridge, args, _created = bootstrap_case(tmp_path, lease, open_adapter)
             first = bridge.durable_bootstrap(**args)
             calls = []
             original = adapter.bootstrap_orchestration_child
@@ -375,4 +476,3 @@ def test_duplicate_durable_bootstrap_returns_the_retained_result_without_dispatc
             )
             assert duplicate == first
             assert calls == []
-

@@ -95,9 +95,10 @@ def _terminal_coordinator(open_adapter, decoder, terminal):
             opened,
             chosen(adapter, opened, "track_complete", {"address": opened["track"]}),
         )
-        assert adapter.status_orchestration(
-            session=opened["session"], track=opened["track"]
-        )["status"] == "completed"
+        assert (
+            adapter.status_orchestration(session=opened["session"], track=opened["track"])["status"]
+            == "completed"
+        )
 
     sibling = with_session(example(), "sibling")
     public = sibling["public"]
@@ -174,10 +175,13 @@ def test_terminal_close_recovers_closed_archive_without_live_target(tmp_path, te
             result = bridge.durable_close(**args)
             assert result["schema"] == "semantic-native-durable-close/8"
             assert result["recovered"] is False
-            assert result["postCheckpoint"]["sessions"] == {"sibling": before["sessions"]["sibling"]}
-            assert result["postCheckpoint"]["closedSessions"][opened["session"]] == before[
-                "sessions"
-            ][opened["session"]]
+            assert result["postCheckpoint"]["sessions"] == {
+                "sibling": before["sessions"]["sibling"]
+            }
+            assert (
+                result["postCheckpoint"]["closedSessions"][opened["session"]]
+                == before["sessions"][opened["session"]]
+            )
             assert set(adapter.sessions) == {"sibling"}
             assert target_memory_id not in adapter.runtime.memory.sessions
 
@@ -253,9 +257,7 @@ def test_active_session_cannot_enter_durable_terminal_close(tmp_path):
 def test_pending_sibling_selection_refuses_close_before_journal_admission(tmp_path):
     with real_runtime() as (open_adapter, decoder):
         with execution_lease(tmp_path / "owner", session="teacher1") as lease:
-            adapter, opened, _sibling = _terminal_coordinator(
-                open_adapter, decoder, "cancelled"
-            )
+            adapter, opened, _sibling = _terminal_coordinator(open_adapter, decoder, "cancelled")
             journal = DurableNativeRequestJournal(tmp_path / "journal")
             bridge = DurableNativeCommitBridge(adapter, journal, lease)
             _pending_sibling_selection(adapter, bridge)
@@ -274,9 +276,7 @@ def test_pending_sibling_selection_refuses_close_before_journal_admission(tmp_pa
 def test_later_live_sibling_mutation_supersedes_known_close_for_recovery(tmp_path):
     with real_runtime() as (open_adapter, decoder):
         with execution_lease(tmp_path / "owner", session="teacher1") as lease:
-            adapter, opened, _sibling = _terminal_coordinator(
-                open_adapter, decoder, "cancelled"
-            )
+            adapter, opened, _sibling = _terminal_coordinator(open_adapter, decoder, "cancelled")
             journal = DurableNativeRequestJournal(tmp_path / "journal")
             bridge = DurableNativeCommitBridge(adapter, journal, lease)
             args = _close_arguments(adapter, lease, opened["session"])
@@ -310,9 +310,7 @@ def test_later_live_sibling_mutation_supersedes_known_close_for_recovery(tmp_pat
 def test_terminal_close_recovery_refuses_a_never_admitted_request(tmp_path):
     with real_runtime() as (open_adapter, decoder):
         with execution_lease(tmp_path / "owner", session="teacher1") as lease:
-            original, opened, _sibling = _terminal_coordinator(
-                open_adapter, decoder, "cancelled"
-            )
+            original, opened, _sibling = _terminal_coordinator(open_adapter, decoder, "cancelled")
             args = _close_arguments(original, lease, opened["session"])
             journal = DurableNativeRequestJournal(tmp_path / "journal")
             fresh = open_adapter()
@@ -345,9 +343,7 @@ def test_changed_close_reason_and_rehashed_closed_archive_are_refused(tmp_path):
             changed["reason"] = "different exact reason"
             changed_args = {
                 **args,
-                "requestBase64": base64.b64encode(_canonical(changed) + b"\n").decode(
-                    "ascii"
-                ),
+                "requestBase64": base64.b64encode(_canonical(changed) + b"\n").decode("ascii"),
             }
             fresh = open_adapter()
             fresh_bridge = DurableNativeCommitBridge(fresh, bridge.journal, lease)

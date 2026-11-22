@@ -49,7 +49,10 @@ def _dispatch(adapter, request, *, commit_bridge=None):
             raise ValueError(
                 "Native durable operations require a configured execution lease and journal"
             )
-        if set(request) != {"id", "op", "identity", "requestBase64", "preCheckpointDigest"}:
+        fields = {"id", "op", "identity", "requestBase64", "preCheckpointDigest"}
+        if operation in {"durable-bootstrap", "recover-bootstrap"}:
+            fields |= {"createIdentity", "createRequestBase64", "createPreCheckpointDigest"}
+        if set(request) != fields:
             raise ValueError("Native durable operation RPC fields differ")
         return getattr(commit_bridge, operation.replace("-", "_"))(
             **{key: value for key, value in request.items() if key not in {"id", "op"}}

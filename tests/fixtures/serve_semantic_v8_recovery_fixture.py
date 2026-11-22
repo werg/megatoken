@@ -101,7 +101,9 @@ def _fixture_records(final_action="track_complete"):
         or not isinstance(final_record["arguments"]["address"], str)
         or not final_record["arguments"]["address"]
     ):
-        raise ValueError("The paired recovery fixture must end with its exact track_complete action")
+        raise ValueError(
+            "The paired recovery fixture must end with its exact track_complete action"
+        )
     final_record["name"] = final_action
     final_record_bytes = json.dumps(final_record, ensure_ascii=False, separators=(",", ":"))
     return [decisions[0], decisions[1], *child_targets, decisions[2], final_record_bytes]
@@ -267,8 +269,9 @@ def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--describe", action="store_true")
     parser.add_argument("--decoder-log", type=Path)
-    parser.add_argument("--final-action", choices=("track_complete", "track_cancel"),
-                        default="track_complete")
+    parser.add_argument(
+        "--final-action", choices=("track_complete", "track_cancel"), default="track_complete"
+    )
     parser.add_argument("--request-journal-dir", type=Path)
     parser.add_argument("--execution-lock-fd", type=int)
     parser.add_argument("--execution-lock-path", type=Path)
@@ -294,8 +297,11 @@ def main():
         return 0
     if arguments.decoder_log is None:
         parser.error("--decoder-log is required for the JSONL recovery fixture")
-    _serve(arguments.decoder_log, arguments if arguments.request_journal_dir is not None else None,
-           arguments.final_action)
+    _serve(
+        arguments.decoder_log,
+        arguments if arguments.request_journal_dir is not None else None,
+        arguments.final_action,
+    )
     return 0
 
 
