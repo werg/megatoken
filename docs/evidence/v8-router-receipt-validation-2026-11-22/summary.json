@@ -1,0 +1,168 @@
+{
+  "schema": "semantic-v8-router-receipt-validation-evidence/1",
+  "status": "passed",
+  "date": "2026-11-22",
+  "baseRuntimeRevision": "2f3e6cf04aad60473e8ecc67e846e81e5b9dec83",
+  "redRegressionRevision": "1aafb80b4ac0c3da7de71969e107d7aa7382ab8e",
+  "stricterValidatorRevision": "19d011247e9f1883db632121ca6d8c591abc875d",
+  "stricterValidatorTree": "c249e5781bda25871ee1c1fb906768c3defedab7",
+  "sourcePaths": [
+    "src/megatoken/training/positions_v8.py",
+    "tests/test_semantic_v8_position_receipts.py",
+    "docs/v8-target-position-audit.md"
+  ],
+  "captureOptimizerEngineBootstrapCodeChanged": false,
+  "lossSemanticsChanged": false,
+  "runtime": {
+    "python": "3.12.14",
+    "torch": "2.10.0+cpu",
+    "device": "cpu",
+    "OMP_NUM_THREADS": 1,
+    "MKL_NUM_THREADS": 1
+  },
+  "cohorts": {
+    "red": {
+      "testcases": 18,
+      "failures": 12,
+      "errors": 0,
+      "skipped": 0,
+      "failedCases": [
+        "test_router_count_history_rejects_impossible_resealed_aggregates[zero_audits_with_rows]",
+        "test_router_count_history_rejects_impossible_resealed_aggregates[zero_audits_with_selector]",
+        "test_router_count_history_rejects_impossible_resealed_aggregates[assignments_below_rows]",
+        "test_router_count_history_rejects_impossible_resealed_aggregates[assignments_without_rows]",
+        "test_router_count_increment_cannot_hide_behind_prior_adapter_assignments[2-1]",
+        "test_router_count_increment_cannot_hide_behind_prior_adapter_assignments[0-1]",
+        "test_bounded_position_history_preserves_receipts_and_never_claims_full_pass[router_decrease]",
+        "test_bounded_position_history_preserves_receipts_and_never_claims_full_pass[router_removed]",
+        "test_bounded_position_history_preserves_receipts_and_never_claims_full_pass[router_invented]",
+        "test_bounded_position_history_preserves_receipts_and_never_claims_full_pass[router_unrecorded_update]",
+        "test_bounded_position_history_preserves_receipts_and_never_claims_full_pass[router_assignment_increment]",
+        "test_bounded_position_history_preserves_receipts_and_never_claims_full_pass[router_invented_prior_receipt]"
+      ],
+      "skippedCases": []
+    },
+    "green": {
+      "testcases": 18,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 0,
+      "failedCases": [],
+      "skippedCases": []
+    },
+    "position-controls-green": {
+      "testcases": 54,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 0,
+      "failedCases": [],
+      "skippedCases": []
+    },
+    "actual-review": {
+      "testcases": 47,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 1,
+      "failedCases": [],
+      "skippedCases": [
+        "test_v8_diloco_initialize_handshake_export_and_served_reload"
+      ]
+    },
+    "actual-review-tokenizer-resolution": {
+      "testcases": 1,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 0,
+      "failedCases": [],
+      "skippedCases": []
+    }
+  },
+  "actualReviewDistinctSelectedCases": 47,
+  "actualReviewResolvedSkips": 1,
+  "actualReviewResolution": "One pinned-tokenizer DiLoCo lifecycle case initially skipped; same exact runtime source passed separately with the production tokenizer path set.",
+  "productionTokenizerSha256": "40fb9d7d7795b8bd305aeff39ce9963f3f450915b9553f2938e009be9a1fed60",
+  "actualOptimizerUpdates": {
+    "completeControlledFixture": 3,
+    "subsequentStage": 1,
+    "separateResume": 2
+  },
+  "optimizerUpdatesPerformedByStricterReadOnlyAudit": 0,
+  "proofs": {
+    "complete": {
+      "bytes": 420280,
+      "sha256": "bb1877e4b79675780c81d662dfdcee7e825891020a45064f463c6bee80d903f5",
+      "sourceCommit": "2f3e6cf04aad60473e8ecc67e846e81e5b9dec83"
+    },
+    "resume": {
+      "bytes": 242583,
+      "sha256": "5d5d9a6ed8ec60f5d055965aad73c08f222fe18dc0e788454cdf504425615e63",
+      "sourceCommit": "2f3e6cf04aad60473e8ecc67e846e81e5b9dec83"
+    }
+  },
+  "readOnlyAudit": {
+    "schema": "semantic-v8-stricter-router-retained-actual-audit/1",
+    "status": "passed",
+    "validatorRevision": "19d011247e9f1883db632121ca6d8c591abc875d",
+    "actualOptimizerRevision": "2f3e6cf04aad60473e8ecc67e846e81e5b9dec83",
+    "auditScriptSha256": "e7eb5d699cc66d0a7979235ea9ffec8f72e2b04abee7d9163d6d39073fd74ceb",
+    "runtime": {
+      "python": "3.12.14",
+      "torch": "2.10.0+cpu"
+    },
+    "optimizerUpdatesPerformedByAudit": 0,
+    "actualOptimizerUpdatesRetained": {
+      "completeFixture": 3,
+      "subsequentStage": 1,
+      "separateResume": 2
+    },
+    "independentPreparedInventoriesRebuilt": 2,
+    "actualPositionStatesValidated": 4,
+    "metadataBindingsChecked": 4,
+    "loggedTargetHistorySealsReconstructedExactly": 2,
+    "actualRouterUpdateDeltasValidated": 6,
+    "completeComparisonUnchanged": true,
+    "boundedResumeComparisonUnchanged": true,
+    "archivedPreviousStagePreserved": true,
+    "freshStageRouterCountsEmpty": true,
+    "scope": "Read-only stronger validation of unchanged actual tiny fixture receipts; source/tokenizer admission is injected and prepared support-population or learned quality is not claimed.",
+    "routerInternalPositionCoverage": "unmeasured",
+    "learnedSuccess": null
+  },
+  "actualRouterTotals": {
+    "complete": {
+      "routerInternalPositionCount": 15810,
+      "routerInternalAssignmentCount": 16003,
+      "routerInternalPositionAuditUpdates": 3,
+      "routerInternalPositionAccounting": "complete-per-update",
+      "routerInternalPositionCoverage": "unmeasured"
+    },
+    "subsequentStage": {
+      "routerInternalPositionCount": 7575,
+      "routerInternalAssignmentCount": 7668,
+      "routerInternalPositionAuditUpdates": 1,
+      "routerInternalPositionAccounting": "complete-per-update",
+      "routerInternalPositionCoverage": "unmeasured"
+    },
+    "firstResumeCheckpoint": {
+      "routerInternalPositionCount": 7575,
+      "routerInternalAssignmentCount": 7668,
+      "routerInternalPositionAuditUpdates": 1,
+      "routerInternalPositionAccounting": "complete-per-update",
+      "routerInternalPositionCoverage": "unmeasured"
+    },
+    "resumedCheckpoint": {
+      "routerInternalPositionCount": 12523,
+      "routerInternalAssignmentCount": 12655,
+      "routerInternalPositionAuditUpdates": 2,
+      "routerInternalPositionAccounting": "complete-per-update",
+      "routerInternalPositionCoverage": "unmeasured"
+    }
+  },
+  "recorderScope": "Balance-recorder eligible forward routes only; reconstruction readouts suppressed by discard_routing_losses, no-grad work, later auxiliary routes after recorder detachment, and existing replay guards are excluded.",
+  "routerInternalPositionCoverage": "unmeasured",
+  "independentFullRouterCensus": false,
+  "productionSupportPopulationExecution": false,
+  "learnedSuccess": null,
+  "frozenHostedCampaignsModified": false,
+  "scope": "Synthetic negative controls demonstrate contradictory metadata acceptance, not observed loss of counts during actual optimization. Actual byte-codec fixture receipts remain tied to original runtime2f3; source/tokenizer admission is injected. This patch strengthens validation only."
+}

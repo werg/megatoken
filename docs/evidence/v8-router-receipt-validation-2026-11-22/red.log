@@ -1,0 +1,76 @@
+FFFFFF......FFFFFF                                                       [100%]
+=================================== FAILURES ===================================
+_ test_router_count_history_rejects_impossible_resealed_aggregates[zero_audits_with_rows] _
+tests/test_semantic_v8_position_receipts.py:434: in test_router_count_history_rejects_impossible_resealed_aggregates
+    with pytest.raises(ValueError, match="checkpoint position history"):
+         ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+E   Failed: DID NOT RAISE ValueError
+_ test_router_count_history_rejects_impossible_resealed_aggregates[zero_audits_with_selector] _
+tests/test_semantic_v8_position_receipts.py:434: in test_router_count_history_rejects_impossible_resealed_aggregates
+    with pytest.raises(ValueError, match="checkpoint position history"):
+         ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+E   Failed: DID NOT RAISE ValueError
+_ test_router_count_history_rejects_impossible_resealed_aggregates[assignments_below_rows] _
+tests/test_semantic_v8_position_receipts.py:434: in test_router_count_history_rejects_impossible_resealed_aggregates
+    with pytest.raises(ValueError, match="checkpoint position history"):
+         ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+E   Failed: DID NOT RAISE ValueError
+_ test_router_count_history_rejects_impossible_resealed_aggregates[assignments_without_rows] _
+tests/test_semantic_v8_position_receipts.py:434: in test_router_count_history_rejects_impossible_resealed_aggregates
+    with pytest.raises(ValueError, match="checkpoint position history"):
+         ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+E   Failed: DID NOT RAISE ValueError
+_ test_router_count_increment_cannot_hide_behind_prior_adapter_assignments[2-1] _
+tests/test_semantic_v8_position_receipts.py:449: in test_router_count_increment_cannot_hide_behind_prior_adapter_assignments
+    with pytest.raises(ValueError, match="router internal-assignment counts"):
+         ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+E   Failed: DID NOT RAISE ValueError
+_ test_router_count_increment_cannot_hide_behind_prior_adapter_assignments[0-1] _
+tests/test_semantic_v8_position_receipts.py:449: in test_router_count_increment_cannot_hide_behind_prior_adapter_assignments
+    with pytest.raises(ValueError, match="router internal-assignment counts"):
+         ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+E   Failed: DID NOT RAISE ValueError
+_ test_bounded_position_history_preserves_receipts_and_never_claims_full_pass[router_decrease] _
+tests/test_semantic_v8_position_receipts.py:772: in test_bounded_position_history_preserves_receipts_and_never_claims_full_pass
+    with pytest.raises(ValueError, match="V8 position audit"):
+         ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+E   Failed: DID NOT RAISE ValueError
+_ test_bounded_position_history_preserves_receipts_and_never_claims_full_pass[router_removed] _
+tests/test_semantic_v8_position_receipts.py:772: in test_bounded_position_history_preserves_receipts_and_never_claims_full_pass
+    with pytest.raises(ValueError, match="V8 position audit"):
+         ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+E   Failed: DID NOT RAISE ValueError
+_ test_bounded_position_history_preserves_receipts_and_never_claims_full_pass[router_invented] _
+tests/test_semantic_v8_position_receipts.py:772: in test_bounded_position_history_preserves_receipts_and_never_claims_full_pass
+    with pytest.raises(ValueError, match="V8 position audit"):
+         ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+E   Failed: DID NOT RAISE ValueError
+_ test_bounded_position_history_preserves_receipts_and_never_claims_full_pass[router_unrecorded_update] _
+tests/test_semantic_v8_position_receipts.py:772: in test_bounded_position_history_preserves_receipts_and_never_claims_full_pass
+    with pytest.raises(ValueError, match="V8 position audit"):
+         ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+E   Failed: DID NOT RAISE ValueError
+_ test_bounded_position_history_preserves_receipts_and_never_claims_full_pass[router_assignment_increment] _
+tests/test_semantic_v8_position_receipts.py:772: in test_bounded_position_history_preserves_receipts_and_never_claims_full_pass
+    with pytest.raises(ValueError, match="V8 position audit"):
+         ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+E   Failed: DID NOT RAISE ValueError
+_ test_bounded_position_history_preserves_receipts_and_never_claims_full_pass[router_invented_prior_receipt] _
+tests/test_semantic_v8_position_receipts.py:772: in test_bounded_position_history_preserves_receipts_and_never_claims_full_pass
+    with pytest.raises(ValueError, match="V8 position audit"):
+         ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+E   Failed: DID NOT RAISE ValueError
+=========================== short test summary info ============================
+FAILED tests/test_semantic_v8_position_receipts.py::test_router_count_history_rejects_impossible_resealed_aggregates[zero_audits_with_rows]
+FAILED tests/test_semantic_v8_position_receipts.py::test_router_count_history_rejects_impossible_resealed_aggregates[zero_audits_with_selector]
+FAILED tests/test_semantic_v8_position_receipts.py::test_router_count_history_rejects_impossible_resealed_aggregates[assignments_below_rows]
+FAILED tests/test_semantic_v8_position_receipts.py::test_router_count_history_rejects_impossible_resealed_aggregates[assignments_without_rows]
+FAILED tests/test_semantic_v8_position_receipts.py::test_router_count_increment_cannot_hide_behind_prior_adapter_assignments[2-1]
+FAILED tests/test_semantic_v8_position_receipts.py::test_router_count_increment_cannot_hide_behind_prior_adapter_assignments[0-1]
+FAILED tests/test_semantic_v8_position_receipts.py::test_bounded_position_history_preserves_receipts_and_never_claims_full_pass[router_decrease]
+FAILED tests/test_semantic_v8_position_receipts.py::test_bounded_position_history_preserves_receipts_and_never_claims_full_pass[router_removed]
+FAILED tests/test_semantic_v8_position_receipts.py::test_bounded_position_history_preserves_receipts_and_never_claims_full_pass[router_invented]
+FAILED tests/test_semantic_v8_position_receipts.py::test_bounded_position_history_preserves_receipts_and_never_claims_full_pass[router_unrecorded_update]
+FAILED tests/test_semantic_v8_position_receipts.py::test_bounded_position_history_preserves_receipts_and_never_claims_full_pass[router_assignment_increment]
+FAILED tests/test_semantic_v8_position_receipts.py::test_bounded_position_history_preserves_receipts_and_never_claims_full_pass[router_invented_prior_receipt]
+12 failed, 6 passed, 37 deselected in 1.02s

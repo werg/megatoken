@@ -410,6 +410,54 @@ def test_resume_and_stage_transition_require_metadata_to_bind_position_history(f
             )
 
 
+@pytest.mark.parametrize(
+    "mutation",
+    [
+        "zero_audits_with_rows",
+        "zero_audits_with_selector",
+        "assignments_below_rows",
+        "assignments_without_rows",
+    ],
+)
+def test_router_count_history_rejects_impossible_resealed_aggregates(mutation):
+    if mutation.startswith("zero_audits"):
+        state = empty_position_exposure(registry_digest="a" * 64, objective=objective())
+        count = 1 if mutation == "zero_audits_with_rows" else 0
+        state["routerInternalPositionCounts"] = {"p": count}
+        state["routerInternalAssignmentCounts"] = {"p": count}
+    else:
+        state = state_after_one()
+        if mutation == "assignments_below_rows":
+            state["routerInternalAssignmentCounts"]["p"] = 3
+        else:
+            state["routerInternalPositionCounts"]["p"] = 0
+    with pytest.raises(ValueError, match="checkpoint position history"):
+        validate_position_exposure(reseal(state), registry_digest="a" * 64, objective=objective())
+
+
+@pytest.mark.parametrize("rows,assignments", [(2, 1), (0, 1)])
+def test_router_count_increment_cannot_hide_behind_prior_adapter_assignments(rows, assignments):
+    state = advance_position_exposure(
+        empty_position_exposure(registry_digest="a" * 64, objective=objective()),
+        [exposure()],
+        registry_digest="a" * 64,
+        objective=objective(),
+        optimizer_step=1,
+        router_internal_positions={"adapter_c": 4},
+        router_internal_assignments={"adapter_c": 8},
+    )
+    with pytest.raises(ValueError, match="router internal-assignment counts"):
+        advance_position_exposure(
+            state,
+            [exposure()],
+            registry_digest="a" * 64,
+            objective=objective(),
+            optimizer_step=2,
+            router_internal_positions={"adapter_c": rows},
+            router_internal_assignments={"adapter_c": assignments},
+        )
+
+
 def test_actual_decoder_receipts_leave_losses_and_gradients_unchanged():
     torch.set_num_threads(1)
     torch.manual_seed(913)
@@ -504,7 +552,7 @@ def prepared_inventory(episodes):
     )
 
 
-def state_and_presence(inventory):
+def state_and_presence(inventory, *, router_positions=None, router_assignments=None):
     sample = exposure()
     sample["objectiveDigest"] = stable_algorithm_hash(inventory["objective"])
     state = advance_position_exposure(
@@ -513,6 +561,8 @@ def state_and_presence(inventory):
         registry_digest="a" * 64,
         objective=inventory["objective"],
         optimizer_step=1,
+        router_internal_positions=router_positions,
+        router_internal_assignments=router_assignments,
     )
     presence = {
         name: deepcopy(state[name])
@@ -615,13 +665,35 @@ def test_observation_only_window_receives_no_position_credit_or_invented_targets
 
 
 @pytest.mark.parametrize(
-    "mutation", [None, "parent", "metadata", "drop", "changed_mask", "hidden_events"]
+    "mutation",
+    [
+        None,
+        "parent",
+        "metadata",
+        "drop",
+        "changed_mask",
+        "hidden_events",
+        "router_decrease",
+        "router_removed",
+        "router_invented",
+        "router_unrecorded_update",
+        "router_assignment_increment",
+        "router_invented_prior_receipt",
+    ],
 )
 def test_bounded_position_history_preserves_receipts_and_never_claims_full_pass(mutation):
     from dataclasses import asdict
 
     inventory = prepared_inventory([prepared_episode([record()])])
-    state, presence = state_and_presence(inventory)
+    router_counts = (
+        {}
+        if mutation == "router_invented_prior_receipt"
+        else {
+            "router_positions": {"adapter_c": 10, "p": 4},
+            "router_assignments": {"adapter_c": 20, "p": 4},
+        }
+    )
+    state, presence = state_and_presence(inventory, **router_counts)
     sample = exposure()
     sample["objectiveDigest"] = stable_algorithm_hash(inventory["objective"])
     after = advance_position_exposure(
@@ -630,6 +702,8 @@ def test_bounded_position_history_preserves_receipts_and_never_claims_full_pass(
         registry_digest="a" * 64,
         objective=inventory["objective"],
         optimizer_step=2,
+        router_internal_positions={"adapter_c": 3, "p": 1},
+        router_internal_assignments={"adapter_c": 6, "p": 1},
     )
     if mutation == "parent":
         after["previousDigest"] = "f" * 64
@@ -637,6 +711,21 @@ def test_bounded_position_history_preserves_receipts_and_never_claims_full_pass(
         after["sources"] = {}
     elif mutation == "hidden_events":
         after["unmeasuredObjectives"] = {}
+    elif mutation == "router_decrease":
+        after["routerInternalPositionCounts"]["adapter_c"] = 1
+        after["routerInternalAssignmentCounts"]["adapter_c"] = 2
+    elif mutation == "router_removed":
+        del after["routerInternalPositionCounts"]["p"]
+        del after["routerInternalAssignmentCounts"]["p"]
+    elif mutation == "router_invented":
+        after["routerInternalPositionCounts"]["invented"] = 1
+        after["routerInternalAssignmentCounts"]["invented"] = 1
+    elif mutation == "router_unrecorded_update":
+        after["routerInternalPositionAuditUpdates"] = 1
+    elif mutation == "router_assignment_increment":
+        after["routerInternalAssignmentCounts"]["adapter_c"] = 20
+    elif mutation == "router_invented_prior_receipt":
+        after["routerInternalPositionAuditUpdates"] = 2
     elif mutation == "changed_mask":
         receipt = after["sources"]["source-1"]["logicalTargets"]["logical-1"]["records"][
             "physical-1"

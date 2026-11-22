@@ -1,0 +1,186 @@
+{
+  "entries": [
+    {
+      "path": "test_full_controlled_corpus_ex0/fit/checkpoints/SC-000000003-periodic/metadata.json",
+      "bytes": 1129,
+      "sha256": "6a10911ce687cc00c9f889f929aed7b5749c7b4b58d3ba0bc503091dcbe87bfa"
+    },
+    {
+      "path": "test_full_controlled_corpus_ex0/fit/checkpoints/latest.json",
+      "bytes": 133,
+      "sha256": "db94f2e02bd79e7cd430ef49b5aa01d1f17cee4ad7bccb69cacb43d0f0a45b8e"
+    },
+    {
+      "path": "test_full_controlled_corpus_ex0/fit/config.json",
+      "bytes": 2553,
+      "sha256": "c5d8e7790d58cda57e1663a779471eb310fc0de629a46e1aa324b4a6e1334e0c"
+    },
+    {
+      "path": "test_full_controlled_corpus_ex0/fit/metrics.jsonl",
+      "bytes": 31382,
+      "sha256": "9b3d8f890293c2edb9e4c20196dd03dd2d642a62742bf37b1758bfd21f601be9"
+    },
+    {
+      "path": "test_full_controlled_corpus_ex0/fit/parameters.json",
+      "bytes": 77540,
+      "sha256": "009e2d231b186268e93f184f6ec4c0b54243a5f971fb3ef74e3a8eec4d83d1ec"
+    },
+    {
+      "path": "test_full_controlled_corpus_ex0/fit/runtime.json",
+      "bytes": 413,
+      "sha256": "bcf555bdb95aac674ee374865d28ef42f74a88025d8bbb01a1915512d153215f"
+    },
+    {
+      "path": "test_full_controlled_corpus_ex0/fit/tensor-accounting.json",
+      "bytes": 2214,
+      "sha256": "d12fb73a6bdd2242fe04dd441948bae93e762b7338a254fccae5f16f1cc41a0d"
+    },
+    {
+      "path": "test_full_controlled_corpus_ex0/fit-next-stage/checkpoints/SE-000000003-phase-start/metadata.json",
+      "bytes": 1091,
+      "sha256": "68d86089cebd73fa07aa3ff0c528ab7a55560c0dc6044f1285c19a7d67bb9ab2"
+    },
+    {
+      "path": "test_full_controlled_corpus_ex0/fit-next-stage/checkpoints/SE-000000004-periodic/metadata.json",
+      "bytes": 1129,
+      "sha256": "eabf35abe80ab9b6c5e75c55ab4ef2203d85397bba7dd9242ff8e5889e0e19be"
+    },
+    {
+      "path": "test_full_controlled_corpus_ex0/fit-next-stage/checkpoints/latest.json",
+      "bytes": 133,
+      "sha256": "7d5bfe05b5b1babd4399f67477ddffac9a12447ce9d4008ec4b7a5e1580eae5a"
+    },
+    {
+      "path": "test_full_controlled_corpus_ex0/fit-next-stage/config.json",
+      "bytes": 2564,
+      "sha256": "72ae326a073711f5a1878f996ca8de65febc0b2dfe1c0e125493ea4dd8618c3d"
+    },
+    {
+      "path": "test_full_controlled_corpus_ex0/fit-next-stage/metrics.jsonl",
+      "bytes": 13919,
+      "sha256": "ac170936648072ae1089c1c39a797437b197088ae43de828a421991597ccb68b"
+    },
+    {
+      "path": "test_full_controlled_corpus_ex0/fit-next-stage/parameters.json",
+      "bytes": 77540,
+      "sha256": "009e2d231b186268e93f184f6ec4c0b54243a5f971fb3ef74e3a8eec4d83d1ec"
+    },
+    {
+      "path": "test_full_controlled_corpus_ex0/fit-next-stage/runtime.json",
+      "bytes": 413,
+      "sha256": "bcf555bdb95aac674ee374865d28ef42f74a88025d8bbb01a1915512d153215f"
+    },
+    {
+      "path": "test_full_controlled_corpus_ex0/fit-next-stage/tensor-accounting.json",
+      "bytes": 2214,
+      "sha256": "d12fb73a6bdd2242fe04dd441948bae93e762b7338a254fccae5f16f1cc41a0d"
+    },
+    {
+      "path": "test_full_controlled_corpus_ex0/prepared-v8/episodes-000000.jsonl",
+      "bytes": 140239,
+      "sha256": "e7ecd1ad4d0927878f06c5975e774bb8a42b9c843452fa63a14e5e505ddd5710"
+    },
+    {
+      "path": "test_full_controlled_corpus_ex0/prepared-v8/index.sqlite",
+      "bytes": 53248,
+      "sha256": "1cec94e9b060f879e9b58fa200f3e06cc6f04e8e03d2035dea87305d84369317"
+    },
+    {
+      "path": "test_full_controlled_corpus_ex0/prepared-v8/manifest.json",
+      "bytes": 12151,
+      "sha256": "860eac69002afcc4f2bff0b4847d2100698d99dc53024d4dbffefa013c473c5c"
+    },
+    {
+      "path": "test_full_controlled_corpus_ex0/prepared-v8/semantic-v8-dedup.sqlite",
+      "bytes": 368640,
+      "sha256": "49e7feb74f7f48e147c980e44c262c5194154604e62c13783c2a9218d9230cd9"
+    },
+    {
+      "path": "test_full_controlled_corpus_ex0/prepared-v8/semantic-v8-families.json",
+      "bytes": 938,
+      "sha256": "9d06779e1b9277cf865c19969b6f0460d3f019a1ec6537710d6fc654407b7fb9"
+    },
+    {
+      "path": "test_full_controlled_corpus_ex0/prepared-v8/semantic-v8-report.json",
+      "bytes": 810,
+      "sha256": "ef44eb28b6583e32c2af7714b10d1741d78e7e29d9a302850696a216fdd259f6"
+    },
+    {
+      "path": "test_v8_normal_update_checkpoi0/fit/checkpoints/SC-000000002-periodic/metadata.json",
+      "bytes": 1129,
+      "sha256": "8206cd06302ffde650bc6950f22d512bbb92e015065f6c170245e7e8ae3aac26"
+    },
+    {
+      "path": "test_v8_normal_update_checkpoi0/fit/checkpoints/latest.json",
+      "bytes": 133,
+      "sha256": "3589b30a4ff78971461a4a3953254c1bd412d6d1bac6e4ec02b96d783057621e"
+    },
+    {
+      "path": "test_v8_normal_update_checkpoi0/fit/config.json",
+      "bytes": 2553,
+      "sha256": "581f01fd9cf5a9e6ec0f67927503ec7da7c698ce582a6faf93904380d23e29a1"
+    },
+    {
+      "path": "test_v8_normal_update_checkpoi0/fit/metrics.jsonl",
+      "bytes": 26505,
+      "sha256": "bf23cb0225b20f79e18e2cd3e846d04ed49dff26b671dd62b58a4192114dbc07"
+    },
+    {
+      "path": "test_v8_normal_update_checkpoi0/fit/parameters.json",
+      "bytes": 77944,
+      "sha256": "9582239303fef9ddff3341f884bc1898a5c97950a4db7ef6b46beb8d89c3d3c8"
+    },
+    {
+      "path": "test_v8_normal_update_checkpoi0/fit/runtime.json",
+      "bytes": 413,
+      "sha256": "bcf555bdb95aac674ee374865d28ef42f74a88025d8bbb01a1915512d153215f"
+    },
+    {
+      "path": "test_v8_normal_update_checkpoi0/fit/tensor-accounting.json",
+      "bytes": 2467,
+      "sha256": "2996c809df35a9ba19036981ee11835b75e2977197f289e6e1b58a7ecf2365be"
+    },
+    {
+      "path": "test_v8_normal_update_checkpoi0/prepared-v8/episodes-000000.jsonl",
+      "bytes": 140239,
+      "sha256": "e7ecd1ad4d0927878f06c5975e774bb8a42b9c843452fa63a14e5e505ddd5710"
+    },
+    {
+      "path": "test_v8_normal_update_checkpoi0/prepared-v8/index.sqlite",
+      "bytes": 53248,
+      "sha256": "1cec94e9b060f879e9b58fa200f3e06cc6f04e8e03d2035dea87305d84369317"
+    },
+    {
+      "path": "test_v8_normal_update_checkpoi0/prepared-v8/manifest.json",
+      "bytes": 12151,
+      "sha256": "860eac69002afcc4f2bff0b4847d2100698d99dc53024d4dbffefa013c473c5c"
+    },
+    {
+      "path": "test_v8_normal_update_checkpoi0/prepared-v8/semantic-v8-dedup.sqlite",
+      "bytes": 368640,
+      "sha256": "49e7feb74f7f48e147c980e44c262c5194154604e62c13783c2a9218d9230cd9"
+    },
+    {
+      "path": "test_v8_normal_update_checkpoi0/prepared-v8/semantic-v8-families.json",
+      "bytes": 938,
+      "sha256": "9d06779e1b9277cf865c19969b6f0460d3f019a1ec6537710d6fc654407b7fb9"
+    },
+    {
+      "path": "test_v8_normal_update_checkpoi0/prepared-v8/semantic-v8-report.json",
+      "bytes": 810,
+      "sha256": "ef44eb28b6583e32c2af7714b10d1741d78e7e29d9a302850696a216fdd259f6"
+    },
+    {
+      "path": "test_v8_normal_update_checkpoi0/resume-config.json",
+      "bytes": 2153,
+      "sha256": "492e2a4c9a68269d5b868690ede35b5c852c6ab73473e317feebc1f9f7badeb3"
+    }
+  ],
+  "archiveSha256": "105ca9bc8aa6feb8149343ffde3360e084003f6788249dbeb300b27c6a554286",
+  "excluded": [
+    "optimizer/model tensor checkpoint state.pt",
+    "deliberately forged checkpoint fixture",
+    "pytest current symlink aliases"
+  ],
+  "proofs": "Original complete and resume proofs are retained in their own byte-preserving gzip files."
+}

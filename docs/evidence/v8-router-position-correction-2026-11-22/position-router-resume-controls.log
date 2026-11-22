@@ -1,0 +1,6 @@
+Source tree: /workspace/scratch/9faed68167fb/router-audit-native
+Commit: f36b6578055c2051a15a291f310e08c2e204438e (applied external router correction on base 6f5259fcba8fd68866d628424b3f7df91615972b)
+Runtime: Python 3.12.14, pytest 8.4.2, torch 2.10.0+cpu
+Command: PYTHONPATH=src /workspace/scratch/9faed68167fb/.venv/bin/python -m pytest -q tests/test_semantic_v8_position_receipts.py -k "router_count_history or router_count_increment or bounded_position_history or position_state_resumes_exactly or explicit_stage_change or resume_and_stage_transition"
+......................                                                   [100%]
+22 passed, 33 deselected in 0.79s
