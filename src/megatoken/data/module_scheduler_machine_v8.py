@@ -5,7 +5,6 @@ from __future__ import annotations
 import copy
 import re
 
-from .algorithm_v7 import stable_algorithm_hash
 from .module_scheduler_state_v8 import (
     _verify_state,
     apply_module_scheduler_action_v8,
@@ -13,6 +12,7 @@ from .module_scheduler_state_v8 import (
     verify_module_scheduler_plan_v8,
 )
 from .promise_scheduler_v8 import rows
+from .semantic_json import stable_algorithm_hash
 
 PROFILE = "bound-module-scheduler/1"
 PLAN_SCHEMA = "semantic-bound-module-scheduler-plan/1"
