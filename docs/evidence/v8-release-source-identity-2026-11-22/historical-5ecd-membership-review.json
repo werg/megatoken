@@ -1,0 +1,18 @@
+{
+  "schema": "native-release-case-source-consistency-review/1",
+  "nativeRevision": "5ecdbaa9842ab086c312a7d0be281780091df065",
+  "actualRetainedRows": 64,
+  "allOriginalCaseRowAndArtifactSourceIdsEqual": true,
+  "inputArtifactSha256": "d57eb81316013ce0e81d072d83a2b8caa74bb660297cb29e03685a3c1e6ff2ee",
+  "inputBytesUnchanged": true,
+  "declaredCaseId": "se-support-rectangle-perimeter-pure",
+  "artifactDatasetSourceId": "se-support-rectangular-capacity-pure",
+  "membershipAcceptedDifferingCaseId": true,
+  "preparedOrderAcceptedDeclaredArtifactId": true,
+  "freshSourceReplays": 0,
+  "optimizerUpdates": 0,
+  "scope": "Read-only actual-artifact membership check only; no whole-release acceptance claim",
+  "recommendedNativeCheck": "For the general direct release descriptor, add an explicit expected sourceId derived from producer-verified task/registry membership and require equality with artifact.datasetBinding.sourceId. Keep caseId as its existing separate case identity. Source/input/family/ancestry binding belongs in the producer campaign verifier; native fresh preparation currently receives only the artifact itself.",
+  "supportOnlyEqualityBasis": "All64 retained support cases have identical case/row/dataset source IDs; qualify-semantic-v8 binds registry membership by fixture.id.",
+  "genericIdentityBoundary": "regionFamilyMembership can derive a physical source ID with a digest suffix independently of its candidateId. Do not globally equate those identifiers or rewrite original registries."
+}
