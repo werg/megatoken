@@ -144,9 +144,28 @@ class NativeExecutionLease:
             and self._inode != inode
         ):
             _fail("execution descriptor no longer names its private stable inode")
-        # The inherited descriptor shares the producer's open-file description.
-        # An unrelated live description's lock makes this nonblocking call fail.
-        fcntl.flock(self.fd, fcntl.LOCK_EX | fcntl.LOCK_NB)
+        # An unlocked descriptor must not silently become a new execution owner.
+        # Under the trusted inherited-descriptor contract, an independent open
+        # description must contend before the original description is rechecked.
+        probe = os.open(self.path, os.O_RDWR | getattr(os, "O_NOFOLLOW", 0))
+        try:
+            observed = os.fstat(probe)
+            if (observed.st_dev, observed.st_ino) != inode:
+                _fail("execution probe no longer names the inherited stable inode")
+            try:
+                fcntl.flock(probe, fcntl.LOCK_EX | fcntl.LOCK_NB)
+            except BlockingIOError:
+                pass
+            else:
+                _fail("execution ownership was not already held before admission")
+        finally:
+            os.close(probe)
+        try:
+            fcntl.flock(self.fd, fcntl.LOCK_EX | fcntl.LOCK_NB)
+        except BlockingIOError as error:
+            raise NativeRequestJournalError(
+                "inherited descriptor does not own the current execution lock"
+            ) from error
         return True
 
     def close(self):

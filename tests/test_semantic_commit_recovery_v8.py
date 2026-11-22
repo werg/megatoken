@@ -660,3 +660,28 @@ def test_native_execution_generation_is_fixed_and_new_generation_is_explicit(tmp
         result = newer.durable_commit(**next_args)
         assert result["identity"]["session_generation"] == 2
         assert len(list((tmp_path / "journal").glob("*/00000000000000000001.intent.json"))) == 2
+
+
+def test_released_descriptor_is_refused_without_silently_reacquiring_ownership(tmp_path):
+    with execution_lease(tmp_path / "owner") as lease:
+        fcntl.flock(lease.fd, fcntl.LOCK_UN)
+        with pytest.raises(NativeRequestJournalError, match="not already held"):
+            NativeExecutionLease(lease.fd, lease.path, lease.session_id, lease.stream_id)
+        with pytest.raises(NativeRequestJournalError, match="not already held"):
+            lease.assert_held()
+        probe = os.open(lease.path, os.O_RDWR)
+        try:
+            fcntl.flock(probe, fcntl.LOCK_EX | fcntl.LOCK_NB)
+        finally:
+            os.close(probe)
+
+
+def test_unrelated_descriptor_cannot_claim_another_live_execution_owner(tmp_path):
+    with execution_lease(tmp_path / "owner") as lease:
+        unrelated = os.open(lease.path, os.O_RDWR)
+        try:
+            with pytest.raises(NativeRequestJournalError, match="inherited descriptor"):
+                NativeExecutionLease(unrelated, lease.path, lease.session_id, lease.stream_id)
+            assert lease.assert_held()
+        finally:
+            os.close(unrelated)
