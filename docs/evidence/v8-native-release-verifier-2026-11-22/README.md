@@ -49,3 +49,39 @@ remain unedited; `files.json` binds the retained evidence.
 ## Subsequent strict metadata and immutable-reader red controls
 
 After the original42-case gate, a real export control changed the JSON boolean `checkpoint_stages: false` to integer `0` and recomputed all affected hashes and lineage seals. Python dictionary equality accepted the changed JSON type. The expected refusal failed (1case,1failure,0errors/skips; one additional controlled training update). A separate0-update control showed that ordinary checkpoint resolution renamed a `.superseded-*` input directory before refusing invalid metadata (1case,1failure,0errors/skips). The exact red logs, JUnit and runtime/test blob identities are retained. The original9150 verifier is insufficient for these stronger strict-type and read-only claims; correction and new qualification are separate. Only disposable test fixtures were mutated by the red control.
+
+
+## Corrected strict metadata and immutable loading
+
+The corrected source is `10c2da1f2ee46a86454c5c00f3010a15f0cb9185`
+(local `efc162f3b48641249e0c3f09916e3452f96cf231`, identical tree
+`2171d2420935eb010be8a2cc9c44c5953c633f0b`). Its exact three-file map is
+`corrected-source-map.json`; earlier source maps and summaries keep their
+historical identities.
+
+The final corrected suite passed **55 cases, zero failures/errors/skips, in
+9.078 seconds**. It includes one actual controlled fixture update and real
+checkpoint/export loading. The verifier itself performs zero optimizer updates
+or decoder forward passes. The original strict-type and input-repair red
+controls now pass. Additional controls reject duplicate/nonfinite companion
+metadata, pointer roots, symlink attachments, boolean model versions and
+resealed duplicate configuration keys. Canonical native JSON comparison keeps
+`false`, `0`, `true`, `1` and `1.0` distinct where exact metadata is required.
+
+An intermediate corrected run passed 43 cases. A subsequent expanded run passed
+54 cases and failed one because a negative control patched a function before
+another module first imported and cached it. The final test imports that module
+before patching. That was a test-isolation failure: the corrected runtime bytes
+were unchanged between the expanded failed run and the final success. All
+three original logs and JUnit files are retained separately. Each of these
+three runs generated one controlled training update; none qualifies production
+source replay or a production tokenizer. A fresh-process import denial probe
+and unchanged CLI help are retained for the corrected source.
+
+The checkpoint, reconstructed-data and served summaries use content identities
+and counts, so they remain stable across storage relocation. The producer may
+add the original native report and its outer archive manifest after this
+verification; those later additions are outside this report's input inventory.
+Restore must independently seal the final archive members and compare only the
+explicit semantic summary fields. It must not reinterpret the original input
+inventory as including its own later report or outer manifest.

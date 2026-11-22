@@ -3,8 +3,8 @@
   "files": [
     {
       "path": "README.md",
-      "bytes": 3795,
-      "sha256": "1c8812543ecded12bdd282400b8a2a01cdd089a2869090f8d4a2875301c1fe16"
+      "bytes": 5976,
+      "sha256": "3eea197e1461e237acfeacfe66c08b2604031dd735ece6cf29a1082957ff855a"
     },
     {
       "path": "check-neutral-imports.py",
@@ -15,6 +15,21 @@
       "path": "cli-help.txt",
       "bytes": 1102,
       "sha256": "8538a6564bef6a1b3b0a31b71d9a9bdd0a8125825d5ac300277f5b2cf0414a47"
+    },
+    {
+      "path": "corrected-cli-help.txt",
+      "bytes": 1102,
+      "sha256": "8538a6564bef6a1b3b0a31b71d9a9bdd0a8125825d5ac300277f5b2cf0414a47"
+    },
+    {
+      "path": "corrected-neutral-imports.json",
+      "bytes": 367,
+      "sha256": "62910f6e8ec153c9f0e90cce98e22ea2ab1d222d7b5d17e60b409c23857a1c9f"
+    },
+    {
+      "path": "corrected-source-map.json",
+      "bytes": 1429,
+      "sha256": "61b8b01651d7252d19880c19300496fd9a890570ee30e1dd0246ac3d25f370b9"
     },
     {
       "path": "corrected.log",
@@ -67,6 +82,31 @@
       "sha256": "bf6d32011070af4bd881f72e50bced259d3a32ac36948f196cc2a0f4b9f5ff84"
     },
     {
+      "path": "strict-green-intermediate.log",
+      "bytes": 99,
+      "sha256": "6314890ea2c5a6bc7ee350795d8d8767f48865c05b32efcb980a996b50b7b771"
+    },
+    {
+      "path": "strict-green-intermediate.xml",
+      "bytes": 6745,
+      "sha256": "853d58ccdd482980d755c94633f190eac3a0e21f8ef3e359340a6ea272ab8efa"
+    },
+    {
+      "path": "strict-read-final.json",
+      "bytes": 4209,
+      "sha256": "3d31f4808220f5a21e1616bc0da5964fae15562fc12cf6b13720b2bd6f34f7ba"
+    },
+    {
+      "path": "strict-read-final.log",
+      "bytes": 99,
+      "sha256": "8597e7d0bbf73133cc7edfa951bdc7286acc6b62d3455d19c644b6b3cb1ec970"
+    },
+    {
+      "path": "strict-read-final.xml",
+      "bytes": 8691,
+      "sha256": "e7033d034c4a3c7de43738dba03fa71cb45d70b61a54539c30353e269a44f525"
+    },
+    {
       "path": "strict-read-red.json",
       "bytes": 1044,
       "sha256": "8f32f566d83d1272af64de21d2675da81d1e0dedbf0d8272adca7382728a9371"
@@ -75,6 +115,16 @@
       "path": "summary.json",
       "bytes": 2768,
       "sha256": "47bfaaff82f5b643420441d318e19338af6f871dd3a8cbb3a2fbbe8257160fa6"
+    },
+    {
+      "path": "test-isolation-failure.log",
+      "bytes": 17044,
+      "sha256": "068a54f21b6dc742be770196e33a93ec6c272b4a4e250aabbb06ab2abaf2472e"
+    },
+    {
+      "path": "test-isolation-failure.xml",
+      "bytes": 12141,
+      "sha256": "9f1684d013215fc2aaa906c9fb5f49f7434905c5ab0dd24a73f51a4db0cd5676"
     },
     {
       "path": "type-red.log",

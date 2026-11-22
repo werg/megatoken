@@ -1,0 +1,85 @@
+{
+  "schema": "semantic-v8-native-release-verifier-strict-read-controls/1",
+  "sourceRemoteRevision": "10c2da1f2ee46a86454c5c00f3010a15f0cb9185",
+  "sourceLocalRevision": "efc162f3b48641249e0c3f09916e3452f96cf231",
+  "sourceTree": "2171d2420935eb010be8a2cc9c44c5953c633f0b",
+  "baseRevision": "7741c003c8887da0000f7912ab6d6cdbee9ec3a1",
+  "supersedesRuntimeRevision": "9150a11c9a0741bf63bbed335c343dc67ad2a23f",
+  "status": "focused-controls-passed",
+  "attempts": [
+    {
+      "name": "strict-green-intermediate",
+      "junit": {
+        "name": "pytest",
+        "errors": "0",
+        "failures": "0",
+        "skipped": "0",
+        "tests": "43",
+        "time": "9.302",
+        "timestamp": "2026-11-22T16:44:09.376925+01:00",
+        "hostname": "07bf85b14210"
+      },
+      "frozenCorrectedSourceQualification": false,
+      "actualControlledFixtureOptimizerUpdates": 1,
+      "verifierOptimizerUpdates": 0
+    },
+    {
+      "name": "test-isolation-failure",
+      "junit": {
+        "name": "pytest",
+        "errors": "0",
+        "failures": "1",
+        "skipped": "0",
+        "tests": "55",
+        "time": "8.280",
+        "timestamp": "2026-11-22T16:46:25.295130+01:00",
+        "hostname": "07bf85b14210"
+      },
+      "frozenCorrectedSourceQualification": false,
+      "actualControlledFixtureOptimizerUpdates": 1,
+      "verifierOptimizerUpdates": 0
+    },
+    {
+      "name": "strict-read-final",
+      "junit": {
+        "name": "pytest",
+        "errors": "0",
+        "failures": "0",
+        "skipped": "0",
+        "tests": "55",
+        "time": "9.078",
+        "timestamp": "2026-11-22T16:51:33.013073+01:00",
+        "hostname": "07bf85b14210"
+      },
+      "frozenCorrectedSourceQualification": true,
+      "actualControlledFixtureOptimizerUpdates": 1,
+      "verifierOptimizerUpdates": 0
+    }
+  ],
+  "finalDistinctCases": 55,
+  "finalFailures": 0,
+  "finalErrors": 0,
+  "finalSkips": 0,
+  "finalActualControlledFixtureOptimizerUpdates": 1,
+  "verifierOptimizerUpdates": 0,
+  "verifierDecoderForwardPasses": 0,
+  "freshProducerSourceReplay": false,
+  "productionTokenizerQualification": false,
+  "fullPairedReleaseQualification": false,
+  "runtime": {
+    "python": "3.12.14",
+    "torch": "2.10.0+cpu",
+    "pytest": "9.2.0",
+    "fullyLockedHostedEnvironment": false
+  },
+  "changes": [
+    "Use native canonical JSON identity rather than Python scalar equality for exact metadata/configuration/lineage comparison.",
+    "Parse checkpoint companion metadata and served manifest/configuration/lineage with strict duplicate-key/nonfinite rejection before loaders.",
+    "Require a direct committed checkpoint directory and local transducer attachment; refuse latest-pointer and pending superseded repair states before ordinary load_checkpoint can mutate input.",
+    "Retain exact model/transducer bytes and loaded tensor comparison, including prescribed cache invalidation version increment."
+  ],
+  "testIsolationFailure": "A negative control patched load_trained before its first import by megatoken.served. The served module captured the patched callable and a later actual export failed. Importing that module before patching fixes only test isolation; the corrected runtime blob is unchanged between this failed attempt and the final green attempt.",
+  "priorEvidence": "The original 9150 source, 42-case success, two development attempts and both subsequently discovered real red controls remain retained without rewriting their original files or identities.",
+  "relocationSummaryBoundary": "checkpoint, preparedEquivalence and served reports bind content identities and counts, not physical staging paths. Later producer archive proof/manifest additions change whole-input inventory; restore compares the named semantic summary while retaining and separately sealing original report and final archive members.",
+  "scope": "One controlled fixture update followed by actual checkpoint/cursor/content-objective/position validation and real export/load; resealed type, duplicate-key, model-version, model-weight and bank changes refused. Source admission and byte codec are explicit injected fixtures. No learned/default/live-history or production release claim."
+}

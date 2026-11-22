@@ -1,0 +1,41 @@
+{
+  "schema": "source-promotion-map/1",
+  "repository": "werg/megatoken",
+  "branch": "codex/direct-v8-release-verifier-20261122",
+  "publishedCommit": "10c2da1f2ee46a86454c5c00f3010a15f0cb9185",
+  "localCommit": "efc162f3b48641249e0c3f09916e3452f96cf231",
+  "tree": "2171d2420935eb010be8a2cc9c44c5953c633f0b",
+  "baseline": "7741c003c8887da0000f7912ab6d6cdbee9ec3a1",
+  "files": [
+    {
+      "path": "scripts/verify_semantic_v8_release.py",
+      "blob": "d100bf74d161b6f726d48ceb3b7795d288d3af66",
+      "sha256": "905b81cd1270de12830eca0d49dc6db267129a1c042330b40b4238dc1290ac4e",
+      "bytes": 35507
+    },
+    {
+      "path": "tests/test_semantic_v8_release_verifier.py",
+      "blob": "4252841444c91ad115973581c9811d77ef5e035b",
+      "sha256": "7ca7b468df88c16c6c606fea60ca36dd23dc9c42ddee89ec83916c3611a3d09f",
+      "bytes": 20987
+    },
+    {
+      "path": "docs/v8-release-verification.md",
+      "blob": "71a967969ce477d285db0d9ca8615cae43f7903d",
+      "sha256": "ee63eb4eb2261ea1b53d06b07f556c717ebd15b822c9f91eb140d7513a582951",
+      "bytes": 7413
+    }
+  ],
+  "validation": {
+    "tests": 55,
+    "failures": 0,
+    "errors": 0,
+    "skips": 0,
+    "seconds": 9.078,
+    "actualControlledFixtureOptimizerUpdates": 1,
+    "verifierOptimizerUpdates": 0,
+    "productionSourceReplay": false,
+    "productionTokenizerQualification": false,
+    "supersedesRuntime": "9150a11c9a0741bf63bbed335c343dc67ad2a23f"
+  }
+}
