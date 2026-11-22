@@ -46,6 +46,62 @@ and positive-weight denominators. Support mode also restricts observed sources
 to the exact immutable 64-source inventory. Hash links are integrity checks,
 not signatures or independent proof that arbitrary supplied data is true.
 
+## Complete support-target coverage gate
+
+The fixed support population has 64 sources: 48 training, 12 validation and four
+test sources. `scripts/qualify_semantic_v8_target_inventory.py` independently
+enumerates every ordinary training window and its native loss plans. It binds
+the resulting inventory to the exact prepared manifest, tokenizer, frozen registry,
+model, resolved objective and window settings. It performs **zero optimizer updates**.
+
+Run that preflight with the ordinary training configuration and immutable source
+inventory:
+
+```sh
+python scripts/qualify_semantic_v8_target_inventory.py \
+  --config training-config.json \
+  --expected-source-ids support-source-ids.json \
+  --output target-inventory.json
+```
+
+The program ID comes from the verified semantic annotation and its source/registry/
+split binding. The prepared lineage adapter name is shared by many programs and
+is not a program identity. Observed records with no loss plan earn no target credit.
+The report separates all planned windows from windows that make an optimizer update,
+and independently measures the complete pass against the configured phase budget.
+
+A separate fresh ordinary training invocation uses the same objective and inputs,
+with `max_steps` set to `optimizerWindowCount` from that inventory. Writing the final
+checkpoint at that same interval avoids serializing the model after every window.
+Output location, checkpoint/log cadence and the update bound are excluded from the
+objective identity; source data, masks, weights, model and window settings are not.
+
+```sh
+python -m megatoken train --config coverage-training-config.json
+python scripts/qualify_semantic_v8_target_coverage.py \
+  --checkpoint final-coverage-checkpoint \
+  --prepared prepared-support \
+  --expected-source-ids support-source-ids.json \
+  --inventory target-inventory.json \
+  --output target-coverage-evidence.json
+```
+
+The final collector rebuilds the inventory and compares the actual checkpoint
+census. Success requires every positive-weight physical and logical target, exact
+scored occurrence counts, exact window sets, exact per-loss denominators and the
+complete bounded optimizer-update count. A key-presence match alone can pass
+`allPositiveWeightTargetsExposed` while failing `exactOnePassCensus`; the complete
+gate requires both. Validation/test data are not optimized. Per-loss denominator
+counts overlap and must not be summed into a distinct-token count. Token/mask-position
+coverage and learned success remain unmeasured by this gate.
+
+Ordinary models retain at most eight admissions for immutable prepared episodes.
+The entire episode, codec instance and fingerprint, current registry/policy bytes,
+geometry and required split form the reuse key. The registry is reread for every
+window. Reuse avoids repeating complete native input validation for adjacent
+windows but never retains model activations, generated state or loss plans. Fresh
+models and resumed processes start with no retained admission results.
+
 ## Hosted evidence
 
 [Run 44990761001](https://github.com/werg/megatoken/actions/runs/44990761001)
@@ -63,9 +119,10 @@ skips were resolved by provisioning and verifying the exact production asset.
 
 ## Limits and next acceptance work
 
-The actual 64-source paired optimizer route needs new-head evidence. This
-57-case gate does not exercise a real multi-rank training run or prove distributed
-failure recovery. Full production recipes/assets, complete required-behavior
-target coverage, held-out learned programs and cost remain separate gates.
-Reports retain `allTargetsExposed: false`, `fullLaunchQualified: false` and
-`learnedSuccess: null`; two updates cannot establish those broader claims.
+The historic 57-case gate does not exercise a real multi-rank training run or prove
+distributed failure recovery. Complete support-target exposure is credited only
+when the separate actual full-window gate above passes on the stated pair; two
+optimizer updates alone cannot establish it. Full production recipes/assets,
+token/mask-position coverage, held-out learned programs and cost remain separate
+gates. Diagnostic coverage reports retain `fullLaunchQualified: false` and
+`learnedSuccess: null` even when every required target has contributed.

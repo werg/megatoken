@@ -47,3 +47,30 @@ pinned tokenizer and zero skips. Complete local logs and JUnit cases are retaine
 The initial control test changed payload length without updating its byte span;
 that test-construction failure is retained separately and corrected to change bytes
 at the same length, so the cache-refusal check reaches actual admission.
+
+The complete retained 64-source prepared corpus was then inventoried twice, once
+without admission reuse and once with it. The complete inventory JSON bytes match
+exactly (SHA-256 `2891c81f9021640049ee8ac9ea5408aa2bf9e8793c2ef7cac5016bb6d05a70ae`).
+Both found all 48 training sources, 348 optimizer-bearing windows, 696 logical
+targets and 720 physical targets/occurrences. Positive-weight denominators were
+lexical 26,027, reconstruction 26,027, structure 2,880, terminal 1,440 and router_z
+720; the measured P budget was 52,054 against a 200,000,000 limit. These overlapping
+per-loss normalization counts are not a distinct-token total. Full compressed
+inventory, both logs, source provenance and explicit zero-optimizer scope are retained.
+This control uses inputs admitted by the previous exact pair and is not fresh
+source qualification or evidence that the new optimizer has consumed them.
+
+Hosted native `9c68b14` passed 60 focused controls with zero skips, plus Ruff and
+formatting, in [run 45007600568](https://github.com/werg/megatoken/actions/runs/45007600568).
+The complete successful job log is retained as `native9c68-hosted-pass.log.gz`.
+
+The optimized native `a1d7f83dc46e4829ca4226e4040519cd5835f365` subsequently passed
+**81 controls with zero failures or skips**, Ruff and formatting in
+[run 45007944778, job 137163626029](https://github.com/werg/megatoken/actions/runs/45007944778/job/137163626029).
+This includes the canonical pinned tokenizer, actual ordinary optimizer/resume
+controls, all source-binding and admission-cache refusals and the inherited native
+request-journal controls. The complete compressed job log, raw JUnit, runtime log
+and exact source/native/tokenizer identity report are retained with the `nativea1d7-`
+prefix. The original artifact is `14748548491`, archive SHA-256
+`17b62d0edc16aecaee4f779b7804f50b8657e2d6b04eb4f29f3ea89b65c93cd7`.
+This focused gate is separate from the actual complete 348-window optimizer pass.
