@@ -1,0 +1,278 @@
+unformatted: File would be reformatted
+    --> src/megatoken/semantic_commit_recovery_v8.py:338:38
+     |
+337  |             or before_digest
+     -             != stable_algorithm_hash({key: value for key, value in before.items() if key != "digest"})
+338  +             != stable_algorithm_hash(
+339  +                 {key: value for key, value in before.items() if key != "digest"}
+340  +             )
+341  |         ):
+342  |             _fail("saved precheckpoint does not bind the producer's original digest")
+     -         if (
+     -             type(checkpoint) is not dict
+     -             or checkpoint.get("digest")
+     -             != stable_algorithm_hash(
+     -                 {key: value for key, value in checkpoint.items() if key != "digest"}
+     -             )
+343  +         if type(checkpoint) is not dict or checkpoint.get("digest") != stable_algorithm_hash(
+344  +             {key: value for key, value in checkpoint.items() if key != "digest"}
+345  |         ):
+--------------------------------------------------------------------------------
+382  |         if not _same(
+     -             {key: value for key, value in pre.items() if key not in {"continuationDigest", "orchestration"}},
+     -             {key: value for key, value in post.items() if key not in {"continuationDigest", "orchestration"}},
+383  +             {
+384  +                 key: value
+385  +                 for key, value in pre.items()
+386  +                 if key not in {"continuationDigest", "orchestration"}
+387  +             },
+388  +             {
+389  +                 key: value
+390  +                 for key, value in post.items()
+391  +                 if key not in {"continuationDigest", "orchestration"}
+392  +             },
+393  |         ):
+--------------------------------------------------------------------------------
+476  |             _fail("saved bootstrap outcome binding differs")
+     -         response_raw = _decode(value["responseBase64"], MAX_COMMIT_REQUEST_BYTES, "bootstrap response")
+477  +         response_raw = _decode(
+478  +             value["responseBase64"], MAX_COMMIT_REQUEST_BYTES, "bootstrap response"
+479  +         )
+480  |         response = strict_json_loads(response_raw.decode("utf-8", errors="strict"))
+--------------------------------------------------------------------------------
+577  |             or before_digest
+     -             != stable_algorithm_hash({key: value for key, value in before.items() if key != "digest"})
+578  +             != stable_algorithm_hash(
+579  +                 {key: value for key, value in before.items() if key != "digest"}
+580  +             )
+581  |         ):
+582  |             _fail("saved precheckpoint does not bind the producer's original digest")
+     -         if (
+     -             type(checkpoint) is not dict
+     -             or checkpoint.get("digest")
+     -             != stable_algorithm_hash(
+     -                 {key: value for key, value in checkpoint.items() if key != "digest"}
+     -             )
+583  +         if type(checkpoint) is not dict or checkpoint.get("digest") != stable_algorithm_hash(
+584  +             {key: value for key, value in checkpoint.items() if key != "digest"}
+585  |         ):
+--------------------------------------------------------------------------------
+903  |         work = self.adapter.sessions.get(request["session"])
+     -         if work is None or work.orchestration is None or work.orchestration.get(
+     -             "track"
+     -         ) != request["track"]:
+904  +         if (
+905  +             work is None
+906  +             or work.orchestration is None
+907  +             or work.orchestration.get("track") != request["track"]
+908  +         ):
+909  |             _fail("restored bootstrap coordinator differs from its exact request")
+--------------------------------------------------------------------------------
+980  |                         "preCheckpointDigest": preCheckpointDigest,
+     -                         "responseBase64": base64.b64encode(_reply_bytes(response)).decode(
+     -                             "ascii"
+     -                         ),
+981  +                         "responseBase64": base64.b64encode(_reply_bytes(response)).decode("ascii"),
+982  |                         "postCheckpoint": post,
+--------------------------------------------------------------------------------
+1138 |                             "preCheckpointDigest": preCheckpointDigest,
+     -                             "responseBase64": base64.b64encode(_reply_bytes(reply)).decode(
+     -                                 "ascii"
+     -                             ),
+1139 +                             "responseBase64": base64.b64encode(_reply_bytes(reply)).decode("ascii"),
+1140 |                             "postCheckpoint": post,
+     |
+
+unformatted: File would be reformatted
+   --> tests/fixtures/serve_semantic_v8_recovery_fixture.py:104:26
+    |
+103 |     ):
+    -         raise ValueError("The paired recovery fixture must end with its exact track_complete action")
+104 +         raise ValueError(
+105 +             "The paired recovery fixture must end with its exact track_complete action"
+106 +         )
+107 |     final_record["name"] = final_action
+--------------------------------------------------------------------------------
+271 |     parser.add_argument("--decoder-log", type=Path)
+    -     parser.add_argument("--final-action", choices=("track_complete", "track_cancel"),
+    -                         default="track_complete")
+272 +     parser.add_argument(
+273 +         "--final-action", choices=("track_complete", "track_cancel"), default="track_complete"
+274 +     )
+275 |     parser.add_argument("--request-journal-dir", type=Path)
+--------------------------------------------------------------------------------
+299 |         parser.error("--decoder-log is required for the JSONL recovery fixture")
+    -     _serve(arguments.decoder_log, arguments if arguments.request_journal_dir is not None else None,
+    -            arguments.final_action)
+300 +     _serve(
+301 +         arguments.decoder_log,
+302 +         arguments if arguments.request_journal_dir is not None else None,
+303 +         arguments.final_action,
+304 +     )
+305 |     return 0
+    |
+
+unformatted: File would be reformatted
+   --> tests/test_semantic_bootstrap_recovery_v8.py:70:89
+    |
+69  |     committed = bridge.durable_commit(**create_args)
+    -     child = committed["postCheckpoint"]["sessions"][opened["session"]]["orchestration"][
+    -         "children"
+    -     ][0]["track"]
+70  +     child = committed["postCheckpoint"]["sessions"][opened["session"]]["orchestration"]["children"][
+71  +         0
+72  +     ]["track"]
+73  |     bootstrap_request = {
+--------------------------------------------------------------------------------
+92  |         },
+    -         "requestBase64": base64.b64encode(_canonical(bootstrap_request) + b"\n").decode(
+    -             "ascii"
+    -         ),
+93  +         "requestBase64": base64.b64encode(_canonical(bootstrap_request) + b"\n").decode("ascii"),
+94  |         "preCheckpointDigest": adapter.checkpoint()["digest"],
+--------------------------------------------------------------------------------
+119 |         with execution_lease(tmp_path / "owner", session="teacher1") as lease:
+    -             adapter, opened, bridge, args, created = bootstrap_case(
+    -                 tmp_path, lease, open_adapter
+    -             )
+120 +             adapter, opened, bridge, args, created = bootstrap_case(tmp_path, lease, open_adapter)
+121 |             completed = dispatch(
+--------------------------------------------------------------------------------
+126 |             assert completed["recovered"] is False
+    -             assert completed["postCheckpoint"]["sessions"][opened["session"]]["orchestration"][
+    -                 "operations"
+    -             ][-1]["kind"] == "bootstrap"
+127 +             assert (
+128 +                 completed["postCheckpoint"]["sessions"][opened["session"]]["orchestration"][
+129 +                     "operations"
+130 +                 ][-1]["kind"]
+131 +                 == "bootstrap"
+132 +             )
+133 |             assert completed["identity"]["ordinal"] == 2
+--------------------------------------------------------------------------------
+178 |         with execution_lease(tmp_path / "owner", session="teacher1") as lease:
+    -             adapter, _opened, bridge, args, _created = bootstrap_case(
+    -                 tmp_path, lease, open_adapter
+    -             )
+179 +             adapter, _opened, bridge, args, _created = bootstrap_case(tmp_path, lease, open_adapter)
+180 |             fresh = open_adapter()
+--------------------------------------------------------------------------------
+202 |             assert bridge.fenced
+    -             assert adapter.sessions[args["identity"]["session_id"]].orchestration["children"][
+    -                 0
+    -             ]["track"]
+203 +             assert adapter.sessions[args["identity"]["session_id"]].orchestration["children"][0][
+204 +                 "track"
+205 +             ]
+206 |             fresh = open_adapter()
+--------------------------------------------------------------------------------
+229 |         with execution_lease(tmp_path / "owner", session="teacher1") as lease:
+    -             adapter, opened, bridge, args, _created = bootstrap_case(
+    -                 tmp_path, lease, open_adapter
+    -             )
+230 +             adapter, opened, bridge, args, _created = bootstrap_case(tmp_path, lease, open_adapter)
+231 |             bridge.durable_bootstrap(**args)
+--------------------------------------------------------------------------------
+258 | )
+    - def test_bootstrap_recovery_rejects_identity_and_child_substitutions(
+    -     tmp_path, mutation, message
+    - ):
+259 + def test_bootstrap_recovery_rejects_identity_and_child_substitutions(tmp_path, mutation, message):
+260 |     with real_runtime() as (open_adapter, _decoder):
+261 |         with execution_lease(tmp_path / "owner", session="teacher1") as lease:
+    -             adapter, _opened, bridge, args, _created = bootstrap_case(
+    -                 tmp_path, lease, open_adapter
+    -             )
+262 +             adapter, _opened, bridge, args, _created = bootstrap_case(tmp_path, lease, open_adapter)
+263 |             bridge.durable_bootstrap(**args)
+--------------------------------------------------------------------------------
+273 |                 request["childTrack"] += ":foreign"
+    -                 changed["requestBase64"] = base64.b64encode(
+    -                     _canonical(request) + b"\n"
+    -                 ).decode("ascii")
+274 +                 changed["requestBase64"] = base64.b64encode(_canonical(request) + b"\n").decode(
+275 +                     "ascii"
+276 +                 )
+277 |             fresh = open_adapter()
+--------------------------------------------------------------------------------
+295 |         with execution_lease(tmp_path / "owner", session="teacher1") as lease:
+    -             adapter, _opened, bridge, args, _created = bootstrap_case(
+    -                 tmp_path, lease, open_adapter
+    -             )
+296 +             adapter, _opened, bridge, args, _created = bootstrap_case(tmp_path, lease, open_adapter)
+297 |             completed = bridge.durable_bootstrap(**args)
+--------------------------------------------------------------------------------
+313 |         with execution_lease(tmp_path / "owner", session="teacher1") as lease:
+    -             adapter, _opened, bridge, args, _created = bootstrap_case(
+    -                 tmp_path, lease, open_adapter
+    -             )
+314 +             adapter, _opened, bridge, args, _created = bootstrap_case(tmp_path, lease, open_adapter)
+315 |             bridge.durable_bootstrap(**args)
+--------------------------------------------------------------------------------
+345 |         with execution_lease(tmp_path / "owner", session="teacher1") as lease:
+    -             adapter, _opened, bridge, args, _created = bootstrap_case(
+    -                 tmp_path, lease, open_adapter
+    -             )
+346 +             adapter, _opened, bridge, args, _created = bootstrap_case(tmp_path, lease, open_adapter)
+347 |             first = bridge.durable_bootstrap(**args)
+--------------------------------------------------------------------------------
+362 |             assert calls == []
+    -
+    |
+
+unformatted: File would be reformatted
+   --> tests/test_semantic_close_recovery_v8.py:98:16
+    |
+97  |         )
+    -         assert adapter.status_orchestration(
+    -             session=opened["session"], track=opened["track"]
+    -         )["status"] == "completed"
+98  +         assert (
+99  +             adapter.status_orchestration(session=opened["session"], track=opened["track"])["status"]
+100 +             == "completed"
+101 +         )
+102 |
+--------------------------------------------------------------------------------
+177 |             assert result["recovered"] is False
+    -             assert result["postCheckpoint"]["sessions"] == {"sibling": before["sessions"]["sibling"]}
+    -             assert result["postCheckpoint"]["closedSessions"][opened["session"]] == before[
+    -                 "sessions"
+    -             ][opened["session"]]
+178 +             assert result["postCheckpoint"]["sessions"] == {
+179 +                 "sibling": before["sessions"]["sibling"]
+180 +             }
+181 +             assert (
+182 +                 result["postCheckpoint"]["closedSessions"][opened["session"]]
+183 +                 == before["sessions"][opened["session"]]
+184 +             )
+185 |             assert set(adapter.sessions) == {"sibling"}
+--------------------------------------------------------------------------------
+259 |         with execution_lease(tmp_path / "owner", session="teacher1") as lease:
+    -             adapter, opened, _sibling = _terminal_coordinator(
+    -                 open_adapter, decoder, "cancelled"
+    -             )
+260 +             adapter, opened, _sibling = _terminal_coordinator(open_adapter, decoder, "cancelled")
+261 |             journal = DurableNativeRequestJournal(tmp_path / "journal")
+--------------------------------------------------------------------------------
+278 |         with execution_lease(tmp_path / "owner", session="teacher1") as lease:
+    -             adapter, opened, _sibling = _terminal_coordinator(
+    -                 open_adapter, decoder, "cancelled"
+    -             )
+279 +             adapter, opened, _sibling = _terminal_coordinator(open_adapter, decoder, "cancelled")
+280 |             journal = DurableNativeRequestJournal(tmp_path / "journal")
+--------------------------------------------------------------------------------
+312 |         with execution_lease(tmp_path / "owner", session="teacher1") as lease:
+    -             original, opened, _sibling = _terminal_coordinator(
+    -                 open_adapter, decoder, "cancelled"
+    -             )
+313 +             original, opened, _sibling = _terminal_coordinator(open_adapter, decoder, "cancelled")
+314 |             args = _close_arguments(original, lease, opened["session"])
+--------------------------------------------------------------------------------
+345 |                 **args,
+    -                 "requestBase64": base64.b64encode(_canonical(changed) + b"\n").decode(
+    -                     "ascii"
+    -                 ),
+346 +                 "requestBase64": base64.b64encode(_canonical(changed) + b"\n").decode("ascii"),
+347 |             }
+    |
+

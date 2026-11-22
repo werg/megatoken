@@ -1,0 +1,56 @@
+{
+  "schema": "v8-bootstrap-close-composition-evidence/1",
+  "nativeExecutedRevision": "c69ce811c81d713ce02328f3ea06b2bfb3f769a9",
+  "nativeExecutedTree": "2be15e26851a79ebabb33b497621355580b09355",
+  "testcases": 66,
+  "failures": 0,
+  "errors": 0,
+  "skips": 0,
+  "groups": {
+    "tests.test_semantic_commit_recovery_v8": 33,
+    "tests.test_semantic_bootstrap_recovery_v8": 24,
+    "tests.test_semantic_close_recovery_v8": 9
+  },
+  "elapsedSeconds": 209.399,
+  "runtime": {
+    "python": "3.12.14",
+    "torch": "2.10.0+cpu",
+    "pytest": "8.4.2",
+    "ruff": "0.17.6",
+    "OMP_NUM_THREADS": 1,
+    "MKL_NUM_THREADS": 1
+  },
+  "source": {
+    "src/megatoken/semantic_commit_recovery_v8.py": {
+      "blob": "1a557d1cd96478c9462544f83609d676812b56bd",
+      "sha256": "0be914fca57b1e4eea3d440e8eec08bc04e9fa51fae897c9c1e40b25bc541330"
+    },
+    "scripts/serve_semantic_v8.py": {
+      "blob": "17a5e68cece8fcdce437effa9ae785d06104f693",
+      "sha256": "8c580468795f5756518520154010d8d851eb9c59fb123f55ac670cc6f5c10a22"
+    },
+    "tests/test_semantic_commit_recovery_v8.py": {
+      "blob": "32c8034d659ab7e951e000cb75c513752b8cd6f3",
+      "sha256": "6305b9b74077b9e4d9b97a0143dca4eae0360a70167198e102679037b76aa57d"
+    },
+    "tests/test_semantic_bootstrap_recovery_v8.py": {
+      "blob": "207d6e52c62120500cdc00bb8c1b25655e1bb99f",
+      "sha256": "1b90f8072bcef52d684c9d3bd932134e73e9f9748abbc873d7483891a04867cc"
+    },
+    "tests/test_semantic_close_recovery_v8.py": {
+      "blob": "f47c093f5d027704d5a676e75e4dc4028b5ca440",
+      "sha256": "4d15eb04868cea5ec54612426432bcb325951a22dfebd5d110722cf3c66afdd0"
+    },
+    "tests/fixtures/serve_semantic_v8_recovery_fixture.py": {
+      "blob": "da10cfb7e6ff98a297ae9b9c54a034c1894fae25",
+      "sha256": "17cbc92d15d55e3145cdca8883c4525598bf450f9b5dac6aa64d8ba810343090"
+    }
+  },
+  "clockAuthority": "local Linux time namespace unavailable; no live producer-history claim",
+  "fullAcceptance": {
+    "complete": 0,
+    "total": 17
+  },
+  "learnedSuccess": null,
+  "nativePublishedExecutedTreeRevision": "7f0de371c44add866f463a493ae8f2edbbf372e0"
+}
