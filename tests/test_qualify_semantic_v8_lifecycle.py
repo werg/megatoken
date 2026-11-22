@@ -2,6 +2,8 @@
 
 import pytest
 
+from megatoken.data.semantic_json import stable_algorithm_hash
+
 from scripts.qualify_semantic_v8_lifecycle import qualify_target_exposure
 from megatoken.training.semantic_v8 import (
     V8_TARGET_EXPOSURE_SCHEMA,
@@ -93,7 +95,6 @@ def test_checkpoint_census_with_changed_step_history_is_refused():
 
 def test_checkpoint_with_dropped_census_is_refused():
     first = _state_at_steps([3])
-    resumed = _state_at_steps([3, 5])
     with pytest.raises(ValueError, match="lost its target-exposure census"):
         qualify_target_exposure(
             {"global_step": 1, "semantic_v8_target_exposure": first},
@@ -125,6 +126,11 @@ def test_resume_that_replaces_step_one_source_history_is_refused():
     replacement = advance_semantic_v8_target_exposure(
         replacement, merged, optimizer_step=2, registry_digest=REGISTRY
     )
+    # Even a forged parent link cannot excuse dropping the original scored source.
+    replacement["previousDigest"] = first["digest"]
+    replacement["digest"] = stable_algorithm_hash(
+        {key: value for key, value in replacement.items() if key != "digest"}
+    )
     with pytest.raises(ValueError, match="dropped a scored source"):
         qualify_target_exposure(
             {"global_step": 1, "semantic_v8_target_exposure": first},
@@ -132,3 +138,11 @@ def test_resume_that_replaces_step_one_source_history_is_refused():
             registry_digest=REGISTRY,
             allowed_source_ids={SOURCE, "support-train-02"},
         )
+
+
+
+def test_resumed_census_must_name_exact_step_one_parent_digest():
+    first = _state_at_steps([3])
+    mismatched = _state_at_steps([4, 4])
+    with pytest.raises(ValueError, match="does not name the exact step-one parent"):
+        _qualify(first, mismatched)

@@ -381,6 +381,10 @@ def qualify_target_exposure(first, resumed, *, registry_digest, allowed_source_i
         and resumed_state["optimizerUpdates"] == 2,
         "Resumed target-exposure history is not the exact step-one to step-two continuation",
     )
+    require(
+        resumed_state["previousDigest"] == first_state["digest"],
+        "Resumed target-exposure history does not name the exact step-one parent",
+    )
     allowed = None if allowed_source_ids is None else set(allowed_source_ids)
     for source_id, source in first_state["sources"].items():
         require(source_id in resumed_state["sources"], "Resume dropped a scored source")
