@@ -276,6 +276,122 @@ class DurableNativeCommitBridge:
         )
         return identity, raw, request, frame
 
+    def _bootstrap_input(
+        self,
+        identity,
+        requestBase64,
+        preCheckpointDigest,
+        createIdentity,
+        createRequestBase64,
+        createPreCheckpointDigest,
+    ):
+        identity = copy.deepcopy(_validate_identity(identity))
+        create_identity = copy.deepcopy(_validate_identity(createIdentity))
+        lease = self.execution_lease
+        lease.assert_held()
+        if identity["session_id"] != lease.session_id or identity["stream_id"] != lease.stream_id:
+            _fail("bootstrap request identity differs from execution ownership")
+        if identity["session_generation"] != self.session_generation:
+            _fail("bootstrap generation differs from configured native execution")
+        if identity["operation"] != "bootstrap-orchestration-child":
+            _fail("only child bootstrap operations use bootstrap recovery")
+        expected = {
+            "checkpoint": self.adapter.model_identity,
+            "tokenizer": self.adapter.codec.fingerprint,
+        }
+        if self.adapter.training_identity is not None:
+            expected["training"] = self.adapter.training_identity
+        if identity["model_identity"] != expected:
+            _fail("bootstrap model, tokenizer or training identity differs")
+        if type(preCheckpointDigest) is not str or not _HEX64.fullmatch(preCheckpointDigest):
+            _fail("a complete bootstrap precheckpoint digest is required")
+        raw = _decode(requestBase64, MAX_COMMIT_REQUEST_BYTES, "bootstrap request")
+        if not raw.endswith(b"\n") or b"\n" in raw[:-1] or b"\r" in raw:
+            _fail("bootstrap request must be one exact JSONL frame ending in a newline")
+        try:
+            request = strict_json_loads(raw.decode("utf-8", errors="strict"))
+        except (ValueError, UnicodeError) as exc:
+            raise NativeRequestJournalError("Bootstrap request is not strict UTF-8 JSON") from exc
+        if (
+            type(request) is not dict
+            or set(request) != {"id", "op", "session", "track", "childTrack"}
+            or type(request.get("id")) is not str
+            or not request["id"]
+            or request.get("op") != "bootstrap-orchestration-child"
+            or request.get("session") != identity["session_id"]
+            or not all(
+                type(request.get(key)) is str and request[key] for key in ("track", "childTrack")
+            )
+        ):
+            _fail("bootstrap request fields, ID, session or child identity differ")
+        if (
+            create_identity["session_id"] != identity["session_id"]
+            or create_identity["stream_id"] != identity["stream_id"]
+            or create_identity["session_generation"] != identity["session_generation"]
+            or create_identity["model_identity"] != identity["model_identity"]
+            or create_identity["operation"] != "commit-orchestration"
+            or create_identity["ordinal"] + 1 != identity["ordinal"]
+        ):
+            _fail("bootstrap must immediately follow its exact same-owner child-create commit")
+        # The predecessor is causal evidence only. Its own latest-state recovery
+        # authority is revoked by this later bootstrap intent.
+        create_identity, create_raw, create_request, create_frame = self._input(
+            create_identity, createRequestBase64, createPreCheckpointDigest
+        )
+        if (
+            set(create_request) != {"id", "op", "session", "track", "record", "selection"}
+            or create_request.get("op") != "commit-orchestration"
+            or create_request.get("session") != request["session"]
+            or create_request.get("track") != request["track"]
+            or type(create_request.get("record")) is not str
+        ):
+            _fail("bootstrap predecessor is not the exact coordinator child-create commit")
+        try:
+            create_record = strict_json_loads(create_request["record"])
+        except (ValueError, TypeError) as exc:
+            raise NativeRequestJournalError(
+                "Native commit recovery: child-create record is not strict JSON"
+            ) from exc
+        if type(create_record) is not dict or create_record.get("name") != "track_create":
+            _fail("bootstrap predecessor is not the exact coordinator child-create commit")
+        frame = _canonical(
+            {
+                "schema": "semantic-native-durable-bootstrap-child-request/8",
+                "preCheckpointDigest": preCheckpointDigest,
+                "requestBase64": requestBase64,
+                "createIdentity": create_identity,
+                "createRequestBase64": createRequestBase64,
+                "createPreCheckpointDigest": createPreCheckpointDigest,
+            }
+        )
+        return (
+            identity,
+            raw,
+            request,
+            frame,
+            create_identity,
+            create_raw,
+            create_request,
+            create_frame,
+        )
+
+    def _create_predecessor(
+        self, create_identity, create_raw, create_request, create_frame, create_pre_digest
+    ):
+        readback = self.journal.inspect(create_identity, create_frame)
+        if readback["status"] == "never-admitted":
+            raise NativeRequestConflict("Child bootstrap has no admitted child-create commit")
+        if readback["status"] != "completed":
+            raise NativeRequestOutcomeUnknown("Child-create commit outcome is unknown")
+        value, response_raw = self._envelope(
+            readback["result_bytes"],
+            create_request,
+            create_raw,
+            create_pre_digest,
+        )
+        response = strict_json_loads(response_raw.decode("utf-8", errors="strict"))
+        return readback, value, response_raw, response
+
     def _check_post(self, request, response, checkpoint, before, before_digest):
         if (
             type(before) is not dict
@@ -416,6 +532,477 @@ class DurableNativeCommitBridge:
             "recovered": restored is not None,
             "restoreReceipt": restored,
         }
+
+    def _check_bootstrap_pre(self, request, create_value, create_response, before, digest):
+        if (
+            type(before) is not dict
+            or before.get("digest") != digest
+            or digest
+            != stable_algorithm_hash(
+                {key: value for key, value in before.items() if key != "digest"}
+            )
+            or not _same(before, create_value["postCheckpoint"])
+        ):
+            _fail("bootstrap precheckpoint is not the complete acknowledged child-create state")
+        if any(
+            type(saved) is not dict or saved.get("unacknowledgedSelection") is not None
+            for saved in before.get("sessions", {}).values()
+        ):
+            _fail("bootstrap precheckpoint contains an uncommitted sibling selection")
+        sessions = before.get("sessions")
+        saved = sessions.get(request["session"]) if type(sessions) is dict else None
+        orchestration = saved.get("orchestration") if type(saved) is dict else None
+        children = orchestration.get("children") if type(orchestration) is dict else None
+        matching = [
+            child
+            for child in children or []
+            if type(child) is dict and child.get("track") == request["childTrack"]
+        ]
+        create_result = create_response.get("result")
+        created = create_result.get("track") if type(create_result) is dict else None
+        if (
+            len(matching) != 1
+            or created is None
+            or created.get("address") != request["childTrack"]
+            or created.get("bootstrap_ready") is not False
+            or orchestration.get("track") != request["track"]
+        ):
+            _fail("bootstrap request does not name its exact committed unbootstrapped child")
+
+    def _check_bootstrap_post(
+        self, request, response, checkpoint, before, before_digest, create_value, create_response
+    ):
+        self._check_bootstrap_pre(request, create_value, create_response, before, before_digest)
+        if (
+            type(checkpoint) is not dict
+            or checkpoint.get("digest")
+            != stable_algorithm_hash(
+                {key: value for key, value in checkpoint.items() if key != "digest"}
+            )
+            or set(before.get("sessions", {})) != set(checkpoint.get("sessions", {}))
+        ):
+            _fail("bootstrap postcheckpoint digest or full session inventory differs")
+        for field in (
+            "schema",
+            "equivalence",
+            "contractDigest",
+            "initialization",
+            "settings",
+            "attempts",
+            "closedSessions",
+            "openings",
+        ):
+            if not _same(before.get(field), checkpoint.get(field)):
+                _fail("child bootstrap changed whole-adapter " + field)
+        for session, saved in before["sessions"].items():
+            after = checkpoint["sessions"][session]
+            if session != request["session"]:
+                if not _same(saved, after):
+                    _fail("child bootstrap changed a sibling session")
+                continue
+            for field in (
+                "public",
+                "contexts",
+                "ingestedThrough",
+                "completed",
+                "openingRandom",
+                "replay",
+                "unacknowledgedSelection",
+            ):
+                if not _same(saved.get(field), after.get(field)):
+                    _fail("child bootstrap changed coordinator accounting " + field)
+            old_orchestration = saved.get("orchestration")
+            new_orchestration = after.get("orchestration")
+            if type(old_orchestration) is not dict or type(new_orchestration) is not dict:
+                _fail("child bootstrap lost its orchestration state")
+            operation = new_orchestration.get("operations", [])[-1:]
+            if (
+                operation
+                and operation[0].get("kind") == "bootstrap"
+                and operation[0].get("track") == request["childTrack"]
+                and type(operation[0].get("randomBefore")) is dict
+                and _same(
+                    {**new_orchestration, "operations": new_orchestration["operations"][:-1]},
+                    old_orchestration,
+                )
+            ):
+                pass
+            else:
+                _fail("child bootstrap changed coordinator history beyond its one exact receipt")
+        target_session = checkpoint["sessions"][request["session"]]
+        expected_track = target_session["orchestration"]
+        child = next(
+            child for child in expected_track["children"] if child["track"] == request["childTrack"]
+        )
+        if child.get("completion") is not None:
+            _fail("child bootstrap changed reserved child completion")
+        expected = {
+            "schema": "semantic-orchestration-bootstrap/8",
+            "track": response.get("result", {}).get("track"),
+            "bootstrapped": True,
+        }
+        if (
+            not _same(response, {"id": request["id"], "ok": True, "result": expected})
+            or expected["track"].get("address") != request["childTrack"]
+            or expected["track"].get("bootstrap_ready") is not True
+        ):
+            _fail("bootstrap response differs from the exact postcheckpoint child state")
+
+    def _bootstrap_envelope(
+        self,
+        stored,
+        request,
+        raw,
+        pre_digest,
+        create_identity,
+        create_raw,
+        create_pre_digest,
+        create_value,
+        create_response,
+    ):
+        value = strict_json_loads(stored.decode("utf-8", errors="strict"))
+        if (
+            type(value) is not dict
+            or set(value)
+            != {
+                "schema",
+                "requestSha256",
+                "preCheckpointDigest",
+                "createIdentity",
+                "createRequestSha256",
+                "createPreCheckpointDigest",
+                "createPostCheckpointDigest",
+                "responseBase64",
+                "postCheckpoint",
+                "preCheckpoint",
+            }
+            or value["schema"] != "semantic-native-durable-bootstrap-child-outcome/8"
+            or value["requestSha256"] != _sha(raw)
+            or value["preCheckpointDigest"] != pre_digest
+            or not _same(value["createIdentity"], create_identity)
+            or value["createRequestSha256"] != _sha(create_raw)
+            or value["createPreCheckpointDigest"] != create_pre_digest
+            or value["createPostCheckpointDigest"] != create_value["postCheckpoint"]["digest"]
+            or _canonical(value) != stored
+        ):
+            _fail("saved bootstrap outcome binding differs")
+        response_raw = _decode(
+            value["responseBase64"], MAX_COMMIT_REQUEST_BYTES, "bootstrap response"
+        )
+        response = strict_json_loads(response_raw.decode("utf-8", errors="strict"))
+        if _reply_bytes(response) != response_raw:
+            _fail("saved bootstrap response bytes differ")
+        self._check_bootstrap_post(
+            request,
+            response,
+            value["postCheckpoint"],
+            value["preCheckpoint"],
+            pre_digest,
+            create_value,
+            create_response,
+        )
+        return value, response_raw, response
+
+    def _bootstrap_receipt(
+        self,
+        identity,
+        raw,
+        value,
+        response_raw,
+        request_id,
+        create_identity,
+        create_raw,
+        create_readback,
+        create_value,
+        restored=None,
+    ):
+        return {
+            "schema": "semantic-native-durable-bootstrap-child/8",
+            "requestId": request_id,
+            "identity": copy.deepcopy(identity),
+            "requestSha256": _sha(raw),
+            "preCheckpointDigest": value["preCheckpointDigest"],
+            "postCheckpointDigest": value["postCheckpoint"]["digest"],
+            "responseBase64": value["responseBase64"],
+            "responseSha256": _sha(response_raw),
+            "createIdentity": copy.deepcopy(create_identity),
+            "createRequestId": create_readback["request_id"],
+            "createRequestSha256": _sha(create_raw),
+            "createPreCheckpointDigest": value["createPreCheckpointDigest"],
+            "createPostCheckpointDigest": create_value["postCheckpoint"]["digest"],
+            "createResponseSha256": _sha(
+                _decode(
+                    create_value["responseBase64"],
+                    MAX_COMMIT_REQUEST_BYTES,
+                    "create response",
+                )
+            ),
+            "postCheckpoint": copy.deepcopy(value["postCheckpoint"]),
+            "recovered": restored is not None,
+            "restoreReceipt": restored,
+        }
+
+    def durable_bootstrap_child(
+        self,
+        *,
+        identity,
+        requestBase64,
+        preCheckpointDigest,
+        createIdentity,
+        createRequestBase64,
+        createPreCheckpointDigest,
+    ):
+        identity, raw, request, frame, create_identity, create_raw, create_request, create_frame = (
+            self._bootstrap_input(
+                identity,
+                requestBase64,
+                preCheckpointDigest,
+                createIdentity,
+                createRequestBase64,
+                createPreCheckpointDigest,
+            )
+        )
+        with self.adapter.lock:
+            create_readback, create_value, _, create_response = self._create_predecessor(
+                create_identity,
+                create_raw,
+                create_request,
+                create_frame,
+                createPreCheckpointDigest,
+            )
+            existing = self.journal.inspect(identity, frame, require_latest=True)
+            if existing["status"] == "unknown":
+                self.fenced = True
+                raise NativeRequestOutcomeUnknown(
+                    "Bootstrap outcome is unknown; native bootstrap cannot be retried"
+                )
+            if existing["status"] == "completed":
+                value, response_raw, _ = self._bootstrap_envelope(
+                    existing["result_bytes"],
+                    request,
+                    raw,
+                    preCheckpointDigest,
+                    create_identity,
+                    create_raw,
+                    createPreCheckpointDigest,
+                    create_value,
+                    create_response,
+                )
+                if not _same(self.adapter.checkpoint(), value["postCheckpoint"]):
+                    _fail("whole live adapter differs from saved bootstrap poststate")
+                self._recoverable = (copy.deepcopy(identity), frame)
+                self._started = True
+                return self._bootstrap_receipt(
+                    identity,
+                    raw,
+                    value,
+                    response_raw,
+                    existing["request_id"],
+                    create_identity,
+                    create_raw,
+                    create_readback,
+                    create_value,
+                )
+            before = self.adapter.checkpoint()
+            if before["digest"] != preCheckpointDigest or not _same(
+                before, create_value["postCheckpoint"]
+            ):
+                raise NativeRequestConflict(
+                    "Bootstrap precheckpoint differs from its exact committed create"
+                )
+            # Validate the requested child before revoking create recovery or
+            # admitting an irreversible bootstrap intent.
+            self._check_bootstrap_pre(
+                request, create_value, create_response, before, preCheckpointDigest
+            )
+            self.assert_operation("bootstrap-orchestration-child", request)
+
+            def execute(_frame):
+                before = self.adapter.checkpoint()
+                if before["digest"] != preCheckpointDigest or not _same(
+                    before, create_value["postCheckpoint"]
+                ):
+                    raise NativeRequestConflict(
+                        "Bootstrap precheckpoint differs from its exact committed create"
+                    )
+                self._check_bootstrap_pre(
+                    request, create_value, create_response, before, preCheckpointDigest
+                )
+                work = self.adapter.sessions.get(request["session"])
+                description = (
+                    None if work is None else work.runtime.tracks.tracks.get(request["childTrack"])
+                )
+                if description is None or description.bootstrap_ready:
+                    _fail("Committed child is not in its exact unbootstrapped native state")
+                result = self.adapter.bootstrap_orchestration_child(
+                    session=request["session"],
+                    track=request["track"],
+                    childTrack=request["childTrack"],
+                )
+                post = self.adapter.checkpoint()
+                response = {"id": request["id"], "ok": True, "result": result}
+                self._check_bootstrap_post(
+                    request,
+                    response,
+                    post,
+                    before,
+                    preCheckpointDigest,
+                    create_value,
+                    create_response,
+                )
+                return _canonical(
+                    {
+                        "schema": "semantic-native-durable-bootstrap-child-outcome/8",
+                        "requestSha256": _sha(raw),
+                        "preCheckpointDigest": preCheckpointDigest,
+                        "createIdentity": create_identity,
+                        "createRequestSha256": _sha(create_raw),
+                        "createPreCheckpointDigest": createPreCheckpointDigest,
+                        "createPostCheckpointDigest": create_value["postCheckpoint"]["digest"],
+                        "responseBase64": base64.b64encode(_reply_bytes(response)).decode("ascii"),
+                        "postCheckpoint": post,
+                        "preCheckpoint": before,
+                    }
+                )
+
+            try:
+                stored = self.journal.execute(identity, frame, execute)
+                value, response_raw, _ = self._bootstrap_envelope(
+                    stored,
+                    request,
+                    raw,
+                    preCheckpointDigest,
+                    create_identity,
+                    create_raw,
+                    createPreCheckpointDigest,
+                    create_value,
+                    create_response,
+                )
+                if not _same(self.adapter.checkpoint(), value["postCheckpoint"]):
+                    _fail("whole live adapter differs from saved bootstrap poststate")
+                readback = self.journal.inspect(identity, frame, require_latest=True)
+                if readback.get("result_bytes") != stored:
+                    _fail("independent durable bootstrap readback differs")
+                self._recoverable = (copy.deepcopy(identity), frame)
+                self._started = True
+                return self._bootstrap_receipt(
+                    identity,
+                    raw,
+                    value,
+                    response_raw,
+                    readback["request_id"],
+                    create_identity,
+                    create_raw,
+                    create_readback,
+                    create_value,
+                )
+            except BaseException:
+                self.fenced = True
+                raise
+
+    def recover_bootstrap_child(
+        self,
+        *,
+        identity,
+        requestBase64,
+        preCheckpointDigest,
+        createIdentity,
+        createRequestBase64,
+        createPreCheckpointDigest,
+    ):
+        self.assert_operation("recover-bootstrap-child")
+        identity, raw, request, frame, create_identity, create_raw, create_request, create_frame = (
+            self._bootstrap_input(
+                identity,
+                requestBase64,
+                preCheckpointDigest,
+                createIdentity,
+                createRequestBase64,
+                createPreCheckpointDigest,
+            )
+        )
+        with self.adapter.lock:
+            if (
+                self.adapter.sessions
+                or self.adapter.attempts
+                or self.adapter.closed_sessions
+                or self.adapter.openings
+                or self.adapter.runtime.memory.sessions
+            ):
+                _fail("bootstrap recovery requires a fresh entire native adapter")
+            create_readback, create_value, _, create_response = self._create_predecessor(
+                create_identity,
+                create_raw,
+                create_request,
+                create_frame,
+                createPreCheckpointDigest,
+            )
+            readback = self.journal.inspect(identity, frame, require_latest=True)
+            if readback["status"] == "never-admitted":
+                raise NativeRequestConflict(
+                    "Bootstrap was never admitted; recovery cannot execute it"
+                )
+            if readback["status"] != "completed":
+                raise NativeRequestOutcomeUnknown(
+                    "Bootstrap outcome is unknown; recovery cannot retry it"
+                )
+            value, response_raw, response = self._bootstrap_envelope(
+                readback["result_bytes"],
+                request,
+                raw,
+                preCheckpointDigest,
+                create_identity,
+                create_raw,
+                createPreCheckpointDigest,
+                create_value,
+                create_response,
+            )
+            try:
+                restored = self.adapter.restore(checkpoint=value["preCheckpoint"])
+                if not _same(self.adapter.checkpoint(), value["preCheckpoint"]):
+                    _fail("whole restored adapter differs from bootstrap precheckpoint")
+                self._check_bootstrap_pre(
+                    request,
+                    create_value,
+                    create_response,
+                    self.adapter.checkpoint(),
+                    preCheckpointDigest,
+                )
+                work = self.adapter.sessions.get(request["session"])
+                description = (
+                    None if work is None else work.runtime.tracks.tracks.get(request["childTrack"])
+                )
+                if description is None or description.bootstrap_ready:
+                    _fail("Restored committed child is not unbootstrapped")
+                replay_result = self.adapter.bootstrap_orchestration_child(
+                    session=request["session"],
+                    track=request["track"],
+                    childTrack=request["childTrack"],
+                )
+                replay_response = {"id": request["id"], "ok": True, "result": replay_result}
+                if not _same(replay_response, response) or not _same(
+                    self.adapter.checkpoint(), value["postCheckpoint"]
+                ):
+                    _fail(
+                        "independent full-state bootstrap reexecution differs from durable outcome"
+                    )
+                self._recoverable = (copy.deepcopy(identity), frame)
+                self._started = True
+                return self._bootstrap_receipt(
+                    identity,
+                    raw,
+                    value,
+                    response_raw,
+                    readback["request_id"],
+                    create_identity,
+                    create_raw,
+                    create_readback,
+                    create_value,
+                    restored,
+                )
+            except BaseException:
+                self.fenced = True
+                raise
 
     def durable_commit(self, *, identity, requestBase64, preCheckpointDigest):
         self.assert_operation("durable-commit")
