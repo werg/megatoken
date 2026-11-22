@@ -253,6 +253,7 @@ class NativeV8AdmissionTests(unittest.TestCase):
             "class-private-source/1",
             "synchronous-generator-source/1",
             "promise-join/1",
+            "promise-adoption/1",
             "number-conversion-source/1",
             "primitive-conversion-source/1",
             "ordinary-completions-source/1",
@@ -284,6 +285,10 @@ class NativeV8AdmissionTests(unittest.TestCase):
                 self.assertIn(
                     "primitive-conversion-source/1", document["sidecar"]["protocolExtensions"]
                 )
+                if identity == "promise-key":
+                    self.assertIn(
+                        "promise-adoption/1", document["sidecar"]["protocolExtensions"]
+                    )
                 receipt = self.run_cli(document)
                 self.assertEqual(
                     receipt["protocolExtensions"], document["sidecar"]["protocolExtensions"]

@@ -4,7 +4,7 @@ The paired changes in [producer PR #47](https://github.com/werg/tracing-js-self/
 
 The producer PR links the shared data-preparation scope and all follow-ups. Current native and paired-data checks qualify their actual source pair. Existing optimizer/resume smoke tests exercise loader and serialization wiring; model performance is outside this milestone.
 
-The regenerated primitive-conversion fixture preserves every original input, disposition, boundary and outcome. Its Promise-key capability metadata now matches the composed producer; public data and contexts are unchanged. [Independent hosted regeneration](https://github.com/werg/tracing-js-self/actions/runs/45061368646).
+The regenerated primitive-conversion fixture preserves every original input, disposition, boundary and outcome. Its Promise-key capability metadata now matches the composed producer; public data and contexts are unchanged. Native admission now recognizes the already implemented `promise-adoption/1` capability while retaining unknown, duplicate and mismatched-inventory refusals. [Independent hosted regeneration](https://github.com/werg/tracing-js-self/actions/runs/45061368646).
 
 ## Native follow-ups
 

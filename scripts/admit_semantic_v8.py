@@ -523,6 +523,7 @@ def main():
                     "synchronous-generator-source/1",
                     "promise-join/1",
                     "promise-executor/1",
+                    "promise-adoption/1",
                     "number-conversion-source/1",
                     "primitive-conversion-source/1",
                     "ordinary-completions-source/1",

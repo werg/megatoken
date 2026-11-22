@@ -24,8 +24,8 @@ permissions:
 
 concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
-  # Preserve complete CPU matrix runs as evidence during incremental delivery.
-  cancel-in-progress: false
+  # New PR revisions supersede obsolete checks; manual evidence runs finish.
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 jobs:
   cpu:
