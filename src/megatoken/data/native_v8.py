@@ -39,6 +39,7 @@ from .schema import (
     Dependency,
     Episode,
     Lineage,
+    LogicalAction,
     Meridian,
     PhysicalRecord,
     Supervision,
@@ -52,6 +53,12 @@ from .semantic_contract_v8 import (
     validate_public,
 )
 from .semantic_json import stable_algorithm_hash, stable_algorithm_json
+from .semantic_orchestration_training_v8 import (
+    ORCHESTRATION_RECORD_SCHEMA,
+    orchestration_selection_instruction_v8,
+    orchestration_transcript_rows_v8,
+    validate_orchestration_transcript_v8,
+)
 from .semantic_physical import physical_semantic_episode
 from .semantic_primitives import _truthy as _detail_truthy
 
@@ -297,7 +304,7 @@ def validate_v8_artifact(document):
     final_uninterrupted = _replay_shared_state(timeline, contexts, programs, roundtrip=False)
     if final_restored != final_uninterrupted:
         _fail("Checkpoint restoration changed the final shared continuation")
-    return {
+    result = {
         "schema": "semantic-native-admission/8",
         "contractDigest": CONTRACT_DIGEST,
         "checks": {
@@ -321,6 +328,15 @@ def validate_v8_artifact(document):
         },
         "admitted": False,
     }
+    sidecar = document.get("sidecar", {})
+    if isinstance(sidecar, dict) and "orchestrationTranscript" in sidecar:
+        # Presence is intentional: a null or malformed declaration must refuse,
+        # rather than silently reverting to a naked public artifact.
+        orchestration = validate_orchestration_transcript_v8(document)
+        result["checks"]["orchestration"] = "passed"
+        result["counts"]["orchestrationRecords"] = orchestration["recordCount"]
+        result["orchestrationTranscriptDigest"] = orchestration["transcriptDigest"]
+    return result
 
 
 def prepare_native_v8_training(document, *, codec, max_positions=8192, max_history=1024):
@@ -331,36 +347,81 @@ def prepare_native_v8_training(document, *, codec, max_positions=8192, max_histo
     generated = [(i, row) for i, row in enumerate(timeline) if row["mode"] == "generated"]
     contexts = document["contexts"]
     rows = []
+    transcript_validation = None
+    orchestration_rows = None
+    sidecar = document.get("sidecar", {})
+    if isinstance(sidecar, dict) and "orchestrationTranscript" in sidecar:
+        transcript_validation = validate_orchestration_transcript_v8(document)
+        orchestration_rows = orchestration_transcript_rows_v8(transcript_validation)
     context_for = {
         row["sequence"]: context for context, (_, row) in zip(contexts, generated, strict=True)
     }
     for sequence, row in enumerate(timeline, 1):
-        if row["mode"] == "generated":
-            context = context_for[sequence]
-            rows.append(
-                (
-                    f"semantic:v8:context:{sequence}",
-                    "system",
-                    canonical_semantic_observation(context),
-                    False,
+        skip_public_ingress = transcript_validation is not None and sequence <= 2
+        if not skip_public_ingress:
+            if row["mode"] == "generated":
+                context = context_for[sequence]
+                rows.append(
+                    (
+                        f"semantic:v8:context:{sequence}",
+                        "system",
+                        canonical_semantic_observation(context),
+                        False,
+                        None,
+                        (
+                            transcript_validation["childTrack"]
+                            if transcript_validation is not None
+                            else "assistant"
+                        ),
+                    )
                 )
-            )
-            payload = row["fields"]["line"].encode("utf-8")
-            rows.append((f"semantic:v8:target:{sequence}", "assistant", payload, True))
-        else:
-            role = "user" if row["kind"] in {"program", "invocation"} else "environment"
-            rows.append(
-                (
-                    f"semantic:v8:observation:{sequence}",
-                    role,
-                    canonical_semantic_observation(row),
-                    False,
+                payload = row["fields"]["line"].encode("utf-8")
+                rows.append(
+                    (
+                        f"semantic:v8:target:{sequence}",
+                        "assistant",
+                        payload,
+                        True,
+                        {"instruction": semantic_selection_instruction_v8()},
+                        (
+                            transcript_validation["childTrack"]
+                            if transcript_validation is not None
+                            else "assistant"
+                        ),
+                    )
                 )
-            )
+            else:
+                role = "user" if row["kind"] in {"program", "invocation"} else "environment"
+                owner = "assistant"
+                if transcript_validation is not None:
+                    owner = transcript_validation["childTrack"]
+                rows.append(
+                    (
+                        f"semantic:v8:observation:{sequence}",
+                        role,
+                        canonical_semantic_observation(row),
+                        False,
+                        None,
+                        owner,
+                    )
+                )
+        if orchestration_rows is not None:
+            for spec in orchestration_rows["buckets"].get(sequence, ()):
+                rows.append(
+                    (
+                        spec["recordId"],
+                        spec["role"],
+                        spec["payload"],
+                        spec["policyMask"],
+                        spec,
+                        spec["track"],
+                    )
+                )
     logical_records = []
     meridians = []
     ids = {}
-    for index, (identity, role, payload, masked) in enumerate(rows):
+    for index, (identity, role, payload, masked, metadata, owner) in enumerate(rows):
+        metadata = metadata or {}
         rec = PhysicalRecord(
             identity,
             role,
@@ -368,7 +429,10 @@ def prepare_native_v8_training(document, *, codec, max_positions=8192, max_histo
             turn_index=index,
             logical_id=identity,
             policy_mask=masked,
-            provenance="unknown" if masked else "executed",
+            provenance=metadata.get("provenance", "unknown" if masked else "executed"),
+            action_id=metadata.get("actionId"),
+            result_of=metadata.get("resultOf"),
+            execution_id=metadata.get("executionId"),
         )
         logical_records.append(rec)
         ids[identity] = identity
@@ -378,11 +442,15 @@ def prepare_native_v8_training(document, *, codec, max_positions=8192, max_histo
                 (
                     TrackEvent(
                         identity,
-                        "assistant",
+                        owner,
                         "text",
                         index,
                         role,
-                        instruction=semantic_selection_instruction_v8() if masked else "",
+                        instruction=(
+                            metadata.get("instruction") or semantic_selection_instruction_v8()
+                            if masked
+                            else ""
+                        ),
                     ),
                 ),
             )
@@ -392,11 +460,36 @@ def prepare_native_v8_training(document, *, codec, max_positions=8192, max_histo
         target = f"semantic:v8:target:{timeline[sequence]['sequence']}"
         context = f"semantic:v8:context:{timeline[sequence]['sequence']}"
         dependencies.append(Dependency(context, target, "v8-public-context"))
+    actions = []
+    if orchestration_rows is not None:
+        actions = [
+            LogicalAction(
+                row["actionId"],
+                row["callId"],
+                row["toolName"],
+                stable_algorithm_json(row["arguments"]),
+                (row["targetId"],),
+                row["serializedSha256"],
+                execution_id=row["actionId"],
+                schema_id=ORCHESTRATION_RECORD_SCHEMA,
+            )
+            for row in orchestration_rows["actions"]
+        ]
+        dependencies.extend(Dependency(*edge) for edge in orchestration_rows["dependencies"])
     digest = stable_algorithm_hash(public)
+    episode_identity = digest
+    if transcript_validation is not None:
+        episode_identity = stable_algorithm_hash(
+            {
+                "publicDigest": digest,
+                "orchestrationTranscriptDigest": transcript_validation["transcriptDigest"],
+            }
+        )
     episode = Episode(
-        "semantic:v8:" + digest[:24],
+        "semantic:v8:" + episode_identity[:24],
         tuple(logical_records),
-        Lineage("semantic-execution-v8", digest, "semantic-execution-v8"),
+        Lineage("semantic-execution-v8", episode_identity, "semantic-execution-v8"),
+        actions=tuple(actions),
         stream="semantic_execution",
         supervision=Supervision(
             annotations_json=json.dumps(
@@ -412,7 +505,22 @@ def prepare_native_v8_training(document, *, codec, max_positions=8192, max_histo
             )
         ),
         dependencies=tuple(dependencies),
-        tracks=(TrackSpec("assistant", "assistant"),),
+        tracks=(
+            (
+                TrackSpec(
+                    transcript_validation["coordinatorTrack"],
+                    "assistant",
+                    description="Execute the declared V8 child tasks and publish their exact results",
+                ),
+                TrackSpec(
+                    transcript_validation["childTrack"],
+                    "assistant",
+                    description="Run the exact declared V8 source",
+                ),
+            )
+            if transcript_validation is not None
+            else (TrackSpec("assistant", "assistant"),)
+        ),
         meridians=tuple(meridians),
     )
     episode = physical_semantic_episode(
@@ -423,6 +531,11 @@ def prepare_native_v8_training(document, *, codec, max_positions=8192, max_histo
         selection_instruction=lambda continuation=False: semantic_selection_instruction_v8(
             continuation=continuation
         ),
+        selection_instruction_for_record=lambda record, continuation=False: (
+            orchestration_selection_instruction_v8(continuation=continuation)
+            if record.logical_id.startswith("semantic:v8:orchestration:target:")
+            else semantic_selection_instruction_v8(continuation=continuation)
+        ),
         emit_context_windows=False,
     )
     encoded = encode_episode(episode, codec)
@@ -430,6 +543,10 @@ def prepare_native_v8_training(document, *, codec, max_positions=8192, max_histo
     generated_tokens = observed_tokens = 0
     masked_logicals = set()
     unmasked_targets = set()
+    event_by_record = {
+        event.record_id: event for group in episode.meridians for event in group.events
+    }
+    track_by_id = {track.track_id: track for track in episode.tracks}
     for item in encoded:
         record = item.record
         labels = [
@@ -439,42 +556,97 @@ def prepare_native_v8_training(document, *, codec, max_positions=8192, max_histo
         if record.policy_mask:
             generated_tokens += item.P
             masked_logicals.add(record.logical_id)
-        elif record.logical_id.startswith("semantic:v8:target:"):
+        elif record.logical_id.startswith(
+            ("semantic:v8:target:", "semantic:v8:orchestration:target:")
+        ):
             unmasked_targets.add(record.logical_id)
         else:
             observed_tokens += item.tokens
-        token_rows.append(
-            {
-                "recordId": record.record_id,
-                "logicalId": record.logical_id,
-                "partIndex": record.part_index,
-                "partCount": record.part_count,
-                "role": record.role,
-                "policyMask": record.policy_mask,
-                "payloadSha256": __import__("hashlib").sha256(record.payload).hexdigest(),
-                "tokenIds": list(item.token_ids),
-                "labels": labels,
-                "codecFingerprint": item.codec_fingerprint,
-            }
-        )
-    native_digest = stable_algorithm_hash(
-        {
-            "schema": "semantic-native-training/8",
-            "codecFingerprint": codec.fingerprint,
-            "rows": token_rows,
+        token_row = {
+            "recordId": record.record_id,
+            "logicalId": record.logical_id,
+            "partIndex": record.part_index,
+            "partCount": record.part_count,
+            "role": record.role,
+            "policyMask": record.policy_mask,
+            "payloadSha256": __import__("hashlib").sha256(record.payload).hexdigest(),
+            "tokenIds": list(item.token_ids),
+            "labels": labels,
+            "codecFingerprint": item.codec_fingerprint,
         }
-    )
+        if transcript_validation is not None:
+            event = event_by_record.get(record.record_id)
+            track = track_by_id.get(event.track_id) if event is not None else None
+            token_row.update(
+                provenance=record.provenance,
+                actionId=record.action_id,
+                resultOf=record.result_of,
+                executionId=record.execution_id,
+                instruction=event.instruction if event is not None else "",
+                trackId=event.track_id if event is not None else None,
+                trackRole=track.role if track is not None else None,
+                trackDescription=track.description if track is not None else None,
+                eventRole=event.role if event is not None else None,
+                modality=event.modality if event is not None else None,
+            )
+        token_rows.append(token_row)
+    native_digest_body = {
+        "schema": "semantic-native-training/8",
+        "codecFingerprint": codec.fingerprint,
+        "rows": token_rows,
+    }
+    if transcript_validation is not None:
+        native_digest_body.update(
+            orchestrationTranscriptDigest=transcript_validation["transcriptDigest"],
+            orchestrationOrigin=transcript_validation["transcript"]["origin"],
+            tracks=[
+                {
+                    "trackId": track.track_id,
+                    "role": track.role,
+                    "modality": track.default_modality,
+                    "description": track.description,
+                    "settings": track.settings_json,
+                }
+                for track in episode.tracks
+            ],
+            dependencies=[
+                {"writer": edge.writer_id, "reader": edge.reader_id, "kind": edge.kind}
+                for edge in episode.dependencies
+            ],
+            actions=[
+                {
+                    "actionId": action.action_id,
+                    "callId": action.call_id,
+                    "toolName": action.tool_name,
+                    "arguments": action.arguments_json,
+                    "records": list(action.record_ids),
+                    "serializedSha256": action.serialized_sha256,
+                    "executionId": action.execution_id,
+                    "schemaId": action.schema_id,
+                }
+                for action in episode.actions
+            ],
+        )
+    native_digest = stable_algorithm_hash(native_digest_body)
     expected_targets = {
         f"semantic:v8:target:{row['sequence']}" for row in timeline if row["mode"] == "generated"
     }
+    if orchestration_rows is not None:
+        expected_targets.update(row["targetId"] for row in orchestration_rows["actions"])
+    target_prefixes = ("semantic:v8:target:", "semantic:v8:orchestration:target:")
     if masked_logicals != expected_targets or unmasked_targets:
         raise NativeV8Error("Native v8 physical policy masks do not match generated targets")
-    return episode, {
+    if any(
+        record.logical_id.startswith(target_prefixes) and not record.policy_mask
+        for record in episode.records
+    ):
+        raise NativeV8Error("Native V8 target record lost its policy mask")
+    result = {
         "nativeTrainingDigest": native_digest,
         "generatedTokens": generated_tokens,
         "observedTokens": observed_tokens,
         "physicalRecords": len(episode.records),
-        "logicalRecords": len(timeline) + len(contexts),
+        "logicalRecords": len(rows),
         "contexts": len(contexts),
         "generatedRecords": len(generated),
         "eosTokenId": None,
@@ -482,6 +654,12 @@ def prepare_native_v8_training(document, *, codec, max_positions=8192, max_histo
         "maskValidation": True,
         "framing": "native-physical-record-boundaries/1",
     }
+    if transcript_validation is not None:
+        result.update(
+            orchestrationRecords=transcript_validation["recordCount"],
+            orchestrationTranscriptDigest=transcript_validation["transcriptDigest"],
+        )
+    return episode, result
 
 
 def region_entry_v8(program, context, region):

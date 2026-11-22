@@ -153,6 +153,15 @@ def recheck_source_binding(document, input_path, producer_root, producer_revisio
         expected.update(
             sourceIdentityDigest=direct_source_identity_v8(sidecar), identityValidated=True
         )
+    if "orchestrationTranscript" in sidecar:
+        expected.update(
+            orchestrationTranscriptDigest=stable_algorithm_hash(sidecar["orchestrationTranscript"]),
+            orchestrationValidated=True,
+        )
+    elif isinstance(receipt, dict) and any(
+        key in receipt for key in ("orchestrationTranscriptDigest", "orchestrationValidated")
+    ):
+        raise ValueError("Source receipt cannot claim orchestration without its transcript")
     if not isinstance(receipt, dict) or any(
         receipt.get(key) != value for key, value in expected.items()
     ):
@@ -178,6 +187,7 @@ def main():
     document = json.loads(args.input.read_text())
     result = validate_v8_artifact(document)
     sidecar = document.get("sidecar", {})
+    has_orchestration = isinstance(sidecar, dict) and "orchestrationTranscript" in sidecar
     source_artifact = sidecar.get("sourceArtifact") if isinstance(sidecar, dict) else None
     public = document["public"]
     contexts = document["contexts"]
@@ -312,6 +322,17 @@ def main():
         and training["contexts"] == len(contexts)
         else "untested"
     )
+    if has_orchestration:
+        checks["orchestration"] = (
+            "passed"
+            if training is not None
+            and training.get("orchestrationRecords") == 4
+            and result["counts"].get("orchestrationRecords") == 4
+            and training.get("orchestrationTranscriptDigest")
+            == result.get("orchestrationTranscriptDigest")
+            == stable_algorithm_hash(sidecar["orchestrationTranscript"])
+            else "untested"
+        )
     receipt = {
         "schema": "semantic-native-admission/8",
         "traceFormat": "semantic-trace/8",
@@ -370,10 +391,18 @@ def main():
                     "masks",
                     "sourceBinding",
                     "tokenizer",
+                    *(("orchestration",) if has_orchestration else ()),
                 )
             )
         ),
     }
+    if has_orchestration:
+        receipt["orchestrationTranscriptDigest"] = stable_algorithm_hash(
+            sidecar["orchestrationTranscript"]
+        )
+        receipt["counts"]["orchestrationRecords"] = (
+            training.get("orchestrationRecords") if training else None
+        )
     # Engineering fixtures lack private source-bound records and exact physical
     # token rows. Never turn structural success into model-serving admission.
     if args.output.resolve() == args.input.resolve():

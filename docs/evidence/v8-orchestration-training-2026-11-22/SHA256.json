@@ -1,0 +1,50 @@
+{
+  "native-orchestration-integrated-final.log": {
+    "bytes": 114,
+    "sha256": "eb94719437d183997ce4a491479c4be0217758d68aeae78dac0ed74e5c4e6f05",
+    "encodedBytes": 93,
+    "encodedSha256": "cb0a1662adb726033c5226afc9ea4df3917f399022eafdeb6f1ad48ef9b17aad"
+  },
+  "native-orchestration-cli-regression-final.log": {
+    "bytes": 114,
+    "sha256": "259a5caa02c4ea79910659cc67b01e7c019ac3470eff8cd4684bbb1cd5b5badf",
+    "encodedBytes": 93,
+    "encodedSha256": "93bb5cdba2e513a54c8b7ca5436b4423697b4b3ad08f2095f5a91fa689bbd68a"
+  },
+  "native-orchestration-census-32.log": {
+    "bytes": 99,
+    "sha256": "30aa696919043a20cfcef791431dea8dbb42722d3700b4cac849880555f5368f",
+    "encodedBytes": 73,
+    "encodedSha256": "24b6cb7c77b9c7f82b49658f70afd8fb4fa4d8fac5d01e0332f9e9ad77b03919"
+  },
+  "native-orchestration-ruff.log": {
+    "bytes": 47,
+    "sha256": "80571e0a2e191540fcebd1c508d20199684640cf18eea195b96ce622762d1680",
+    "encodedBytes": 93,
+    "encodedSha256": "c0d673e4213442ca23100948653db59d4effb884586b93d8ff2ba12465b6844e"
+  },
+  "orchestration-large-source.log": {
+    "bytes": 270,
+    "sha256": "7fca1ed9db557aef5417fbeb3b31d81ffd8987d588279e527441aa310477bede",
+    "encodedBytes": 279,
+    "encodedSha256": "abb4773f05f34213be81410bed5b430980f347a922d4072b6d32dbbc241d635f"
+  },
+  "orchestration-large-native.log": {
+    "bytes": 1381,
+    "sha256": "96c4505e035820561d3bf2115a229d0eeeba4914fb9e3f10826aee7b50fd7b6d",
+    "encodedBytes": 865,
+    "encodedSha256": "2bfd5e8e131d4e5b33983d60a499b26c3d140d14c4da70cb40818e2e02d6b067"
+  },
+  "orchestration-large-native-import-error.log": {
+    "bytes": 234,
+    "sha256": "f013ca37ca53553ba046051e4c9992e4b061186fabcfbeaa650b8d1314afd6e2",
+    "encodedBytes": 255,
+    "encodedSha256": "881cad8c2cef411084623e211c38629e9bade08f9ed8b2501e91a81924add25b"
+  },
+  "orchestration-large-source.json": {
+    "bytes": 667215,
+    "sha256": "c930de3dae736b6f3d31d06676d9b6edcf3476698dae94af73b6d8c94123a0f1",
+    "encodedBytes": 50658,
+    "encodedSha256": "63b85d623b3478dae75a192d162f04fe1cf5edbc73ec91fcf24fbbba056df3d7"
+  }
+}

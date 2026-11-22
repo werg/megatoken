@@ -8,7 +8,9 @@ retains its invalid output without any fixture fallback.
 
 from __future__ import annotations
 
+import base64
 import copy
+import gzip
 import json
 import os
 import subprocess
@@ -20,7 +22,17 @@ from unittest.mock import patch
 import pytest
 import torch
 
+from megatoken.contracts import ROLE_TO_ID
+from megatoken.controls import (
+    canonical_semantic_observation,
+    semantic_orchestration_ack_observation_v8,
+    semantic_orchestration_input_v8,
+)
 from megatoken.data.semantic_json import stable_algorithm_hash
+from megatoken.data.semantic_orchestration_training_v8 import (
+    orchestration_transcript_rows_v8,
+    validate_orchestration_transcript_v8,
+)
 from megatoken.generation.codec import ByteCodec
 from megatoken.generation.policy import FacetedGenerator
 from megatoken.model import FacetedCore, ModelConfig
@@ -28,6 +40,7 @@ from megatoken.model.multitrack import MultiTrackGenerator
 from megatoken.multitrack_runtime import MultiTrackRuntime
 from megatoken.semantic_checkpoint_v8 import capture_random_state, continuation_fingerprint
 from megatoken.semantic_model_v8 import NativeSelectionV8Error, NativeSemanticInferenceV8
+from megatoken.semantic_orchestration_v8 import _context as orchestration_context
 from scripts.serve_semantic_v8 import dispatch
 from tests.test_semantic_v8_orchestration_authority import example, ingress
 
@@ -170,6 +183,11 @@ def targets(document):
         document["public"]["timeline"][context["visibleThrough"]]["fields"]["line"].encode()
         for context in document["contexts"]
     ]
+
+
+def teacher_document():
+    path = Path(__file__).parent / "fixtures/semantic-orchestration-teacher-v8.json.gz.b64"
+    return json.loads(gzip.decompress(base64.b64decode(path.read_bytes())))
 
 
 def rehash(packet):
@@ -344,6 +362,240 @@ def run_complete_sequence():
             "hostDispatches": receipt["hostDispatches"],
             "sourceAdmissionClaim": False,
         }
+
+
+def _observed_messages(events):
+    messages, pending = [], []
+    for event in events:
+        if pending:
+            assert event.track == pending[0].track
+            assert event.role_id == pending[0].role_id
+        pending.append(event)
+        if event.terminal:
+            messages.append(
+                (
+                    pending[0].track,
+                    b"".join(item.payload for item in pending),
+                    pending[0].role_id,
+                )
+            )
+            pending = []
+    assert not pending
+    return messages
+
+
+def test_controlled_native_rows_match_source_qualified_training_projection_and_owners():
+    document = teacher_document()
+    validation = validate_orchestration_transcript_v8(document)
+    transcript_events = validation["transcript"]["events"]
+    materialized = orchestration_transcript_rows_v8(validation)
+    raw_observations = []
+    original_observe = MultiTrackRuntime.observe
+
+    def capture_observations(runtime, session, events, *, effort=6):
+        ready = tuple(events)
+        raw_observations.extend(ready)
+        return original_observe(runtime, session, ready, effort=effort)
+
+    def exact_json(value):
+        return json.dumps(value, sort_keys=True, separators=(",", ":"), allow_nan=False).encode(
+            "utf-8"
+        )
+
+    def find_message(messages, payload, track):
+        matches = [
+            (index, role)
+            for index, (owner, observed, role) in enumerate(messages)
+            if owner == track and observed == payload
+        ]
+        assert len(matches) == 1, (track, payload[:80], len(matches))
+        return matches[0]
+
+    with patch.object(MultiTrackRuntime, "observe", capture_observations):
+        with real_runtime() as (open_adapter, decoder):
+            adapter = open_adapter()
+            session = validation["session"]
+            opened = adapter.open_orchestration(
+                session=session,
+                public=validation["initialPublic"],
+                origin="controlled",
+                childBudget=100000,
+            )
+            coordinator, child = opened["track"], validation["childTrack"]
+            assert opened["children"] == validation["initialChildren"]
+            status = adapter.status_orchestration(session=session, track=coordinator)
+            assert (
+                next(item for item in status["tracks"] if item["address"] == coordinator)["budget"]
+                == 100000
+            )
+            ingress = canonical_semantic_observation(
+                semantic_orchestration_input_v8(
+                    public=validation["initialPublic"], children=validation["initialChildren"]
+                )
+            )
+            messages = _observed_messages(raw_observations)
+            ingress_index, ingress_role = find_message(messages, ingress, coordinator)
+            assert ingress_role == ROLE_TO_ID["user"]
+            assert materialized["buckets"][2][0]["payload"] == ingress
+
+            def select_commit(ordinal):
+                context_event = transcript_events[ordinal - 1]
+                assert context_event["kind"] == "decision"
+                assert (
+                    orchestration_context(adapter, session=session, track=coordinator)
+                    == context_event["context"]
+                )
+                name, arguments, target = validation["decisions"][ordinal]
+                selected = request(
+                    adapter,
+                    "select-orchestration",
+                    session=session,
+                    track=coordinator,
+                    controlledRecord=target,
+                )
+                assert selected["record"] == target
+                target_spec = next(
+                    spec
+                    for specs in materialized["buckets"].values()
+                    for spec in specs
+                    if spec["recordId"] == f"semantic:v8:orchestration:target:{ordinal}"
+                )
+                assert target_spec["payload"] == target.encode("utf-8")
+                assert selected["selection"]["contextDigest"] == stable_algorithm_hash(
+                    context_event["context"]
+                )
+                assert selected["selection"]["origin"] == "controlled"
+                assert selected["selection"]["modelSelected"] is False
+                outcome = acknowledge(adapter, opened, selected)
+                assert outcome["schema"] == "semantic-orchestration-commit/8"
+                assert outcome["selectionId"] == selected["selection"]["selectionId"]
+                assert outcome["committed"] is True
+                acknowledgement = transcript_events[ordinal]
+                assert acknowledgement["kind"] == "ack"
+                teacher_receipt = acknowledgement["receipt"]
+                assert teacher_receipt["schema"] == "semantic-orchestration-teacher-commit/1"
+                assert outcome["track"] == teacher_receipt["track"]
+                projection = semantic_orchestration_ack_observation_v8(
+                    track=teacher_receipt["track"],
+                    completion_dependency=teacher_receipt.get("completion_dependency"),
+                )
+                if "completion_dependency" in teacher_receipt:
+                    assert (
+                        outcome["completion_dependency"] == teacher_receipt["completion_dependency"]
+                    )
+                status = adapter.status_orchestration(session=session, track=coordinator)
+                installed_track = next(
+                    item
+                    for item in status["tracks"]
+                    if item["address"] == teacher_receipt["track"]["address"]
+                )
+                assert installed_track == teacher_receipt["track"]
+                payload = canonical_semantic_observation(projection)
+                messages = _observed_messages(raw_observations)
+                ack_index, ack_role = find_message(messages, payload, coordinator)
+                assert ack_role == ROLE_TO_ID["environment"]
+                ack_spec = next(
+                    spec
+                    for specs in materialized["buckets"].values()
+                    for spec in specs
+                    if spec["recordId"]
+                    == f"semantic:v8:orchestration:ack:{acknowledgement['ordinal']}"
+                )
+                assert ack_spec["payload"] == payload
+                return outcome, ack_index
+
+            created, create_ack_index = select_commit(1)
+            assert created["track"]["address"] == child
+            assert created["completion_dependency"] == validation["dependency"]
+            bootstrap_event = transcript_events[2]
+            bootstrap = adapter.bootstrap_orchestration_child(
+                session=session, track=coordinator, childTrack=child
+            )
+            assert bootstrap == bootstrap_event["receipt"]
+            messages = _observed_messages(raw_observations)
+            program, invocation = validation["initialPublic"]["timeline"]
+            program_index, program_role = find_message(messages, exact_json(program), child)
+            invocation_index, invocation_role = find_message(
+                messages, exact_json(invocation), child
+            )
+            bootstrap_index, bootstrap_role = find_message(
+                messages, canonical_semantic_observation(bootstrap), coordinator
+            )
+            assert program_role == invocation_role == ROLE_TO_ID["user"]
+            assert bootstrap_role == ROLE_TO_ID["environment"]
+            assert create_ack_index < program_index < invocation_index < bootstrap_index
+
+            joined, join_ack_index = select_commit(4)
+            assert joined["track"]["status"] == "waiting"
+            status = adapter.status_orchestration(session=session, track=coordinator)
+            assert status["status"] == "waiting"
+            assert (
+                next(item for item in status["tracks"] if item["address"] == child)["status"]
+                == "active"
+            )
+            decoder["records"] = targets(document)
+            for index, context in enumerate(document["contexts"]):
+                selected = select_child(adapter, document, index)
+                assert all(
+                    fragment["modelTrack"] == child
+                    for fragment in selected["selection"]["fragments"]
+                )
+                assert commit_child(adapter, document, index, selected)
+                context_payload = canonical_semantic_observation(context)
+                messages = _observed_messages(raw_observations)
+                context_index, context_role = find_message(messages, context_payload, child)
+                assert context_role == ROLE_TO_ID["system"]
+                assert join_ack_index < context_index
+            assert not decoder["records"]
+
+            invocation_id = validation["invocationId"]
+            completion = adapter.complete(
+                session=session,
+                public=document["public"],
+                contexts=document["contexts"],
+                invocationId=invocation_id,
+            )
+            exact_completion = completion["childCompletion"]
+            assert exact_completion == validation["transcript"]["child"]["completion"]
+            delivered = validation["transcript"]["child"]["delivered"]
+            messages = _observed_messages(raw_observations)
+            delivered_index, delivered_role = find_message(
+                messages, exact_json(delivered), coordinator
+            )
+            completion_index, completion_role = find_message(
+                messages, canonical_semantic_observation(exact_completion), coordinator
+            )
+            delivered_row = next(
+                spec
+                for specs in materialized["buckets"].values()
+                for spec in specs
+                if spec["recordId"] == "semantic:v8:orchestration:delivery:6"
+            )
+            assert delivered_row["payload"] == exact_json(delivered)
+            assert delivered["schema"] == "semantic-completion/4"
+            assert exact_completion["schema"] == "semantic-child-completion/8"
+            assert delivered_role == completion_role == ROLE_TO_ID["environment"]
+            assert delivered_index < completion_index
+            assert join_ack_index < delivered_index
+
+            assert (
+                orchestration_context(adapter, session=session, track=coordinator)
+                == transcript_events[6]["context"]
+            )
+            progress, _ = select_commit(7)
+            assert progress["track"]["progress"] == validation["decisions"][7][1]["progress"]
+            assert (
+                orchestration_context(adapter, session=session, track=coordinator)
+                == transcript_events[8]["context"]
+            )
+            finished, _ = select_commit(9)
+            status = adapter.status_orchestration(session=session, track=coordinator)
+            tracks = {item["address"]: item for item in status["tracks"]}
+            assert finished["track"]["status"] == "completed"
+            assert status["status"] == "completed"
+            assert tracks[coordinator]["budget"] == 99996
+            assert tracks[child]["budget"] == 62
+            assert ingress_index < create_ack_index < program_index < invocation_index
 
 
 def test_real_shared_tracks_reserved_and_waiting_restore_then_exact_completion():

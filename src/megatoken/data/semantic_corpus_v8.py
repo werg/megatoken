@@ -15,6 +15,10 @@ from megatoken.data.semantic_contract_v8 import (
     INTEROPERABILITY_DIGEST,
 )
 from megatoken.data.semantic_json import stable_algorithm_hash
+from megatoken.data.semantic_orchestration_training_v8 import (
+    validate_orchestration_records_v8,
+    validate_orchestration_transcript_v8,
+)
 from megatoken.data.source_identity_v8 import source_evidence_binding_v8
 from megatoken.generation.codec import LING_TOKENIZER_SHA256
 from megatoken.io import write_json
@@ -27,6 +31,8 @@ from .storage import export_prepared
 
 def _verify_binding(document, registry):
     side = document.get("sidecar", {})
+    if not isinstance(side, dict):
+        raise ValueError("V8 artifact sidecar is malformed")
     identity = side.get("splitIdentity") if isinstance(side, dict) else None
     if (
         not isinstance(identity, dict)
@@ -75,6 +81,11 @@ def _verify_binding(document, registry):
         "sourceDigest": member["sourceDigest"],
         "coreDigest": member["coreDigest"],
     }
+    if "orchestrationTranscript" in side:
+        transcript = side["orchestrationTranscript"]
+        if not isinstance(transcript, dict):
+            raise ValueError("V8 orchestration transcript declaration is malformed")
+        expected["orchestrationTranscriptDigest"] = stable_algorithm_hash(transcript)
     if binding != expected:
         raise ValueError("V8 binding does not cover original source, public records and contexts")
     return identity, member, component, binding
@@ -101,9 +112,42 @@ def _native_admission(
         "sourceBinding": "passed",
         "tokenizer": "passed",
     }
+    orchestration = None
+    document_sidecar = document.get("sidecar", {})
+    has_orchestration = isinstance(document_sidecar, dict) and (
+        "orchestrationTranscript" in document_sidecar
+    )
+    if has_orchestration:
+        orchestration = validate_orchestration_transcript_v8(document)
+        if not isinstance(source_receipt, dict):
+            raise ValueError("Fresh V8 source receipt is malformed")
+        if (
+            result["checks"].get("orchestration") != "passed"
+            or result.get("orchestrationTranscriptDigest") != orchestration["transcriptDigest"]
+            or training.get("orchestrationRecords") != orchestration["recordCount"]
+            or training.get("orchestrationTranscriptDigest") != orchestration["transcriptDigest"]
+            or binding.get("orchestrationTranscriptDigest") != orchestration["transcriptDigest"]
+            or source_receipt.get("orchestrationValidated") is not True
+            or source_receipt.get("orchestrationTranscriptDigest")
+            != orchestration["transcriptDigest"]
+        ):
+            raise ValueError("Fresh V8 orchestration transcript binding did not pass")
+        checks["orchestration"] = "passed"
+    elif any(
+        key in source_receipt for key in ("orchestrationValidated", "orchestrationTranscriptDigest")
+    ) or any(key in binding for key in ("orchestrationTranscriptDigest",)):
+        raise ValueError("V8 artifact without a transcript cannot claim orchestration admission")
     if any(
         checks.get(key) != "passed"
-        for key in ("replay", "contexts", "continuation", "masks", "sourceBinding", "tokenizer")
+        for key in (
+            "replay",
+            "contexts",
+            "continuation",
+            "masks",
+            "sourceBinding",
+            "tokenizer",
+            *(("orchestration",) if orchestration is not None else ()),
+        )
     ):
         raise ValueError("Fresh V8 native checks did not all pass")
     if (
@@ -166,6 +210,11 @@ def _native_admission(
         "learningClaim": None,
         "admitted": True,
     }
+    if orchestration is not None:
+        receipt["orchestrationTranscriptDigest"] = orchestration["transcriptDigest"]
+        receipt["counts"]["orchestrationRecords"] = orchestration["recordCount"]
+    elif "orchestrationTranscriptDigest" in result:
+        raise ValueError("Native V8 receipt cannot add detached orchestration evidence")
     return episode, training, receipt
 
 
@@ -290,8 +339,70 @@ def semantic_behaviors_v8(episode):
         behaviors.add("semantic_repeated_invocation")
 
     # `parentInvocationId` describes the JavaScript call tree, not task
-    # orchestration. The production child requirement stays absent here until
-    # its create, join, and completion receipts are persisted with these rows.
+    # orchestration. A child behavior is counted only from a source-qualified
+    # transcript whose exact lifecycle actions and receipts became physical
+    # training rows and are bound by both producer and native admission.
+    sidecar = artifact.get("sidecar")
+    if isinstance(sidecar, dict) and "orchestrationTranscript" in sidecar:
+        try:
+            orchestration = validate_orchestration_transcript_v8(artifact)
+        except (TypeError, ValueError):
+            orchestration = None
+        binding = semantic.get("datasetBinding")
+        source_receipt = semantic.get("sourceAdmission")
+        native_receipt = semantic.get("nativeAdmission")
+        native_checks = native_receipt.get("checks") if isinstance(native_receipt, dict) else None
+        native_counts = native_receipt.get("counts") if isinstance(native_receipt, dict) else None
+        if not isinstance(native_checks, dict):
+            native_checks = {}
+        if not isinstance(native_counts, dict):
+            native_counts = {}
+        if (
+            orchestration is not None
+            and isinstance(binding, dict)
+            and binding.get("orchestrationTranscriptDigest") == orchestration["transcriptDigest"]
+            and isinstance(source_receipt, dict)
+            and source_receipt.get("schema") == "semantic-native-source-recheck/1"
+            and source_receipt.get("sourceArtifactDigest") == binding.get("sourceArtifactDigest")
+            and source_receipt.get("publicDigest") == binding.get("episodeDigest")
+            and source_receipt.get("contextDigest") == binding.get("contextsDigest")
+            and source_receipt.get("familyBindingValidated") is True
+            and source_receipt.get("sourceValidated") is True
+            and source_receipt.get("projectionValidated") is True
+            and source_receipt.get("replayValidated") is True
+            and source_receipt.get("datasetBindingDigest") == stable_algorithm_hash(binding)
+            and source_receipt.get("orchestrationValidated") is True
+            and source_receipt.get("orchestrationTranscriptDigest")
+            == orchestration["transcriptDigest"]
+            and isinstance(native_receipt, dict)
+            and native_receipt.get("admitted") is True
+            and native_receipt.get("publicDigest") == binding.get("episodeDigest")
+            and native_receipt.get("contextsDigest") == binding.get("contextsDigest")
+            and native_receipt.get("sourceArtifactDigest") == binding.get("sourceArtifactDigest")
+            and native_receipt.get("nativeTrainingDigest") == semantic.get("nativeTrainingDigest")
+            and isinstance(semantic.get("nativeTrainingDigest"), str)
+            and re.fullmatch(r"[0-9a-f]{64}", semantic["nativeTrainingDigest"]) is not None
+            and native_receipt.get("orchestrationTranscriptDigest")
+            == orchestration["transcriptDigest"]
+            and native_receipt.get("checks", {}).get("orchestration") == "passed"
+            and native_counts.get("orchestrationRecords") == orchestration["recordCount"]
+            and native_receipt.get("datasetBindingDigest") == stable_algorithm_hash(binding)
+            and native_receipt.get("sourceVerification") == source_receipt
+            and all(
+                native_checks.get(name) == "passed"
+                for name in (
+                    "replay",
+                    "contexts",
+                    "continuation",
+                    "masks",
+                    "sourceBinding",
+                    "tokenizer",
+                    "orchestration",
+                )
+            )
+            and validate_orchestration_records_v8(episode, orchestration)
+        ):
+            behaviors.add("semantic_child")
 
     # V8's generated operations are typed detail records inside `semantic`
     # rows. Match await/resume by their continuation and invocation identities
@@ -511,6 +622,8 @@ def prepare_semantic_corpus_v8(
                     raise ValueError("All V8 candidates must use one complete family registry")
                 identity, member, component, binding = _verify_binding(document, registry)
                 source = source_verifier(document)
+                if not isinstance(source, dict):
+                    raise ValueError("Fresh V8 producer source receipt is malformed")
                 expected_source = {
                     "schema": "semantic-native-source-recheck/1",
                     "producerRevision": producer_revision,
@@ -529,9 +642,23 @@ def prepare_semantic_corpus_v8(
                     expected_source.update(
                         sourceIdentityDigest=binding["sourceIdentityDigest"], identityValidated=True
                     )
-                if not isinstance(source, dict) or any(
-                    source.get(key) != value for key, value in expected_source.items()
+                document_sidecar = document.get("sidecar", {})
+                has_orchestration = isinstance(document_sidecar, dict) and (
+                    "orchestrationTranscript" in document_sidecar
+                )
+                if has_orchestration:
+                    expected_source.update(
+                        orchestrationValidated=True,
+                        orchestrationTranscriptDigest=binding["orchestrationTranscriptDigest"],
+                    )
+                elif any(
+                    key in source
+                    for key in ("orchestrationValidated", "orchestrationTranscriptDigest")
                 ):
+                    raise ValueError(
+                        "Source receipt cannot claim orchestration validation without a transcript"
+                    )
+                if any(source.get(key) != value for key, value in expected_source.items()):
                     raise ValueError(
                         "Fresh V8 producer receipt does not bind the exact source/public/context bytes"
                     )
@@ -570,6 +697,7 @@ def prepare_semantic_corpus_v8(
                         "publicArtifact": {
                             "public": document["public"],
                             "contexts": document["contexts"],
+                            **({"sidecar": document["sidecar"]} if has_orchestration else {}),
                         },
                     }
                 )
@@ -596,6 +724,8 @@ def prepare_semantic_corpus_v8(
                     ),
                 )
                 store.add(episode, codec)
+                if training.get("orchestrationRecords") is not None:
+                    counts["orchestrationRecords"] += training["orchestrationRecords"]
                 counts["admitted"] += 1
             except (ValueError, KeyError, TypeError) as error:
                 counts["refused"] += 1

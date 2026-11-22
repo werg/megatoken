@@ -148,6 +148,16 @@ def validate_semantic_episode_v8(
     if max_positions is not None and geometry["maxPositions"] > max_positions:
         raise ValueError("V8 data exceeds model position geometry")
     binding = semantic.get("datasetBinding")
+    document = semantic.get("publicArtifact")
+    sidecar = document.get("sidecar") if isinstance(document, dict) else None
+    has_orchestration = isinstance(sidecar, dict) and "orchestrationTranscript" in sidecar
+    orchestration = None
+    if has_orchestration:
+        from megatoken.data.semantic_orchestration_training_v8 import (
+            validate_orchestration_transcript_v8,
+        )
+
+        orchestration = validate_orchestration_transcript_v8(document)
     if (
         not isinstance(binding, dict)
         or binding.get("schema") != "semantic-region-dataset-binding/1"
@@ -156,6 +166,10 @@ def validate_semantic_episode_v8(
         or binding.get("componentId") != episode.lineage.family_id
         or binding.get("split") != episode.lineage.frozen_split
         or binding.get("sourceId") != semantic.get("sourceId")
+        or has_orchestration
+        and binding.get("orchestrationTranscriptDigest") != orchestration["transcriptDigest"]
+        or not has_orchestration
+        and "orchestrationTranscriptDigest" in binding
         or binding.get("split") != semantic.get("split")
         or expected_split is not None
         and binding.get("split") != expected_split
@@ -175,6 +189,12 @@ def validate_semantic_episode_v8(
     ):
         raise ValueError("V8 exact source or component is absent from its complete registry")
     source_receipt, native = semantic.get("sourceAdmission"), semantic.get("nativeAdmission")
+    native_checks = native.get("checks") if isinstance(native, dict) else None
+    native_counts = native.get("counts") if isinstance(native, dict) else None
+    if not isinstance(native_checks, dict):
+        native_checks = {}
+    if not isinstance(native_counts, dict):
+        native_counts = {}
     direct_source = validate_source_binding_v8(binding)
     if (
         not isinstance(source_receipt, dict)
@@ -194,6 +214,17 @@ def validate_semantic_episode_v8(
         or source_receipt.get("familyBindingValidated") is not True
         or source_receipt.get("registryDigest") != policy["registryDigest"]
         or source_receipt.get("datasetBindingDigest") != stable_algorithm_hash(binding)
+        or has_orchestration
+        and (
+            source_receipt.get("orchestrationValidated") is not True
+            or source_receipt.get("orchestrationTranscriptDigest")
+            != orchestration["transcriptDigest"]
+        )
+        or not has_orchestration
+        and any(
+            key in source_receipt
+            for key in ("orchestrationValidated", "orchestrationTranscriptDigest")
+        )
         or not isinstance(native, dict)
         or native.get("schema") != "semantic-native-admission/8"
         or native.get("traceFormat") != "semantic-trace/8"
@@ -210,6 +241,18 @@ def validate_semantic_episode_v8(
         or direct_source
         and native.get("sourceIdentityDigest") != binding["sourceIdentityDigest"]
         or native.get("datasetBindingDigest") != stable_algorithm_hash(binding)
+        or has_orchestration
+        and (
+            native.get("orchestrationTranscriptDigest") != orchestration["transcriptDigest"]
+            or native_checks.get("orchestration") != "passed"
+            or native_counts.get("orchestrationRecords") != orchestration["recordCount"]
+        )
+        or not has_orchestration
+        and (
+            "orchestrationTranscriptDigest" in native
+            or "orchestration" in native_checks
+            or "orchestrationRecords" in native_counts
+        )
         or native.get("tokenizer")
         != {"status": "passed", "identity": codec.fingerprint, "sha256": LING_TOKENIZER_SHA256}
         or semantic.get("tokenizerEvidence")
@@ -225,16 +268,17 @@ def validate_semantic_episode_v8(
         or native.get("optimizerSteps") != 0
         or native.get("learningClaim") is not None
         or any(
-            native.get("checks", {}).get(key) != "passed"
+            native_checks.get(key) != "passed"
             for key in ("replay", "contexts", "continuation", "masks", "sourceBinding", "tokenizer")
         )
+        or has_orchestration
+        and native_checks.get("orchestration") != "passed"
     ):
         raise ValueError(
             "Fresh source/native V8 admission, tokenizer or training evidence is missing"
         )
     # Rebuild physical supervision and compare the content digest. This makes
     # receipt presence insufficient if a shard changes after admission.
-    document = semantic.get("publicArtifact")
     if not isinstance(document, dict):
         raise ValueError("V8 artifact bytes were not retained for native revalidation")
     rebuilt, training = prepare_native_v8_training(
@@ -243,6 +287,19 @@ def validate_semantic_episode_v8(
         max_positions=geometry["maxPositions"],
         max_history=geometry["maxHistory"],
     )
+    if orchestration is not None:
+        from megatoken.data.semantic_orchestration_training_v8 import (
+            validate_orchestration_records_v8,
+        )
+
+        if (
+            training.get("orchestrationRecords") != orchestration["recordCount"]
+            or training.get("orchestrationTranscriptDigest") != orchestration["transcriptDigest"]
+            or not validate_orchestration_records_v8(episode, orchestration)
+        ):
+            raise ValueError(
+                "V8 lifecycle targets or observations differ from the retained transcript"
+            )
     if any(
         getattr(episode.lineage, key) != getattr(rebuilt.lineage, key)
         for key in (
@@ -259,7 +316,12 @@ def validate_semantic_episode_v8(
     ):
         raise ValueError("V8 source lineage differs from the source-bound artifact")
     normalized_records = tuple(
-        replace(record, provenance="unknown") if record.policy_mask else record
+        replace(record, provenance="unknown")
+        if record.policy_mask
+        and not (record.logical_id or record.record_id).startswith(
+            "semantic:v8:orchestration:target:"
+        )
+        else record
         for record in episode.records
     )
     normalized = replace(
@@ -273,11 +335,14 @@ def validate_semantic_episode_v8(
         or normalized != rebuilt
     ):
         raise ValueError("V8 physical records or target masks differ from admitted artifact bytes")
-    return {
+    result = {
         "generatedRecords": training["generatedRecords"],
         "split": binding["split"],
         "sourceId": source["id"],
     }
+    if orchestration is not None:
+        result["orchestrationRecords"] = orchestration["recordCount"]
+    return result
 
 
 def validate_prepared_semantic_v8(roots, *, codec, policy, max_history=None, max_positions=None):

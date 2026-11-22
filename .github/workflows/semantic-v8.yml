@@ -45,7 +45,7 @@ jobs:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           repository: werg/tracing-js-self
-          ref: 14e3c07e390c9b847051d1fead27acd889987bb5 # ordinary coordinator transport, source authority and durable service cancellation
+          ref: 073870f0d6df912c79799956c09d5a5cc0c903a4 # source-qualified orchestration teacher, logical work budgets and ordinary coordinator
           path: tracing-js-self
           persist-credentials: false
       - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
@@ -94,10 +94,12 @@ jobs:
         run: |
           npm run semantic:v8:contract --prefix tracing-js-self 2>&1 | tee "$RUNNER_TEMP/semantic-v8-contract.log"
           cmp tracing-js-self/contracts/semantic-execution-v8.json megatoken/src/megatoken/data/contracts/semantic-execution-v8.json
-      - name: Check the paired ordinary coordinator transport
+      - name: Check the paired coordinator and source-qualified teacher boundaries
         working-directory: tracing-js-self
         run: |
           node --test --test-reporter=junit test/semantic-native-process-v8.test.js test/semantic-native-orchestration-transport-v8.test.js \
+            test/semantic-selected-orchestration-v8.test.js \
+            test/semantic-orchestration-training-v8.test.js test/semantic-native-v8.test.js \
             2>&1 | tee "$RUNNER_TEMP/semantic-v8-transport-tests.xml"
           python - <<'PY'
           import os, xml.etree.ElementTree as ET
@@ -159,6 +161,15 @@ jobs:
             --megatoken "$MEGATOKEN_ROOT" --python "$MEGATOKEN_PYTHON" \
             --tokenizer "$MEGATOKEN_TOKENIZER_JSON" --native-policy "$SEMANTIC_V8_NATIVE_POLICY" \
             2>&1 | tee "$RUNNER_TEMP/semantic-v8-ordinary-lifecycle.log"
+      - name: Qualify source-qualified orchestration through ordinary training and serving
+        if: ${{ matrix.population == 'interoperability' }}
+        working-directory: tracing-js-self
+        run: |
+          node tools/qualify-ordinary-v8-lifecycle.mjs --orchestration-teacher \
+            --out "$RUNNER_TEMP/v8-ordinary-orchestration" \
+            --megatoken "$MEGATOKEN_ROOT" --python "$MEGATOKEN_PYTHON" \
+            --tokenizer "$MEGATOKEN_TOKENIZER_JSON" --native-policy "$SEMANTIC_V8_NATIVE_POLICY" \
+            2>&1 | tee "$RUNNER_TEMP/semantic-v8-ordinary-orchestration.log"
       - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         if: always()
         with:
@@ -178,3 +189,5 @@ jobs:
             ${{ runner.temp }}/v8-costs/
             ${{ runner.temp }}/semantic-v8-ordinary-lifecycle.log
             ${{ runner.temp }}/v8-ordinary-lifecycle/
+            ${{ runner.temp }}/semantic-v8-ordinary-orchestration.log
+            ${{ runner.temp }}/v8-ordinary-orchestration/

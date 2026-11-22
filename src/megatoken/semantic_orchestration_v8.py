@@ -13,7 +13,13 @@ import json
 import time
 from dataclasses import asdict
 
-from megatoken.controls import canonical_semantic_observation
+from megatoken.controls import (
+    build_request_control,
+    canonical_semantic_observation,
+    semantic_orchestration_ack_observation_v8,
+    semantic_orchestration_input_v8,
+    semantic_orchestration_instruction_v8,
+)
 from megatoken.data.prefix_v8 import validate_v8_committed_prefix
 from megatoken.data.semantic_json import stable_algorithm_hash, stable_algorithm_json
 from megatoken.execution_context import execution_binding
@@ -176,13 +182,7 @@ def open_orchestration(adapter, *, session, public, maxActive=1, childBudget=128
             measured = adapter._observe(
                 native,
                 canonical_semantic_observation(
-                    {
-                        "schema": "semantic-orchestration-input/8",
-                        "task": "Create each declared child; bootstrap is a separate host acknowledgement. Join its exact issued dependency, wait for its delivered completion, publish its exact kind/value as progress, then complete this coordinator.",
-                        "sourceAdmissionClaim": False,
-                        "public": public,
-                        "children": children,
-                    }
+                    semantic_orchestration_input_v8(public=public, children=children)
                 ),
                 "user",
                 "semantic:v8:orchestration:ingress",
@@ -241,7 +241,7 @@ def _context(adapter, session, track):
         "receipts": status["receipts"],
         "published": status["published"],
         "publicDigest": status["publicDigest"],
-        "instruction": "Emit one JSON object {name,arguments}. Allowed actions are track_create, track_join, track_progress, track_complete and track_cancel. Copy a declared execution binding exactly into track_create, with purpose, completion, capabilities and budget. Join only this coordinator's issued child dependency. Progress must contain the exact JSON {kind,value} of a delivered child completion. Complete only after all declared children have delivered and published results. Other lifecycle actions are outside this bounded profile.",
+        "instruction": semantic_orchestration_instruction_v8(),
     }
 
 
@@ -336,8 +336,8 @@ def select_orchestration(adapter, *, session, track, controlledRecord=None):
                         adapter.runtime.context_status(branch, track=track)["visible_events"]
                     ):
                         _fail("V8 coordinator context or prior fragments are no longer visible")
-                    control = canonical_semantic_observation(
-                        {"instruction": context["instruction"], "continuation": index > 0}
+                    control = build_request_control(
+                        instruction=semantic_orchestration_instruction_v8(continuation=index > 0)
                     )
                     attempt["instructionTokens"] += len(adapter.codec.encode(control))
                     attempt["instructionBytes"] += len(control)
@@ -608,7 +608,12 @@ def commit_orchestration(adapter, *, session, track, record, selection):
         }
         adapter._observe(
             branch,
-            canonical_semantic_observation(outcome),
+            canonical_semantic_observation(
+                semantic_orchestration_ack_observation_v8(
+                    track=outcome["track"],
+                    completion_dependency=outcome.get("completion_dependency"),
+                )
+            ),
             "environment",
             f"semantic:v8:orchestration:receipt:{selection['selectionId']}",
             track=track,

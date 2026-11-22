@@ -137,6 +137,7 @@ def original_attempt(response):
 
 def qualify_serving(root, served, source, output, manifest):
     example = read_json(source)
+    orchestration = "orchestrationTranscript" in example.get("sidecar", {})
     context = copy.deepcopy(example["contexts"][0])
     public = copy.deepcopy(example["public"])
     public["timeline"] = public["timeline"][: context["visibleThrough"]]
@@ -167,7 +168,20 @@ def qualify_serving(root, served, source, output, manifest):
             controls.append({"kind": label, "error": response["error"]})
         initialized = success(service.call("initialize", **identity))
         require(initialized["trainingIdentity"] == identity["trainingIdentity"], "Lineage changed")
-        first_response = service.call("select", **selection)
+        select_operation = "select"
+        if orchestration:
+            opened = success(
+                service.call(
+                    "open-orchestration",
+                    session=selection["session"],
+                    public={**example["public"], "timeline": example["public"]["timeline"][:2]},
+                    origin="model",
+                    childBudget=100000,
+                )
+            )
+            selection = {"session": selection["session"], "track": opened["track"]}
+            select_operation = "select-orchestration"
+        first_response = service.call(select_operation, **selection)
         first = original_attempt(first_response)
         packet = success(service.call("checkpoint"))
         write_json(output / "live-checkpoint.json", packet)
@@ -180,10 +194,10 @@ def qualify_serving(root, served, source, output, manifest):
                     reason="Lifecycle qualification does not acknowledge generated semantics",
                 )
             )
-        expected = original_attempt(service.call("select", **selection))
+        expected = original_attempt(service.call(select_operation, **selection))
     with Service(root, served, output, "restored") as service:
         restored = success(service.call("restore", checkpoint=packet))
-        actual = original_attempt(service.call("select", **selection))
+        actual = original_attempt(service.call(select_operation, **selection))
     compared = (
         "selectionId",
         "fragments",
@@ -206,9 +220,59 @@ def qualify_serving(root, served, source, output, manifest):
         "nextSelectionComparedFields": list(compared),
         "nextSelectionExact": True,
         "acknowledgedModelSelections": 0,
+        "selectionFamily": "orchestration" if orchestration else "semantic",
         "learnedSuccess": None,
         "scope": "Actual trained CPU weights and pinned tokenizer; original token selection and fresh-process initial-state/RNG continuation. No semantic record was acknowledged.",
     }
+
+
+def qualify_orchestration_preparation(source, prepared_path, report):
+    """Inspect real saved rows without mistaking materialization for exposure."""
+    from megatoken.data import PreparedCorpus
+    from megatoken.data.semantic_orchestration_training_v8 import (
+        validate_orchestration_records_v8,
+        validate_orchestration_transcript_v8,
+    )
+
+    example = read_json(source)
+    if "orchestrationTranscript" not in example.get("sidecar", {}):
+        require(not report["counts"].get("orchestrationRecords"), "Detached orchestration count")
+        return None
+    validation = validate_orchestration_transcript_v8(example)
+    require(
+        report["counts"].get("orchestrationRecords") == 4,
+        "Ordinary preparation omitted lifecycle targets",
+    )
+    with PreparedCorpus([prepared_path], split="train") as corpus:
+        require(len(corpus) == 1, "Orchestration qualification needs its single admitted episode")
+        episode = next(corpus.iter_episodes())
+        require(
+            validate_orchestration_records_v8(episode, validation),
+            "Saved physical lifecycle records differ from the source-qualified transcript",
+        )
+        targets = [
+            record
+            for record in episode.records
+            if record.logical_id.startswith("semantic:v8:orchestration:target:")
+        ]
+        require(
+            len({record.logical_id for record in targets}) == 4
+            and all(record.policy_mask for record in targets),
+            "Saved lifecycle targets lost loss-bearing physical parts",
+        )
+        semantic = json.loads(episode.supervision.annotations_json)["semantic_execution"]
+        return {
+            "transcriptDigest": validation["transcriptDigest"],
+            "logicalLifecycleTargets": 4,
+            "physicalLifecycleTargetParts": len(targets),
+            "trackOwners": sorted(track.track_id for track in episode.tracks),
+            "nativeTrainingDigest": semantic["nativeAdmission"]["nativeTrainingDigest"],
+            "workAccounting": example["sidecar"]["orchestrationTranscript"]["policy"][
+                "workAccounting"
+            ],
+            "optimizerExposurePerTarget": None,
+            "actualModelFragmentBudgetEquivalence": None,
+        }
 
 
 def qualify_checkpoints(first_path, resumed_path, prepared, served, manifest):
@@ -300,6 +364,7 @@ def main():
     require(
         report["counts"]["admitted"] == 1 and not report["refusals"], "Expected one admitted source"
     )
+    orchestration = qualify_orchestration_preparation(options.source, options.prepared, report)
     manifest = read_json(options.served / "manifest.json")
     checkpoint = qualify_checkpoints(
         options.first_checkpoint,
@@ -324,6 +389,7 @@ def main():
         "preparedManifestFingerprint": prepared["fingerprint"],
         "optimizerResumeExport": checkpoint,
         "serving": serving,
+        **({"orchestrationPreparation": orchestration} if orchestration is not None else {}),
         "artifacts": [file_identity(path) for path in artifacts],
         "learnedSuccess": None,
         "limits": [
