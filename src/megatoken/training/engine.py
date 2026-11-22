@@ -343,8 +343,15 @@ def _resume_compatible(old: dict[str, Any], config: TrainConfig, phase_transitio
         )
     # Keep the active V8 policy and registry binding fixed across resume.
     critical += ("semantic_v8_policy",)
+    content_bound_inputs = (
+        config.semantic_v8_policy is not None
+        and old.get("semantic_v8_policy") == config.semantic_v8_policy
+        and config.decoupled is None
+    )
     for key in critical:
-        if key not in old or old[key] != current[key]:
+        if key not in old or (
+            old[key] != current[key] and not (content_bound_inputs and key in {"codec", "datasets"})
+        ):
             raise ValueError(
                 f"Resume configuration changed {key}; use an explicit phase transition "
                 "only when the architecture/codec are unchanged"
@@ -589,15 +596,41 @@ def train(
                     f"Active training objectives need installed media packs for: {', '.join(missing)}"
                 )
         packs_fingerprint = sha256_file(config.packs) if config.packs else None
+        prepared_manifests_v8 = None
+        if config.semantic_v8_policy is not None:
+            # Include every checked root, even roots with no training episodes.
+            # PreparedCorpus orders these by content, independent of paths.
+            prepared_manifests_v8 = []
+            for root in dataset.all_roots:
+                manifest = json.loads((root / "manifest.json").read_text())
+                fingerprint = manifest.get("fingerprint")
+                if fingerprint != content_hash(
+                    {key: value for key, value in manifest.items() if key != "fingerprint"}
+                ):
+                    raise ValueError("V8 prepared manifest changed after input validation")
+                prepared_manifests_v8.append(fingerprint)
+            if content_hash(prepared_manifests_v8) != dataset.identity:
+                raise ValueError("V8 prepared inputs changed after corpus validation")
         payload = None
         if resume:
             payload, resumed_metadata = load_checkpoint(resume, map_location="cpu")
             from megatoken.semantic_lineage_v8 import checkpoint_lineage_v8
 
-            checkpoint_lineage_v8(payload, resumed_metadata)
+            resumed_lineage_v8 = checkpoint_lineage_v8(payload, resumed_metadata)
             _resume_compatible(payload["train_config"], config, phase_transition)
             if payload["codec_fingerprint"] != codec.fingerprint:
                 raise ValueError("Checkpoint codec identity differs")
+            if config.semantic_v8_policy is not None and not phase_transition:
+                current_chunking = ChunkingConfig.from_identity(dataset.chunking, codec).identity(
+                    codec
+                )
+                if (
+                    resumed_lineage_v8["preparedManifestFingerprints"] != prepared_manifests_v8
+                    or resumed_lineage_v8["preparedCorpusDigest"] != dataset.identity
+                    or resumed_lineage_v8["tokenizerIdentity"] != codec.fingerprint
+                    or resumed_lineage_v8["chunkingFingerprint"] != current_chunking["fingerprint"]
+                ):
+                    raise ValueError("V8 exact resume changed its admitted input contents")
             declared_model = ModelConfig.from_dict(payload["model_config"])
             # A named preset is a convenience for NEW runs. Its defaults may
             # evolve while a long-running experiment is executing. The saved
@@ -808,10 +841,7 @@ def train(
             semantic_training_v8 = build_training_lineage_v8(
                 policy=config.semantic_v8_policy,
                 tokenizer_identity=codec.fingerprint,
-                prepared_manifests=[
-                    json.loads((root / "manifest.json").read_text())["fingerprint"]
-                    for root in dataset.all_roots
-                ],
+                prepared_manifests=prepared_manifests_v8,
                 corpus_identity=dataset.identity,
                 stream_identity=stream.fingerprint,
                 chunking=chunking_identity,
@@ -898,7 +928,13 @@ def train(
                 phase_transition=phase_transition,
             )
             position_modalities = installed_modality_ids(model)
-            position_identity = position_objective(config, model_config, codec, position_modalities)
+            position_identity = position_objective(
+                config,
+                model_config,
+                codec,
+                position_modalities,
+                prepared_manifest_fingerprints=prepared_manifests_v8,
+            )
             semantic_v8_position_exposure = restore_position_exposure(
                 payload,
                 registry_digest=registry_digest,

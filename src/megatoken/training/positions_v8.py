@@ -13,11 +13,13 @@ import hashlib
 import json
 import math
 import re
-from dataclasses import asdict
 
 from megatoken.contracts import LOSS_NAMES, ROLE_TO_ID
 from megatoken.data.semantic_json import stable_algorithm_hash
-from megatoken.training.target_inventory_v8 import inventory_episode_source_id
+from megatoken.training.target_inventory_v8 import (
+    inventory_episode_source_id,
+    training_config_identity_v8,
+)
 
 POSITION_SCHEMA = "semantic-v8-optimizer-position-exposure/1"
 TEXT_PROFILE = "admitted-v8-plain-text/1"
@@ -306,18 +308,13 @@ def installed_modality_ids(model):
     ]
 
 
-def position_objective(config, model_config, codec, modalities):
+def position_objective(config, model_config, codec, modalities, *, prepared_manifest_fingerprints):
     """Bind audit history to the same objective identity used by target inventory."""
-    identity = asdict(config)
-    for key in (
-        "output",
-        "max_steps",
-        "checkpoint_every",
-        "keep_checkpoints",
-        "log_every",
-        "device",
-    ):
-        identity.pop(key, None)
+    identity = training_config_identity_v8(
+        config,
+        codec_fingerprint=codec.fingerprint,
+        prepared_manifest_fingerprints=prepared_manifest_fingerprints,
+    )
     weights = dict(config.loss_weights)
     weights["router_balance"] = 0.0
     _require(
@@ -1238,7 +1235,13 @@ def independent_position_inventory(
     agree with each other while both repeating or dropping the same target.
     """
     registry = config.semantic_v8_policy["registryDigest"]
-    objective = position_objective(config, model_config, codec, modalities)
+    objective = position_objective(
+        config,
+        model_config,
+        codec,
+        modalities,
+        prepared_manifest_fingerprints=[prepared_manifest_fingerprint],
+    )
     sources = {}
     for episode in episodes:
         source_id = inventory_episode_source_id(episode, registry_digest=registry)
@@ -1420,6 +1423,7 @@ def qualify_position_history(first, resumed, *, inventory, first_metadata, resum
             ModelConfig.from_dict(payload["model_config"]),
             SimpleNamespace(fingerprint=payload["codec_fingerprint"]),
             inventory["objective"]["installedModalities"],
+            prepared_manifest_fingerprints=[inventory["preparedManifestFingerprint"]],
         )
         _require(
             stable_algorithm_hash(identity) == stable_algorithm_hash(inventory["objective"]),

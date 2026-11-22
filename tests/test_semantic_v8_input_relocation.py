@@ -142,13 +142,28 @@ print(json.dumps({'checkpoint':result['checkpoint'],'global_step':result['global
     assert_same_state(baseline_bank, relocated_bank, "transducer")
     assert actual["train_config"] == asdict(moved)
     assert metadata["config_fingerprint"] != baseline_metadata["config_fingerprint"]
-    for key in ("dataset_fingerprint", "codec_fingerprint", "semantic_v8_lineage_digest", "semantic_v8_position_digest"):
+    for key in (
+        "dataset_fingerprint",
+        "codec_fingerprint",
+        "semantic_v8_lineage_digest",
+        "semantic_v8_position_digest",
+    ):
         assert metadata[key] == baseline_metadata[key], key
-    assert actual["semantic_v8_position_exposure"]["previousDigest"] == first_payload["semantic_v8_position_exposure"]["digest"]
+    assert (
+        actual["semantic_v8_position_exposure"]["previousDigest"]
+        == first_payload["semantic_v8_position_exposure"]["digest"]
+    )
     report = {
         "schema": "semantic-v8-input-relocation-evidence/1",
-        "executedRevision": subprocess.check_output(["git", "rev-parse", "HEAD"], cwd=root, text=True).strip(),
-        "runtime": {"python": sys.version.split()[0], "torch": str(torch.__version__), "device": "cpu", "precision": "fp32"},
+        "executedRevision": subprocess.check_output(
+            ["git", "rev-parse", "HEAD"], cwd=root, text=True
+        ).strip(),
+        "runtime": {
+            "python": sys.version.split()[0],
+            "torch": str(torch.__version__),
+            "device": "cpu",
+            "precision": "fp32",
+        },
         "scope": "One controlled source with injected source and byte-tokenizer admission; no production-tokenizer, source, hosted, release or learned-quality qualification",
         "optimizerUpdatesExecuted": 3,
         "trajectories": "one initial update; two separate next updates from the same checkpoint",
