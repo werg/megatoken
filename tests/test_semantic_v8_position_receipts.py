@@ -8,6 +8,7 @@ from types import SimpleNamespace
 import pytest
 import torch
 
+from megatoken.contracts import LOSS_NAMES
 from megatoken.data.schema import ByteSpan, PhysicalRecord
 from megatoken.data.semantic_json import stable_algorithm_hash
 from megatoken.generation import ActionSpec, ByteCodec, FacetedGenerator
@@ -86,14 +87,20 @@ def target_receipt():
 
 def objective():
     return {
+        "trainingConfigDigest": "c" * 64,
+        "modelConfigDigest": "d" * 64,
+        "codecFingerprint": ByteCodec.byte_fallback().fingerprint,
+        "installedModalities": [0],
+        "routingBalanceCoefficient": 0.005,
         "effectiveLossWeights": {
+            **dict.fromkeys(LOSS_NAMES, 0.0),
             "lexical": 1.0,
             "reconstruction": 0.1,
             "structure": 0.1,
             "terminal": 0.1,
             "modality": 0.25,
             "router_z": 0.001,
-        }
+        },
     }
 
 
@@ -337,6 +344,11 @@ def test_explicit_stage_change_archives_old_objective_without_reusing_its_credit
     ]["receipt"]["readouts"]["prior"]["positions"] = [0, 1]
     reseal(broken["previousStage"])
     with pytest.raises(ValueError, match="token positions"):
+        validate_position_exposure(reseal(broken), registry_digest="a" * 64, objective=changed)
+    broken = deepcopy(current)
+    broken["previousStage"]["objective"] = None
+    reseal(broken["previousStage"])
+    with pytest.raises(ValueError, match="objective metadata"):
         validate_position_exposure(reseal(broken), registry_digest="a" * 64, objective=changed)
 
 

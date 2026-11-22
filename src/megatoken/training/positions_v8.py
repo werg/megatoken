@@ -15,7 +15,7 @@ import math
 import re
 from dataclasses import asdict
 
-from megatoken.contracts import ROLE_TO_ID
+from megatoken.contracts import LOSS_NAMES, ROLE_TO_ID
 from megatoken.data.semantic_json import stable_algorithm_hash
 from megatoken.training.target_inventory_v8 import inventory_episode_source_id
 
@@ -581,6 +581,41 @@ def _digest(value):
     return type(value) is str and re.fullmatch(r"[0-9a-f]{64}", value) is not None
 
 
+def _validate_position_objective(value):
+    _require(
+        type(value) is dict
+        and set(value)
+        == {
+            "trainingConfigDigest",
+            "modelConfigDigest",
+            "codecFingerprint",
+            "installedModalities",
+            "effectiveLossWeights",
+            "routingBalanceCoefficient",
+        }
+        and all(
+            _digest(value[name])
+            for name in ("trainingConfigDigest", "modelConfigDigest", "codecFingerprint")
+        )
+        and type(value["installedModalities"]) is list
+        and bool(value["installedModalities"])
+        and all(type(index) is int and 0 <= index < 4 for index in value["installedModalities"])
+        and value["installedModalities"] == sorted(set(value["installedModalities"]))
+        and value["installedModalities"][0] == 0
+        and type(value["effectiveLossWeights"]) is dict
+        and set(value["effectiveLossWeights"]) == set(LOSS_NAMES)
+        and all(
+            type(weight) in {int, float} and math.isfinite(weight) and weight >= 0
+            for weight in value["effectiveLossWeights"].values()
+        )
+        and value["effectiveLossWeights"]["router_balance"] == 0
+        and type(value["routingBalanceCoefficient"]) in {int, float}
+        and math.isfinite(value["routingBalanceCoefficient"])
+        and value["routingBalanceCoefficient"] >= 0,
+        "position objective metadata is missing, noncanonical or malformed",
+    )
+
+
 def _validate_target_receipt(record, *, logical_id, record_id):
     fields = {
         "logicalTargetId",
@@ -769,6 +804,7 @@ def empty_position_exposure(
     *, registry_digest, objective, starting_global_step=0, previous_stage=None
 ):
     _require(_digest(registry_digest), "registry digest is invalid")
+    _validate_position_objective(objective)
     _require(
         type(starting_global_step) is int and starting_global_step >= 0, "starting step is invalid"
     )
@@ -829,6 +865,7 @@ def validate_position_exposure(state, *, registry_digest, objective):
         "checkpoint position history is malformed, unsealed or bound to another objective",
     )
     previous_stage = state["previousStage"]
+    _validate_position_objective(state["objective"])
     if previous_stage is not None:
         _require(type(previous_stage) is dict, "archived position stage is malformed")
         validate_position_exposure(
