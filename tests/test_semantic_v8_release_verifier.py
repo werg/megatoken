@@ -6,6 +6,7 @@ import shutil
 import sqlite3
 from dataclasses import asdict
 from pathlib import Path
+from types import SimpleNamespace
 
 import pytest
 import torch
@@ -14,6 +15,7 @@ from megatoken.data.semantic_json import stable_algorithm_hash
 from megatoken.io import content_hash, sha256_file
 from megatoken.training.config import TrainConfig
 from scripts import verify_semantic_v8_release as release
+from tests.test_semantic_launch_v8 import two_split_supply as two_split_supply
 from tests.test_semantic_v8_training_policy import POLICY, prepared_v8_fixture
 
 
@@ -299,6 +301,134 @@ def test_reprepared_semantics_compare_every_physical_field_and_index_scope(tmp_p
     altered["manifestSemantics"]["complete"] = 1
     with pytest.raises(ValueError, match="differ from fresh sources"):
         release.compare_prepared_semantics(original, altered, sources)
+
+
+def test_reprepare_uses_physical_prepared_order_without_rewriting_inputs(
+    tmp_path, monkeypatch, two_split_supply
+):
+    """Real two-source prepared order differs from the controlled journal order."""
+    _, _, config, _codec, model, prepared = two_split_supply
+    bundled = release.prepared_semantics(prepared)
+    assert [row["sourceId"] for row in bundled["membership"]] == ["source-0", "source-1"]
+    descriptor = descriptor_fixture(tmp_path)
+    source_rows = []
+    for row in reversed(bundled["membership"]):
+        relative = f"source-qualification/{row['sourceId']}.original.json"
+        (tmp_path / relative).write_text(
+            json.dumps(
+                {
+                    "public": {"schema": "semantic-execution/8"},
+                    "sidecar": {
+                        "datasetBinding": {
+                            "sourceId": row["sourceId"],
+                            "split": row["split"],
+                            "registryDigest": config.semantic_v8_policy["registryDigest"],
+                        }
+                    },
+                }
+            )
+        )
+        source_rows.append({"caseId": row["sourceId"], "path": relative})
+    descriptor["roles"]["prepared"][0]["sourceArtifacts"] = source_rows
+    sources = release.source_membership(
+        descriptor, tmp_path, config.semantic_v8_policy["registryDigest"]
+    )
+    assert [row["sourceId"] for row in sources] == ["source-1", "source-0"]
+    before_bundle = release.bundle_inventory(tmp_path)
+    before_prepared = release.bundle_inventory(prepared)
+    expected = [
+        str(tmp_path / f"source-qualification/{source}.original.json")
+        for source in ("source-0", "source-1")
+    ]
+    observed = []
+
+    def prepare(command, **_kwargs):
+        inputs = [command[i + 1] for i, value in enumerate(command) if value == "--input"]
+        observed.append(inputs)
+        assert inputs == expected
+        return SimpleNamespace(
+            returncode=0,
+            stderr="",
+            stdout=json.dumps(
+                {
+                    "report": {
+                        "counts": {"attempted": 2, "admitted": 2, "refused": 0},
+                        "refusals": [],
+                    }
+                }
+            ),
+        )
+
+    monkeypatch.setattr(release.subprocess, "run", prepare)
+    monkeypatch.setattr(release, "prepared_semantics", lambda _root: copy.deepcopy(bundled))
+    regenerated, _ = release.regenerate_prepared(
+        tmp_path,
+        descriptor,
+        {"tokenizer": tmp_path / "tokenizer/tokenizer.json"},
+        bundled=bundled,
+        sources=sources,
+        producer_root=tmp_path,
+        consumer_root=tmp_path,
+        model_config=model,
+        timeout_seconds=1,
+    )
+    assert observed == [expected]
+    assert release.compare_prepared_semantics(bundled, regenerated, sources)["sourceCount"] == 2
+    assert release.bundle_inventory(tmp_path) == before_bundle
+    assert release.bundle_inventory(prepared) == before_prepared
+
+
+@pytest.mark.parametrize(
+    "mutation",
+    [
+        "duplicate-prepared",
+        "duplicate-source",
+        "missing-prepared",
+        "missing-source",
+        "invented-source",
+        "changed-split",
+    ],
+)
+def test_reprepare_refuses_membership_drift_before_starting_child(tmp_path, monkeypatch, mutation):
+    bundled = {
+        "membership": [
+            {"sourceId": "a", "split": "train"},
+            {"sourceId": "b", "split": "validation"},
+        ]
+    }
+    sources = [
+        {"sourceId": "b", "split": "validation", "path": "original-b.json"},
+        {"sourceId": "a", "split": "train", "path": "original-a.json"},
+    ]
+    if mutation == "duplicate-prepared":
+        bundled["membership"][1] = copy.deepcopy(bundled["membership"][0])
+    elif mutation == "duplicate-source":
+        sources[1] = copy.deepcopy(sources[0])
+    elif mutation == "missing-prepared":
+        bundled["membership"].pop()
+    elif mutation == "missing-source":
+        sources.pop()
+    elif mutation == "invented-source":
+        sources[0]["sourceId"] = "not-prepared"
+    else:
+        sources[0]["split"] = "test"
+
+    def forbidden(*_args, **_kwargs):
+        raise AssertionError("Membership drift must fail before fresh preparation starts")
+
+    monkeypatch.setattr(release.subprocess, "run", forbidden)
+    with pytest.raises(ValueError, match="Prepared source order"):
+        release.regenerate_prepared(
+            tmp_path,
+            {},
+            {},
+            bundled=bundled,
+            sources=sources,
+            producer_root=tmp_path,
+            consumer_root=tmp_path,
+            model_config=None,
+            timeout_seconds=1,
+        )
 
 
 @pytest.mark.parametrize("mutation", ["cached-label", "free-mask"])

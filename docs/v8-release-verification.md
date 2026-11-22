@@ -43,7 +43,7 @@ The descriptor has exactly these fields:
       "path": "prepared/000",
       "sourceArtifacts": [{
         "caseId": "one-declared-case",
-        "path": "source-qualification/one-declared-case.admitted.json"
+        "path": "source-qualification/one-declared-case.original.json"
       }]
     }],
     "checkpoint": "training/checkpoint",
@@ -92,6 +92,16 @@ using the exact clean producer and native revisions. Each supplied source gets
 a fresh producer replay and family binding check plus independent native
 validation, tokenization and packing. Any refused or omitted source fails the
 release check.
+
+The descriptor names the original source documents consumed by preparation;
+post-admission copies and native receipts remain separate qualification evidence.
+Their public records may agree while the complete document bytes, and therefore
+the source-admission receipt, differ. Before regeneration, the verifier requires
+exact unique source membership, equal lengths and matching splits against the
+actual prepared index. It then passes those original source paths to preparation
+in that index's order. Journal order is not assumed to be training order. No
+stored row, index or checkpoint cursor is sorted or rewritten, and the full
+reconstructed comparison below still applies.
 
 The regenerated corpus must equal the bundled corpus in every reconstructed
 episode field, byte payload, token label, loss mask, physical/logical identity,
