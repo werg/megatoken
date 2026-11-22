@@ -60,11 +60,13 @@ def main() -> int:
             "Coverage training stopped before the one-pass optimizer-update bound: "
             f"expected {derived['optimizerWindowCount']}, got {checkpoint['global_step']}"
         )
-    if not comparison["allPositiveWeightTargetsExposed"]:
+    if not comparison["exactOnePassCensus"]:
         raise ValueError(
-            "Ordinary training did not expose the complete positive-loss target inventory: "
-            f"{len(comparison['missingPositiveWeightPhysicalTargets'])} missing, "
-            f"{len(comparison['unexpectedPhysicalTargets'])} unexpected"
+            "Ordinary training differs from the exact one-pass target census: "
+            f"{len(comparison['missingPositiveWeightPhysicalTargets'])} missing keys, "
+            f"{len(comparison['scoredOccurrenceMismatches'])} occurrence mismatches, "
+            f"{len(comparison['windowIndexMismatches'])} window-set mismatches, "
+            f"{len(comparison['positiveWeightDenominatorMismatches'])} denominator mismatches"
         )
     body = {
         "schema": "semantic-v8-ordinary-target-coverage/1",
@@ -95,6 +97,8 @@ def main() -> int:
         "tokenOrMaskPositionCoverage": "unmeasured",
         "learnedSuccess": None,
     }
+    if comparison["allPositiveWeightTargetsExposed"] is not True:
+        raise ValueError("Exact one-pass census is missing one or more target keys")
     body["digest"] = stable_algorithm_hash(body)
     args.output.parent.mkdir(parents=True, exist_ok=True)
     args.output.write_text(json.dumps(body, indent=2, allow_nan=False) + "\n")

@@ -105,6 +105,7 @@ def _actual(*, extra=False):
 def test_exact_target_presence_passes_without_claiming_position_coverage():
     result = compare_target_inventory(_inventory(), _actual(), rederived_inventory=_inventory(), **_identities())
     assert result["allPositiveWeightTargetsExposed"] is True
+    assert result["exactOnePassCensus"] is False
     assert result["targetPresenceCoverage"] == 1.0
     assert result["tokenOrMaskPositionCoverage"] == "unmeasured"
     assert result["repeatedWindowExposureObserved"] is False
@@ -169,6 +170,7 @@ def test_repeated_window_occurrence_is_reported_separately_from_unique_target_co
     record["scoredOccurrences"] = 2
     result = compare_target_inventory(_inventory(), actual, rederived_inventory=_inventory(), **_identities())
     assert result["allPositiveWeightTargetsExposed"] is True
+    assert result["exactOnePassCensus"] is False
     assert result["repeatedWindowExposureObserved"] is True
 
 
@@ -207,3 +209,45 @@ def test_duplicate_window_ids_in_inventory_are_refused():
     value["digest"] = stable_algorithm_hash(body)
     with pytest.raises(ValueError, match="duplicate or invalid window indices"):
         validate_target_inventory(value, rederived_inventory=value, **_identities())
+
+
+def test_exact_occurrence_windows_and_denominators_prove_one_pass_census():
+    actual = _actual()
+    record = actual["source-a"]["logicalTargets"]["target-one"]["records"]["record-one"]
+    record.update(
+        windowIndices=[0, 1],
+        scoredOccurrences=2,
+        lossDenominators={"language_model": 8},
+    )
+    result = compare_target_inventory(
+        _inventory(),
+        actual,
+        rederived_inventory=_inventory(),
+        **_identities(),
+    )
+    assert result["allPositiveWeightTargetsExposed"] is True
+    assert result["exactOnePassCensus"] is True
+    assert result["scoredOccurrenceMismatches"] == []
+    assert result["windowIndexMismatches"] == []
+    assert result["positiveWeightDenominatorMismatches"] == []
+
+
+def test_all_keys_can_be_present_while_occurrence_census_still_differs():
+    actual = _actual()
+    record = actual["source-a"]["logicalTargets"]["target-one"]["records"]["record-one"]
+    record.update(
+        windowIndices=[0, 1],
+        scoredOccurrences=3,
+        lossDenominators={"language_model": 12},
+    )
+    result = compare_target_inventory(
+        _inventory(),
+        actual,
+        rederived_inventory=_inventory(),
+        **_identities(),
+    )
+    assert result["allPositiveWeightTargetsExposed"] is True
+    assert result["exactOnePassCensus"] is False
+    assert result["scoredOccurrenceMismatches"] == [
+        [["source-a", "target-one", "record-one"], 2, 3]
+    ]

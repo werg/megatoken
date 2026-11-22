@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import os
 from dataclasses import asdict
 from pathlib import Path
 
@@ -46,6 +47,13 @@ def target_inventory(config_source, expected_source_ids_source=None):
     require(
         config.use_stage_mixture is False,
         "Inventory currently requires the exact flat V8 support stream",
+    )
+    require(
+        config.microbatch_episodes == 1
+        and config.max_accumulation_windows == 1
+        and config.decoupled is None
+        and os.environ.get("WORLD_SIZE", "1") == "1",
+        "Inventory requires one synchronous, ordinary optimizer window per update",
     )
     require(
         len(config.datasets) == 1,
@@ -183,9 +191,11 @@ def target_inventory(config_source, expected_source_ids_source=None):
                 item = EpisodeWindow(episode=episode, window=window, assets=assets)
                 batches = prepare_batches(model, [item], config)
                 update_window_count += int(any(any(batch.counts.values()) for batch in batches))
-                one_pass_meter_count += sum(
-                    getattr(batch_counters([batch]), config.schedule.meter) for batch in batches
-                )
+                if any(any(batch.counts.values()) for batch in batches):
+                    one_pass_meter_count += sum(
+                        getattr(batch_counters([batch]), config.schedule.meter)
+                        for batch in batches
+                    )
                 for batch in batches:
                     for step in batch.steps:
                         for encoded, plan in zip(step.records, step.plans, strict=True):

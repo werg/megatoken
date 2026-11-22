@@ -124,6 +124,36 @@ def compare_target_inventory(inventory, actual_sources, *, rederived_inventory, 
         )
     expected_logical = {(source_id, logical_id) for source_id, logical_id, _ in expected_keys}
     actual_logical = {(source_id, logical_id) for source_id, logical_id, _ in actual_keys}
+    expected_records = {
+        (source_id, logical_id, record_id): record
+        for source_id, source in inventory["sources"].items()
+        for logical_id, target in source["logicalTargets"].items()
+        for record_id, record in target["records"].items()
+    }
+    actual_records = {
+        (source_id, logical_id, record_id): record
+        for source_id, source in actual_sources.items()
+        for logical_id, target in source["logicalTargets"].items()
+        for record_id, record in target["records"].items()
+    }
+    occurrence_mismatches = []
+    window_mismatches = []
+    denominator_mismatches = []
+    for key in sorted(expected_keys & actual_keys):
+        expected_record = expected_records[key]
+        actual_record = actual_records[key]
+        if expected_record["scoredOccurrences"] != actual_record.get("scoredOccurrences"):
+            occurrence_mismatches.append(
+                [list(key), expected_record["scoredOccurrences"], actual_record.get("scoredOccurrences")]
+            )
+        if expected_record["windowIndices"] != actual_record.get("windowIndices"):
+            window_mismatches.append(
+                [list(key), expected_record["windowIndices"], actual_record.get("windowIndices")]
+            )
+        if expected_record["lossDenominators"] != actual_record.get("lossDenominators"):
+            denominator_mismatches.append(
+                [list(key), expected_record["lossDenominators"], actual_record.get("lossDenominators")]
+            )
     repeated = any(
         record.get("scoredOccurrences", 0) > len(record.get("windowIndices", []))
         for source in actual_sources.values()
@@ -132,6 +162,9 @@ def compare_target_inventory(inventory, actual_sources, *, rederived_inventory, 
     )
     total = len(expected_keys)
     covered = total - len(missing)
+    exact_census = bool(total) and not missing and not unexpected and not (
+        occurrence_mismatches or window_mismatches or denominator_mismatches
+    )
     return {
         "schema": "semantic-v8-target-presence-comparison/1",
         "inventoryDigest": inventory["digest"],
@@ -145,6 +178,10 @@ def compare_target_inventory(inventory, actual_sources, *, rederived_inventory, 
             covered / total if total else 0.0
         ),
         "allPositiveWeightTargetsExposed": bool(total) and not missing and not unexpected,
+        "exactOnePassCensus": exact_census,
+        "scoredOccurrenceMismatches": occurrence_mismatches,
+        "windowIndexMismatches": window_mismatches,
+        "positiveWeightDenominatorMismatches": denominator_mismatches,
         "repeatedWindowExposureObserved": repeated,
         "tokenOrMaskPositionCoverage": "unmeasured",
         "learnedSuccess": None,

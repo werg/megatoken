@@ -339,6 +339,7 @@ def qualify_checkpoints(
             "Positive-loss target inventory is only valid for the exact support population",
         )
         from qualify_semantic_v8_target_inventory import target_inventory
+
         from megatoken.training.target_inventory_v8 import compare_target_inventory
 
         stored_inventory = read_json(target_inventory_path)
@@ -359,9 +360,7 @@ def qualify_checkpoints(
             model_config_digest=derived_inventory["modelConfigDigest"],
         )
         target_exposure["targetPresenceComparison"] = comparison
-        target_exposure["allTargetsExposed"] = comparison[
-            "allPositiveWeightTargetsExposed"
-        ]
+        target_exposure["allTargetsExposed"] = comparison["allPositiveWeightTargetsExposed"]
         target_exposure["targetInventory"] = {
             "digest": derived_inventory["digest"],
             "windowCount": derived_inventory["windowCount"],
