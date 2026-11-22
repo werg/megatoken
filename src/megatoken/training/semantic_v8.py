@@ -5,6 +5,7 @@ from __future__ import annotations
 import json
 import math
 import re
+from collections.abc import Mapping
 from dataclasses import replace
 from pathlib import Path
 
@@ -235,7 +236,7 @@ def semantic_v8_target_exposure_from_batches(
                     raise ValueError("V8 optimizer plan exposes a record outside the target mask")
                 denominators = plan.denominators
                 if (
-                    not isinstance(denominators, dict)
+                    not isinstance(denominators, Mapping)
                     or any(type(value) is not int or value < 0 for value in denominators.values())
                 ):
                     raise ValueError("V8 optimizer plan has invalid loss denominators")

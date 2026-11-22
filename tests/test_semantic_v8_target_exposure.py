@@ -1,7 +1,7 @@
 """V8 optimizer-window exposure counts only loss-bearing native target occurrences."""
 
 import json
-from types import SimpleNamespace
+from types import MappingProxyType, SimpleNamespace
 
 import pytest
 
@@ -225,3 +225,20 @@ def test_positive_denominator_with_zero_objective_weight_is_not_counted():
         effective_loss_weights={"language_model": 0.0, "router_balance": 1.0},
     )
     assert exposure["occurrences"] == []
+
+
+def test_prepared_mapping_denominators_allow_legitimate_masked_zero_entries():
+    exposure = _extract_v8(
+        [
+            _batch(
+                denominators=MappingProxyType(
+                    {"language_model": 4, "structure": 0}
+                )
+            )
+        ],
+        registry_digest=REGISTRY,
+    )
+    assert len(exposure["occurrences"]) == 1
+    assert exposure["occurrences"][0]["lossDenominators"] == {
+        "language_model": 4
+    }
