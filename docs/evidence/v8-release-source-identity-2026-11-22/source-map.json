@@ -1,0 +1,33 @@
+{
+  "schema": "native-release-source-identity-source-map/1",
+  "repository": "werg/megatoken",
+  "branch": "codex/native-v8-release-composition-20261122",
+  "baseRevision": "6d0bf38a3a43d402d134acbc6c671d830f1f4bac",
+  "baseLocalEquivalent": "d8b843f824459552e63c96b06743bbb91ee52bee",
+  "baseTree": "33a8acd2177e2761b4ae6eff43d76247ebc25ce6",
+  "sourceRevision": "c253a1e7770ee569d1b2022efadb471a1cc98da2",
+  "localEquivalent": "36898d695db33c300828b7835bd038c1bc9c21a9",
+  "sourceTree": "9e7f6b12dcd26232ffeba70869c502d4190b4951",
+  "paths": [
+    {
+      "path": "scripts/verify_semantic_v8_release.py",
+      "oldBlob": "2bf5dcc34be5f3ab2bac6b93f5056e5f5d3e08de",
+      "newBlob": "622f6d0fa8a3b111cbf914d5e0c0279a66e578d0",
+      "sha256": "c062712d0ddb0bdbdedda59270e92478403b1d2a2e74a42671703f189e120658"
+    },
+    {
+      "path": "tests/test_semantic_v8_release_verifier.py",
+      "oldBlob": "b96eaa9feebf67dcef9c8a239890a510bfe481d1",
+      "newBlob": "ebd2a3ce3d5b3dba9c37b85ae913b97af80b1ead",
+      "sha256": "fc984c1a2151e5f04e63560d1222da6a5a7ca1c1d3e80229c0757b8c9d65e249"
+    },
+    {
+      "path": "docs/v8-release-verification.md",
+      "oldBlob": "3753aaa0763fc741e4dd84482d314873455cac20",
+      "newBlob": "89b020906e9cdc9cd7cb5bc645417c5b51453a5e",
+      "sha256": "8b61c19ec47947c72e6f476d1d712351daba0faa47815c59b12497c0b86a8eb1"
+    }
+  ],
+  "changedPathCount": 3,
+  "nativeMainWritten": false
+}

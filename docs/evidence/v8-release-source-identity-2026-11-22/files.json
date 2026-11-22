@@ -1,0 +1,63 @@
+{
+  "schema": "retained-evidence-inventory/1",
+  "files": [
+    {
+      "path": "README.md",
+      "bytes": 4667,
+      "sha256": "718b238ede4d2e78de81df250d99c5d2dfb8ca5910161846a94baee185d8a0f5"
+    },
+    {
+      "path": "controls.log",
+      "bytes": 100,
+      "sha256": "8783e5224c944419d14046d8cc41906bad926402cfe25896b7d1bb0d427afde0"
+    },
+    {
+      "path": "controls.xml",
+      "bytes": 10895,
+      "sha256": "13ce1a2b7625cefca795382640cb70b67e19a180ba4b5e492fd11e8f2c0b1db7"
+    },
+    {
+      "path": "historical-5ecd-membership-review.json",
+      "bytes": 1518,
+      "sha256": "81f1bd92942b177593b46db6af00b57f853ef885b64dc30d5975218ca8f8b371"
+    },
+    {
+      "path": "positive-identity.json",
+      "bytes": 1262,
+      "sha256": "b23642c0d92cd2e07b55e8858d2e563b428041d33064a2b624a65c7fc74c3ff8"
+    },
+    {
+      "path": "qualification.json",
+      "bytes": 3722,
+      "sha256": "097ad78e4fba76797f2ab362e8140be8caa7e4da09618eca87768cc6bf6c2281"
+    },
+    {
+      "path": "red-candidate.patch",
+      "bytes": 9906,
+      "sha256": "628b7dfbb0b6ab942e088a19fef96299a996c998a85cbc68269501c60b627371"
+    },
+    {
+      "path": "red.log",
+      "bytes": 3518,
+      "sha256": "b82281260b66e3ecf8487eae425f3169633096bd7ce86d308eef8b0911d0733c"
+    },
+    {
+      "path": "red.xml",
+      "bytes": 3573,
+      "sha256": "0ff9a7be2bfa698a1f8ff2a88ee7bf86791c7e755fe1c3b67b24575b8112b294"
+    },
+    {
+      "path": "ruff.log",
+      "bytes": 45,
+      "sha256": "f3248628f03b3d0a928e68546110a114be245447916bd8f99798f084731918b4"
+    },
+    {
+      "path": "source-map.json",
+      "bytes": 1424,
+      "sha256": "64830bc59aab3c42623968023b1402acdf665f82ec8dc7529a45724b142e541b"
+    }
+  ],
+  "excludes": [
+    "files.json"
+  ]
+}

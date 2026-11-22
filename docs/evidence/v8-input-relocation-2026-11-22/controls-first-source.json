@@ -1,0 +1,15 @@
+{
+  "productionRevision": "b85a3301b6482bdf5a5a9ba79f7f356c5f824681",
+  "testSha256": "2dbe69f6334f0abf8c13434dbdda25a15e5b3d92010b6c62e7f6389a1623927c",
+  "testGitBlob": "cb79d2311d4248981ddf4941cfcac94af6bf880d",
+  "tests": 13,
+  "passed": 11,
+  "failed": 2,
+  "errors": 0,
+  "skips": 0,
+  "observations": [
+    "Changed shard was correctly refused; expected-message assertion used different capitalization",
+    "Removing V8 policy was correctly refused during TrainConfig construction before the test entered its expected-failure context"
+  ],
+  "productionChangesForCorrection": false
+}

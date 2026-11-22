@@ -1,0 +1,21 @@
+usage: verify_semantic_v8_release.py [-h] --bundle-root BUNDLE_ROOT
+                                     --descriptor DESCRIPTOR --producer-root
+                                     PRODUCER_ROOT --consumer-revision
+                                     CONSUMER_REVISION --output OUTPUT
+                                     [--source-recheck-timeout-seconds SOURCE_RECHECK_TIMEOUT_SECONDS]
+
+Verify a direct V8 text release against its sources, data, checkpoint and
+weights. This first profile accepts one prepared root and one ordinary,
+single-rank, fresh-stage checkpoint. It performs no optimizer updates, model
+forward passes or live-service recovery. The producer separately verifies the
+complete source qualification journal and its selection; this verifier checks
+every supplied source and refuses unbound input assets.
+
+options:
+  -h, --help            show this help message and exit
+  --bundle-root BUNDLE_ROOT
+  --descriptor DESCRIPTOR
+  --producer-root PRODUCER_ROOT
+  --consumer-revision CONSUMER_REVISION
+  --output OUTPUT
+  --source-recheck-timeout-seconds SOURCE_RECHECK_TIMEOUT_SECONDS

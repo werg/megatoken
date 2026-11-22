@@ -1,0 +1,96 @@
+{
+  "schema": "native-release-source-identity-qualification/1",
+  "sourceRevision": "c253a1e7770ee569d1b2022efadb471a1cc98da2",
+  "sourceTree": "9e7f6b12dcd26232ffeba70869c502d4190b4951",
+  "runtime": {
+    "python": "3.12.14",
+    "torch": "2.10.0+cpu",
+    "pytest": "9.2.0",
+    "device": "cpu",
+    "pytestDeviation": "Local pytest 9.2.0 is outside the declared >=8.3,<9 requirement; hosted lock uses 8.4.2"
+  },
+  "red": {
+    "tests": 1,
+    "failures": 1,
+    "errors": 0,
+    "skips": 0,
+    "seconds": 0.351,
+    "candidate": "base tree plus retained red-candidate.patch; explicit descriptor shape/test added, source_membership artifact comparison still unchanged from base",
+    "expectedFailure": "Mislabeled source reached controlled preflight sentinel",
+    "freshSourceReplays": 0,
+    "optimizerUpdates": 0
+  },
+  "green": {
+    "tests": 69,
+    "failures": 0,
+    "errors": 0,
+    "skips": 0,
+    "seconds": 13.496,
+    "previousVerifierCases": 62,
+    "addedCases": 7,
+    "controlledActualOptimizerUpdates": 1,
+    "freshSourceReplays": 0,
+    "scope": "Entire affected verifier/order module only; one existing controlled byte-codec checkpoint/export test performs one real update. Fresh source process and full release pair remain unqualified."
+  },
+  "addedControls": [
+    "missing expected sourceId",
+    "empty expected sourceId",
+    "non-string expected sourceId",
+    "duplicated expected sourceId with distinct label/path",
+    "extra source-row field",
+    "mislabeled physical source refused before preflight/fresh process with input bytes unchanged",
+    "independent case label and producer-derived digest-suffixed sourceId accepted without rewriting"
+  ],
+  "command": "TMPDIR=/workspace/scratch/05d92519587f/archive-test-tmp PYTHONPATH=src:. MEGATOKEN_TOKENIZER_JSON=/workspace/scratch/05d92519587f/semantic-v8-tokenizer.json OMP_NUM_THREADS=1 MKL_NUM_THREADS=1 /workspace/scratch/05d92519587f/target-coverage-venv/bin/python -m pytest -q tests/test_semantic_v8_release_verifier.py --basetemp=/workspace/scratch/05d92519587f/native-release-source-id-controls-tmp --junitxml=/workspace/scratch/05d92519587f/native-release-source-id-controls.xml",
+  "boundaries": {
+    "caseIdEqualsSourceIdRequired": false,
+    "sourceIdentityRewriting": false,
+    "producerOriginalTaskBindingQualified": false,
+    "fullActualPackageRestoreQualified": false,
+    "newFull348Fit": false,
+    "prior398CaseUnionRerun": false,
+    "historicalEvidenceReinterpreted": false
+  },
+  "retainedInputs": [
+    {
+      "path": "red.log",
+      "bytes": 3518,
+      "sha256": "b82281260b66e3ecf8487eae425f3169633096bd7ce86d308eef8b0911d0733c"
+    },
+    {
+      "path": "red.xml",
+      "bytes": 3573,
+      "sha256": "0ff9a7be2bfa698a1f8ff2a88ee7bf86791c7e755fe1c3b67b24575b8112b294"
+    },
+    {
+      "path": "red-candidate.patch",
+      "bytes": 9906,
+      "sha256": "628b7dfbb0b6ab942e088a19fef96299a996c998a85cbc68269501c60b627371"
+    },
+    {
+      "path": "controls.log",
+      "bytes": 100,
+      "sha256": "8783e5224c944419d14046d8cc41906bad926402cfe25896b7d1bb0d427afde0"
+    },
+    {
+      "path": "controls.xml",
+      "bytes": 10895,
+      "sha256": "13ce1a2b7625cefca795382640cb70b67e19a180ba4b5e492fd11e8f2c0b1db7"
+    },
+    {
+      "path": "ruff.log",
+      "bytes": 45,
+      "sha256": "f3248628f03b3d0a928e68546110a114be245447916bd8f99798f084731918b4"
+    },
+    {
+      "path": "positive-identity.json",
+      "bytes": 1262,
+      "sha256": "b23642c0d92cd2e07b55e8858d2e563b428041d33064a2b624a65c7fc74c3ff8"
+    },
+    {
+      "path": "historical-5ecd-membership-review.json",
+      "bytes": 1518,
+      "sha256": "81f1bd92942b177593b46db6af00b57f853ef885b64dc30d5975218ca8f8b371"
+    }
+  ]
+}

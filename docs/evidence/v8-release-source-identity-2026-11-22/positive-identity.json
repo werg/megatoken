@@ -1,0 +1,23 @@
+{
+  "candidate": {
+    "id": "declared-case",
+    "source": "function run(a,b){return (a+b)*2;}",
+    "entry": "run",
+    "family": "rectangle-family",
+    "ancestors": []
+  },
+  "sourceId": "declared-case:95a869417b705f27c48736609f928aa1f1aaa2c3",
+  "schema": "release-source-identity-positive-control/1",
+  "producerHead": "522ec819e2b3151131912ec218cecde0105cc920",
+  "producerSourcePath": "src/semantic/dataset-v8.js",
+  "producerSourceBlob": "9a35986965c613cd4ca1aa4421e93b245fd8dc36",
+  "producerSourceSha256": "207826c9a2076ad1bf8d77433863551a6fda202a60f4d1421ce98cf8bf623db5",
+  "producerWorkingTreeStatus": " M tools/native-consumer/test_release_v8.py\n M tools/package-semantic-release-v8.py\n M tools/restore-semantic-release-v8.py\n M tools/semantic_release_v8.py\n?? tools/native-consumer/test_release_source_inputs_v8.py\n",
+  "producerSourceEqualsHead": true,
+  "nativeSourceRevision": "c253a1e7770ee569d1b2022efadb471a1cc98da2",
+  "nativeDerivedSourceId": "declared-case:95a869417b705f27c48736609f928aa1f1aaa2c3",
+  "sourceIdentityUnchanged": true,
+  "freshSourceReplays": 0,
+  "optimizerUpdates": 0,
+  "scope": "Controlled identity construction only; dirty producer release-tool changes are unrelated and no clean paired release is qualified"
+}

@@ -1,0 +1,245 @@
+<?xml version="1.0" encoding="utf-8"?><testsuites name="pytest tests"><testsuite name="pytest" errors="0" failures="2" skipped="0" tests="13" time="8.372" timestamp="2026-11-22T15:31:59.397779+01:00" hostname="07bf85b14210"><testcase classname="tests.test_semantic_v8_input_relocation" name="test_relocated_input_substitution_refuses_before_model_construction[resealed_manifest-admitted input contents]" time="7.089" /><testcase classname="tests.test_semantic_v8_input_relocation" name="test_relocated_input_substitution_refuses_before_model_construction[changed_index-index checksum]" time="0.010" /><testcase classname="tests.test_semantic_v8_input_relocation" name="test_relocated_input_substitution_refuses_before_model_construction[changed_shard-shard checksum]" time="0.009"><failure message="AssertionError: Regex pattern did not match.&#10;  Expected regex: 'shard checksum'&#10;  Actual message: 'Shard checksum mismatch: episodes-000000.jsonl'">tmp_path = PosixPath('/workspace/scratch/05d92519587f/relocation-negative-first-tmp/test_relocated_input_substitut2')
+monkeypatch = &lt;_pytest.monkeypatch.MonkeyPatch object at 0x7fd7141a5f70&gt;
+input_bound_checkpoint = (TrainConfig(purpose='diagnostic', phase='SC', model='tiny', datasets=['/workspace/scratch/05d92519587f/relocation-neg...rker_timeout_ms=5000), planner_max_edges=64, tree_distance_budget=4.0, tree_distance_weight=0.15, code_tree_scale=1.5))
+mutation = 'changed_shard', message = 'shard checksum'
+
+    @pytest.mark.parametrize(
+        ("mutation", "message"),
+        [
+            ("resealed_manifest", "admitted input contents"),
+            ("changed_index", "index checksum"),
+            ("changed_shard", "shard checksum"),
+            ("changed_registry", "registry"),
+            ("missing_empty_root", "admitted input contents"),
+            ("extra_empty_root", "admitted input contents"),
+            ("duplicate_root", "listed twice"),
+            ("changed_policy", "selected policy"),
+            ("missing_policy", "explicit pinned training policy"),
+            ("changed_codec", "different codec"),
+            ("changed_window", "configuration changed max_window_records"),
+            ("changed_loss", "configuration changed loss_weights"),
+        ],
+    )
+    def test_relocated_input_substitution_refuses_before_model_construction(
+        tmp_path, monkeypatch, input_bound_checkpoint, mutation, message
+    ):
+        import megatoken.training.engine as engine
+        import megatoken.training.semantic_v8 as semantic_v8
+        from megatoken.io import content_hash
+    
+        config, checkpoint, original, original_empty, codec, chunking = input_bound_checkpoint
+        prepared, empty, tokenizer = (
+            tmp_path / "prepared",
+            tmp_path / "empty",
+            tmp_path / "tokenizer.fixture",
+        )
+        shutil.copytree(original, prepared)
+        shutil.copytree(original_empty, empty)
+        shutil.copyfile(config.codec, tokenizer)
+        changed = replace(
+            config,
+            codec=str(tokenizer),
+            datasets=[str(prepared), str(empty)],
+            output=str(tmp_path / "refused"),
+        )
+        monkeypatch.setattr(semantic_v8, "load_semantic_v8_codec", fixture_codec)
+        manifest_path = prepared / "manifest.json"
+        manifest = json.loads(manifest_path.read_text())
+        if mutation == "resealed_manifest":
+            manifest["pipeline_fingerprint"] += "-altered"
+            manifest["fingerprint"] = content_hash(
+                {key: value for key, value in manifest.items() if key != "fingerprint"}
+            )
+            manifest_path.write_text(json.dumps(manifest) + "\n")
+        elif mutation in {"changed_index", "changed_shard"}:
+            relative = (
+                manifest["index"]["path"]
+                if mutation == "changed_index"
+                else manifest["shards"][0]["path"]
+            )
+            with (prepared / relative).open("ab") as output:
+                output.write(b"changed bytes without a matching manifest\n")
+        elif mutation == "changed_registry":
+            registry_path = prepared / "semantic-v8-families.json"
+            registry = json.loads(registry_path.read_text())
+            registry["seed"] += 1
+            registry_path.write_text(json.dumps(registry) + "\n")
+        elif mutation == "missing_empty_root":
+            changed = replace(changed, datasets=[str(prepared)])
+        elif mutation == "extra_empty_root":
+            extra = empty_prepared_root(
+                tmp_path / "extra", codec, chunking, identity="different-empty-input"
+            )
+            changed = replace(changed, datasets=[str(prepared), str(empty), str(extra)])
+        elif mutation == "duplicate_root":
+            changed = replace(changed, datasets=[str(prepared), str(empty), str(empty)])
+        elif mutation == "changed_policy":
+            changed = replace(
+                changed, semantic_v8_policy={**config.semantic_v8_policy, "consumerRevision": "c" * 40}
+            )
+        elif mutation == "missing_policy":
+            changed = replace(changed, semantic_v8_policy=None)
+        elif mutation == "changed_codec":
+            altered = ByteCodec(tuple(bytes([value]) for value in reversed(range(256))))
+            assert altered.fingerprint != codec.fingerprint
+            monkeypatch.setattr(
+                semantic_v8, "load_semantic_v8_codec", lambda _path, *, vocab_size: altered
+            )
+        elif mutation == "changed_window":
+            changed = replace(changed, max_window_records=config.max_window_records - 1)
+        elif mutation == "changed_loss":
+            changed = replace(
+                changed,
+                loss_weights={**config.loss_weights, "lexical": config.loss_weights["lexical"] + 0.25},
+            )
+        constructions = []
+    
+        def forbidden_model(*args, **kwargs):
+            constructions.append(True)
+            raise AssertionError("Changed input reached model construction")
+    
+        monkeypatch.setattr(engine, "build_model", forbidden_model)
+&gt;       with pytest.raises(ValueError, match=message):
+             ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+E       AssertionError: Regex pattern did not match.
+E         Expected regex: 'shard checksum'
+E         Actual message: 'Shard checksum mismatch: episodes-000000.jsonl'
+
+tests/test_semantic_v8_input_relocation.py:343: AssertionError</failure></testcase><testcase classname="tests.test_semantic_v8_input_relocation" name="test_relocated_input_substitution_refuses_before_model_construction[changed_registry-registry]" time="0.015" /><testcase classname="tests.test_semantic_v8_input_relocation" name="test_relocated_input_substitution_refuses_before_model_construction[missing_empty_root-admitted input contents]" time="0.248" /><testcase classname="tests.test_semantic_v8_input_relocation" name="test_relocated_input_substitution_refuses_before_model_construction[extra_empty_root-admitted input contents]" time="0.275" /><testcase classname="tests.test_semantic_v8_input_relocation" name="test_relocated_input_substitution_refuses_before_model_construction[duplicate_root-listed twice]" time="0.012" /><testcase classname="tests.test_semantic_v8_input_relocation" name="test_relocated_input_substitution_refuses_before_model_construction[changed_policy-selected policy]" time="0.015" /><testcase classname="tests.test_semantic_v8_input_relocation" name="test_relocated_input_substitution_refuses_before_model_construction[missing_policy-explicit pinned training policy]" time="0.005"><failure message="ValueError: Semantic training requires a frozen experiment and engineering-completion receipt">tmp_path = PosixPath('/workspace/scratch/05d92519587f/relocation-negative-first-tmp/test_relocated_input_substitut8')
+monkeypatch = &lt;_pytest.monkeypatch.MonkeyPatch object at 0x7fd713bbba10&gt;
+input_bound_checkpoint = (TrainConfig(purpose='diagnostic', phase='SC', model='tiny', datasets=['/workspace/scratch/05d92519587f/relocation-neg...rker_timeout_ms=5000), planner_max_edges=64, tree_distance_budget=4.0, tree_distance_weight=0.15, code_tree_scale=1.5))
+mutation = 'missing_policy', message = 'explicit pinned training policy'
+
+    @pytest.mark.parametrize(
+        ("mutation", "message"),
+        [
+            ("resealed_manifest", "admitted input contents"),
+            ("changed_index", "index checksum"),
+            ("changed_shard", "shard checksum"),
+            ("changed_registry", "registry"),
+            ("missing_empty_root", "admitted input contents"),
+            ("extra_empty_root", "admitted input contents"),
+            ("duplicate_root", "listed twice"),
+            ("changed_policy", "selected policy"),
+            ("missing_policy", "explicit pinned training policy"),
+            ("changed_codec", "different codec"),
+            ("changed_window", "configuration changed max_window_records"),
+            ("changed_loss", "configuration changed loss_weights"),
+        ],
+    )
+    def test_relocated_input_substitution_refuses_before_model_construction(
+        tmp_path, monkeypatch, input_bound_checkpoint, mutation, message
+    ):
+        import megatoken.training.engine as engine
+        import megatoken.training.semantic_v8 as semantic_v8
+        from megatoken.io import content_hash
+    
+        config, checkpoint, original, original_empty, codec, chunking = input_bound_checkpoint
+        prepared, empty, tokenizer = (
+            tmp_path / "prepared",
+            tmp_path / "empty",
+            tmp_path / "tokenizer.fixture",
+        )
+        shutil.copytree(original, prepared)
+        shutil.copytree(original_empty, empty)
+        shutil.copyfile(config.codec, tokenizer)
+        changed = replace(
+            config,
+            codec=str(tokenizer),
+            datasets=[str(prepared), str(empty)],
+            output=str(tmp_path / "refused"),
+        )
+        monkeypatch.setattr(semantic_v8, "load_semantic_v8_codec", fixture_codec)
+        manifest_path = prepared / "manifest.json"
+        manifest = json.loads(manifest_path.read_text())
+        if mutation == "resealed_manifest":
+            manifest["pipeline_fingerprint"] += "-altered"
+            manifest["fingerprint"] = content_hash(
+                {key: value for key, value in manifest.items() if key != "fingerprint"}
+            )
+            manifest_path.write_text(json.dumps(manifest) + "\n")
+        elif mutation in {"changed_index", "changed_shard"}:
+            relative = (
+                manifest["index"]["path"]
+                if mutation == "changed_index"
+                else manifest["shards"][0]["path"]
+            )
+            with (prepared / relative).open("ab") as output:
+                output.write(b"changed bytes without a matching manifest\n")
+        elif mutation == "changed_registry":
+            registry_path = prepared / "semantic-v8-families.json"
+            registry = json.loads(registry_path.read_text())
+            registry["seed"] += 1
+            registry_path.write_text(json.dumps(registry) + "\n")
+        elif mutation == "missing_empty_root":
+            changed = replace(changed, datasets=[str(prepared)])
+        elif mutation == "extra_empty_root":
+            extra = empty_prepared_root(
+                tmp_path / "extra", codec, chunking, identity="different-empty-input"
+            )
+            changed = replace(changed, datasets=[str(prepared), str(empty), str(extra)])
+        elif mutation == "duplicate_root":
+            changed = replace(changed, datasets=[str(prepared), str(empty), str(empty)])
+        elif mutation == "changed_policy":
+            changed = replace(
+                changed, semantic_v8_policy={**config.semantic_v8_policy, "consumerRevision": "c" * 40}
+            )
+        elif mutation == "missing_policy":
+&gt;           changed = replace(changed, semantic_v8_policy=None)
+                      ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+tests/test_semantic_v8_input_relocation.py:322: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+/opt/codex/runtimes/codex-primary-runtime/dependencies/python/lib/python3.12/dataclasses.py:1588: in replace
+    return obj.__class__(**changes)
+           ^^^^^^^^^^^^^^^^^^^^^^^^
+&lt;string&gt;:63: in __init__
+    ???
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+
+self = TrainConfig(purpose='diagnostic', phase='SC', model='tiny', datasets=['/workspace/scratch/05d92519587f/relocation-nega...e, semantic_v8_policy=None, use_stage_mixture=False, use_effort_mixture=False, engram_import=None, engram_imports=None)
+
+    def __post_init__(self) -&gt; None:
+        if self.semantic_v7_policy is not None:
+            from .semantic_v7 import validate_semantic_training_policy_v7
+    
+            validate_semantic_training_policy_v7(self.semantic_v7_policy)
+            if self.semantic_experiment is not None:
+                raise ValueError(
+                    "V7 training cannot reuse a historical semantic experiment contract"
+                )
+        if self.semantic_v8_policy is not None:
+            from .semantic_v8 import validate_semantic_training_policy_v8
+    
+            validate_semantic_training_policy_v8(self.semantic_v8_policy)
+            if self.semantic_experiment is not None or self.semantic_v7_policy is not None:
+                raise ValueError("V8 training cannot reuse an older semantic training contract")
+            if self.codec == "byte" or self.allow_byte_codec:
+                raise ValueError(
+                    "V8 training requires the pinned raw tokenizer, never the byte fallback"
+                )
+        if self.semantic_experiment is not None:
+            from .semantic_budget import SemanticExperimentConfig
+    
+            experiment = SemanticExperimentConfig(**self.semantic_experiment)
+            if self.phase not in {"SE", "SC"}:
+                raise ValueError(
+                    "Semantic experiment budgets require their declared native training stage"
+                )
+            if experiment.representation != "compact":
+                raise ValueError("Only the canonical semantic representation is trainable")
+            if self.microbatch_episodes != 1 or self.max_accumulation_windows != 1:
+                raise ValueError(
+                    "Comparable semantic runs use one atomic window per budget decision"
+                )
+            if experiment.regime == "fixed-tokens" and self.max_window_records != 1:
+                raise ValueError(
+                    "Fixed-token experiments require one physical record per atomic window"
+                )
+        elif self.phase in {"SE", "SC"} and self.semantic_v8_policy is None:
+&gt;           raise ValueError(
+                "Semantic training requires a frozen experiment and engineering-completion receipt"
+            )
+E           ValueError: Semantic training requires a frozen experiment and engineering-completion receipt
+
+src/megatoken/training/config.py:203: ValueError</failure></testcase><testcase classname="tests.test_semantic_v8_input_relocation" name="test_relocated_input_substitution_refuses_before_model_construction[changed_codec-different codec]" time="0.010" /><testcase classname="tests.test_semantic_v8_input_relocation" name="test_relocated_input_substitution_refuses_before_model_construction[changed_window-configuration changed max_window_records]" time="0.245" /><testcase classname="tests.test_semantic_v8_input_relocation" name="test_relocated_input_substitution_refuses_before_model_construction[changed_loss-configuration changed loss_weights]" time="0.242" /><testcase classname="tests.test_semantic_v8_input_relocation" name="test_relocated_production_tokenizer_does_not_accept_unpinned_bytes" time="0.001" /></testsuite></testsuites>

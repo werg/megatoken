@@ -1,0 +1,104 @@
+{
+  "schema": "semantic-v8-exact-raw-artifacts/1",
+  "files": [
+    {
+      "path": "union-enospc.log.gz",
+      "originalPath": "native-release-composition-union.log",
+      "originalBytes": 535905,
+      "originalSha256": "69322726b857945447bd72bbb14dc0deefdf29be654505b075262c5bc48f897a",
+      "retainedBytes": 11513,
+      "retainedSha256": "a2a47bbe55cc1f34d875d1d2974ab02b847ab6d61d633937b0a42ade59decfe4",
+      "encoding": "gzip"
+    },
+    {
+      "path": "union-enospc.xml.gz",
+      "originalPath": "native-release-composition-union.xml",
+      "originalBytes": 601691,
+      "originalSha256": "34d61e50be9b768fb52f5c9319d77aeb5a4d4de68eaae101cdf59ef94d0d95b8",
+      "retainedBytes": 18430,
+      "retainedSha256": "3f29fc11573555214e1b4465247dc4936c1c17890d724366698f94fe4c72a26f",
+      "encoding": "gzip"
+    },
+    {
+      "path": "retry-stdin-spawn.log",
+      "originalPath": "native-release-composition-retry.log",
+      "originalBytes": 5967,
+      "originalSha256": "4f6cc2d36e1ac173dbc946050254eff7ed884be1cbc9d9e29a23230155b229dc",
+      "retainedBytes": 5967,
+      "retainedSha256": "4f6cc2d36e1ac173dbc946050254eff7ed884be1cbc9d9e29a23230155b229dc",
+      "encoding": "original"
+    },
+    {
+      "path": "retry-stdin-spawn.xml",
+      "originalPath": "native-release-composition-retry.xml",
+      "originalBytes": 20983,
+      "originalSha256": "0d3c844a5e558d1ff3c3af83bd0555cf850f8c079c991ed2db2d11c43e9bc029",
+      "retainedBytes": 20983,
+      "retainedSha256": "0d3c844a5e558d1ff3c3af83bd0555cf850f8c079c991ed2db2d11c43e9bc029",
+      "encoding": "original"
+    },
+    {
+      "path": "spawn-retry-green.log",
+      "originalPath": "native-release-composition-spawn-retry.log",
+      "originalBytes": 99,
+      "originalSha256": "429fcc870bb527634e713460e2866f44b735095affc49a3535c35063eb54a7ef",
+      "retainedBytes": 99,
+      "retainedSha256": "429fcc870bb527634e713460e2866f44b735095affc49a3535c35063eb54a7ef",
+      "encoding": "original"
+    },
+    {
+      "path": "spawn-retry-green.xml",
+      "originalPath": "native-release-composition-spawn-retry.xml",
+      "originalBytes": 397,
+      "originalSha256": "1cba6ac15215c9482b4b1fb0badf9f487939273eb85de7297fe11d8faeae9a89",
+      "retainedBytes": 397,
+      "retainedSha256": "1cba6ac15215c9482b4b1fb0badf9f487939273eb85de7297fe11d8faeae9a89",
+      "encoding": "original"
+    },
+    {
+      "path": "final-source-collection.log",
+      "originalPath": "native-release-composition-final-collection.log",
+      "originalBytes": 46727,
+      "originalSha256": "e691197e697ed6713b5bfc525e7fe7919fb873984bcf1b62df35047216fbb790",
+      "retainedBytes": 46727,
+      "retainedSha256": "e691197e697ed6713b5bfc525e7fe7919fb873984bcf1b62df35047216fbb790",
+      "encoding": "original"
+    },
+    {
+      "path": "retry-selectors.json",
+      "originalPath": "native-release-composition-retry-selectors.json",
+      "originalBytes": 5467,
+      "originalSha256": "840ccb504f4a4112d14581b1971328e786b0f8b1f4d7c15f8f7367492426651b",
+      "retainedBytes": 5467,
+      "retainedSha256": "840ccb504f4a4112d14581b1971328e786b0f8b1f4d7c15f8f7367492426651b",
+      "encoding": "original"
+    },
+    {
+      "path": "position-proof.json.gz",
+      "originalPath": "native-release-composition-union-tmp/test_full_controlled_corpus_ex0/position-proof.json",
+      "originalBytes": 420305,
+      "originalSha256": "585e4d32c33b24e22e93634054a794546b56a824c9eba48f9664a5ba6387db02",
+      "retainedBytes": 24208,
+      "retainedSha256": "73b683f45d7242594b55fd45982c4916e81212ad76b3478cba7c937b59da9852",
+      "encoding": "gzip"
+    },
+    {
+      "path": "relocation-proof.json.gz",
+      "originalPath": "native-release-composition-retry-tmp/test_real_v8_next_update_survi0/relocation-proof.json",
+      "originalBytes": 117901,
+      "originalSha256": "9a0020910aa14b0553f8d30971d983b8fe5f3b66458d17604dc8119d208637c4",
+      "retainedBytes": 7297,
+      "retainedSha256": "f5ff520f4ba79f1cf8c46e0c62a00b386f34542fa9a23a18ff5a11141c4eef58",
+      "encoding": "gzip"
+    },
+    {
+      "path": "position-resume-proof.json.gz",
+      "originalPath": "native-release-composition-retry-tmp/test_v8_normal_update_checkpoi0/position-resume-proof.json",
+      "originalBytes": 242583,
+      "originalSha256": "f491a058b84aaff3865f6eaa1cd912a34c20833a5a32a2998d430756218d644c",
+      "retainedBytes": 14761,
+      "retainedSha256": "95ee354fa3dfce5aff4d6db3b225f81a238ed613c773042d97489f726c977cd6",
+      "encoding": "gzip"
+    }
+  ]
+}

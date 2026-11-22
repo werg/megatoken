@@ -1,0 +1,17 @@
+{
+  "baseRevision": "622c37c23f93c4cc58ff226eb4805c766fee3166",
+  "testPath": "tests/test_semantic_v8_input_relocation.py",
+  "testSha256": "5891ec645c170614bd99899505540e2d45dcc00d9ed7677a70242b22fdc2f37e",
+  "testGitBlob": "b0c9c838989b26f65dd78e65b6e7d58cea49ba53",
+  "runtime": {
+    "python": "3.12.14",
+    "torch": "2.10.0+cpu",
+    "pytest": "9.2.0",
+    "pytestDeclaredRange": ">=8.3,<9"
+  },
+  "status": "reproduced",
+  "failure": "Resume configuration changed codec",
+  "optimizerUpdatesExecuted": 2,
+  "relocatedOptimizerUpdates": 0,
+  "sourceAndTokenizerAdmission": "explicitly injected fixture boundaries; no production qualification"
+}

@@ -1,0 +1,24 @@
+{
+  "schema": "semantic-v8-release-strict-read-red/1",
+  "status": "two-concrete-defects-reproduced",
+  "runtimeSourceRemoteRevision": "9150a11c9a0741bf63bbed335c343dc67ad2a23f",
+  "runtimeScriptSha256": "a1fd9ee7488d59773acb7680209d353234009132ebd7882a12385db08c0e063a",
+  "redTestBlob": "8fb4f5703c4403fcfa0494465799508008e45996",
+  "typeReproduction": {
+    "cases": 1,
+    "failures": 1,
+    "errors": 0,
+    "skips": 0,
+    "controlledOptimizerUpdates": 1,
+    "finding": "Rehashed exported checkpoint_stages integer0 was accepted as the distinct JSON boolean False."
+  },
+  "readOnlyReproduction": {
+    "cases": 1,
+    "failures": 1,
+    "errors": 0,
+    "skips": 0,
+    "controlledOptimizerUpdates": 0,
+    "finding": "The checkpoint loader renamed an original .superseded-side-1 directory before refusing an invalid checkpoint. Refusal did not preserve input members."
+  },
+  "qualification": "Known new-verifier gaps, not successful current or paired release qualification. All mutated inputs were newly constructed test fixtures."
+}
