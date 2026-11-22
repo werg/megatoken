@@ -1168,6 +1168,10 @@ class DurableNativeCommitBridge:
         )
         with self.adapter.lock:
             existing = self.journal.inspect(identity, frame, require_latest=True)
+            if existing["status"] == "never-admitted":
+                self.journal.assert_not_superseded(create_identity, create_frame)
+            else:
+                self.journal.assert_superseded_by(create_identity, create_frame, request)
             create_readback, create_value, _create_response_raw, create_response = (
                 self._bootstrap_create_predecessor(
                     create_identity,
@@ -1178,10 +1182,6 @@ class DurableNativeCommitBridge:
                     require_latest=existing["status"] == "never-admitted",
                 )
             )
-            if existing["status"] == "never-admitted":
-                self.journal.assert_not_superseded(create_identity, create_frame)
-            else:
-                self.journal.assert_superseded_by(create_identity, create_frame, request)
             if existing["status"] == "unknown":
                 self.fenced = True
                 raise NativeRequestOutcomeUnknown(
@@ -1226,7 +1226,9 @@ class DurableNativeCommitBridge:
                 raise NativeRequestConflict(
                     "Bootstrap precheckpoint differs from its exact committed create"
                 )
-            self._check_bootstrap_pre(request, create_value, create_response, before, preCheckpointDigest)
+            self._check_bootstrap_pre(
+                request, create_value, create_response, before, preCheckpointDigest
+            )
 
             # The bootstrap slot is the exact mutation that supersedes the
             # committed create's recoverability. Validate the full prestate
@@ -1241,7 +1243,9 @@ class DurableNativeCommitBridge:
                     raise NativeRequestConflict(
                         "Bootstrap precheckpoint differs from its exact committed create"
                     )
-                self._check_bootstrap_pre(request, create_value, create_response, before, preCheckpointDigest)
+                self._check_bootstrap_pre(
+                    request, create_value, create_response, before, preCheckpointDigest
+                )
                 result = self.adapter.bootstrap_orchestration_child(
                     session=request["session"],
                     track=request["track"],
@@ -1399,9 +1403,7 @@ class DurableNativeCommitBridge:
                 )
                 work = self.adapter.sessions.get(request["session"])
                 description = (
-                    None
-                    if work is None
-                    else work.runtime.tracks.tracks.get(request["childTrack"])
+                    None if work is None else work.runtime.tracks.tracks.get(request["childTrack"])
                 )
                 if description is None or description.bootstrap_ready:
                     _fail("restored committed child is not unbootstrapped")
@@ -1414,7 +1416,9 @@ class DurableNativeCommitBridge:
                 if not _same(replay_response, response) or not _same(
                     self.adapter.checkpoint(), value["postCheckpoint"]
                 ):
-                    _fail("independent full-state bootstrap reexecution differs from durable outcome")
+                    _fail(
+                        "independent full-state bootstrap reexecution differs from durable outcome"
+                    )
                 if not _same(response.get("result"), self._live_bootstrap_result(request)):
                     _fail("reexecuted child differs from the exact bootstrap response")
                 self._recoverable = (copy.deepcopy(identity), frame)

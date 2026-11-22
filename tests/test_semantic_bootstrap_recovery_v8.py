@@ -13,6 +13,7 @@ import hashlib
 import json
 import subprocess
 import sys
+from dataclasses import replace
 from pathlib import Path
 
 import pytest
@@ -192,9 +193,7 @@ def test_direct_child_bootstrap_is_refused_before_native_or_journal_mutation(tmp
     with real_runtime() as (open_adapter, _decoder):
         with execution_lease(tmp_path / "owner", session="teacher1") as lease:
             adapter, opened, bridge, args, created = bootstrap_case(tmp_path, lease, open_adapter)
-            with pytest.raises(
-                NativeRequestJournalError, match="require durable-bootstrap-child"
-            ):
+            with pytest.raises(NativeRequestJournalError, match="require durable-bootstrap-child"):
                 dispatch(
                     adapter,
                     {
@@ -380,7 +379,7 @@ def test_later_native_mutation_supersedes_bootstrap_recovery(tmp_path):
         ("generation", "generation differs"),
         ("model", "model, tokenizer or training identity differs"),
         ("operation", "only exact child bootstrap operations"),
-        ("child", "request differs"),
+        ("child", "request slot identity or exact bytes differ"),
     ],
 )
 def test_bootstrap_recovery_rejects_identity_and_child_substitutions(tmp_path, mutation, message):
@@ -435,7 +434,7 @@ def test_rehashed_bootstrap_response_must_match_restored_track(tmp_path, mutate)
             assert completed["postCheckpoint"]["digest"] != fresh.checkpoint()["digest"]
 
 
-@pytest.mark.parametrize("field", ["operations", "attempts"])
+@pytest.mark.parametrize("field", ["operations", "attempts", "randomState", "randomBefore"])
 def test_rehashed_bootstrap_poststate_rejects_mutated_history(tmp_path, field):
     with real_runtime() as (open_adapter, _decoder):
         with execution_lease(tmp_path / "owner", session="teacher1") as lease:
@@ -447,8 +446,13 @@ def test_rehashed_bootstrap_poststate_rejects_mutated_history(tmp_path, field):
                 if field == "operations":
                     operations = post["sessions"]["teacher1"]["orchestration"]["operations"]
                     operations.pop()
-                else:
+                elif field == "attempts":
                     post["attempts"].append({"id": "forged-attempt"})
+                elif field == "randomState":
+                    post["randomState"] = "forged-random-state"
+                else:
+                    operation = post["sessions"]["teacher1"]["orchestration"]["operations"][-1]
+                    operation["randomBefore"] = "forged-random-state"
                 post["digest"] = _checkpoint_digest(post)
 
             tamper_bootstrap_outcome(bridge.journal, change)
@@ -458,6 +462,40 @@ def test_rehashed_bootstrap_poststate_rejects_mutated_history(tmp_path, field):
                 fresh_bridge.recover_bootstrap_child(**args)
             assert not fresh.sessions and not fresh.attempts
             assert not fresh.runtime.memory.sessions
+
+
+def test_live_child_mismatch_fences_later_duplicate_before_journal_read(tmp_path):
+    with real_runtime() as (open_adapter, _decoder):
+        with execution_lease(tmp_path / "owner", session="teacher1") as lease:
+            adapter, opened, bridge, args, _created = bootstrap_case(tmp_path, lease, open_adapter)
+            bridge.durable_bootstrap_child(**args)
+            request = json.loads(base64.b64decode(args["requestBase64"]))
+            work = adapter.sessions[opened["session"]]
+            description = work.runtime.tracks.tracks[request["childTrack"]]
+            work.runtime.tracks.tracks[request["childTrack"]] = replace(
+                description, budget=description.budget + 1
+            )
+
+            inspected = []
+            original_inspect = bridge.journal.inspect
+
+            def count_inspect(*values, **options):
+                inspected.append(values)
+                return original_inspect(*values, **options)
+
+            bridge.journal.inspect = count_inspect
+            with pytest.raises(NativeRequestJournalError, match="whole live adapter"):
+                bridge.durable_bootstrap_child(**args)
+            assert bridge.fenced
+            calls_after_mismatch = len(inspected)
+            assert calls_after_mismatch > 0
+            with pytest.raises(NativeRequestJournalError, match="fenced"):
+                dispatch(
+                    adapter,
+                    {"id": "fenced-bootstrap-duplicate", "op": "durable-bootstrap-child", **args},
+                    commit_bridge=bridge,
+                )
+            assert len(inspected) == calls_after_mismatch
 
 
 def _checkpoint_digest(checkpoint):
