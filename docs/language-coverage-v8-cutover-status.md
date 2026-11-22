@@ -1,5 +1,42 @@
 # Native V8 cutover implementation status
 
+## Current continuation — 22 November 2026
+
+The separately frozen production support corpus passed original source checking,
+independent native admission, exact tokenization/packing, ordinary preparation
+and all eight required behaviors in both training and validation at producer
+`1e71e5a9385de8f1425593787c3261c20c3a0160` / native
+`b276dc3c14075206c1550cbaacb3f456712788b3`. The population is exactly
+64 sources: 48 train, 12 validation and 4 test. Preparation performs no optimizer
+updates. [Retained support evidence](https://github.com/werg/tracing-js-self/tree/2a34f4ac26a15fe32e7735974afb36a0670f1982/docs/evidence/v8-support-qualified1e71-2026-11-22).
+
+This increment extends the ordinary lifecycle collector to use that actual
+prepared population. It verifies a complete immutable source inventory, the
+canonical registry/source/dataset binding of the serving sample, exact prepared
+public/context bytes, and the frozen split before accepting two optimizer updates,
+fresh-process resume, export and service restoration. It does not synthesize a
+second sample or count matching source-ID text as source authority.
+
+The exact formatted implementation was checked on validation commit
+`a0cfb1d2c2fc152a1716e655619c7ef93c65d82b`: Ruff lint and formatting passed,
+and all 11 source-binding/supply controls passed with zero skips in
+[run 44987781224](https://github.com/werg/megatoken/actions/runs/44987781224).
+The formatter left both files unchanged. These are boundary controls; the
+new full 64-source optimizer route is not yet qualified. Recurring paired native
+qualification now uses producer `c640f2b1dfed112d5e2bc5f60195234a40c3dec1`.
+See [support lifecycle scope and command](SEMANTIC_V8_SUPPORT_LIFECYCLE.md).
+
+**Remaining:** run the paired support corpus through those normal commands on
+this exact new executable pair; qualify production recipes/assets and exposure
+to all required targets; retain distributed checkpoint/export lineage; measure
+held-out learned execution and cost; finish paired language/recovery scope and
+operational/default cutover. All 17 acceptance packages remain open in
+[producer PR 47](https://github.com/werg/tracing-js-self/pull/47).
+
+The sections below retain historical implementation checkpoints and apply only
+to their recorded revisions. Their old pending items are superseded by the
+current coordinated PR ledger where later evidence exists.
+
 ## Anonymous generator admission — 21 November 2026
 
 The 34-source producer qualification at `aa07a2b0960e24dfa312494dc949b9fc5b98942b`

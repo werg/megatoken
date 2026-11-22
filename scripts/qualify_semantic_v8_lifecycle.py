@@ -335,8 +335,123 @@ def qualify_checkpoints(first_path, resumed_path, prepared, served, manifest):
     }
 
 
+def read_support_source_inventory(path, registry_digest):
+    value = read_json(path)
+    require(
+        isinstance(value, dict)
+        and set(value) == {"schema", "registryDigest", "sourceIds"}
+        and value["schema"] == "semantic-v8-source-population/1"
+        and value["registryDigest"] == registry_digest,
+        "Support inventory is malformed or bound to another registry",
+    )
+    ids = value["sourceIds"]
+    require(
+        isinstance(ids, list)
+        and len(ids) == 64
+        and all(isinstance(item, str) and item for item in ids)
+        and len(set(ids)) == 64,
+        "Support inventory must contain exactly 64 unique source IDs",
+    )
+    return tuple(sorted(ids))
+
+
+def validate_support_population(prepared_root, source_path, inventory_path):
+    from megatoken.data import PreparedCorpus
+    from megatoken.data.semantic_corpus_v8 import _verify_binding
+    from megatoken.data.semantic_json import stable_algorithm_hash
+
+    prepared_root = Path(prepared_root)
+    registry = read_json(prepared_root / "semantic-v8-families.json")
+    registry_digest = registry.get("digest") if isinstance(registry, dict) else None
+    expected = read_support_source_inventory(inventory_path, registry_digest)
+    require(
+        isinstance(registry, dict)
+        and registry.get("schema") == "semantic-region-family-registry/1"
+        and stable_algorithm_hash(
+            {key: value for key, value in registry.items() if key != "digest"}
+        )
+        == registry_digest,
+        "Prepared support registry digest is invalid",
+    )
+    source_rows = registry.get("sources")
+    require(
+        isinstance(source_rows, list)
+        and len(source_rows) == 64
+        and {row.get("id") for row in source_rows if isinstance(row, dict)} == set(expected),
+        "Prepared support registry differs from the immutable 64-source inventory",
+    )
+    split_by_id = {}
+    for component in registry.get("components", []):
+        require(
+            isinstance(component, dict)
+            and component.get("split") in {"train", "validation", "test"}
+            and isinstance(component.get("sourceIds"), list),
+            "Prepared support registry has a malformed split component",
+        )
+        for source_id in component["sourceIds"]:
+            require(
+                source_id in expected and source_id not in split_by_id,
+                "Prepared support registry duplicates or substitutes a source",
+            )
+            split_by_id[source_id] = component["split"]
+    require(set(split_by_id) == set(expected), "Prepared support registry omits source assignments")
+    sample_document = read_json(source_path)
+    sample_identity, sample_member, sample_component, sample_binding = _verify_binding(
+        sample_document, registry
+    )
+    sample_source_id = sample_identity["sourceId"]
+    require(
+        sample_source_id in expected and sample_component["split"] == "train",
+        "Lifecycle sample must be a source-bound member of the frozen training inventory",
+    )
+    counts = {split: 0 for split in ("train", "validation", "test")}
+    observed = set()
+    sample_semantic = None
+    with PreparedCorpus([str(prepared_root)], split=None) as corpus:
+        for episode in corpus.iter_episodes():
+            try:
+                semantic = json.loads(episode.supervision.annotations_json)["semantic_execution"]
+            except (KeyError, TypeError, json.JSONDecodeError) as error:
+                raise ValueError("Prepared support episode has no source identity") from error
+            source_id, split = semantic.get("sourceId"), episode.lineage.frozen_split
+            require(
+                source_id in split_by_id
+                and source_id not in observed
+                and split_by_id[source_id] == split,
+                "Prepared support episode differs from its frozen inventory or split",
+            )
+            observed.add(source_id)
+            counts[split] += 1
+            if source_id == sample_source_id:
+                sample_semantic = semantic
+    require(observed == set(expected), "Prepared support corpus is missing an inventory source")
+    require(isinstance(sample_semantic, dict), "Prepared support corpus lacks the selected sample")
+    public_artifact = {"public": sample_document["public"], "contexts": sample_document["contexts"]}
+    if "orchestrationTranscript" in sample_document["sidecar"]:
+        public_artifact["sidecar"] = sample_document["sidecar"]
+    require(
+        sample_semantic.get("datasetBinding") == sample_binding
+        and sample_semantic.get("publicArtifact") == public_artifact,
+        "Lifecycle sample public/context/source bytes differ from the prepared training episode",
+    )
+    require(
+        counts == {"train": 48, "validation": 12, "test": 4},
+        "Prepared support corpus differs from its frozen 48/12/4 source split",
+    )
+    return {
+        "registryDigest": registry_digest,
+        "sourceCount": len(expected),
+        "sourceInventory": list(expected),
+        "splitCounts": counts,
+        "sampleSourceId": sample_source_id,
+        "sampleDatasetBinding": sample_binding,
+        "sampleMember": sample_member,
+    }
+
+
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument("--expected-source-ids", type=Path)
     for name in (
         "consumer-root",
         "prepared",
@@ -361,10 +476,26 @@ def main():
     prepared = read_json(options.prepared / "manifest.json")
     report = read_json(options.prepared / "semantic-v8-report.json")
     require(report["consumerRevision"] == head, "Prepared data names another consumer revision")
-    require(
-        report["counts"]["admitted"] == 1 and not report["refusals"], "Expected one admitted source"
-    )
-    orchestration = qualify_orchestration_preparation(options.source, options.prepared, report)
+    if options.expected_source_ids:
+        support = validate_support_population(
+            options.prepared, options.source, options.expected_source_ids
+        )
+        require(
+            report["counts"]["admitted"] == support["sourceCount"] and not report["refusals"],
+            "Prepared support report differs from the immutable source inventory",
+        )
+        require(
+            report.get("registryDigest") == support["registryDigest"],
+            "Prepared support report names another registry",
+        )
+        orchestration = None
+    else:
+        support = None
+        require(
+            report["counts"]["admitted"] == 1 and not report["refusals"],
+            "Expected one admitted source",
+        )
+        orchestration = qualify_orchestration_preparation(options.source, options.prepared, report)
     manifest = read_json(options.served / "manifest.json")
     checkpoint = qualify_checkpoints(
         options.first_checkpoint,
@@ -378,6 +509,7 @@ def main():
         options.source,
         options.prepared / "manifest.json",
         options.prepared / "semantic-v8-report.json",
+        *([options.expected_source_ids] if options.expected_source_ids else []),
     ]
     for directory in (options.first_checkpoint, options.resumed_checkpoint, options.served):
         artifacts.extend(sorted(path for path in directory.rglob("*") if path.is_file()))
@@ -387,13 +519,29 @@ def main():
         "driver": driver,
         "preparation": report,
         "preparedManifestFingerprint": prepared["fingerprint"],
+        **(
+            {
+                "supportPopulation": support,
+                "fullLaunchQualified": False,
+                "supportSourceInventory": file_identity(options.expected_source_ids),
+            }
+            if support is not None
+            else {}
+        ),
         "optimizerResumeExport": checkpoint,
         "serving": serving,
         **({"orchestrationPreparation": orchestration} if orchestration is not None else {}),
         "artifacts": [file_identity(path) for path in artifacts],
         "learnedSuccess": None,
         "limits": [
-            "One source family and two optimizer steps do not qualify learned execution quality.",
+            "Two optimizer steps do not qualify learned execution quality or prove exposure of every source target.",
+            *(
+                []
+                if support is not None
+                else [
+                    "One source family and two optimizer steps do not qualify learned execution quality."
+                ]
+            ),
             "Fresh-process recovery retained original failed/unacknowledged selections; accepted-record recovery was not exercised.",
             "Artifact hashes identify local complete bundles. Durable external bundle publication is a separate recorded step.",
         ],
