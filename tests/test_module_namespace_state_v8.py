@@ -278,3 +278,65 @@ def test_noncanonical_negative_zero_and_inexact_js_integers_are_refused(value):
             _plan(),
             {"cells.js#value": {"initialized": True, "value": value}},
         )
+
+
+
+def test_lowered_cell_names_match_local_and_uniquely_identify_each_module():
+    base = {
+        "modules": {"main.js": "", "cells.js": "", "other.js": ""},
+        "entry_module": "main.js",
+        "namespaces": [],
+    }
+    with pytest.raises(ValueError, match="malformed"):
+        build_experimental_module_namespace_plan(
+            **base,
+            cells=[
+                {
+                    "file": "cells.js",
+                    "local": "value",
+                    "kind": "let",
+                    "mutable": True,
+                    "loweredName": "__traced_eval_m1_different",
+                }
+            ],
+        )
+    with pytest.raises(ValueError, match="lowered binding"):
+        build_experimental_module_namespace_plan(
+            **base,
+            cells=[
+                {
+                    "file": "cells.js",
+                    "local": "value",
+                    "kind": "let",
+                    "mutable": True,
+                    "loweredName": "__traced_eval_m1_value",
+                },
+                {
+                    "file": "cells.js",
+                    "local": "other",
+                    "kind": "let",
+                    "mutable": True,
+                    "loweredName": "__traced_eval_m2_other",
+                },
+            ],
+        )
+    with pytest.raises(ValueError, match="lowered binding"):
+        build_experimental_module_namespace_plan(
+            **base,
+            cells=[
+                {
+                    "file": "cells.js",
+                    "local": "value",
+                    "kind": "let",
+                    "mutable": True,
+                    "loweredName": "__traced_eval_m1_value",
+                },
+                {
+                    "file": "other.js",
+                    "local": "other",
+                    "kind": "let",
+                    "mutable": True,
+                    "loweredName": "__traced_eval_m1_other",
+                },
+            ],
+        )

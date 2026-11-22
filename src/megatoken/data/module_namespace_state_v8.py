@@ -20,7 +20,9 @@ _PLAN_SCHEMA = "semantic-module-namespace-plan/1"
 _STATE_SCHEMA = "semantic-module-namespace-state/1"
 _HASH = re.compile(r"^[a-f0-9]{64}$")
 _LOCAL = re.compile(r"^[A-Za-z_$][A-Za-z0-9_$]*$")
-_LOWERED_LOCAL = re.compile(r"^__traced_eval_m[1-9][0-9]*_[A-Za-z_$][A-Za-z0-9_$]*$")
+_LOWERED_LOCAL = re.compile(
+    r"^__traced_eval_m([1-9][0-9]*)_([A-Za-z_$][A-Za-z0-9_$]*)$"
+)
 _BIGINT = re.compile(r"^(?:0|-?[1-9][0-9]*)$")
 _ARRAY_INDEX = re.compile(r"^(?:0|[1-9][0-9]*)$")
 _SPECIAL_NUMBERS = {"-0", "NaN", "+Infinity", "-Infinity"}
@@ -66,6 +68,11 @@ def _name(value: Any) -> bool:
 
 def _mutable_kind(kind: str) -> bool:
     return kind != "const"
+
+
+def _lowered_local_matches(lowered_name: str, local: str) -> bool:
+    match = _LOWERED_LOCAL.fullmatch(lowered_name)
+    return match is not None and match.group(2) == local
 
 
 def _canonical_value(value: Any) -> bool:
@@ -168,15 +175,22 @@ def build_experimental_module_namespace_plan(
             or not isinstance(cell["kind"], str)
             or cell["kind"] not in _CELL_KINDS
             or not isinstance(cell["loweredName"], str)
-            or not _LOWERED_LOCAL.fullmatch(cell["loweredName"])
+            or not _lowered_local_matches(cell["loweredName"], cell["local"])
             or cell["mutable"] != _mutable_kind(cell["kind"])
         ):
             _fail("canonical source cell record is malformed")
         identity = _cell_id(cell["file"], cell["local"])
-        if identity in cell_map or any(
-            item["loweredName"] == cell["loweredName"] for item in cell_map.values()
+        lowered_match = _LOWERED_LOCAL.fullmatch(cell["loweredName"])
+        module_index = int(lowered_match.group(1))
+        previous_index = module_indexes.setdefault(cell["file"], module_index)
+        previous_file = index_files.setdefault(module_index, cell["file"])
+        if (
+            identity in cell_map
+            or any(item["loweredName"] == cell["loweredName"] for item in cell_map.values())
+            or previous_index != module_index
+            or previous_file != cell["file"]
         ):
-            _fail("duplicate canonical source cell or lowered binding")
+            _fail("duplicate source cell or noncanonical lowered binding")
         cell_map[identity] = {
             "id": identity,
             "file": cell["file"],
@@ -186,6 +200,8 @@ def build_experimental_module_namespace_plan(
             "loweredName": cell["loweredName"],
         }
 
+    module_indexes: dict[str, int] = {}
+    index_files: dict[int, str] = {}
     namespace_map: dict[str, dict[str, Any]] = {}
     for record in namespaces:
         if (
@@ -267,6 +283,8 @@ def verify_experimental_module_namespace_plan(plan: Any) -> bool:
     prior = None
     cell_ids: set[str] = set()
     lowered_names: set[str] = set()
+    module_indexes: dict[str, int] = {}
+    index_files: dict[int, str] = {}
     for row in plan["cells"]:
         if (
             not _exact(row, {"id", "file", "local", "kind", "mutable", "loweredName"})
@@ -277,15 +295,23 @@ def verify_experimental_module_namespace_plan(plan: Any) -> bool:
             or not isinstance(row["kind"], str)
             or row["kind"] not in _CELL_KINDS
             or not isinstance(row["loweredName"], str)
-            or not _LOWERED_LOCAL.fullmatch(row["loweredName"])
+            or not _lowered_local_matches(row["loweredName"], row["local"])
             or type(row["mutable"]) is not bool
             or row["mutable"] != _mutable_kind(row["kind"])
             or row["id"] != _cell_id(row["file"], row["local"])
             or (prior is not None and _js_sort_key(prior) >= _js_sort_key(row["id"]))
         ):
             _fail("namespace plan cell table is malformed")
-        if row["loweredName"] in lowered_names:
-            _fail("namespace plan has duplicate lowered bindings")
+        lowered_match = _LOWERED_LOCAL.fullmatch(row["loweredName"])
+        module_index = int(lowered_match.group(1))
+        previous_index = module_indexes.setdefault(row["file"], module_index)
+        previous_file = index_files.setdefault(module_index, row["file"])
+        if (
+            row["loweredName"] in lowered_names
+            or previous_index != module_index
+            or previous_file != row["file"]
+        ):
+            _fail("namespace plan has noncanonical lowered bindings")
         prior = row["id"]
         cell_ids.add(row["id"])
         lowered_names.add(row["loweredName"])
