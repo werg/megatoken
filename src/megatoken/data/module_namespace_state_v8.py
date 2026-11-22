@@ -20,6 +20,7 @@ _PLAN_SCHEMA = "semantic-module-namespace-plan/1"
 _STATE_SCHEMA = "semantic-module-namespace-state/1"
 _HASH = re.compile(r"^[a-f0-9]{64}$")
 _LOCAL = re.compile(r"^[A-Za-z_$][A-Za-z0-9_$]*$")
+_LOWERED_LOCAL = re.compile(r"^__traced_eval_m[1-9][0-9]*_[A-Za-z_$][A-Za-z0-9_$]*$")
 _BIGINT = re.compile(r"^(?:0|-?[1-9][0-9]*)$")
 _ARRAY_INDEX = re.compile(r"^(?:0|[1-9][0-9]*)$")
 _SPECIAL_NUMBERS = {"-0", "NaN", "+Infinity", "-Infinity"}
@@ -158,7 +159,7 @@ def build_experimental_module_namespace_plan(
     cell_map: dict[str, dict[str, Any]] = {}
     for cell in cells:
         if (
-            not _exact(cell, {"file", "local", "kind", "mutable"})
+            not _exact(cell, {"file", "local", "kind", "mutable", "loweredName"})
             or type(cell["mutable"]) is not bool
             or not _canonical_path(cell["file"])
             or cell["file"] not in modules
@@ -166,18 +167,23 @@ def build_experimental_module_namespace_plan(
             or not _LOCAL.fullmatch(cell["local"])
             or not isinstance(cell["kind"], str)
             or cell["kind"] not in _CELL_KINDS
+            or not isinstance(cell["loweredName"], str)
+            or not _LOWERED_LOCAL.fullmatch(cell["loweredName"])
             or cell["mutable"] != _mutable_kind(cell["kind"])
         ):
             _fail("canonical source cell record is malformed")
         identity = _cell_id(cell["file"], cell["local"])
-        if identity in cell_map:
-            _fail("duplicate canonical source cell")
+        if identity in cell_map or any(
+            item["loweredName"] == cell["loweredName"] for item in cell_map.values()
+        ):
+            _fail("duplicate canonical source cell or lowered binding")
         cell_map[identity] = {
             "id": identity,
             "file": cell["file"],
             "local": cell["local"],
             "kind": cell["kind"],
             "mutable": _mutable_kind(cell["kind"]),
+            "loweredName": cell["loweredName"],
         }
 
     namespace_map: dict[str, dict[str, Any]] = {}
@@ -260,23 +266,29 @@ def verify_experimental_module_namespace_plan(plan: Any) -> bool:
 
     prior = None
     cell_ids: set[str] = set()
+    lowered_names: set[str] = set()
     for row in plan["cells"]:
         if (
-            not _exact(row, {"id", "file", "local", "kind", "mutable"})
+            not _exact(row, {"id", "file", "local", "kind", "mutable", "loweredName"})
             or not _canonical_path(row["file"])
             or row["file"] not in files
             or not isinstance(row["local"], str)
             or not _LOCAL.fullmatch(row["local"])
             or not isinstance(row["kind"], str)
             or row["kind"] not in _CELL_KINDS
+            or not isinstance(row["loweredName"], str)
+            or not _LOWERED_LOCAL.fullmatch(row["loweredName"])
             or type(row["mutable"]) is not bool
             or row["mutable"] != _mutable_kind(row["kind"])
             or row["id"] != _cell_id(row["file"], row["local"])
             or (prior is not None and _js_sort_key(prior) >= _js_sort_key(row["id"]))
         ):
             _fail("namespace plan cell table is malformed")
+        if row["loweredName"] in lowered_names:
+            _fail("namespace plan has duplicate lowered bindings")
         prior = row["id"]
         cell_ids.add(row["id"])
+        lowered_names.add(row["loweredName"])
 
     prior = None
     namespace_files: set[str] = set()

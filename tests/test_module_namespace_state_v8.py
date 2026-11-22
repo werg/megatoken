@@ -18,8 +18,8 @@ MODULES = {
     "cells.js": "export let value=1; export {value as alias}; export const fixed=2;",
 }
 CELLS = [
-    {"file": "cells.js", "local": "value", "kind": "let", "mutable": True},
-    {"file": "cells.js", "local": "fixed", "kind": "const", "mutable": False},
+    {"file": "cells.js", "local": "value", "kind": "let", "mutable": True, "loweredName": "__traced_eval_m1_value"},
+    {"file": "cells.js", "local": "fixed", "kind": "const", "mutable": False, "loweredName": "__traced_eval_m1_fixed"},
 ]
 NAMESPACES = [
     {
@@ -103,7 +103,7 @@ def test_utf16_export_sort_and_numeric_index_names_match_javascript_order():
     plan = build_experimental_module_namespace_plan(
         modules={"main.js": "", "cells.js": ""},
         entry_module="main.js",
-        cells=[{"file": "cells.js", "local": "value", "kind": "var", "mutable": True}],
+        cells=[{"file": "cells.js", "local": "value", "kind": "var", "mutable": True, "loweredName": "__traced_eval_m1_value"}],
         namespaces=[
             {
                 "file": "cells.js",
@@ -118,7 +118,15 @@ def test_utf16_export_sort_and_numeric_index_names_match_javascript_order():
         build_experimental_module_namespace_plan(
             modules={"main.js": "", "cells.js": ""},
             entry_module="main.js",
-            cells=[{"file": "cells.js", "local": "value", "kind": "let", "mutable": True}],
+            cells=[
+                {
+                    "file": "cells.js",
+                    "local": "value",
+                    "kind": "let",
+                    "mutable": True,
+                    "loweredName": "__traced_eval_m1_value",
+                }
+            ],
             namespaces=[
                 {
                     "file": "cells.js",
