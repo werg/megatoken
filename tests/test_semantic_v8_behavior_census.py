@@ -174,3 +174,101 @@ def test_v8_source_reread_requires_a_bound_eviction_and_exact_reread():
         if "track" in row["fields"]:
             row["fields"]["trackId"] = row["fields"].pop("track")
     assert "semantic_source_reread" not in census_for(missing_canonical_track)
+
+
+def test_v8_module_initialization_requires_observed_source_bound_module_publication():
+    fixture = json.loads(
+        (Path(__file__).parent / "fixtures" / "semantic-module-init-census-v8.json").read_text()
+    )
+    # This exact V8 public-harness control proves census binding behavior only.
+    assert (
+        fixture["fixtureAuthority"]
+        == "model-free-v8-public-harness-control-only; no independent source or reference qualification"
+    )
+    artifact = fixture["artifact"]
+    program = next(row for row in artifact["timeline"] if row["kind"] == "program")
+    invocation = next(row for row in artifact["timeline"] if row["kind"] == "invocation")
+    assert program["mode"] == "observed"
+    assert program["fields"]["module"] is True
+    assert invocation["mode"] == "observed"
+    assert invocation["fields"]["activation"] == "module-init"
+    assert invocation["fields"]["sourceDigest"] == program["fields"]["digest"]
+    assert "semantic_initialization" in census_for({"public": artifact})
+
+    changed_module_flag = copy.deepcopy(artifact)
+    next(row for row in changed_module_flag["timeline"] if row["kind"] == "program")["fields"][
+        "module"
+    ] = False
+    assert "semantic_initialization" not in census_for({"public": changed_module_flag})
+
+    unpublished_module = copy.deepcopy(artifact)
+    next(row for row in unpublished_module["timeline"] if row["kind"] == "program")["mode"] = (
+        "generated"
+    )
+    assert "semantic_initialization" not in census_for({"public": unpublished_module})
+
+    substituted_source = copy.deepcopy(artifact)
+    next(row for row in substituted_source["timeline"] if row["kind"] == "program")["fields"][
+        "source"
+    ] += " "
+    assert "semantic_initialization" not in census_for({"public": substituted_source})
+
+
+def test_v8_recovery_requires_exact_source_effect_reconciliation_and_result():
+    artifact = fixture_examples("semantic-source-recovery-census-v8.json.gz.b64")[0]
+    receipt = validate_v8_artifact(artifact)
+    assert all(
+        receipt["checks"][name] == "passed" for name in ("replay", "contexts", "continuation")
+    )
+    assert "semantic_recovery" in census_for(artifact)
+    assert "semantic_source_reread" in census_for(artifact)
+
+    missing_request = copy.deepcopy(artifact)
+    missing_request["public"]["timeline"] = [
+        row
+        for row in missing_request["public"]["timeline"]
+        if not (
+            row["kind"] == "semantic"
+            and parse_record(row["fields"]["line"], role="generated")[0] == "request"
+        )
+    ]
+    assert "semantic_recovery" not in census_for(missing_request)
+
+    foreign_dispatch = copy.deepcopy(artifact)
+    next(row for row in foreign_dispatch["public"]["timeline"] if row["kind"] == "dispatch")[
+        "fields"
+    ]["effectId"] = "another-effect"
+    assert "semantic_recovery" not in census_for(foreign_dispatch)
+
+    missing_first_attempt = copy.deepcopy(artifact)
+    next(row for row in missing_first_attempt["public"]["timeline"] if row["kind"] == "dispatch")[
+        "fields"
+    ]["attempt"] = 2
+    assert "semantic_recovery" not in census_for(missing_first_attempt)
+
+    dispatch_after_reconcile = copy.deepcopy(artifact)
+    reconcile = next(
+        row for row in dispatch_after_reconcile["public"]["timeline"] if row["kind"] == "reconcile"
+    )
+    dispatch = next(
+        row for row in dispatch_after_reconcile["public"]["timeline"] if row["kind"] == "dispatch"
+    )
+    dispatch["sequence"] = reconcile["sequence"] + 2
+    assert "semantic_recovery" not in census_for(dispatch_after_reconcile)
+
+    mismatched_result = copy.deepcopy(artifact)
+    result = next(row for row in mismatched_result["public"]["timeline"] if row["kind"] == "result")
+    result["fields"]["status"] = "rejected"
+    assert "semantic_recovery" not in census_for(mismatched_result)
+
+    # A not-dispatched reconciliation only counts when the exact effect is
+    # safely retried and an observed result arrives after that retry.
+    not_dispatched = fixture_examples("semantic-recovery-v8.json.gz.b64")[3]
+    assert "semantic_recovery" in census_for(not_dispatched)
+    lost = fixture_examples("semantic-recovery-v8.json.gz.b64")[2]
+    assert "semantic_recovery" not in census_for(lost)
+
+    # The public timeline has no authoritative handler-lost transition, so a
+    # callback reattach/evidenceId pair alone cannot establish recovery.
+    reattached = fixture_examples("semantic-recovery-v8.json.gz.b64")[4]
+    assert "semantic_recovery" not in census_for(reattached)

@@ -484,7 +484,8 @@ def semantic_behaviors_v8(episode):
         behaviors.add("semantic_callback")
     if any(
         fields.get("activation") == "module-init"
-        and source_bound_programs.get(fields.get("programId"), {}).get("module") is True
+        and (program_pair := source_bound_programs.get(fields.get("programId"))) is not None
+        and program_pair[1].get("module") is True
         for _, fields in bound_invocations.values()
     ):
         behaviors.add("semantic_initialization")
@@ -497,20 +498,155 @@ def semantic_behaviors_v8(episode):
         for row in rows
     ):
         behaviors.add("semantic_cancel")
-    if any(
-        row.get("mode") == "observed"
-        and row["kind"] == "reconcile"
-        and row["fields"].get("invocationId") in bound_invocations
-        and session(row["fields"])
-        == session(bound_invocations[row["fields"]["invocationId"]][0]["fields"])
-        or row.get("mode") == "observed"
-        and row["kind"] == "callback-reattach"
-        and any(
-            session(row["fields"]) == session(invocation[0]["fields"])
-            for invocation in bound_invocations.values()
+
+    def matching_observed_result(row, invocation_id, effect_id, status):
+        fields = row.get("fields", {})
+        if (
+            row.get("kind") != "result"
+            or row.get("mode") != "observed"
+            or fields.get("invocationId") != invocation_id
+            or fields.get("effectId") != effect_id
+            or fields.get("status") != status
+        ):
+            return False
+        try:
+            kind, observed = parse_record(fields.get("line"), role="observed")
+        except (TypeError, ValueError):
+            return False
+        return (
+            kind == "observe"
+            and observed.get("effect") == effect_id
+            and observed.get("status") == status
+            and observed.get("result") == fields.get("result")
         )
-        for row in rows
-    ):
+
+    def linked_reconciliation(row):
+        fields = row["fields"]
+        invocation_id = fields.get("invocationId")
+        effect_id = fields.get("effectId")
+        bound = bound_invocations.get(invocation_id)
+        if bound is None or not isinstance(effect_id, str) or not effect_id:
+            return False
+        invocation_row, _ = bound
+        reconciliation_sequence = sequence(row)
+        invocation_sequence = sequence(invocation_row)
+        invocation_track = track(invocation_row["fields"])
+        invocation_session = session(invocation_row["fields"])
+        disposition = fields.get("disposition")
+        if (
+            row.get("mode") != "observed"
+            or reconciliation_sequence is None
+            or invocation_sequence is None
+            or reconciliation_sequence <= invocation_sequence
+            or track(fields) is None
+            or track(fields) != invocation_track
+            or session(fields) is None
+            or session(fields) != invocation_session
+            or not isinstance(fields.get("evidenceId"), str)
+            or not fields["evidenceId"]
+            or disposition not in {"not-dispatched", "fulfilled", "rejected"}
+        ):
+            return False
+
+        requests = [
+            request_row
+            for request_row, kind, request in generated
+            if kind == "request"
+            and request.get("invocation") == invocation_id
+            and request.get("effect") == effect_id
+            and request_row.get("mode") == "generated"
+            and request_row.get("fields", {}).get("invocationId") == invocation_id
+            and session(request_row.get("fields", {})) == invocation_session
+            and track(request_row.get("fields", {})) == invocation_track
+            and sequence(request_row) is not None
+            and invocation_sequence < sequence(request_row) < reconciliation_sequence
+        ]
+        if len(requests) != 1:
+            return False
+        request_sequence = sequence(requests[0])
+        dispatches = [
+            candidate
+            for candidate in rows
+            if candidate.get("kind") == "dispatch"
+            and candidate.get("mode") == "observed"
+            and candidate.get("fields", {}).get("invocationId") == invocation_id
+            and candidate.get("fields", {}).get("effectId") == effect_id
+            and candidate.get("fields", {}).get("key") == f"{invocation_id}/{effect_id}"
+            and type(candidate.get("fields", {}).get("attempt")) is int
+            and candidate["fields"]["attempt"] > 0
+            and session(candidate.get("fields", {})) == invocation_session
+            and track(candidate.get("fields", {})) == invocation_track
+            and sequence(candidate) is not None
+            and request_sequence < sequence(candidate) < reconciliation_sequence
+        ]
+        dispatches.sort(key=sequence)
+        if (
+            not dispatches
+            or dispatches[0]["fields"]["attempt"] != 1
+            or any(
+                right["fields"]["attempt"] != left["fields"]["attempt"] + 1
+                for left, right in zip(dispatches, dispatches[1:], strict=False)
+            )
+        ):
+            return False
+        dispatch = dispatches[-1]
+        if any(
+            result.get("kind") == "result"
+            and result.get("fields", {}).get("invocationId") == invocation_id
+            and result.get("fields", {}).get("effectId") == effect_id
+            and sequence(result) is not None
+            and sequence(dispatch) < sequence(result) < reconciliation_sequence
+            for result in rows
+        ):
+            return False
+
+        if disposition in {"fulfilled", "rejected"}:
+            return any(
+                sequence(result) == reconciliation_sequence + 1
+                and session(result.get("fields", {})) == invocation_session
+                and track(result.get("fields", {})) == invocation_track
+                and matching_observed_result(result, invocation_id, effect_id, disposition)
+                for result in rows
+            )
+        if disposition == "not-dispatched":
+            retries = [
+                candidate
+                for candidate in rows
+                if candidate.get("kind") == "dispatch"
+                and candidate.get("mode") == "observed"
+                and candidate.get("fields", {}).get("invocationId") == invocation_id
+                and candidate.get("fields", {}).get("effectId") == effect_id
+                and candidate.get("fields", {}).get("key") == f"{invocation_id}/{effect_id}"
+                and candidate.get("fields", {}).get("attempt") == dispatch["fields"]["attempt"] + 1
+                and session(candidate.get("fields", {})) == invocation_session
+                and track(candidate.get("fields", {})) == invocation_track
+                and sequence(candidate) is not None
+                and sequence(candidate) > reconciliation_sequence
+            ]
+            if len(retries) != 1:
+                return False
+            retry_sequence = sequence(retries[0])
+            return any(
+                sequence(result) is not None
+                and sequence(result) > retry_sequence
+                and session(result.get("fields", {})) == invocation_session
+                and track(result.get("fields", {})) == invocation_track
+                and result.get("fields", {}).get("status") in {"fulfilled", "rejected"}
+                and matching_observed_result(
+                    result,
+                    invocation_id,
+                    effect_id,
+                    result.get("fields", {}).get("status"),
+                )
+                for result in rows
+            )
+        return False
+
+    if any(row.get("kind") == "reconcile" and linked_reconciliation(row) for row in rows):
+        # A bare callback-reattach row is not proof that the prior handler was
+        # lost: the public V8 timeline records the reattach receipt but no
+        # authoritative lost-state transition. Count recovery only when a
+        # reconciled source effect is linked to its exact request and outcome.
         behaviors.add("semantic_recovery")
 
     # A checked reread is an observed eviction/read pair for one already
