@@ -188,7 +188,37 @@ def test_supplied_repository_identities_cannot_stand_in_for_the_running_consumer
         qualify_code_revisions(roots)
     with pytest.raises(ValueError, match="distinct checkout"):
         qualify_code_revisions({name: roots["megatoken"] for name in roots})
-    roots["megatoken"] = Path(launch.__file__).resolve().parents[3]
+
+    # Source-tree runs can use their actual checkout. Wheel-based CI runs must
+    # continue to reject an unrelated checkout, since the imported package is
+    # not executing from that checkout.
+    running_file = Path(launch.__file__).resolve()
+    running_package = running_file.parents[1]
+    actual_checkout = running_file.parents[3]
+    roots["megatoken"] = actual_checkout
+    if (actual_checkout / "src/megatoken").resolve() == running_package:
+        assert set(qualify_code_revisions(roots)) == set(roots)
+    else:
+        with pytest.raises(ValueError, match="running megatoken package"):
+            qualify_code_revisions(roots)
+
+    wheel_module = (
+        tmp_path / "wheel/lib/python3.12/site-packages/megatoken/training/semantic_launch.py"
+    )
+    wheel_module.parent.mkdir(parents=True)
+    monkeypatch.setattr(launch, "__file__", str(wheel_module))
+    roots["megatoken"] = tmp_path / "separate-clean-checkout"
+    roots["megatoken"].mkdir()
+    with pytest.raises(ValueError, match="running megatoken package"):
+        qualify_code_revisions(roots)
+
+    # Exercise the clean-checkout success path in either source or wheel CI by
+    # placing the imported module at the corresponding synthetic source path.
+    simulated_checkout = tmp_path / "running-consumer"
+    simulated_module = simulated_checkout / "src/megatoken/training/semantic_launch.py"
+    simulated_module.parent.mkdir(parents=True)
+    monkeypatch.setattr(launch, "__file__", str(simulated_module))
+    roots["megatoken"] = simulated_checkout
     assert set(qualify_code_revisions(roots)) == set(roots)
     monkeypatch.setattr(launch, "repository_identity", lambda path: {"clean": False})
     with pytest.raises(ValueError, match="committed, clean"):
@@ -250,9 +280,29 @@ print(json.dumps(report))
 
 
 def test_actual_two_split_supply_derives_the_ordinary_stream_without_writes(two_split_supply):
+    from megatoken.data.recipes import stage_recipe
+    from megatoken.training.stream import MixtureWindowStream
+    from megatoken.training.windows import window_config
+
     _, _, config, codec, model, destination = two_split_supply
     before = {str(path): sha256_file(path) for path in destination.rglob("*") if path.is_file()}
     report = qualify_corpus_v8(config, codec, model)
+    ordinary_stream = MixtureWindowStream(
+        config.datasets,
+        codec,
+        window_config(config),
+        stage_recipe(config.phase).mixture,
+        config.schedule.meter,
+        seed=config.seed,
+        rank=config.decoupled.resolved_worker_id,
+        world_size=config.decoupled.workers,
+        reduce_counts=lambda counts: counts,
+        independent=True,
+    )
+    try:
+        assert report["trainingLineage"]["streamDigest"] == ordinary_stream.fingerprint
+    finally:
+        ordinary_stream.close()
     assert report["episodes"] == {"train": 1, "validation": 1, "test": 0}
     assert report["coverage"] == {"train": "passed", "validation": "passed"}
     assert report["trainingLineage"]["preparedCorpusDigest"] == report["corpusIdentity"]

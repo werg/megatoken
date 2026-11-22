@@ -1,0 +1,20 @@
+[
+  {
+    "path": "test-semantic-launch-v8.log.gz.b64",
+    "decodedBytes": 1720,
+    "decodedSha256": "a970fc308bc57eea62e6db3c311b700676a69ab1272f66c93596d0b058932150",
+    "storedSha256": "b9cc92ee51b7bb82c9413a264f4e3c3219228caae70eea874dc8a90c88f22ad0"
+  },
+  {
+    "path": "test-semantic-launch-v8-non-ml.log.gz.b64",
+    "decodedBytes": 114,
+    "decodedSha256": "1deef9cc3f32d0395127cc4bc78f0c18275e4f35a5566ce784fe8d0f5361c47b",
+    "storedSha256": "5391d27181316e01672652f0718ca9639bed01188620bdeb80cd889b8f2a09b4"
+  },
+  {
+    "path": "test-semantic-v8-export-without-legacy.log.gz.b64",
+    "decodedBytes": 99,
+    "decodedSha256": "5579796f7a706be1359492675bd061951d7ff51b1e363ecbe8b7a659d23aa7b5",
+    "storedSha256": "519c55ba33dab882fc0fc2cfae2e006cbb699da29a3b194dc8f003e90af35560"
+  }
+]
