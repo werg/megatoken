@@ -191,7 +191,7 @@ class DurableNativeCommitBridge:
             "model_identity": model,
         }
 
-    def assert_operation(self, operation, request=None):
+    def assert_operation(self, operation, request=None, *, _durable_bootstrap=False):
         try:
             self.execution_lease.assert_held()
         except BaseException:
@@ -201,15 +201,15 @@ class DurableNativeCommitBridge:
             return
         if self.fenced:
             _fail("this process is fenced after an uncertain durable operation")
-        if operation in {"commit", "commit_orchestration", "commit-orchestration"}:
+        normalized = operation.replace("_", "-") if isinstance(operation, str) else operation
+        if normalized in _COMMITS:
             _fail("configured durable sessions require durable-commit")
-        if operation in {"bootstrap_orchestration_child", "bootstrap-orchestration-child"}:
-            _fail("configured durable sessions require durable-bootstrap")
-        if operation == "restore":
+        if normalized in _BOOTSTRAPS and not _durable_bootstrap:
+            _fail("configured durable sessions require durable-bootstrap-child")
+        if normalized == "restore":
             _fail(
                 "configured durable sessions require explicit recover-commit, not ordinary restore"
             )
-        normalized = operation.replace("_", "-") if isinstance(operation, str) else operation
         if normalized in _MUTATIONS and not self._started:
             if self.journal.has_history(self._scope_identity()):
                 _fail(
@@ -360,7 +360,7 @@ class DurableNativeCommitBridge:
             _fail("bootstrap predecessor is not the exact coordinator child-create commit")
         frame = _canonical(
             {
-                "schema": "semantic-native-durable-bootstrap-request/8",
+                "schema": "semantic-native-durable-bootstrap-child-request/8",
                 "preCheckpointDigest": preCheckpointDigest,
                 "requestBase64": requestBase64,
                 "createIdentity": create_identity,
@@ -438,7 +438,28 @@ class DurableNativeCommitBridge:
         ):
             _fail("bootstrap predecessor did not create the exact unbootstrapped child")
 
-    def _check_bootstrap_checkpoints(self, request, response, checkpoint, before, before_digest):
+    def _check_bootstrap_pre(self, request, create_value, create_response, before, digest):
+        if (
+            type(before) is not dict
+            or before.get("digest") != digest
+            or digest
+            != stable_algorithm_hash(
+                {key: value for key, value in before.items() if key != "digest"}
+            )
+            or not _same(before, create_value["postCheckpoint"])
+        ):
+            _fail("bootstrap precheckpoint is not the complete acknowledged child-create state")
+        sessions = before.get("sessions")
+        if type(sessions) is not dict or any(
+            type(saved) is not dict or saved.get("unacknowledgedSelection") is not None
+            for saved in sessions.values()
+        ):
+            _fail("bootstrap precheckpoint contains an uncommitted selection")
+        self._check_bootstrap_predecessor(request, before, create_value, create_response)
+
+    def _check_bootstrap_checkpoints(
+        self, request, response, checkpoint, before, before_digest, create_response
+    ):
         if (
             type(before) is not dict
             or before.get("digest") != before_digest
@@ -546,6 +567,18 @@ class DurableNativeCommitBridge:
         ):
             _fail("bootstrap did not append its one exact ordered native operation")
         result = response.get("result") if type(response) is dict else None
+        returned_track = result.get("track") if type(result) is dict else None
+        create_result = create_response.get("result") if type(create_response) is dict else None
+        created_track = create_result.get("track") if type(create_result) is dict else None
+        expected_track = (
+            {
+                **created_track,
+                "bootstrap_ready": True,
+                "status": returned_track.get("status"),
+            }
+            if type(created_track) is dict and type(returned_track) is dict
+            else None
+        )
         if (
             type(response) is not dict
             or set(response) != {"id", "ok", "result"}
@@ -555,13 +588,13 @@ class DurableNativeCommitBridge:
             or set(result) != {"schema", "track", "bootstrapped"}
             or result.get("schema") != "semantic-orchestration-bootstrap/8"
             or result.get("bootstrapped") is not True
-            or type(result.get("track")) is not dict
-            or result["track"].get("address") != request["childTrack"]
-            or result["track"].get("bootstrap_ready") is not True
-            or result["track"].get("status") not in {"active", "waiting"}
-            or not _same(result["track"].get("execution"), matches[0].get("execution"))
+            or type(returned_track) is not dict
+            or returned_track.get("address") != request["childTrack"]
+            or returned_track.get("bootstrap_ready") is not True
+            or returned_track.get("status") not in {"active", "waiting"}
+            or not _same(returned_track, expected_track)
         ):
-            _fail("stored response differs from the exact bootstrapped child outcome")
+            _fail("bootstrap response differs from the exact reserved child outcome")
 
     def _bootstrap_envelope(
         self,
@@ -592,7 +625,7 @@ class DurableNativeCommitBridge:
                 "postCheckpoint",
                 "preCheckpoint",
             }
-            or value["schema"] != "semantic-native-durable-bootstrap-outcome/8"
+            or value["schema"] != "semantic-native-durable-bootstrap-child-outcome/8"
             or value["requestSha256"] != _sha(raw)
             or value["preCheckpointDigest"] != pre_digest
             or not _same(value["createIdentity"], create_identity)
@@ -613,10 +646,15 @@ class DurableNativeCommitBridge:
         if _reply_bytes(response) != response_raw:
             _fail("saved bootstrap response bytes differ")
         self._check_bootstrap_checkpoints(
-            request, response, value["postCheckpoint"], value["preCheckpoint"], pre_digest
+            request,
+            response,
+            value["postCheckpoint"],
+            value["preCheckpoint"],
+            pre_digest,
+            create_response,
         )
-        self._check_bootstrap_predecessor(
-            request, value["preCheckpoint"], create_value, create_response
+        self._check_bootstrap_pre(
+            request, create_value, create_response, value["preCheckpoint"], pre_digest
         )
         return value, response_raw, response
 
@@ -1079,7 +1117,7 @@ class DurableNativeCommitBridge:
         restored=None,
     ):
         return {
-            "schema": "semantic-native-durable-bootstrap/8",
+            "schema": "semantic-native-durable-bootstrap-child/8",
             "requestId": request_id,
             "identity": copy.deepcopy(identity),
             "requestSha256": _sha(raw),
@@ -1100,7 +1138,7 @@ class DurableNativeCommitBridge:
             "restoreReceipt": restored,
         }
 
-    def durable_bootstrap(
+    def durable_bootstrap_child(
         self,
         *,
         identity,
@@ -1110,7 +1148,7 @@ class DurableNativeCommitBridge:
         createRequestBase64,
         createPreCheckpointDigest,
     ):
-        self.assert_operation("durable-bootstrap")
+        self.assert_operation("durable-bootstrap-child")
         (
             identity,
             raw,
@@ -1140,27 +1178,35 @@ class DurableNativeCommitBridge:
                     require_latest=existing["status"] == "never-admitted",
                 )
             )
+            if existing["status"] == "never-admitted":
+                self.journal.assert_not_superseded(create_identity, create_frame)
+            else:
+                self.journal.assert_superseded_by(create_identity, create_frame, request)
             if existing["status"] == "unknown":
                 self.fenced = True
                 raise NativeRequestOutcomeUnknown(
                     "Native bootstrap outcome is unknown; recovery cannot retry it"
                 )
             if existing["status"] == "completed":
-                value, response_raw, response = self._bootstrap_envelope(
-                    existing["result_bytes"],
-                    request,
-                    raw,
-                    preCheckpointDigest,
-                    create_identity,
-                    create_raw,
-                    createPreCheckpointDigest,
-                    create_value,
-                    create_response,
-                )
-                if not _same(self.adapter.checkpoint(), value["postCheckpoint"]):
-                    _fail("whole live adapter differs from saved bootstrap poststate")
-                if not _same(response.get("result"), self._live_bootstrap_result(request)):
-                    _fail("stored response differs from the complete live bootstrap state")
+                try:
+                    value, response_raw, response = self._bootstrap_envelope(
+                        existing["result_bytes"],
+                        request,
+                        raw,
+                        preCheckpointDigest,
+                        create_identity,
+                        create_raw,
+                        createPreCheckpointDigest,
+                        create_value,
+                        create_response,
+                    )
+                    if not _same(self.adapter.checkpoint(), value["postCheckpoint"]):
+                        _fail("whole live adapter differs from saved bootstrap poststate")
+                    if not _same(response.get("result"), self._live_bootstrap_result(request)):
+                        _fail("stored response differs from the complete live bootstrap state")
+                except BaseException:
+                    self.fenced = True
+                    raise
                 return self._bootstrap_receipt(
                     identity,
                     raw,
@@ -1180,7 +1226,12 @@ class DurableNativeCommitBridge:
                 raise NativeRequestConflict(
                     "Bootstrap precheckpoint differs from its exact committed create"
                 )
-            self._check_bootstrap_predecessor(request, before, create_value, create_response)
+            self._check_bootstrap_pre(request, create_value, create_response, before, preCheckpointDigest)
+
+            # The bootstrap slot is the exact mutation that supersedes the
+            # committed create's recoverability. Validate the full prestate
+            # first so a refusal cannot revoke a valid create outcome.
+            self.assert_operation("bootstrap-orchestration-child", request, _durable_bootstrap=True)
 
             def execute(_frame):
                 before = self.adapter.checkpoint()
@@ -1190,12 +1241,7 @@ class DurableNativeCommitBridge:
                     raise NativeRequestConflict(
                         "Bootstrap precheckpoint differs from its exact committed create"
                     )
-                self._check_bootstrap_predecessor(request, before, create_value, create_response)
-                if any(
-                    saved["unacknowledgedSelection"] is not None
-                    for saved in before["sessions"].values()
-                ):
-                    _fail("pending selections cannot survive bootstrap recovery")
+                self._check_bootstrap_pre(request, create_value, create_response, before, preCheckpointDigest)
                 result = self.adapter.bootstrap_orchestration_child(
                     session=request["session"],
                     track=request["track"],
@@ -1206,12 +1252,11 @@ class DurableNativeCommitBridge:
                 post = self.adapter.checkpoint()
                 response = {"id": request["id"], "ok": True, "result": result}
                 self._check_bootstrap_checkpoints(
-                    request, response, post, before, preCheckpointDigest
+                    request, response, post, before, preCheckpointDigest, create_response
                 )
-                self._check_bootstrap_predecessor(request, before, create_value, create_response)
                 return _canonical(
                     {
-                        "schema": "semantic-native-durable-bootstrap-outcome/8",
+                        "schema": "semantic-native-durable-bootstrap-child-outcome/8",
                         "requestSha256": _sha(raw),
                         "preCheckpointDigest": preCheckpointDigest,
                         "createIdentity": create_identity,
@@ -1268,7 +1313,7 @@ class DurableNativeCommitBridge:
                 self.fenced = True
                 raise
 
-    def recover_bootstrap(
+    def recover_bootstrap_child(
         self,
         *,
         identity,
@@ -1278,7 +1323,7 @@ class DurableNativeCommitBridge:
         createRequestBase64,
         createPreCheckpointDigest,
     ):
-        self.assert_operation("recover-bootstrap")
+        self.assert_operation("recover-bootstrap-child")
         (
             identity,
             raw,
@@ -1320,27 +1365,58 @@ class DurableNativeCommitBridge:
                 raise NativeRequestConflict(
                     "Native bootstrap was never admitted; recovery cannot execute it"
                 )
+            self.journal.assert_superseded_by(create_identity, create_frame, request)
             if readback["status"] != "completed":
                 raise NativeRequestOutcomeUnknown(
                     "Native bootstrap outcome is unknown; recovery cannot retry it"
                 )
-            value, response_raw, response = self._bootstrap_envelope(
-                readback["result_bytes"],
-                request,
-                raw,
-                preCheckpointDigest,
-                create_identity,
-                create_raw,
-                createPreCheckpointDigest,
-                create_value,
-                create_response,
-            )
             try:
-                restored = self.adapter.restore(checkpoint=value["postCheckpoint"])
-                if not _same(self.adapter.checkpoint(), value["postCheckpoint"]):
-                    _fail("whole restored adapter differs from saved bootstrap poststate")
+                value, response_raw, response = self._bootstrap_envelope(
+                    readback["result_bytes"],
+                    request,
+                    raw,
+                    preCheckpointDigest,
+                    create_identity,
+                    create_raw,
+                    createPreCheckpointDigest,
+                    create_value,
+                    create_response,
+                )
+            except BaseException:
+                self.fenced = True
+                raise
+            try:
+                restored = self.adapter.restore(checkpoint=value["preCheckpoint"])
+                restored_pre = self.adapter.checkpoint()
+                if not _same(restored_pre, value["preCheckpoint"]):
+                    _fail("whole restored adapter differs from bootstrap precheckpoint")
+                self._check_bootstrap_pre(
+                    request,
+                    create_value,
+                    create_response,
+                    restored_pre,
+                    preCheckpointDigest,
+                )
+                work = self.adapter.sessions.get(request["session"])
+                description = (
+                    None
+                    if work is None
+                    else work.runtime.tracks.tracks.get(request["childTrack"])
+                )
+                if description is None or description.bootstrap_ready:
+                    _fail("restored committed child is not unbootstrapped")
+                result = self.adapter.bootstrap_orchestration_child(
+                    session=request["session"],
+                    track=request["track"],
+                    childTrack=request["childTrack"],
+                )
+                replay_response = {"id": request["id"], "ok": True, "result": result}
+                if not _same(replay_response, response) or not _same(
+                    self.adapter.checkpoint(), value["postCheckpoint"]
+                ):
+                    _fail("independent full-state bootstrap reexecution differs from durable outcome")
                 if not _same(response.get("result"), self._live_bootstrap_result(request)):
-                    _fail("restored child differs from the exact bootstrap response")
+                    _fail("reexecuted child differs from the exact bootstrap response")
                 self._recoverable = (copy.deepcopy(identity), frame)
                 self._started = True
                 return self._bootstrap_receipt(

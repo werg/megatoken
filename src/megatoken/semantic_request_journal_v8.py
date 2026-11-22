@@ -661,6 +661,52 @@ class DurableNativeRequestJournal:
                 for item in directory.iterdir()
             )
 
+    def assert_not_superseded(self, identity: dict, request_bytes: bytes) -> None:
+        """Require a completed request slot to remain the acknowledged head."""
+        identity = _validate_identity(identity)
+        if not isinstance(request_bytes, bytes) or len(request_bytes) > self.max_request_bytes:
+            raise NativeRequestJournalError("request must be bounded exact bytes")
+        with self._locked(identity) as (directory, scope_id):
+            previous, _ = self._scan_prior(directory, scope_id, identity)
+            intent, result = self._check_slot(
+                directory, scope_id, identity, request_bytes, previous
+            )
+            if intent is None or result is None:
+                raise NativeRequestOutcomeUnknown("request slot has no completed outcome")
+            _, outcome_path = self._paths(directory, identity["ordinal"])
+            outcome = self._read_record(outcome_path, self.max_result_bytes * 2 + 8192)
+            if self._superseded(directory, identity, request_bytes, outcome) is not None:
+                raise NativeRequestConflict("native request was already superseded")
+
+    def assert_superseded_by(self, identity: dict, request_bytes: bytes, mutation: dict) -> None:
+        """Require a completed slot's supersession marker to bind this exact mutation."""
+        identity = _validate_identity(identity)
+        if not isinstance(request_bytes, bytes) or len(request_bytes) > self.max_request_bytes:
+            raise NativeRequestJournalError("request must be bounded exact bytes")
+        if (
+            type(mutation) is not dict
+            or type(mutation.get("op")) is not str
+            or not _ID.fullmatch(mutation["op"])
+        ):
+            raise NativeRequestJournalError("supersession requires an exact mutation request")
+        with self._locked(identity) as (directory, scope_id):
+            previous, _ = self._scan_prior(directory, scope_id, identity)
+            intent, result = self._check_slot(
+                directory, scope_id, identity, request_bytes, previous
+            )
+            if intent is None or result is None:
+                raise NativeRequestOutcomeUnknown("request slot has no completed outcome")
+            _, outcome_path = self._paths(directory, identity["ordinal"])
+            outcome = self._read_record(outcome_path, self.max_result_bytes * 2 + 8192)
+            marker = self._superseded(directory, identity, request_bytes, outcome)
+            if marker is None:
+                raise NativeRequestConflict("native request was not superseded")
+            if (
+                marker["mutation_sha256"] != _digest(_canonical(mutation))
+                or marker["operation"] != mutation["op"]
+            ):
+                raise NativeRequestConflict("native request was superseded by a different mutation")
+
     def supersede(self, identity: dict, request_bytes: bytes, mutation: dict) -> None:
         """Durably revoke state-recovery eligibility before an unjournaled mutation.
 
@@ -688,7 +734,15 @@ class DurableNativeRequestJournal:
                 )
             _, outcome_path = self._paths(directory, identity["ordinal"])
             outcome = self._read_record(outcome_path, self.max_result_bytes * 2 + 8192)
-            if self._superseded(directory, identity, request_bytes, outcome) is not None:
+            existing = self._superseded(directory, identity, request_bytes, outcome)
+            if existing is not None:
+                if (
+                    existing["mutation_sha256"] != mutation_digest
+                    or existing["operation"] != mutation["op"]
+                ):
+                    raise NativeRequestConflict(
+                        "native request was already superseded by a different mutation"
+                    )
                 return
             marker = {
                 "schema": _SCHEMA_SUPERSEDED,

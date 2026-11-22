@@ -179,6 +179,29 @@ def test_scope_creation_sync_failure_prevents_callback(tmp_path):
     assert calls == []
 
 
+def test_supersession_authority_binds_the_exact_later_mutation(tmp_path):
+    journal = DurableNativeRequestJournal(tmp_path / "journal")
+    slot = identity()
+    request = b"exact-frame"
+    first = {"id": "later-a", "op": "bootstrap-orchestration-child"}
+    other = {"id": "later-b", "op": "cancel-orchestration"}
+    journal.execute(slot, request, lambda _: b"known-result")
+
+    journal.assert_not_superseded(slot, request)
+    with pytest.raises(NativeRequestConflict, match="not superseded"):
+        journal.assert_superseded_by(slot, request, first)
+
+    journal.supersede(slot, request, first)
+    journal.assert_superseded_by(slot, request, first)
+    journal.supersede(slot, request, first)
+    with pytest.raises(NativeRequestConflict, match="different mutation"):
+        journal.assert_superseded_by(slot, request, other)
+    with pytest.raises(NativeRequestConflict, match="different mutation"):
+        journal.supersede(slot, request, other)
+    with pytest.raises(NativeRequestConflict, match="already superseded"):
+        journal.assert_not_superseded(slot, request)
+
+
 def test_lost_outcome_publication_ack_is_recovered_only_after_fresh_sync(tmp_path):
     class LoseOutcomeAck(DurableNativeRequestJournal):
         publications = 0

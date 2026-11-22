@@ -40,8 +40,6 @@ def _dispatch(adapter, request, *, commit_bridge=None):
     if operation in {
         "durable-commit",
         "recover-commit",
-        "durable-bootstrap",
-        "recover-bootstrap",
         "durable-close",
         "recover-close",
     }:
@@ -50,11 +48,34 @@ def _dispatch(adapter, request, *, commit_bridge=None):
                 "Native durable operations require a configured execution lease and journal"
             )
         fields = {"id", "op", "identity", "requestBase64", "preCheckpointDigest"}
-        if operation in {"durable-bootstrap", "recover-bootstrap"}:
-            fields |= {"createIdentity", "createRequestBase64", "createPreCheckpointDigest"}
         if set(request) != fields:
             raise ValueError("Native durable operation RPC fields differ")
         return getattr(commit_bridge, operation.replace("-", "_"))(
+            **{key: value for key, value in request.items() if key not in {"id", "op"}}
+        )
+    if operation in {"durable-bootstrap-child", "recover-bootstrap-child"}:
+        if commit_bridge is None:
+            raise ValueError(
+                "Native bootstrap durability requires a configured execution lease and journal"
+            )
+        fields = {
+            "id",
+            "op",
+            "identity",
+            "requestBase64",
+            "preCheckpointDigest",
+            "createIdentity",
+            "createRequestBase64",
+            "createPreCheckpointDigest",
+        }
+        if set(request) != fields:
+            raise ValueError("Native durable bootstrap RPC fields differ")
+        method = (
+            "durable_bootstrap_child"
+            if operation == "durable-bootstrap-child"
+            else "recover_bootstrap_child"
+        )
+        return getattr(commit_bridge, method)(
             **{key: value for key, value in request.items() if key not in {"id", "op"}}
         )
     if operation in {"metrics", "status"}:
