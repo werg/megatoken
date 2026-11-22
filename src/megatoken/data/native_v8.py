@@ -1309,7 +1309,7 @@ def _replay_shared_state(
                 )
             elif kind == "protocol":
                 protocol_record = decode_protocol_record(fields["line"])
-                if protocol_record["kind"] == "promise.join.step":
+                if protocol_record["kind"] in ("promise.join.step", "async.resume"):
                     _assert_realm_scheduler_turn(
                         {
                             identity: saved
@@ -1318,7 +1318,9 @@ def _replay_shared_state(
                             and identity not in cancelled_invocations
                         },
                         active_invocation,
-                        protocol_record["job"],
+                        protocol_record["continuation"]
+                        if protocol_record["kind"] == "async.resume"
+                        else protocol_record["job"],
                     )
                 if state.get("protocol") is None and (
                     len(state["stack"]) != 1

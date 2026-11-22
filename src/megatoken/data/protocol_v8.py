@@ -11,6 +11,11 @@ import json
 import math
 
 from . import semantic_primitives as primitives
+from .async_call_v8 import FIELDS as ASYNC_CALL_FIELDS
+from .async_call_v8 import apply_record as apply_async_call_record
+from .async_call_v8 import assert_next as assert_async_call_next
+from .async_call_v8 import validate_record as validate_async_call_record
+from .async_call_v8 import validate_state as validate_async_call_state
 from .construction_v8 import FIELDS as CONSTRUCTION_FIELDS
 from .construction_v8 import apply_record as apply_construction_record
 from .construction_v8 import assert_next as assert_construction_next
@@ -259,6 +264,8 @@ def _expression(term, depth=0, budget=None):
 def validate_protocol_record(record):
     if type(record) is not dict or not isinstance(record.get("kind"), str):
         _fail("record kind must be a string")
+    if record["kind"] in ASYNC_CALL_FIELDS:
+        return validate_async_call_record(record)
     if record["kind"] in ENUMERATION_FIELDS:
         return validate_enumeration_record(record)
     if record["kind"] in PROMISE_EXECUTOR_FIELDS:
@@ -916,10 +923,11 @@ def _apply(machine, record):
         _fail("property finish must consume child completion")
     if machine.get("completion") is not None:
         _fail("record after completion")
-    if not machine["stack"] and record["kind"] not in ("end", "promise.join.step"):
+    if not machine["stack"] and record["kind"] not in ("end", "promise.join.step", "async.resume"):
         _fail("active invocation required")
     kind = record["kind"]
     if not machine.get("_internalProtocolTransition"):
+        assert_async_call_next(machine, record)
         assert_number_next(machine, record)
         assert_primitive_conversion_next(machine, record)
         assert_generator_next(machine, record)
@@ -939,6 +947,10 @@ def _apply(machine, record):
     if kind in ENUMERATION_FIELDS:
         if not apply_enumeration_record(machine, record):
             _fail("unsupported enumeration transition")
+        return
+    if kind in ASYNC_CALL_FIELDS:
+        if not apply_async_call_record(machine, record):
+            _fail("unsupported async call transition")
         return
     if kind in PROMISE_JOIN_FIELDS:
         if not apply_promise_join_record(machine, record):
@@ -1109,6 +1121,8 @@ def _apply(machine, record):
             _fail("owned callable required")
         if node.get("generatorFunction") is True and not machine.get("_internalProtocolTransition"):
             _fail("generator call requires its declared creation/resume protocol")
+        if node.get("asyncFunction") is True and not machine.get("_internalProtocolTransition"):
+            _fail("async callable requires its execution-Promise call protocol")
         if node.get("callable", {}).get("classConstructor"):
             _fail("class constructor cannot be called without construction")
         if any(capture["cell"] not in machine["locals"] for capture in node["captures"]):
@@ -1678,6 +1692,7 @@ def validate_protocol_state(snapshot, heap_ids=(), shared_state=None):
         validate_promise_executor_state(memory_machine)
         validate_number_state(memory_machine)
         validate_generator_state(memory_machine)
+        validate_async_call_state(memory_machine)
         validate_proxy_state(memory_machine)
     return True
 
@@ -1745,6 +1760,7 @@ def apply_protocol_to_shared_state(shared_state, line, *, namespace_plan=None):
     assert_number_next(machine, record)
     assert_primitive_conversion_next(machine, record)
     assert_generator_next(machine, record)
+    assert_async_call_next(machine, record)
     assert_proxy_next(machine, record)
     assert_promise_executor_next(machine, record)
     assert_promise_join_next(machine, record)
@@ -1908,6 +1924,7 @@ def assert_detailed_record_compatible(shared_state, kind, fields, *, namespace_p
     assert_number_next(machine, {"kind": kind, "fields": fields})
     assert_primitive_conversion_next(machine, {"kind": kind, "fields": fields})
     assert_generator_next(machine, {"kind": kind, **fields})
+    assert_async_call_next(machine, {"kind": kind, **fields})
     assert_proxy_next(machine, {"kind": kind, **fields})
     assert_promise_executor_next(machine, {"kind": kind, **fields})
     assert_promise_join_next(machine, {"kind": kind, **fields})
@@ -1932,6 +1949,8 @@ def assert_detailed_record_compatible(shared_state, kind, fields, *, namespace_p
             or node.get("kind") == "generator"
             or node.get("kind") == "enumerator"
             or node.get("generatorFunction") is True
+            or node.get("asyncFunction") is True
+            or "asyncCall" in node
             or node.get("kind") == "proxy"
             or node.get("promiseResolver")
         )
@@ -1969,6 +1988,8 @@ def assert_detailed_record_compatible(shared_state, kind, fields, *, namespace_p
         target = machine["heap"].get(identity)
         if target and target.get("generatorFunction") is True:
             _fail("Detailed call bypasses generator creation/resume protocol")
+        if target and target.get("asyncFunction") is True:
+            _fail("Detailed call bypasses async execution-Promise protocol")
         if kind == "call" and target:
             assert_promise_executor_callable(machine, ["ref", identity])
     if shared_state["protocol"]["pendingCalls"] and kind == "end":
