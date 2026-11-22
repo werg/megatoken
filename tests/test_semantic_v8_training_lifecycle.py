@@ -80,6 +80,21 @@ def test_v8_normal_update_checkpoint_fresh_process_resume(tmp_path, monkeypatch)
     assert exposure["sources"]["source-1"]["split"] == "train"
     assert exposure["sources"]["source-1"]["logicalTargets"]
     assert first["semantic_v8_target_exposure"]["physicalTargetRecordCount"] > 0
+    positions = payload["semantic_v8_position_exposure"]
+    assert positions["optimizerUpdates"] == 1
+    assert positions["lastGlobalStep"] == 1
+    assert positions["registryDigest"] == registry["digest"]
+    assert checkpoint_metadata["semantic_v8_position_digest"] == positions["digest"]
+    assert set(positions["sources"]) == {"source-1"}
+    report = first["semantic_v8_position_exposure"]
+    assert (
+        report["physicalTargetRecordCount"]
+        == first["semantic_v8_target_exposure"]["physicalTargetRecordCount"]
+    )
+    assert report["verifiedPhysicalTargets"] == report["physicalTargetRecordCount"]
+    assert report["unmeasuredPhysicalTargets"] == 0
+    assert report["positiveWeightPositionCounts"]["lexical"] > 0
+    assert report["routerInternalPositionCoverage"] == "unmeasured"
     assert max(int(state["step"]) for state in payload["optimizer"]["moments"].values()) == 1
 
     config_path = tmp_path / "resume-config.json"
@@ -112,7 +127,8 @@ config=TrainConfig.from_dict(json.loads(open(sys.argv[1]).read()))
 result=train(config,resume=sys.argv[2])
 assert not blocked.intersection(sys.modules)
 print(json.dumps({'global_step':result['global_step'],'termination':result['termination'],
- 'semantic_v8_target_exposure':result['semantic_v8_target_exposure']}))
+ 'semantic_v8_target_exposure':result['semantic_v8_target_exposure'],
+ 'semantic_v8_position_exposure':result['semantic_v8_position_exposure']}))
 """
     environment = dict(os.environ, OMP_NUM_THREADS="1", MKL_NUM_THREADS="1")
     completed = subprocess.run(
@@ -130,6 +146,61 @@ print(json.dumps({'global_step':result['global_step'],'termination':result['term
     assert result["semantic_v8_target_exposure"]["optimizerUpdates"] == 2
     assert result["semantic_v8_target_exposure"]["lastGlobalStep"] == 2
     assert result["semantic_v8_target_exposure"]["sources"]["source-1"]["split"] == "train"
+    resumed_positions = result["semantic_v8_position_exposure"]
+    assert resumed_positions["optimizerUpdates"] == resumed_positions["lastGlobalStep"] == 2
+    assert (
+        resumed_positions["positiveWeightPositionCounts"]["lexical"]
+        > report["positiveWeightPositionCounts"]["lexical"]
+    )
+    from megatoken.data import PreparedCorpus
+    from megatoken.model import ModelConfig
+    from megatoken.training.positions_v8 import (
+        independent_position_inventory,
+        qualify_position_history,
+    )
+
+    with PreparedCorpus([prepared], split="train") as corpus:
+        position_inventory = independent_position_inventory(
+            [corpus.fetch(index)[0] for index in range(len(corpus))],
+            codec=ByteCodec.byte_fallback(),
+            config=config,
+            model_config=ModelConfig.from_dict(payload["model_config"]),
+            modalities=[0],
+            prepared_manifest_fingerprint=manifest["fingerprint"],
+            expected_source_ids=["source-1"],
+        )
+    latest = json.loads((tmp_path / "fit/checkpoints/latest.json").read_text())
+    resumed_payload, resumed_metadata = load_checkpoint(
+        tmp_path / "fit/checkpoints" / latest["checkpoint"]
+    )
+    position_history = qualify_position_history(
+        payload,
+        resumed_payload,
+        inventory=position_inventory,
+        first_metadata=checkpoint_metadata,
+        resumed_metadata=resumed_metadata,
+    )
+    assert position_history["historyContinued"] is True
+    assert position_history["fullPopulationQualified"] is False
+    assert position_history["resumedCheckpointDigest"] == resumed_positions["digest"]
+    proof = {
+        "sourceCommit": subprocess.check_output(
+            ["git", "rev-parse", "HEAD"], cwd=Path(__file__).resolve().parents[1], text=True
+        ).strip(),
+        "scope": "Actual tiny optimizer and fresh-process resume; injected source/tokenizer fixture boundaries; no full support-population or learned-quality claim",
+        "runtime": {
+            "torch": str(torch.__version__),
+            "device": "cpu",
+            "precision": config.precision,
+        },
+        "firstCheckpointMetadata": checkpoint_metadata,
+        "resumedCheckpointMetadata": resumed_metadata,
+        "independentPreparedPositionInventory": position_inventory,
+        "firstPositionExposure": positions,
+        "resumedPositionExposure": resumed_payload["semantic_v8_position_exposure"],
+        "qualification": position_history,
+    }
+    (tmp_path / "position-resume-proof.json").write_text(json.dumps(proof, indent=2) + "\n")
 
     forged_payload = {
         **payload,

@@ -367,6 +367,30 @@ def qualify_checkpoints(
             "available": derived_inventory["available"],
             "positiveWeight": derived_inventory["positiveWeight"],
         }
+    from qualify_semantic_v8_target_coverage import prepared_position_inventory
+
+    from megatoken.training.positions_v8 import qualify_position_history
+
+    datasets = first["train_config"]["datasets"]
+    require(len(datasets) == 1, "Lifecycle position evidence requires one immutable prepared root")
+    position_registry = read_json(Path(datasets[0]) / "semantic-v8-families.json")
+    position_inventory = prepared_position_inventory(
+        first["train_config"],
+        source_ids=[
+            source_id
+            for component in position_registry["components"]
+            if component["split"] == "train"
+            for source_id in component["sourceIds"]
+        ],
+        prepared_manifest_fingerprint=prepared["fingerprint"],
+    )
+    position_exposure = qualify_position_history(
+        first,
+        resumed,
+        inventory=position_inventory,
+        first_metadata=first_metadata,
+        resumed_metadata=resumed_metadata,
+    )
     served_lineage = read_json(served / "semantic-v8-lineage.json")
     validate_served_lineage_v8(served_lineage, manifest)
     require(served_lineage["training"] == resumed_lineage, "Serving lineage changed")
@@ -382,6 +406,7 @@ def qualify_checkpoints(
         "trainingLineage": resumed_lineage,
         "servingLineageDigest": served_lineage["digest"],
         "optimizerTargetExposure": target_exposure,
+        "optimizerPositionExposure": position_exposure,
     }
 
 
@@ -704,7 +729,7 @@ def main():
         "artifacts": [file_identity(path) for path in artifacts],
         "learnedSuccess": None,
         "limits": [
-            "Target-presence comparison counts exact positive-weight physical target records; token or mask-position coverage remains unmeasured.",
+            "Executed plain-text positions are independently checked for the observed two-update subset; complete-population positions require the separate full-pass gate. Hidden routing rows and unsupported objective positions remain unmeasured.",
             "Two optimizer updates do not qualify learned execution quality or prove every positive-loss target was exposed.",
             *(
                 []

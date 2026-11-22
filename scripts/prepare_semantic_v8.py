@@ -37,6 +37,7 @@ def main():
     parser.add_argument("--tokenizer-json", type=Path, required=True)
     parser.add_argument("--max-positions", type=int, default=8192)
     parser.add_argument("--max-history", type=int, default=1024)
+    parser.add_argument("--source-recheck-timeout-seconds", type=int, default=30)
     args = parser.parse_args()
     consumer = Path(__file__).resolve().parents[1]
     checked_revision(consumer, args.consumer_revision)
@@ -49,7 +50,11 @@ def main():
             artifact = Path(directory) / "artifact.json"
             artifact.write_text(json.dumps(document, ensure_ascii=False, separators=(",", ":")))
             receipt = recheck_source_binding(
-                document, artifact, args.producer_root, args.producer_revision
+                document,
+                artifact,
+                args.producer_root,
+                args.producer_revision,
+                timeout_seconds=args.source_recheck_timeout_seconds,
             )
             if receipt is None:
                 raise ValueError("Pinned V8 source replay did not return a receipt")

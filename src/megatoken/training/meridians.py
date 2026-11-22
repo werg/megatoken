@@ -681,6 +681,7 @@ def forward_meridian_batch(
     differentiate: bool = True,
     transducer: Any,
     window_scale: float = 1.0,
+    position_audit=None,
 ) -> dict[str, float | torch.Tensor]:
     """Differentiate through scored meridians and rebuild the actual prefix.
 
@@ -940,6 +941,9 @@ def forward_meridian_batch(
                 if native_group is None
                 else native_group.controls
             )
+            step_position_audit = (
+                None if position_audit is None else position_audit.step(step.records)
+            )
             result = multi.supervised_meridian(
                 state,
                 tracks=full_tracks,
@@ -948,6 +952,7 @@ def forward_meridian_batch(
                 control_payloads=full_controls,
                 full_group=native_group,
                 plan_indices=plan_indices,
+                position_audit=step_position_audit,
                 effort=batch.effort,
                 teacher_forced_action=teacher_forced,
                 relations=(
@@ -987,6 +992,8 @@ def forward_meridian_batch(
             )
             state = result.state
             losses.append(ledger.backward_loss(result.losses))
+            if position_audit is not None:
+                position_audit.accept(step_position_audit, result.losses)
             metrics["grouped_supervised_meridians"] += 1
             metrics["grouped_selected_events"] += len(
                 step.tracks if native_group is None else native_group.tracks

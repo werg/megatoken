@@ -132,7 +132,7 @@ def test_admission_cli_binds_all_four_materialized_targets(tmp_path, monkeypatch
     monkeypatch.setattr(
         admit_semantic_v8,
         "recheck_source_binding",
-        lambda *_: source_receipt(value, path, "b" * 40),
+        lambda *_, **_options: source_receipt(value, path, "b" * 40),
     )
     monkeypatch.setattr(
         sys,

@@ -316,8 +316,12 @@ def checked_revision(root, expected):
     return actual
 
 
-def recheck_source_binding(document, input_path, producer_root, producer_revision):
+def recheck_source_binding(
+    document, input_path, producer_root, producer_revision, *, timeout_seconds=30
+):
     """Ask the exact clean JS producer checkout to replay source correspondence."""
+    if type(timeout_seconds) is not int or not 1 <= timeout_seconds <= 900:
+        raise ValueError("Source recheck timeout must be an integer from 1 through 900 seconds")
     if producer_root is None or producer_revision is None:
         return None
     root = Path(producer_root).resolve()
@@ -377,11 +381,15 @@ def recheck_source_binding(document, input_path, producer_root, producer_revisio
             check=False,
             capture_output=True,
             text=True,
-            timeout=30,
+            timeout=timeout_seconds,
             env=_git_environment(),
         )
-    except (FileNotFoundError, subprocess.TimeoutExpired):
-        return None
+    except subprocess.TimeoutExpired as error:
+        raise ValueError(
+            "Pinned producer source replay exceeded its declared time bound"
+        ) from error
+    except FileNotFoundError as error:
+        raise ValueError("Pinned producer source replay executable is unavailable") from error
     check_producer_checkout()
     if completed.returncode != 0:
         raise ValueError("Pinned producer rejected semantic source correspondence")
@@ -434,6 +442,7 @@ def main():
     parser.add_argument("--tokenizer-json", type=Path)
     parser.add_argument("--producer-root", type=Path)
     parser.add_argument("--producer-revision")
+    parser.add_argument("--source-recheck-timeout-seconds", type=int, default=30)
     args = parser.parse_args()
     if args.input.resolve() == args.output.resolve():
         parser.error("Input and receipt paths must differ")
@@ -505,6 +514,7 @@ def main():
                 "composed-protocol-source/1",
                 "promise-joins-source/1",
                 "promise-executors-source/1",
+                "bound-module-scheduler-source/1",
             ):
                 supported = {
                     "owned-binary-memory/1",
@@ -520,6 +530,8 @@ def main():
                     "ordinary-data-proxy-source/1",
                     "ordinary-array-map-source/1",
                     "ordinary-for-in/1",
+                    "async-scoped-call-source/1",
+                    "bound-module-scheduler-source/1",
                 }
                 if (
                     not isinstance(extensions, list)
@@ -539,10 +551,44 @@ def main():
                     ["promise-executor/1", "promise-join/1"],
                 ):
                     raise ValueError("V8 Promise executor source evidence has an invalid inventory")
+                if profile == "bound-module-scheduler-source/1":
+                    plan = source_sidecar.get("moduleSchedulerPlan")
+                    published = [
+                        row["fields"].get("regionProgram", {}).get("moduleSchedulerPlan")
+                        for row in public["timeline"]
+                        if row["kind"] == "program"
+                    ]
+                    module_request = (
+                        source_sidecar.get("sourceProvenance", {})
+                        .get("upstream", {})
+                        .get("moduleEvidence", {})
+                        .get("request", {})
+                    )
+                    ownership = source_projection.get("moduleSchedulerOwnership", {})
+                    if (
+                        "bound-module-scheduler-source/1" not in extensions
+                        or not isinstance(plan, dict)
+                        or published != [plan]
+                        or module_request.get("experimentalSchedulerPlan") is not True
+                        or ownership.get("schema") != "bound-module-source-ownership/1"
+                        or ownership.get("planDigest") != plan.get("digest")
+                        or type(ownership.get("ownedEventCount")) is not int
+                        or ownership["ownedEventCount"] <= 0
+                        or len(ownership.get("cuts", [])) != ownership["ownedEventCount"]
+                    ):
+                        raise ValueError(
+                            "V8 module scheduler evidence lacks its exact source plan and ownership"
+                        )
+                elif "bound-module-scheduler-source/1" in extensions:
+                    raise ValueError("V8 module scheduler requires its declared source profile")
             else:
                 raise ValueError("V8 protocol source evidence has an unsupported protocol profile")
         source_verification = recheck_source_binding(
-            document, args.input, args.producer_root, args.producer_revision
+            document,
+            args.input,
+            args.producer_root,
+            args.producer_revision,
+            timeout_seconds=args.source_recheck_timeout_seconds,
         )
         if source_verification is not None:
             source_binding = "passed"

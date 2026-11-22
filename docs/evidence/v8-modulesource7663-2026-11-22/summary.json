@@ -1,0 +1,87 @@
+{
+  "schema": "semantic-module-source-hosted-qualification/1",
+  "runId": 45020274216,
+  "jobId": 137201398556,
+  "status": "completed",
+  "conclusion": "success",
+  "runUrl": "https://github.com/werg/tracing-js-self/actions/runs/45020274216",
+  "producer": {
+    "revision": "7663c11afddc98c4823a8193ac034dda9e8e153d",
+    "localTreeEquivalent": "e0856ddd0d8859eed5c89f471d7ec9e6e0bda400",
+    "tree": "ab893a7885e6d2f8bc94462dfc4697770ba86b89"
+  },
+  "consumer": {
+    "revision": "3fa9272cb4b91a869e62ed4835a395ea8c8fa429",
+    "localTreeEquivalent": "f773e9ededcd6f2a8e91131dc7fa7a6d2220d12c",
+    "tree": "e7ec41ae0d785191f08be7d3a05219068954f0b0"
+  },
+  "contractDigest": "a952385535b9b5e19d737206286f6f26c149f7301c51b4b106fe3b1cae5ab55a",
+  "interoperabilityDigest": "f5c2d5fd15ad3b84e9b17de771d2f72a58f3c7dee4969ded8a7eb9c3c449f661",
+  "interopPayloadCount": 6,
+  "sourceControls": {
+    "passed": 9,
+    "failed": 0,
+    "skipped": 0
+  },
+  "nativeAdmissionControls": {
+    "passed": 45,
+    "failed": 0,
+    "skipped": 0,
+    "elapsedSeconds": 57.69
+  },
+  "packingIntegration": {
+    "passed": 1,
+    "failed": 0,
+    "skipped": 0,
+    "elapsedSeconds": 731.4,
+    "stages": [
+      {
+        "command": "emit-semantic-v8-module-scheduler-artifact.mjs",
+        "seconds": 81.48888589500001
+      },
+      {
+        "command": "prepare_semantic_v8.py",
+        "seconds": 637.465040374
+      }
+    ]
+  },
+  "dataScope": {
+    "independentFamilies": 1,
+    "split": "validation",
+    "productionPopulationChanged": false,
+    "optimizerUpdates": 0,
+    "learnedSuccess": null
+  },
+  "sourceArtifactSha256": "b206c883e8f665af5ff1e959b035f4f009a22aad5dabc2cf6be4cffae13e5615",
+  "sourceArtifactBytes": 29521433,
+  "nativeTrainingDigest": "e5c8a825a43eba64f818b13e667d49297dd66b800470f505c49560be7bdc21b6",
+  "selectedTokenAndMaskDigest": "057829c2c1e4870deec4647f16c42281aa9aab40c8aedc2312a96e05d5bdee73",
+  "metrics": {
+    "logicalContexts": 708,
+    "logicalGeneratedTargets": 708,
+    "physicalSelectedTargets": 708,
+    "physicalContextParts": 11679,
+    "packedWindows": 898,
+    "totalScoredPositions": 22974,
+    "maxPackedWindowTokens": 8192,
+    "maxWholeContextTokens": 12300,
+    "contextsOver8192Tokens": 566
+  },
+  "mandatoryNativeChecks": {
+    "contexts": "passed",
+    "continuation": "passed",
+    "masks": "passed",
+    "replay": "passed",
+    "sourceBinding": "passed",
+    "tokenizer": "passed"
+  },
+  "neutralHashDependencyCorrectionIncluded": true,
+  "neutralHashModuleBlob": "978746664a782509dcf921aaf920deba99073a73",
+  "previousHostedExactPair": {
+    "producer": "5808abbbc44f7f2c8c8352ef1a659b8fd6025edc",
+    "consumer": "71e5400aae2a48a554dbabe90d9aaf6f99a3db43",
+    "runId": 45018445352
+  },
+  "previousArtifactTrainingAndSelectedTokenMaskDigestsMatch": true,
+  "limitation": "One explicitly enabled validation family; no production population, cost envelope or learned execution qualification. The two additional source-only graphs and diamond source refusal have separate evidence."
+}
