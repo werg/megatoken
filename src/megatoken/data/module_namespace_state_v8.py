@@ -20,6 +20,7 @@ _PLAN_SCHEMA = "semantic-module-namespace-plan/1"
 _STATE_SCHEMA = "semantic-module-namespace-state/1"
 _HASH = re.compile(r"^[a-f0-9]{64}$")
 _LOCAL = re.compile(r"^[A-Za-z_$][A-Za-z0-9_$]*$")
+_NAMESPACE_NAME = re.compile(r"^__traced_eval_namespace_(0|[1-9][0-9]*)$")
 _LOWERED_LOCAL = re.compile(
     r"^__traced_eval_m([1-9][0-9]*)_([A-Za-z_$][A-Za-z0-9_$]*)$"
 )
@@ -164,6 +165,8 @@ def build_experimental_module_namespace_plan(
         _fail("module graph exceeds bounds or contains an invalid source")
 
     cell_map: dict[str, dict[str, Any]] = {}
+    module_indexes: dict[str, int] = {}
+    index_files: dict[int, str] = {}
     for cell in cells:
         if (
             not _exact(cell, {"file", "local", "kind", "mutable", "loweredName"})
@@ -200,12 +203,12 @@ def build_experimental_module_namespace_plan(
             "loweredName": cell["loweredName"],
         }
 
-    module_indexes: dict[str, int] = {}
-    index_files: dict[int, str] = {}
     namespace_map: dict[str, dict[str, Any]] = {}
     for record in namespaces:
         if (
-            not _exact(record, {"file", "exports"})
+            not _exact(record, {"file", "namespaceName", "exports"})
+            or not isinstance(record["namespaceName"], str)
+            or not _NAMESPACE_NAME.fullmatch(record["namespaceName"])
             or not _canonical_path(record["file"])
             or record["file"] not in modules
             or not isinstance(record["exports"], list)
@@ -230,7 +233,11 @@ def build_experimental_module_namespace_plan(
                 _fail("namespace exports must be unique and lexically sorted")
             previous = entry["name"]
             exports.append({"name": entry["name"], "cell": identity})
-        namespace_map[record["file"]] = {"file": record["file"], "exports": exports}
+        namespace_map[record["file"]] = {
+            "file": record["file"],
+            "namespaceName": record["namespaceName"],
+            "exports": exports,
+        }
 
     body = {
         "schema": _PLAN_SCHEMA,
@@ -318,9 +325,13 @@ def verify_experimental_module_namespace_plan(plan: Any) -> bool:
 
     prior = None
     namespace_files: set[str] = set()
+    namespace_names: set[str] = set()
     for row in plan["namespaces"]:
         if (
-            not _exact(row, {"file", "exports"})
+            not _exact(row, {"file", "namespaceName", "exports"})
+            or not isinstance(row["namespaceName"], str)
+            or not _NAMESPACE_NAME.fullmatch(row["namespaceName"])
+            or row["namespaceName"] in namespace_names
             or not _canonical_path(row["file"])
             or row["file"] not in files
             or row["file"] in namespace_files
@@ -330,6 +341,7 @@ def verify_experimental_module_namespace_plan(plan: Any) -> bool:
             _fail("namespace plan namespace table is malformed")
         prior = row["file"]
         namespace_files.add(row["file"])
+        namespace_names.add(row["namespaceName"])
         previous = None
         for entry in row["exports"]:
             if (
@@ -416,7 +428,7 @@ def _verify_state(plan: dict[str, Any], state: Any) -> None:
         planned = next((item for item in plan["namespaces"] if item["file"] == row_file), None)
         if (
             not isinstance(identity, str)
-            or not re.fullmatch(r"obj[1-9][0-9]*", identity)
+            or not re.fullmatch(r"o[1-9][0-9]*", identity)
             or not _exact(row, {"file", "exports"})
             or not _deep_strict_equal(planned, row)
         ):
@@ -453,7 +465,7 @@ def apply_experimental_module_namespace_transition(
         if (
             not _exact(transition, {"kind", "namespaceId", "moduleFile"})
             or not isinstance(transition["namespaceId"], str)
-            or not re.fullmatch(r"obj[1-9][0-9]*", transition["namespaceId"])
+            or not re.fullmatch(r"o[1-9][0-9]*", transition["namespaceId"])
             or transition["namespaceId"] in next_state["namespaces"]
             or any(
                 row["file"] == transition["moduleFile"]

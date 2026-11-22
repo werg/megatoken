@@ -24,7 +24,8 @@ CELLS = [
 NAMESPACES = [
     {
         "file": "cells.js",
-        "exports": [
+        "namespaceName": "__traced_eval_namespace_0",
+            "exports": [
             {"name": "alias", "file": "cells.js", "local": "value"},
             {"name": "fixed", "file": "cells.js", "local": "fixed"},
             {"name": "value", "file": "cells.js", "local": "value"},
@@ -60,12 +61,12 @@ def test_plan_hashes_sources_and_live_aliases_read_current_cell():
     created = apply_experimental_module_namespace_transition(
         plan,
         state,
-        {"kind": "namespace.create", "namespaceId": "obj1", "moduleFile": "cells.js"},
+        {"kind": "namespace.create", "namespaceId": "o1", "moduleFile": "cells.js"},
     )
     listed = apply_experimental_module_namespace_transition(
         plan,
         created["state"],
-        {"kind": "namespace.keys", "namespaceId": "obj1", "names": ["alias", "fixed", "value"]},
+        {"kind": "namespace.keys", "namespaceId": "o1", "names": ["alias", "fixed", "value"]},
     )
     assert listed["result"] == ["alias", "fixed", "value"]
     written = apply_experimental_module_namespace_transition(
@@ -76,7 +77,7 @@ def test_plan_hashes_sources_and_live_aliases_read_current_cell():
     read = apply_experimental_module_namespace_transition(
         plan,
         written["state"],
-        {"kind": "namespace.read", "namespaceId": "obj1", "exportName": "alias", "value": ["num", 9]},
+        {"kind": "namespace.read", "namespaceId": "o1", "exportName": "alias", "value": ["num", 9]},
     )
     assert read["result"] == ["num", 9]
     descriptor = {
@@ -90,7 +91,7 @@ def test_plan_hashes_sources_and_live_aliases_read_current_cell():
         read["state"],
         {
             "kind": "namespace.descriptor",
-            "namespaceId": "obj1",
+            "namespaceId": "o1",
             "exportName": "value",
             "value": descriptor,
         },
@@ -107,7 +108,8 @@ def test_utf16_export_sort_and_numeric_index_names_match_javascript_order():
         namespaces=[
             {
                 "file": "cells.js",
-                "exports": [
+                "namespaceName": "__traced_eval_namespace_0",
+            "exports": [
                     {"name": name, "file": "cells.js", "local": "value"} for name in names
                 ],
             }
@@ -130,7 +132,8 @@ def test_utf16_export_sort_and_numeric_index_names_match_javascript_order():
             namespaces=[
                 {
                     "file": "cells.js",
-                    "exports": [
+                    "namespaceName": "__traced_eval_namespace_0",
+            "exports": [
                         {"name": "4294967294", "file": "cells.js", "local": "value"}
                     ],
                 }
@@ -144,7 +147,7 @@ def test_tdz_const_writes_and_failed_transitions_leave_input_unchanged():
     created = apply_experimental_module_namespace_transition(
         plan,
         initial,
-        {"kind": "namespace.create", "namespaceId": "obj1", "moduleFile": "cells.js"},
+        {"kind": "namespace.create", "namespaceId": "o1", "moduleFile": "cells.js"},
     )["state"]
     snapshot = deepcopy(created)
     with pytest.raises(ValueError, match="before its source binding is initialized"):
@@ -153,7 +156,7 @@ def test_tdz_const_writes_and_failed_transitions_leave_input_unchanged():
             created,
             {
                 "kind": "namespace.read",
-                "namespaceId": "obj1",
+                "namespaceId": "o1",
                 "exportName": "value",
                 "value": ["num", 1],
             },
@@ -210,7 +213,7 @@ def test_namespace_observation_and_plan_tampering_are_refused():
             state,
             {
                 "kind": "namespace.create",
-                "namespaceId": "obj1",
+                "namespaceId": "o1",
                 "moduleFile": "cells.js",
                 "extra": True,
             },
@@ -227,15 +230,15 @@ def test_bad_cell_and_namespace_state_shapes_refuse_without_mutation():
         apply_experimental_module_namespace_transition(
             plan,
             forged,
-            {"kind": "namespace.create", "namespaceId": "obj1", "moduleFile": "cells.js"},
+            {"kind": "namespace.create", "namespaceId": "o1", "moduleFile": "cells.js"},
         )
     malformed = deepcopy(state)
-    malformed["namespaces"]["obj1"] = {"file": "cells.js", "exports": []}
+    malformed["namespaces"]["o1"] = {"file": "cells.js", "namespaceName": "__traced_eval_namespace_0", "exports": []}
     with pytest.raises(ValueError, match="namespace identity state is malformed"):
         apply_experimental_module_namespace_transition(
             plan,
             malformed,
-            {"kind": "namespace.keys", "namespaceId": "obj1", "names": []},
+            {"kind": "namespace.keys", "namespaceId": "o1", "names": []},
         )
 
 
