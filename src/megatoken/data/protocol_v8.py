@@ -1860,7 +1860,9 @@ def validate_protocol_state(snapshot, heap_ids=(), shared_state=None):
                         parent = ["ref", object_prototype]
                     current = parent[1] if isinstance(parent, list) and parent[0] == "ref" else None
         memory_machine = (
-            _internal_machine(shared_state) if shared_state is not None else {"heap": heap_nodes}
+            _internal_machine(shared_state)
+            if shared_state is not None
+            else {"heap": heap_nodes, "protocol": snapshot}
         )
         validate_memory_state(memory_machine)
         validate_iterator_state(memory_machine)
