@@ -2007,15 +2007,20 @@ def assert_detailed_record_compatible(shared_state, kind, fields, *, namespace_p
         return True
     if protocol["pendingCalls"] and protocol["pendingCalls"][-1]["child"] not in machine["stack"]:
         _fail("pending property completion requires protocol finish")
-    assert_construction_next(machine, {"kind": kind, **fields})
-    assert_number_next(machine, {"kind": kind, "fields": fields})
-    assert_primitive_conversion_next(machine, {"kind": kind, "fields": fields})
-    assert_generator_next(machine, {"kind": kind, **fields})
-    assert_async_call_next(machine, {"kind": kind, **fields})
-    assert_proxy_next(machine, {"kind": kind, **fields})
-    assert_promise_executor_next(machine, {"kind": kind, **fields})
-    assert_promise_adoption_next(machine, {"kind": kind, **fields})
-    assert_promise_join_next(machine, {"kind": kind, **fields})
+    # Completion payloads have their own kind (return/throw/cleanup). Keep the
+    # actual operation authoritative: a transfer is not a frame return, and an
+    # end must still check for unfinished async work. Retain the full payload
+    # for adapters that distinguish its completion kind from the operation.
+    record = {**fields, "kind": kind, "fields": fields}
+    assert_construction_next(machine, record)
+    assert_number_next(machine, record)
+    assert_primitive_conversion_next(machine, record)
+    assert_generator_next(machine, record)
+    assert_async_call_next(machine, record)
+    assert_proxy_next(machine, record)
+    assert_promise_executor_next(machine, record)
+    assert_promise_adoption_next(machine, record)
+    assert_promise_join_next(machine, record)
 
     def rich(node):
         descriptors = node.get("descriptors", {})

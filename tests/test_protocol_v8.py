@@ -341,6 +341,14 @@ class ProtocolV8NativeReplayTests(unittest.TestCase):
             "generator-own-symbol-alias": (27, 0, 12),
             "source-logical-left-operands": (29, 1, 19),
             "source-for-in-own-keys": (21, 0, 19),
+            "source-async-iterator-array": (49, 1, 79),
+            "source-async-iterator-getters": (62, 1, 75),
+            "source-async-iterator-value-identity": (17, 0, 33),
+            "source-async-iterator-throw-precedence": (24, 1, 57),
+            "source-async-iterator-return-replaced": (32, 1, 43),
+            "source-async-iterator-sync-rejection": (33, 1, 46),
+            "source-async-iterator-sibling-cleanup": (78, 1, 100),
+            "source-async-iterator-idle-completion": (78, 1, 84),
         }
         from megatoken.data.semantic_contract_v8 import CONTRACT
 

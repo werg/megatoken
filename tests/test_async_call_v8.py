@@ -12,6 +12,7 @@ from megatoken.data.protocol_v8 import (
     _external_machine,
     _internal_machine,
     apply_protocol_record,
+    assert_detailed_record_compatible,
     create_protocol_state,
     validate_protocol_state,
 )
@@ -113,9 +114,9 @@ def root_return(machine):
     apply(machine, {"kind": "return", "invocation": "root", "value": ["num", 99]})
 
 
-def detail(machine, kind, **fields):
+def detail(machine, operation, **fields):
     external = _external_machine(machine)
-    _apply_detail(external, kind, fields, {}, root="root")
+    _apply_detail(external, operation, fields, {}, root="root")
     machine.clear()
     machine.update(_internal_machine(external))
     assert validate_protocol_state(external["protocol"], external["heap"], external)
@@ -207,6 +208,39 @@ def test_restored_async_cleanup_rejects_foreign_handler_ownership(scope):
     external = _external_machine(machine)
     with pytest.raises(ProtocolV8Error, match="handler frame is not active"):
         validate_protocol_state(external["protocol"], external["heap"], external)
+
+
+@pytest.mark.parametrize("completion_kind", ["return", "throw"])
+def test_detailed_cleanup_transfer_preserves_its_operation_kind(completion_kind):
+    machine = fixture()
+    call(machine)
+    fields = {
+        "invocation": "first-body",
+        "kind": completion_kind,
+        "value": ["num", 7],
+        "handler": "finally",
+    }
+    external = _external_machine(machine)
+    assert assert_detailed_record_compatible(external, "transfer", fields)
+    detail(machine, "transfer", **fields)
+    assert machine["pending"]["kind"] == completion_kind
+    assert machine["stack"][-1] == "first-body"
+    with pytest.raises(ProtocolV8Error, match="explicit continuation protocol"):
+        assert_detailed_record_compatible(
+            _external_machine(machine), completion_kind, {"value": ["num", 7]}
+        )
+
+
+@pytest.mark.parametrize("completion_kind", ["return", "throw"])
+def test_detailed_end_cannot_hide_unfinished_async_work_in_completion_kind(completion_kind):
+    machine = fixture()
+    call(machine)
+    suspend(machine)
+    root_return(machine)
+    with pytest.raises(ProtocolV8Error, match="unfinished async call"):
+        assert_detailed_record_compatible(
+            _external_machine(machine), "end", {"kind": completion_kind}
+        )
 
 
 def test_async_returned_promise_remains_pending_until_fifo_forwarding_job():
