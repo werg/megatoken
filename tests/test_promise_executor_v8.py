@@ -70,6 +70,152 @@ def executor_fixture():
 
 
 class PromiseExecutorV8Tests(unittest.TestCase):
+    def _constructor_getter_adoption(self):
+        from megatoken.data.promise_scheduler_v8 import create_promise
+
+        state = executor_fixture()
+        apply_protocol_record(state, {"kind": "promise.intrinsics"})
+        create_promise(state, "source")
+        apply_protocol_record(
+            state,
+            {
+                "kind": "allocate",
+                "name": "constructor-getter",
+                "objectKind": "closure",
+                "code": "constructor-getter-code",
+                "captures": [],
+                "functionKind": "ordinary",
+                "lexicalReceiver": None,
+                "length": None,
+                "properties": [],
+            },
+        )
+        apply_protocol_record(
+            state,
+            {
+                "kind": "allocate",
+                "name": "error",
+                "objectKind": "object",
+                "code": None,
+                "captures": [],
+                "functionKind": None,
+                "lexicalReceiver": None,
+                "length": None,
+                "properties": [],
+            },
+        )
+        apply_protocol_record(
+            state,
+            {
+                "kind": "property.define",
+                "object": "source",
+                "key": ["str", "constructor"],
+                "descriptor": {
+                    "kind": "accessor",
+                    "get": ["ref", "constructor-getter"],
+                    "set": ["undefined"],
+                    "enumerable": False,
+                    "configurable": True,
+                },
+                "success": True,
+            },
+        )
+        apply_protocol_record(
+            state,
+            {
+                "kind": "property.define",
+                "object": "source",
+                "key": ["str", "then"],
+                "descriptor": {
+                    "kind": "data",
+                    "value": ["ref", "intrinsicpromiseprototypethen"],
+                    "writable": True,
+                    "enumerable": True,
+                    "configurable": True,
+                },
+                "success": True,
+            },
+        )
+        enter(state)
+        apply_protocol_record(
+            state,
+            {
+                "kind": "promise.resolver.call",
+                "resolver": ["ref", "resolve-id"],
+                "value": ["ref", "source"],
+            },
+        )
+        apply_protocol_record(
+            state,
+            {
+                "kind": "promise.adopt.enqueue",
+                "promise": "promise",
+                "target": "source",
+                "job": "adopt-job",
+            },
+        )
+        apply_protocol_record(
+            state,
+            {
+                "kind": "promise.executor.finish",
+                "promise": "promise",
+                "invocation": "executor-call",
+                "completion": {"kind": "return", "value": ["undefined"]},
+            },
+        )
+        state["stack"] = []
+        state["heap"]["source"]["properties"]["then"] = [
+            "str",
+            "replaced after resolution",
+        ]
+        apply_protocol_record(
+            state,
+            {
+                "kind": "promise.adopt.get",
+                "promise": "promise",
+                "target": "source",
+                "job": "adopt-job",
+                "child": "constructor-getter-call",
+            },
+        )
+        return state
+
+    def test_queued_adoption_keeps_intrinsic_then_selection_and_reading_is_pending(self):
+        state = self._constructor_getter_adoption()
+        self.assertEqual(state["heap"]["promise"]["adoption"]["phase"], "reading")
+        saved = _external_machine(state)
+        self.assertTrue(validate_protocol_state(saved["protocol"], saved["heap"], saved))
+
+        tampered = copy.deepcopy(state)
+        tampered["heap"]["promise"].update(state="fulfilled", result=["num", 9])
+        forged = _external_machine(tampered)
+        with self.assertRaisesRegex(
+            ProtocolV8Error, "reading adoption requires a pending|resolver first call"
+        ):
+            validate_protocol_state(forged["protocol"], forged["heap"], forged)
+
+        state["lastReturn"] = {"kind": "throw", "value": ["ref", "error"]}
+        from megatoken.data.promise_adoption_v8 import apply_record as apply_adoption_record
+
+        apply_adoption_record(
+            state,
+            {
+                "kind": "promise.adopt.finish",
+                "promise": "promise",
+                "target": "source",
+                "job": "adopt-job",
+                "child": "constructor-getter-call",
+                "completion": {"kind": "throw", "value": ["ref", "error"]},
+                "forwarding": None,
+            },
+        )
+        saved_rejected = _external_machine(state)
+        self.assertTrue(
+            validate_protocol_state(
+                saved_rejected["protocol"], saved_rejected["heap"], saved_rejected
+            )
+        )
+
     def test_foreign_shared_realm_adoption_keeps_common_heap_invariants(self):
         state = machine()
         state["stack"] = []

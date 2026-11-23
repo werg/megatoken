@@ -48,13 +48,18 @@ def _promise(machine, identity):
     return node
 
 
-def _assert_intrinsic_then(machine, identity):
+def _assert_promise_storage(machine, identity):
     node = _promise(machine, identity)
+    if node.get("callable") is not None or node.get("proxy") is not None:
+        _fail("Promise identity has an unmodeled callable or Proxy shape")
+    return node
+
+
+def _assert_intrinsic_then(machine, identity):
+    node = _assert_promise_storage(machine, identity)
     from .promise_object_v8 import intrinsic_id
     from .protocol_v8 import _descriptor, _lookup_descriptor
 
-    if node.get("callable") is not None or node.get("proxy") is not None:
-        _fail("Promise then lookup is overridden or has an unmodeled prototype")
     # Own properties unrelated to `then` do not alter adoption. Check the
     # effective property through the same prototype walk used by ordinary
     # reads, so an own or inherited replacement cannot be hidden by a pristine
@@ -383,8 +388,7 @@ def apply_record(machine, record):
         if adopter == target:
             _fail("direct self-resolution uses the self rejection record")
         row = _adoption(machine, adopter)
-        _promise(machine, target)
-        _assert_intrinsic_then(machine, target)
+        _assert_promise_storage(machine, target)
         if row is None or row["phase"] != "intent" or row["target"] != target:
             # Source-created root results are allowed only when no protected cause exists.
             stage_source_intent(machine, adopter, target)
@@ -433,7 +437,7 @@ def apply_record(machine, record):
             or machine.get("ready", [])[:1] != [identity]
         ):
             _fail("assimilation getter job is not the FIFO head")
-        _assert_intrinsic_then(machine, target)
+        _assert_promise_storage(machine, target)
         _adoption_get(machine, record, row, job)
         return True
     if kind == "promise.adopt.finish":
@@ -755,8 +759,7 @@ def validate_state(machine):
                 _identity(row[key])
         local_owner = row["owner"] == next(iter(machine.get("frameFunctions", {})), None)
         _validate_cause_shape(row)
-        _promise(machine, row["target"])
-        _assert_intrinsic_then(machine, row["target"])
+        _assert_promise_storage(machine, row["target"])
         if row["phase"] == "intent" and (row["target"] is None or row["cause"] is None):
             _fail("incomplete staged adoption intent")
         # The realm heap and scheduler are shared, but each controller retains
@@ -815,6 +818,12 @@ def validate_state(machine):
                 target = _promise(machine, row["target"])
                 if node["state"] != target["state"] or node["result"] != target["result"]:
                     _fail("completed adoption differs from target settlement")
+            if row["phase"] == "reading" and (
+                node["state"] != "pending"
+                or node["result"] is not None
+                or node.get("adopted") is not None
+            ):
+                _fail("reading adoption requires a pending unsettled adopter")
             if row["phase"] == "rejected":
                 if node["state"] != "rejected" or node["result"] is None:
                     _fail("rejected adoption lacks its thrown completion")
