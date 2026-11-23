@@ -297,6 +297,46 @@ class EnumerationV8Tests(unittest.TestCase):
                 advance(state, None, "end")
                 self.assertEqual(state["stack"], ["root"])
 
+    def test_enumerable_intrinsic_keys_require_an_explicit_chain_at_creation(self):
+        state = machine()
+        apply_protocol_record(state, {"kind": "promise.intrinsics"})
+        allocate(state, "source")
+        define(state, "intrinsicobjectprototype", ["str", "inherited"], ["num", 1])
+        before = copy.deepcopy(state)
+        with self.assertRaisesRegex(ProtocolV8Error, "implicit intrinsic enumeration"):
+            create(state, ["ref", "source"])
+        self.assertEqual(state, before)
+        apply_protocol_record(
+            state,
+            {
+                "kind": "property.prototype",
+                "object": "source",
+                "prototype": ["ref", "intrinsicobjectprototype"],
+                "success": True,
+            },
+        )
+        create(state, ["ref", "source"])
+        advance(state, "inherited", "first")
+        advance(state, None, "end")
+
+    def test_new_intrinsic_names_do_not_extend_candidates_but_can_supply_deleted_fallback(self):
+        state = machine()
+        apply_protocol_record(state, {"kind": "promise.intrinsics"})
+        allocate(state, "source")
+        define(state, "source", ["str", "a"], ["num", 1])
+        define(state, "source", ["str", "b"], ["num", 2])
+        create(state, ["ref", "source"])
+        advance(state, "a", "first")
+        define(state, "intrinsicobjectprototype", ["str", "b"], ["num", 3])
+        define(state, "intrinsicobjectprototype", ["str", "new"], ["num", 4])
+        apply_protocol_record(
+            state,
+            {"kind": "property.delete", "object": "source", "key": ["str", "b"], "success": True},
+        )
+        advance(state, "b", "second")
+        advance(state, None, "end")
+        self.assertEqual(state["heap"]["cursor"]["keys"], ["a", "b"])
+
     def test_removed_hidden_shadow_does_not_add_a_previously_excluded_candidate(self):
         state = machine()
         allocate(state, "parent")
@@ -395,8 +435,13 @@ class EnumerationV8Tests(unittest.TestCase):
         self.assertEqual(
             actual,
             [
-                ["a", "c"], ["a", "b"], ["a", "b", "c"], ["a", "c"],
-                ["a", "b", "c"], ["a"], ["a", "toString"],
+                ["a", "c"],
+                ["a", "b"],
+                ["a", "b", "c"],
+                ["a", "c"],
+                ["a", "b", "c"],
+                ["a"],
+                ["a", "toString"],
             ],
         )
 

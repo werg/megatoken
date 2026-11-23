@@ -661,9 +661,7 @@ def _missing_intrinsic(node, key):
 def _known_intrinsic_presence(node, key):
     # A closure's `prototype` depends on its construction kind; the generic
     # callable profile deliberately does not infer that own property.
-    return _missing_intrinsic(node, key) and not (
-        node["kind"] == "closure" and key == "prototype"
-    )
+    return _missing_intrinsic(node, key) and not (node["kind"] == "closure" and key == "prototype")
 
 
 def _lookup_descriptor(machine, identity, key, *, for_set=False, for_has=False):

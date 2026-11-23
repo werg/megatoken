@@ -47,12 +47,18 @@ Changing a surviving captured property's enumerability or replacing a captured
 prototype still produces an explicit refusal during active enumeration. The
 policy matches the independently executed Node loops covered by these tests;
 this is not a claim to model every permitted mutation behavior of every engine.
+If initialized Object.prototype has enumerable string properties at cursor
+creation, its identity must be explicit in the captured chain; an implicit
+terminal prototype is refused rather than silently omitting those names. Names
+added after creation still do not extend the candidate list, but can supply the
+inherited presence of an existing candidate whose own property was deleted.
 
 ## Verification and retained evidence
 
 The existing property, Proxy, construction and enumeration test selection passed
-51 tests before implementation. The first two local implementation checkpoints
-(`c565767`, `2086bd1`) passed the following selection of 64 tests:
+51 tests before implementation. The first published implementation checkpoint
+(`cc90ac78b26a01b6e2da68277863ad2f78b30d2d`, matching the tested local tree) passed
+the following selection of 64 tests:
 
 ```sh
 PYTHONPATH=src python -m unittest \
@@ -70,15 +76,19 @@ PYTHONPATH=src python -m unittest \
 
 Additional controls subsequently cover implicit intrinsic fallback after
 deletion and refusal of uninitialized Promise inheritance. The focused property
-existence/enumeration selection passed 24 tests after those refinements. Tests
+existence/enumeration selection passed 24 tests after those refinements, and the
+combined selection passed 66 tests at the tree published as `591eda5`. Tests
 invoke the available Node executable for independent original-loop comparisons;
 they report skips if Node is unavailable. They do not train a model.
+The observed runtime was Node v24.22.3 with Python 3.12.14. The subsequent
+implicit-prototype enumeration guard passed the combined 68-test selection;
+source-artifact integration is recorded separately when its final inputs arrive.
 
 ## Continue from this checkpoint
 
 1. Keep the producer and consumer on their current work branches. The root task
    coordinates incremental remote commits and PR progress notes; GitHub-created
-   commits can have different hashes from the local checkpoints above. Inspect
+   commits can have different hashes from temporary local commits. Inspect
    the current branch before making another local commit.
 2. Regenerate and copy the producer's current contract and affected fixtures
    together. Do not patch historical source receipts or their recorded source
@@ -98,5 +108,6 @@ The next original-source integration artifacts and their exact producer/consumer
 identities are pending at this checkpoint. Existing broader limitations include
 Proxy/exotic enumeration, mutation of captured prototypes or enumerability, and
 implicit intrinsic prototype enumeration when enumerable intrinsic properties
-are not represented in the captured chain. Continue those as concrete semantic
+are not represented in the captured chain (explicitly refused at creation).
+Continue those as concrete semantic
 work rather than interpreting unsupported cases as successful guest exceptions.

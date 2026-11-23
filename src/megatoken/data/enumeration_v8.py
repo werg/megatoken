@@ -96,6 +96,15 @@ def _snapshot(machine, source):
             if not isinstance(prototype, list) or len(prototype) != 2 or prototype[0] != "ref":
                 _fail("prototype profile")
             _known(machine, prototype)
+        elif prototype == "ordinary" and machine["protocol"].get("promiseObjects") is not None:
+            from .promise_object_v8 import intrinsic_id
+
+            object_prototype = _ordinary_node(machine, intrinsic_id("Object.prototype"))
+            if any(
+                isinstance(key, str) and _descriptor(object_prototype, key)["enumerable"]
+                for key in _ordered(object_prototype)
+            ):
+                _fail("implicit intrinsic enumeration requires its captured prototype chain")
         chain.append({"id": identity, "prototype": copy.deepcopy(prototype), "keys": rows})
         identity = prototype[1] if isinstance(prototype, list) else None
     return chain, _keys_from_chain(chain)
@@ -235,9 +244,11 @@ def apply_record(machine, record):
         # would be outside the active enumeration profile.
         if not node["done"] and node["source"][0] == "ref":
             _live_chain(machine, node["chain"])
-            while index < len(keys) and _lookup_descriptor(
-                machine, node["source"][1], keys[index], for_has=True
-            )[1] is None:
+            while (
+                index < len(keys)
+                and _lookup_descriptor(machine, node["source"][1], keys[index], for_has=True)[1]
+                is None
+            ):
                 index += 1
         done = node["done"] or index == len(keys)
         value = ["undefined"] if done else ["str", keys[index]]
