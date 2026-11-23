@@ -28,8 +28,6 @@ from megatoken.generation.codec import LING_TOKENIZER_SHA256, LING_VOCAB_SIZE, B
 from megatoken.io import strict_json_loads
 from megatoken.training.semantic_v8 import preflight_semantic_training_v8
 
-EXPECTED_SOURCE_COUNT = 64
-EXPECTED_TEST_SOURCE_COUNT = 4
 EXPECTED_SE_BEHAVIORS = frozenset(
     {
         "semantic_code_invocation",
@@ -53,7 +51,7 @@ def _require(condition: bool, message: str) -> None:
 
 
 def read_expected_source_ids(path: str | Path, registry_digest: str) -> tuple[str, ...]:
-    """Read the independently supplied 64-member frozen-population inventory."""
+    """Read the independently supplied complete current source inventory."""
     value = strict_json_loads(Path(path).read_bytes())
     if isinstance(value, list):
         source_ids = value
@@ -70,10 +68,10 @@ def read_expected_source_ids(path: str | Path, registry_digest: str) -> tuple[st
         )
     _require(
         isinstance(source_ids, list)
-        and len(source_ids) == EXPECTED_SOURCE_COUNT
+        and bool(source_ids)
         and all(isinstance(item, str) and item for item in source_ids)
         and len(set(source_ids)) == len(source_ids),
-        "Expected source inventory must contain exactly 64 unique nonempty source IDs",
+        "Expected source inventory must contain unique nonempty source IDs",
     )
     return tuple(sorted(source_ids))
 
@@ -93,17 +91,21 @@ def validate_registry_population(registry, *, registry_digest: str, expected_sou
     sources, components = registry.get("sources"), registry.get("components")
     _require(
         isinstance(sources, list)
-        and len(sources) == EXPECTED_SOURCE_COUNT
+        and bool(sources)
+        and len(sources) == len(expected_source_ids)
         and isinstance(components, list),
-        "Prepared source registry must contain all 64 sources and their components",
+        "Prepared source registry must contain every expected source and its component",
     )
     source_ids = [row.get("id") for row in sources if isinstance(row, dict)]
     _require(
         len(source_ids) == len(sources)
-        and all(isinstance(source_id, str) and source_id for source_id in source_ids)
-        and len(source_ids) == len(set(source_ids))
-        and set(source_ids) == set(expected_source_ids),
-        "Prepared source registry differs from the full expected 64-source inventory",
+        and all(isinstance(source_id, str) and source_id for source_id in source_ids),
+        "Prepared source registry differs from the full expected source inventory",
+    )
+    source_id_set = set(source_ids)
+    _require(
+        len(source_ids) == len(source_id_set) and source_id_set == set(expected_source_ids),
+        "Prepared source registry differs from the full expected source inventory",
     )
     source_splits: dict[str, str] = {}
     for component in components:
@@ -116,21 +118,17 @@ def validate_registry_population(registry, *, registry_digest: str, expected_sou
         for source_id in component["sourceIds"]:
             _require(
                 isinstance(source_id, str)
-                and source_id in source_ids
+                and source_id in source_id_set
                 and source_id not in source_splits,
                 "Prepared source registry duplicates or invents a source assignment",
             )
             source_splits[source_id] = component["split"]
     _require(
-        set(source_splits) == set(source_ids)
+        set(source_splits) == source_id_set
         and all(
             any(split == candidate for split in source_splits.values()) for candidate in SPLITS
         ),
         "Prepared source registry must assign every source once across train, validation, and test",
-    )
-    _require(
-        sum(split == "test" for split in source_splits.values()) == EXPECTED_TEST_SOURCE_COUNT,
-        "Frozen V8 source population must contain exactly four test sources",
     )
     return source_splits
 
@@ -450,7 +448,7 @@ def qualify_semantic_v8_supply(
         "optimizerAllocated": False,
         "scope": (
             "Every prepared episode was rebuilt and checked against its native V8/source receipts; "
-            "the exact 64-source population and both ordinary SE splits passed the existing "
+            "the complete observed source population and both ordinary SE splits passed the existing "
             "stage-supply gate. No learner, optimizer, donor, or full launch was qualified."
         ),
     }

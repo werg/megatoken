@@ -19,6 +19,7 @@ from megatoken.data.semantic_orchestration_training_v8 import (
     validate_orchestration_records_v8,
     validate_orchestration_transcript_v8,
 )
+from megatoken.data.source_families_v8 import verify_region_family_registry
 from megatoken.data.source_identity_v8 import source_evidence_binding_v8
 from megatoken.generation.codec import LING_TOKENIZER_SHA256
 from megatoken.io import write_json
@@ -736,7 +737,7 @@ def prepare_semantic_corpus_v8(
     with DedupStore(
         root / "semantic-v8-dedup.sqlite",
         DedupConfig(
-            split_seed="semantic-region-family-components/1", max_descendants_per_parent=20000
+            split_seed="semantic-region-family-components/1", max_descendants_per_parent=None
         ),
     ) as store:
         for index, candidate in enumerate(candidates):
@@ -753,6 +754,7 @@ def prepare_semantic_corpus_v8(
                 identity = document.get("sidecar", {}).get("splitIdentity", {})
                 candidate_registry = identity.get("registry")
                 if registry is None:
+                    verify_region_family_registry(candidate_registry)
                     registry = candidate_registry
                 elif registry != candidate_registry:
                     raise ValueError("All V8 candidates must use one complete family registry")

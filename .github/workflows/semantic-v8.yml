@@ -5,6 +5,11 @@ on:
   push:
     branches: [main]
   workflow_dispatch:
+    inputs:
+      producer_ref:
+        description: Optional exact producer commit or branch (default resolves the matching branch, then current default)
+        type: string
+        required: false
 
 permissions:
   contents: read
@@ -17,7 +22,9 @@ concurrency:
 jobs:
   paired-v8:
     runs-on: ubuntu-24.04
-    timeout-minutes: 45
+    # A slower hosted gallery run passed all 1,282 native tests at the former
+    # 45-minute cutoff. Retain every stage and individual subprocess deadline.
+    timeout-minutes: 60
     strategy:
       fail-fast: false
       matrix:
@@ -42,10 +49,15 @@ jobs:
           ref: ${{ github.event.pull_request.head.sha || github.sha }}
           path: megatoken
           persist-credentials: false
+      - name: Resolve the current paired producer
+        id: producer
+        env:
+          TRACING_JS_SELF_REF: ${{ inputs.producer_ref || '' }}
+        run: python3 megatoken/scripts/resolve_producer_revision.py --github-output "$GITHUB_OUTPUT"
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           repository: werg/tracing-js-self
-          ref: d4afb62604acdc605a9d816f3a4b8a222a247c48 # exact data-preparation producer and matching conversion fixture
+          ref: ${{ steps.producer.outputs.revision }}
           path: tracing-js-self
           persist-credentials: false
       - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
@@ -119,6 +131,7 @@ jobs:
             test/semantic-selected-orchestration-checkpoint-v8.test.js \
             test/semantic-native-orchestration-recovery-v8.test.js \
             test/semantic-native-module-namespace-state-v8.test.js \
+            test/semantic-async-iteration-source-v8.test.js \
             2>&1 | tee "$RUNNER_TEMP/semantic-v8-transport-tests.xml"
           python - <<'PY'
           import os, xml.etree.ElementTree as ET

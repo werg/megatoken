@@ -108,17 +108,39 @@ def _scope(machine):
     return {
         "receiver": copy.deepcopy(machine.get("receiver", ["undefined"])),
         "aliases": [list(pair) for pair in machine.get("captureAliases", {}).items()],
+        "pending": copy.deepcopy(machine.get("pending")),
     }
 
 
 def _restore_scope(machine, scope):
     machine["receiver"] = copy.deepcopy(scope["receiver"])
     machine["captureAliases"] = dict(scope["aliases"])
+    machine["pending"] = copy.deepcopy(scope["pending"])
+
+
+def _own_pending(machine, invocation):
+    pending = machine.get("pending")
+    handler = pending.get("handler") if isinstance(pending, dict) else None
+    if not isinstance(handler, dict) or handler.get("schema") != "semantic-handler-scopes/1":
+        return copy.deepcopy(pending)
+    frames = [frame for frame in handler["frames"] if frame["invocation"] == invocation]
+    return (
+        {
+            "kind": "cleanup",
+            "value": ["undefined"],
+            "handler": {"schema": handler["schema"], "frames": copy.deepcopy(frames)},
+        }
+        if frames
+        else None
+    )
 
 
 def _detach(machine, call):
     stack = machine["stack"]
-    _require(stack and stack[-1] == call["invocation"], "async body is not active")
+    _require(
+        stack and stack[-1] == call["invocation"] and call["resumeScope"] is not None,
+        "async body is not active or lost its caller scope",
+    )
     if call["attached"]:
         frames = machine["protocol"]["callFrames"]
         frame = frames[-1] if frames else None
@@ -132,9 +154,6 @@ def _detach(machine, call):
         )
         frames.pop()
         stack.pop()
-        _restore_scope(
-            machine, {"receiver": frame["priorReceiver"], "aliases": frame["priorAliases"]}
-        )
     else:
         _require(
             len(stack) == 1
@@ -143,8 +162,8 @@ def _detach(machine, call):
             "detached async turn has a foreign caller or job",
         )
         stack.pop()
-        _restore_scope(machine, call["resumeScope"])
-        call["resumeScope"] = None
+    _restore_scope(machine, call["resumeScope"])
+    call["resumeScope"] = None
 
 
 def apply_record(machine, record):
@@ -191,6 +210,7 @@ def apply_record(machine, record):
             "async call bound or missing parent",
         )
         parent = machine["stack"][-1]
+        prior = _scope(machine)
         machine["_internalProtocolTransition"] = True
         try:
             _apply(
@@ -216,7 +236,7 @@ def apply_record(machine, record):
             "phase": "running",
             "attached": True,
             "continuations": [],
-            "resumeScope": None,
+            "resumeScope": prior,
             "completion": None,
         }
         return True
@@ -246,6 +266,7 @@ def apply_record(machine, record):
         )
         _require(len(call["continuations"]) < BOUND, "async await bound")
         saved, attached = _scope(machine), call["attached"]
+        pending = _own_pending(machine, call["invocation"])
         _detach(machine, call)
         machine["scheduler"]["registration"] += 1
         continuations[identity] = {
@@ -256,6 +277,7 @@ def apply_record(machine, record):
             "activeJob": None,
             "captureAliases": saved["aliases"],
             "receiver": saved["receiver"],
+            "pending": pending,
         }
         store_rows(machine, "continuations", continuations)
         call["attached"], call["phase"] = False, "suspended"
@@ -297,7 +319,11 @@ def apply_record(machine, record):
         machine["stack"].append(call["invocation"])
         _restore_scope(
             machine,
-            {"receiver": continuation["receiver"], "aliases": continuation["captureAliases"]},
+            {
+                "receiver": continuation["receiver"],
+                "aliases": continuation["captureAliases"],
+                "pending": continuation["pending"],
+            },
         )
         call["phase"] = "running"
         return True
@@ -386,7 +412,7 @@ def assert_next(machine, record):
 
 
 def validate_state(machine):
-    from .protocol_v8 import _exact, _known
+    from .protocol_v8 import _exact, _known, validate_pending_scope
 
     invocations, seen_continuations = set(), set()
     calls = _calls(machine)
@@ -513,6 +539,7 @@ def validate_state(machine):
                 == [[row["binding"], row["cell"]] for row in fn["captures"]],
                 "retained async continuation receiver or captured cells",
             )
+            validate_pending_scope(machine, continuation.get("pending", {}), [call["invocation"]])
             suspended = index == len(call["continuations"]) - 1 and call["phase"] == "suspended"
             _require(
                 continuation["state"] in ("waiting", "ready")
@@ -539,7 +566,7 @@ def validate_state(machine):
                 (
                     frame is not None
                     and frame["parent"] == call["parent"]
-                    and call["resumeScope"] is None
+                    and call["resumeScope"] is not None
                 )
                 if call["attached"]
                 else (
@@ -616,8 +643,14 @@ def validate_state(machine):
                     )
         if call["resumeScope"] is not None:
             saved = call["resumeScope"]
-            _exact(saved, {"receiver", "aliases"}, "async idle scope")
+            _exact(saved, {"receiver", "aliases", "pending"}, "async idle scope")
             _known(machine, saved["receiver"])
+            callers = (
+                machine["stack"][: machine["stack"].index(call["invocation"])]
+                if call["attached"]
+                else []
+            )
+            validate_pending_scope(machine, saved["pending"], callers)
             _require(type(saved["aliases"]) is list, "async idle aliases")
             aliases = set()
             for pair in saved["aliases"]:

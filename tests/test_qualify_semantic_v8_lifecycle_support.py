@@ -50,14 +50,18 @@ def _binding(document, identity, member, component):
     }
 
 
-def _fixture(tmp_path, monkeypatch):
-    ids = [f"support-{i:02d}" for i in range(64)]
-    splits = ["train"] * 48 + ["validation"] * 12 + ["test"] * 4
+def _fixture(tmp_path, monkeypatch, counts=(48, 12, 4), sample_index=0):
+    ids = [f"support-{i:02d}" for i in range(sum(counts))]
+    splits = [
+        split
+        for split, count in zip(("train", "validation", "test"), counts, strict=True)
+        for _ in range(count)
+    ]
     components = []
     sources = []
     members_by_id = {}
     components_by_id = {}
-    for i in range(64):
+    for i in range(len(ids)):
         source_id, split = ids[i], splits[i]
         member = {
             "id": source_id,
@@ -94,7 +98,7 @@ def _fixture(tmp_path, monkeypatch):
         )
     )
     sample_path = tmp_path / "sample.json"
-    source_id = ids[0]
+    source_id = ids[sample_index]
     member, component = members_by_id[source_id], components_by_id[source_id]
     identity = {
         "schema": "semantic-region-split-identity/1",
@@ -158,6 +162,50 @@ def test_support_lifecycle_binds_sample_to_exact_prepared_train_member(tmp_path,
     assert result["splitCounts"] == {"train": 48, "validation": 12, "test": 4}
     assert result["sampleSourceId"] == ids[0]
     assert result["sampleDatasetBinding"]["sourceId"] == ids[0]
+    assert result["trainSourceIds"] == ids[:48]
+
+
+def test_bounded_lifecycle_binds_one_prepared_source_with_the_complete_registry(
+    tmp_path, monkeypatch
+):
+    root, inventory, sample, ids, registry, *_ = _fixture(tmp_path, monkeypatch)
+    Corpus.rows = Corpus.rows[:1]
+    result = MODULE.validate_bounded_population(root, sample)
+    assert result["registryDigest"] == registry["digest"]
+    assert result["sourceCount"] == 1
+    assert result["sourceInventory"] == result["trainSourceIds"] == [ids[0]]
+    assert result["splitCounts"] == {"train": 1, "validation": 0, "test": 0}
+    assert len(json.loads((root / "semantic-v8-families.json").read_text())["sources"]) == 64
+    # The same bounded preparation must still fail the full-population gate.
+    with pytest.raises(ValueError, match="missing an inventory source"):
+        MODULE.validate_support_population(root, sample, inventory)
+
+
+@pytest.mark.parametrize("mutation", ["missing", "duplicate", "extra", "foreign", "split"])
+def test_bounded_lifecycle_requires_only_the_exact_selected_training_episode(
+    tmp_path, monkeypatch, mutation
+):
+    root, _, sample, *_ = _fixture(tmp_path, monkeypatch)
+    first, other = Corpus.rows[:2]
+    Corpus.rows = {
+        "missing": [],
+        "duplicate": [first, first],
+        "extra": [first, other],
+        "foreign": [other],
+        "split": [first],
+    }[mutation]
+    if mutation == "split":
+        first.lineage.frozen_split = "validation"
+    with pytest.raises(ValueError, match="exactly its selected|differs from the selected"):
+        MODULE.validate_bounded_population(root, sample)
+
+
+@pytest.mark.parametrize("sample_index", [48, 60])
+def test_bounded_lifecycle_rejects_an_authentic_heldout_sample(tmp_path, monkeypatch, sample_index):
+    root, _, sample, *_ = _fixture(tmp_path, monkeypatch, sample_index=sample_index)
+    Corpus.rows = [Corpus.rows[sample_index]]
+    with pytest.raises(ValueError, match="frozen training inventory"):
+        MODULE.validate_bounded_population(root, sample)
 
 
 @pytest.mark.parametrize("sample_index", [48, 60])
@@ -172,8 +220,9 @@ def test_support_lifecycle_rejects_validation_or_test_sample(tmp_path, monkeypat
 
 
 @pytest.mark.parametrize("field", ["public", "contexts", "sourceArtifact"])
+@pytest.mark.parametrize("bounded", [False, True])
 def test_support_lifecycle_rejects_rehashed_sample_different_from_prepared(
-    tmp_path, monkeypatch, field
+    tmp_path, monkeypatch, field, bounded
 ):
     root, inventory, sample, _, registry, document, identity, member, component = _fixture(
         tmp_path, monkeypatch
@@ -187,7 +236,11 @@ def test_support_lifecycle_rejects_rehashed_sample_different_from_prepared(
     document["sidecar"]["datasetBinding"] = _binding(document, identity, member, component)
     sample.write_text(json.dumps(document))
     with pytest.raises(ValueError, match="public/context/source bytes differ"):
-        MODULE.validate_support_population(root, sample, inventory)
+        if bounded:
+            Corpus.rows = Corpus.rows[:1]
+            MODULE.validate_bounded_population(root, sample)
+        else:
+            MODULE.validate_support_population(root, sample, inventory)
 
 
 @pytest.mark.parametrize("mutation", ["missing", "duplicate"])
@@ -202,4 +255,21 @@ def test_support_lifecycle_rejects_missing_and_duplicate_prepared_sources(
         Corpus.rows[-1] = Corpus.rows[0]
         expected = "differs from its frozen inventory or split"
     with pytest.raises(ValueError, match=expected):
+        MODULE.validate_support_population(root, sample, inventory)
+
+
+@pytest.mark.parametrize("counts", [(1, 1, 1), (52, 8, 4), (80, 12, 7)])
+def test_support_lifecycle_uses_observed_inventory_and_splits(tmp_path, monkeypatch, counts):
+    root, inventory, sample, *_ = _fixture(tmp_path, monkeypatch, counts)
+    result = MODULE.validate_support_population(root, sample, inventory)
+    assert result["sourceCount"] == sum(counts)
+    assert result["splitCounts"] == dict(zip(("train", "validation", "test"), counts, strict=True))
+
+
+@pytest.mark.parametrize("counts", [(1, 1, 0), (60, 4, 0)])
+def test_support_lifecycle_rejects_complete_population_without_test_sources(
+    tmp_path, monkeypatch, counts
+):
+    root, inventory, sample, *_ = _fixture(tmp_path, monkeypatch, counts)
+    with pytest.raises(ValueError, match="Prepared support population must contain a test source"):
         MODULE.validate_support_population(root, sample, inventory)

@@ -1664,6 +1664,11 @@ def validate_protocol_state(snapshot, heap_ids=(), shared_state=None):
         validate_primitive_conversion_state(conversion_machine)
     if shared_state is not None:
         active_machine = _internal_machine(shared_state)
+        continuations = active_machine.get("continuations", [])
+        for continuation in dict(continuations).values():
+            validate_pending_scope(
+                active_machine, continuation.get("pending", {}), [continuation["invocation"]]
+            )
         for binding, cell in active_machine.get("captureAliases", {}).items():
             if (
                 not isinstance(binding, str)
@@ -1848,12 +1853,24 @@ def validate_completion_detail(shared_state, kind, fields):
         or scope.get("schema") != "semantic-handler-scopes/1"
     ):
         return False
+    scope = _validated_handler_scope(fields)
+    return _validate_handler_scope_machine(_internal_machine(shared_state), scope)
+
+
+def _validated_handler_scope(fields):
+    """Reject malformed handler details before inspecting any machine state."""
+    scope = fields["handler"]
     if fields.get("kind") != "cleanup" or fields.get("value") != ["undefined"]:
         _fail("ordinary handler-scope transfer kind/value")
     _exact(scope, {"schema", "frames"}, "ordinary handler scopes")
     if type(scope["frames"]) is not list or len(scope["frames"]) > 64:
         _fail("ordinary handler frame bound")
-    machine = _internal_machine(shared_state)
+    return scope
+
+
+def _validate_handler_scope_machine(machine, scope, invocations=None):
+    """Validate against an internal machine and the selected invocation stack."""
+    stack = machine["stack"] if invocations is None else invocations
     previous = -1
     identities = set()
 
@@ -1869,12 +1886,9 @@ def validate_completion_detail(shared_state, kind, fields):
             | ({"targets"} if type(frame) is dict and "targets" in frame else set()),
             "ordinary handler frame",
         )
-        if (
-            frame["invocation"] not in machine["stack"]
-            or frame["invocation"] not in machine["frameFunctions"]
-        ):
+        if frame["invocation"] not in stack or frame["invocation"] not in machine["frameFunctions"]:
             _fail("ordinary handler frame is not active")
-        index = machine["stack"].index(frame["invocation"])
+        index = stack.index(frame["invocation"])
         if index <= previous:
             _fail("ordinary handler frame stack order")
         previous = index
@@ -1941,6 +1955,32 @@ def validate_completion_detail(shared_state, kind, fields):
     return True
 
 
+def validate_pending_scope(machine, pending, invocations=None):
+    """Check retained cleanup against its suspended invocation or saved caller stack."""
+    if pending is None:
+        return True
+    has_handler = isinstance(pending, dict) and "handler" in pending
+    _exact(
+        pending,
+        {"kind", "value"} | ({"handler"} if has_handler else set()),
+        "retained pending scope",
+    )
+    if pending["kind"] not in {"return", "throw", "cleanup"}:
+        _fail("retained pending kind")
+    _known(machine, pending["value"])
+    handler = pending.get("handler")
+    if isinstance(handler, dict) and handler.get("schema") == "semantic-handler-scopes/1":
+        scope = _validated_handler_scope(pending)
+        if not _validate_handler_scope_machine(machine, scope, invocations):
+            _fail("retained handler scope")
+    elif has_handler:
+        if handler is not None and not isinstance(handler, str):
+            _fail("retained pending handler")
+    elif pending["kind"] == "cleanup":
+        _fail("cleanup requires its retained handler scope")
+    return True
+
+
 def _assert_no_detailed_source_cell_write(machine, kind, fields, namespace_plan):
     if namespace_plan is None or kind not in {"bind", "compute"}:
         return
@@ -1976,15 +2016,20 @@ def assert_detailed_record_compatible(shared_state, kind, fields, *, namespace_p
         return True
     if protocol["pendingCalls"] and protocol["pendingCalls"][-1]["child"] not in machine["stack"]:
         _fail("pending property completion requires protocol finish")
-    assert_construction_next(machine, {"kind": kind, **fields})
-    assert_number_next(machine, {"kind": kind, "fields": fields})
-    assert_primitive_conversion_next(machine, {"kind": kind, "fields": fields})
-    assert_generator_next(machine, {"kind": kind, **fields})
-    assert_async_call_next(machine, {"kind": kind, **fields})
-    assert_proxy_next(machine, {"kind": kind, **fields})
-    assert_promise_executor_next(machine, {"kind": kind, **fields})
-    assert_promise_adoption_next(machine, {"kind": kind, **fields})
-    assert_promise_join_next(machine, {"kind": kind, **fields})
+    # Completion payloads have their own kind (return/throw/cleanup). Keep the
+    # actual operation authoritative: a transfer is not a frame return, and an
+    # end must still check for unfinished async work. Retain the full payload
+    # for adapters that distinguish its completion kind from the operation.
+    record = {**fields, "kind": kind, "fields": fields}
+    assert_construction_next(machine, record)
+    assert_number_next(machine, record)
+    assert_primitive_conversion_next(machine, record)
+    assert_generator_next(machine, record)
+    assert_async_call_next(machine, record)
+    assert_proxy_next(machine, record)
+    assert_promise_executor_next(machine, record)
+    assert_promise_adoption_next(machine, record)
+    assert_promise_join_next(machine, record)
 
     def rich(node):
         descriptors = node.get("descriptors", {})

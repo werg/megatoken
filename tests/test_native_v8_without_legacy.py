@@ -1,5 +1,7 @@
 """Exercise native V8 replay and recovery with legacy wire modules unavailable."""
 
+import base64
+import gzip
 import json
 import os
 import subprocess
@@ -7,8 +9,53 @@ import sys
 import textwrap
 from pathlib import Path
 
+import pytest
 
-def test_full_native_fixture_replay_and_recovery_without_legacy_wire_imports():
+FIXTURES = (
+    "semantic-regions-v8.json.gz.b64",
+    "semantic-protocol-region-v8.json.gz.b64",
+    "semantic-callback-regions-v8.json.gz.b64",
+    "semantic-callback-return-v8.json.gz.b64",
+    "semantic-host-protocol-v8.json.gz.b64",
+    "semantic-host-recovery-v8.json.gz.b64",
+    "semantic-primitive-conversion-v8.json.gz.b64",
+)
+
+
+def fixture_cases():
+    cases = []
+    replayable = source_refused = 0
+    for filename in FIXTURES:
+        payload = (Path(__file__).parent / "fixtures" / filename).read_bytes()
+        fixture = json.loads(gzip.decompress(base64.b64decode(payload)))
+        examples = (
+            [fixture] if "public" in fixture else fixture.get("examples", fixture.get("cases", []))
+        )
+        assert examples, filename
+        for index, row in enumerate(examples):
+            refused = row.get("status") == "source-unqualified"
+            source_refused += refused
+            replayable += not refused
+            cases.append(
+                pytest.param(
+                    filename,
+                    index,
+                    refused,
+                    id=f"{filename.removesuffix('.json.gz.b64')}:{row.get('id', index)}",
+                )
+            )
+    assert replayable >= 30
+    assert source_refused == 5
+    return cases
+
+
+@pytest.mark.parametrize("filename,case_index,source_refused", fixture_cases())
+def test_full_native_fixture_replay_and_recovery_without_legacy_wire_imports(
+    filename, case_index, source_refused
+):
+    # Every source case gets a fresh interpreter and the same bounded deadline.
+    # Expanding the published population must not consume another case's time
+    # budget or let an earlier import cache conceal a legacy dependency.
     script = textwrap.dedent(
         r"""
         import base64
@@ -44,19 +91,11 @@ def test_full_native_fixture_replay_and_recovery_without_legacy_wire_imports():
 
         directory = Path(sys.argv[1])
         checked = targets = source_refused = 0
-        for filename in (
-            "semantic-regions-v8.json.gz.b64",
-            "semantic-protocol-region-v8.json.gz.b64",
-            "semantic-callback-regions-v8.json.gz.b64",
-            "semantic-callback-return-v8.json.gz.b64",
-            "semantic-host-protocol-v8.json.gz.b64",
-            "semantic-host-recovery-v8.json.gz.b64",
-            "semantic-primitive-conversion-v8.json.gz.b64",
-        ):
+        for filename in (sys.argv[2],):
             fixture = json.loads(gzip.decompress(base64.b64decode((directory / filename).read_bytes())))
             examples = [fixture] if "public" in fixture else fixture.get("examples", fixture.get("cases", []))
             assert examples, filename
-            for row in examples:
+            for row in (examples[int(sys.argv[3])],):
                 if row.get("status") == "source-unqualified":
                     assert filename == "semantic-primitive-conversion-v8.json.gz.b64"
                     assert "artifact" not in row and row["boundary"] in {
@@ -85,7 +124,7 @@ def test_full_native_fixture_replay_and_recovery_without_legacy_wire_imports():
                 targets += len(example["contexts"])
                 # Engineering codec only: exercise framing without claiming
                 # pinned-tokenizer or private source admission.
-                if checked == 1:
+                if filename == "semantic-regions-v8.json.gz.b64" and int(sys.argv[3]) == 0:
                     _, training = prepare_native_v8_training(example, codec=ByteCodec.byte_fallback())
                     assert training["maskValidation"]
                 forged = copy.deepcopy(example)
@@ -104,7 +143,14 @@ def test_full_native_fixture_replay_and_recovery_without_legacy_wire_imports():
         """
     )
     completed = subprocess.run(
-        [sys.executable, "-c", script, str(Path(__file__).parent / "fixtures")],
+        [
+            sys.executable,
+            "-c",
+            script,
+            str(Path(__file__).parent / "fixtures"),
+            filename,
+            str(case_index),
+        ],
         capture_output=True,
         text=True,
         check=False,
@@ -113,6 +159,6 @@ def test_full_native_fixture_replay_and_recovery_without_legacy_wire_imports():
     )
     assert completed.returncode == 0, completed.stderr
     result = json.loads(completed.stdout)
-    assert result["examples"] >= 30
+    assert result["examples"] == (0 if source_refused else 1)
     assert result["prediction_contexts"] >= result["examples"]
-    assert result["source_refused"] == 5
+    assert result["source_refused"] == int(source_refused)

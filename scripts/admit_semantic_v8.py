@@ -299,7 +299,9 @@ def _git_environment():
     return {key: value for key, value in os.environ.items() if key not in _REPOSITORY_GIT_ENV}
 
 
-def checked_revision(root, expected):
+def checked_revision(root, expected=None):
+    """Capture current clean code, optionally constrained to an earlier run cut."""
+    root = Path(root).resolve()
     actual = subprocess.check_output(
         ["git", "rev-parse", "HEAD"], cwd=root, text=True, env=_git_environment()
     ).strip()
@@ -309,8 +311,32 @@ def checked_revision(root, expected):
         text=True,
         env=_git_environment(),
     ).strip()
-    if actual != expected or dirty:
+    if (
+        re.fullmatch(r"[a-f0-9]{40}", actual) is None
+        or dirty
+        or (expected is not None and actual != expected)
+    ):
         raise ValueError("V8 native receipt requires the exact clean consumer revision")
+    top = subprocess.check_output(
+        ["git", "rev-parse", "--show-toplevel"], cwd=root, text=True, env=_git_environment()
+    ).strip()
+    if Path(top).resolve() != root:
+        raise ValueError("V8 native receipt requires the exact consumer repository root")
+    # Include ignored importable files: package __file__ alone cannot reveal a
+    # shadow module. Normal source-associated bytecode caches are not new code.
+    untracked = subprocess.check_output(
+        ["git", "ls-files", "--others", "-z", "--", "src", "scripts"],
+        cwd=root,
+        text=True,
+        env=_git_environment(),
+    ).split("\0")
+    if any(
+        re.search(r"\.(?:py|pyc|pyo|so|pyd)$", name)
+        and not re.search(r"(?:^|/)__pycache__/[^/]+\.pyc$", name)
+        for name in untracked
+        if name
+    ):
+        raise ValueError("V8 native consumer contains untracked importable code")
     if not Path(__import__("megatoken").__file__).resolve().is_relative_to(root / "src"):
         raise ValueError("Imported Python package is not this consumer checkout")
     return actual
@@ -438,7 +464,10 @@ def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--input", type=Path, required=True)
     parser.add_argument("--output", type=Path, required=True)
-    parser.add_argument("--consumer-revision", required=True)
+    parser.add_argument(
+        "--consumer-revision",
+        help="Optional exact revision for reproducing an observed run; defaults to the current clean checkout",
+    )
     parser.add_argument("--tokenizer-json", type=Path)
     parser.add_argument("--producer-root", type=Path)
     parser.add_argument("--producer-revision")
@@ -514,6 +543,7 @@ def main():
                 "composed-protocol-source/1",
                 "promise-joins-source/1",
                 "promise-executors-source/1",
+                "promise-adoption-source/1",
                 "bound-module-scheduler-source/1",
             ):
                 supported = {
@@ -547,11 +577,25 @@ def main():
                     )
                 if profile == "promise-joins-source/1" and extensions != ["promise-join/1"]:
                     raise ValueError("V8 Promise join source evidence has an invalid inventory")
-                if profile == "promise-executors-source/1" and extensions not in (
-                    ["promise-executor/1"],
-                    ["promise-executor/1", "promise-join/1"],
+                # These specialized profiles use the compiler's sorted source
+                # components. Additional shared adapters use the composed profile.
+                if profile == "promise-executors-source/1" and (
+                    "promise-executor/1" not in extensions
+                    or extensions != sorted(extensions)
+                    or not set(extensions)
+                    <= {
+                        "async-scoped-call-source/1",
+                        "promise-adoption/1",
+                        "promise-executor/1",
+                        "promise-join/1",
+                    }
                 ):
                     raise ValueError("V8 Promise executor source evidence has an invalid inventory")
+                if profile == "promise-adoption-source/1" and extensions not in (
+                    ["promise-adoption/1"],
+                    ["promise-adoption/1", "promise-join/1"],
+                ):
+                    raise ValueError("V8 Promise adoption source evidence has an invalid inventory")
                 if profile == "bound-module-scheduler-source/1":
                     plan = source_sidecar.get("moduleSchedulerPlan")
                     published = [
@@ -712,6 +756,7 @@ def main():
         )
     # Engineering fixtures lack private source-bound records and exact physical
     # token rows. Never turn structural success into model-serving admission.
+    checked_revision(root, revision)
     if args.output.resolve() == args.input.resolve():
         parser.error("Input and receipt paths must differ")
     args.output.parent.mkdir(parents=True, exist_ok=True)

@@ -62,6 +62,19 @@ def accepted(root):
         }
 
 
+def test_explicit_uncapped_descendants_retain_all_related_sources(tmp_path):
+    from megatoken.data.dedup import DedupStore
+
+    config = replace(CONFIG, max_descendants_per_parent=None)
+    with DedupStore(tmp_path / "uncapped.sqlite", config) as store:
+        for index in range(9):
+            store.add(document(f"source-{index}", body(index), "growing-family"), CODEC)
+        store.freeze()
+        rows = list(store.accepted_rows())
+    assert len(rows) == 9
+    assert len({row["split"] for row in rows}) == 1
+
+
 def shard_episodes():
     """Three shards whose rows meet across shards: a duplicate, a near duplicate, a family."""
     shared = body(0)

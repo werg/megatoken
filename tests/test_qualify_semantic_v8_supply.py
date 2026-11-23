@@ -13,7 +13,6 @@ import pytest
 from megatoken.data.semantic_json import stable_algorithm_hash
 from scripts.qualify_semantic_v8_supply import (
     EXPECTED_SE_BEHAVIORS,
-    EXPECTED_SOURCE_COUNT,
     SPLITS,
     read_expected_source_ids,
     validate_behavior_census,
@@ -22,9 +21,9 @@ from scripts.qualify_semantic_v8_supply import (
 )
 
 
-def frozen_registry():
-    source_ids = [f"source-{index:02d}" for index in range(EXPECTED_SOURCE_COUNT)]
-    splits = ["train"] * 56 + ["validation"] * 4 + ["test"] * 4
+def frozen_registry(counts=(56, 4, 4)):
+    source_ids = [f"source-{index:02d}" for index in range(sum(counts))]
+    splits = [split for split, count in zip(SPLITS, counts, strict=True) for _ in range(count)]
     registry = {
         "schema": "semantic-region-family-registry/1",
         "policy": "semantic-region-family-components/1",
@@ -67,10 +66,13 @@ def test_expected_inventory_is_exact_and_registry_bound(tmp_path):
     with pytest.raises(ValueError, match="another registry"):
         read_expected_source_ids(inventory, "0" * 64)
     inventory.write_text(json.dumps(source_ids[:-1]))
-    with pytest.raises(ValueError, match="exactly 64"):
-        read_expected_source_ids(inventory, registry["digest"])
+    shorter = read_expected_source_ids(inventory, registry["digest"])
+    with pytest.raises(ValueError, match="every expected source"):
+        validate_registry_population(
+            registry, registry_digest=registry["digest"], expected_source_ids=shorter
+        )
     inventory.write_text(json.dumps(source_ids[:-1] + [source_ids[0]]))
-    with pytest.raises(ValueError, match="exactly 64"):
+    with pytest.raises(ValueError, match="unique nonempty"):
         read_expected_source_ids(inventory, registry["digest"])
     inventory.write_text(
         json.dumps(
@@ -96,7 +98,7 @@ def test_registry_and_actual_population_reject_missing_duplicate_and_moved_sourc
     missing_registry_source["digest"] = stable_algorithm_hash(
         {key: value for key, value in missing_registry_source.items() if key != "digest"}
     )
-    with pytest.raises(ValueError, match="all 64 sources"):
+    with pytest.raises(ValueError, match="every expected source"):
         validate_registry_population(
             missing_registry_source,
             registry_digest=missing_registry_source["digest"],
@@ -108,11 +110,17 @@ def test_registry_and_actual_population_reject_missing_duplicate_and_moved_sourc
     changed_test_population["digest"] = stable_algorithm_hash(
         {key: value for key, value in changed_test_population.items() if key != "digest"}
     )
-    with pytest.raises(ValueError, match="exactly four test sources"):
-        validate_registry_population(
-            changed_test_population,
-            registry_digest=changed_test_population["digest"],
-            expected_source_ids=expected,
+    # A newly observed assignment is valid; old prepared episodes must still
+    # match the precise assignment recorded for their run.
+    changed_splits = validate_registry_population(
+        changed_test_population,
+        registry_digest=changed_test_population["digest"],
+        expected_source_ids=expected,
+    )
+    with pytest.raises(ValueError, match="split"):
+        validate_observed_population(
+            [{"sourceId": identity, "split": split} for identity, split in split_by_id.items()],
+            changed_splits,
         )
 
     observed = [{"sourceId": source_id, "split": split} for source_id, split in split_by_id.items()]
@@ -167,3 +175,47 @@ def test_behavior_gate_requires_all_eight_actual_census_entries_in_both_splits()
     census["validation"]["behaviors"]["semantic_callback"]["familyCount"] = 0
     with pytest.raises(ValueError, match="validation behavior census.*semantic_callback"):
         validate_behavior_census(census)
+
+
+@pytest.mark.parametrize("counts", [(1, 1, 1), (52, 8, 4), (80, 12, 7)])
+def test_supply_uses_complete_observed_source_membership(counts):
+    registry, identities, expected = frozen_registry(counts)
+    assert (
+        validate_registry_population(
+            registry, registry_digest=registry["digest"], expected_source_ids=identities
+        )
+        == expected
+    )
+
+
+def test_large_supply_population_preserves_exact_assignment_and_refusal_checks():
+    registry, identities, expected = frozen_registry((17000, 2000, 1000))
+    assert (
+        validate_registry_population(
+            registry, registry_digest=registry["digest"], expected_source_ids=identities
+        )
+        == expected
+    )
+    for replacement in ("unknown-source", identities[0]):
+        changed = copy.deepcopy(registry)
+        changed["components"][-1]["sourceIds"] = [replacement]
+        changed["digest"] = stable_algorithm_hash(
+            {key: value for key, value in changed.items() if key != "digest"}
+        )
+        with pytest.raises(ValueError, match="duplicates or invents a source assignment"):
+            validate_registry_population(
+                changed, registry_digest=changed["digest"], expected_source_ids=identities
+            )
+
+
+@pytest.mark.parametrize("invalid_id", [None, "", [], {}, 7])
+def test_supply_refuses_malformed_source_ids_before_membership_indexing(invalid_id):
+    registry, identities, _expected = frozen_registry()
+    registry["sources"][0]["id"] = invalid_id
+    registry["digest"] = stable_algorithm_hash(
+        {key: value for key, value in registry.items() if key != "digest"}
+    )
+    with pytest.raises(ValueError, match="full expected source inventory"):
+        validate_registry_population(
+            registry, registry_digest=registry["digest"], expected_source_ids=identities
+        )

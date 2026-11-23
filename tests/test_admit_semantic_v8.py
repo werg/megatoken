@@ -434,6 +434,31 @@ class NativeV8AdmissionTests(unittest.TestCase):
             ("promise-joins-source/1", ["promise-join/1"]),
             ("promise-executors-source/1", ["promise-executor/1"]),
             ("promise-executors-source/1", ["promise-executor/1", "promise-join/1"]),
+            ("promise-executors-source/1", ["promise-adoption/1", "promise-executor/1"]),
+            (
+                "promise-executors-source/1",
+                ["promise-adoption/1", "promise-executor/1", "promise-join/1"],
+            ),
+            ("promise-executors-source/1", ["async-scoped-call-source/1", "promise-executor/1"]),
+            (
+                "promise-executors-source/1",
+                ["async-scoped-call-source/1", "promise-executor/1", "promise-join/1"],
+            ),
+            (
+                "promise-executors-source/1",
+                ["async-scoped-call-source/1", "promise-adoption/1", "promise-executor/1"],
+            ),
+            (
+                "promise-executors-source/1",
+                [
+                    "async-scoped-call-source/1",
+                    "promise-adoption/1",
+                    "promise-executor/1",
+                    "promise-join/1",
+                ],
+            ),
+            ("promise-adoption-source/1", ["promise-adoption/1"]),
+            ("promise-adoption-source/1", ["promise-adoption/1", "promise-join/1"]),
         ):
             with self.subTest(profile=profile, extensions=extensions):
                 document = self.source_document(protocol=True)
@@ -457,6 +482,13 @@ class NativeV8AdmissionTests(unittest.TestCase):
             ("promise-joins-source/1", ["promise-join/1", "owned-binary-memory/1"]),
             ("promise-executors-source/1", ["promise-join/1"]),
             ("promise-executors-source/1", ["promise-join/1", "promise-executor/1"]),
+            ("promise-executors-source/1", ["promise-adoption/1"]),
+            ("promise-executors-source/1", ["owned-binary-memory/1", "promise-executor/1"]),
+            ("promise-adoption-source/1", ["promise-join/1"]),
+            ("promise-adoption-source/1", ["promise-adoption/1", "promise-executor/1"]),
+            ("promise-adoption-source/1", ["promise-join/1", "promise-adoption/1"]),
+            ("promise-adoption-source/1", ["owned-binary-memory/1", "promise-adoption/1"]),
+            ("promise-adoption-source/1", ["async-scoped-call-source/1", "promise-adoption/1"]),
         ):
             with self.subTest(profile=profile, invalid_extensions=extensions):
                 document = self.source_document(protocol=True)
@@ -511,9 +543,8 @@ class NativeV8AdmissionTests(unittest.TestCase):
             text=True,
             env=admit_semantic_v8._git_environment(),
         ).strip()
-        cases = json.loads((root / "test/fixtures/semantic-protocol-region-v8.json").read_text())[
-            "cases"
-        ]
+        payload = (root / "test/fixtures/semantic-protocol-region-v8.json.gz.b64").read_bytes()
+        cases = json.loads(gzip.decompress(base64.b64decode(payload)))["cases"]
         document = copy.deepcopy(
             next(
                 case["artifact"]

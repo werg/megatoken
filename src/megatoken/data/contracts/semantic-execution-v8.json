@@ -2067,7 +2067,18 @@
           "completion"
         ],
         "storage": "Retained asyncCall metadata belongs to its internal execution Promise; asyncFunction marks its callable closure.",
-        "capabilities": "First await detaches the child and restores its caller scope. Later continuations resume in the realm FIFO with the same receiver, live capture cells, and execution Promise. Child completion settles that Promise or stages its exact owned-Promise adoption intent without completing its parent invocation.",
+        "resumeScopeFields": [
+          "receiver",
+          "aliases",
+          "pending"
+        ],
+        "continuationScopeFields": [
+          "receiver",
+          "captureAliases",
+          "pending"
+        ],
+        "sourceHelpers": "async-from-sync-next:<start>:<end> and async-from-sync-return:<start>:<end> name only exact original awaited ForOfStatement spans.",
+        "capabilities": "First await detaches the child and restores its caller scope. Later continuations resume in the realm FIFO with the same receiver, live capture cells, execution Promise, and pending cleanup obligations. Every running async call saves its caller or idle pending completion; each suspended invocation retains only its own handler and loop-target scopes. Child completion settles its Promise or stages its exact adoption intent without replacing the caller or root completion.",
         "boundaries": "Async Promise callbacks, callable thenables and implicit scheduler completion require separate profiles."
       },
       "moduleScheduler": {
@@ -2179,12 +2190,12 @@
         ],
         "maxHandlersPerFrame": 64,
         "maxTargetsPerFrame": 64,
-        "capabilities": "Ordinary synchronous catch/finally scopes retain pending completion and bounded loop target identities. Break and continue targets belong to the same frame; only loop targets permit continue. Source qualification privately checks destinations without publishing bytecode."
+        "capabilities": "Ordinary catch/finally scopes retain pending completion and bounded loop target identities through synchronous execution and owned await suspension. Break and continue targets belong to the same frame; only loop targets permit continue. Source qualification privately checks destinations and suspended obligations without publishing bytecode."
       },
       "customIteration": {
         "profile": "custom-iterator-source/1",
-        "capabilities": "Ordinary synchronous custom for-of and flat variable array bindings use checked properties, cached next and receiver cells, scoped calls, and ordinary cleanup. Independent observations check acquisition, done/value reads, and IteratorClose order and precedence.",
-        "boundaries": "Malformed intrinsic TypeErrors, asynchronous iteration, and nested or assignment pattern source projection require separate qualification; runtime execution alone does not admit them."
+        "capabilities": "Ordinary custom for-of, for-await-of, and flat variable array bindings use checked properties, cached next and receiver cells, scoped calls, and retained cleanup. Async iteration prefers Symbol.asyncIterator, awaits next and close results, and preserves yielded async value identity. Sync fallback uses exact source-loop AsyncFromSync helper roles and distinct Promise jobs, including done-true value awaits and rejection cleanup precedence.",
+        "boundaries": "Malformed intrinsic TypeErrors, callable thenable source projection, async generators, and nested or assignment pattern source projection require separate qualification. Reference-engine disagreements stay explicit; runtime execution alone does not admit them."
       },
       "enumeration": {
         "profile": "ordinary-for-in/1",
@@ -2663,7 +2674,7 @@
       "default": "not promoted by engineering receipts alone"
     }
   },
-  "digest": "fd1e64f60ad5b6bb9431db3cd34513a5bd34041cdf7e710a99c5df1205502bf4",
+  "digest": "910859ac83e9b8bad83528397fcd12de616f05246586755f15f985cabb3513eb",
   "fixtureDigest": "56f7f36d3b25b3b11a208be3de337e637b9782e6759faea1e1ec107b0a90f0ce",
   "fixtures": [
     {
@@ -2688,7 +2699,7 @@
       "reason": "old artifacts require their original contract"
     }
   ],
-  "interoperabilityDigest": "b004c2bde15007278d0c26189560ac0362530585f8b7d49d5b1999525fcce975",
+  "interoperabilityDigest": "64f230e7b05dc6b33b3d0df359898e27158cb67a386c9cdeb63fd64b4729df2d",
   "interoperability": [
     {
       "id": "ordered-map",
@@ -2702,8 +2713,8 @@
     },
     {
       "id": "causal-counter",
-      "publicDigest": "c37a66e94edae5d7ca6f80be9bb46ccd8b31afa825074a88612c4b76645dbf4c",
-      "contextDigest": "034c36e478d1f0fe063f95472d815cf3c34bbedd64a1b87b27f9e1956b953261"
+      "publicDigest": "653b3299b52f1ee5a10adace5f6ac847ec1071c5f811c16775a34e65fdef0931",
+      "contextDigest": "b6a6ddfb2fad939a62254558107c2d2983565a6f87e04c6a31b9193719809221"
     },
     {
       "id": "number-callback-cleanup",
@@ -2752,13 +2763,13 @@
     },
     {
       "id": "protocol-region:source-promise-all-reaction-arithmetic",
-      "publicDigest": "99ae88b7fcc6692a936deb0a50343593246c815ea33096815ee56afab4000bef",
-      "contextDigest": "17501da85dc6cce236fa4fb2877221e0093de47b0dbb123ac1ecfe6031de3b69"
+      "publicDigest": "461f17c0e82e99316dcc4ae8e8095f3ba10f62951c82424cd88d173dbbe63341",
+      "contextDigest": "eb40c22af1c580f0616afa6067dfeca99cb3bfe466aeb831eac02e86788e8ef8"
     },
     {
       "id": "protocol-region:source-promise-join-rejection-finally",
       "publicDigest": "7d7365fa0f71e2301434f05bc1da3766e09f85588b76d12f94fc4380d5687001",
-      "contextDigest": "e9c76d3411c6ad616aef0c7f96bb5562c52f37560e009be083314c32bf2f0c30"
+      "contextDigest": "4498e3e0d9030aee700dcaffafac4d5618cc7e47235d96ab8942ef993d0f67c5"
     },
     {
       "id": "protocol-region:source-number-private-arithmetic",
@@ -2792,18 +2803,18 @@
     },
     {
       "id": "protocol-region:source-promise-executor-first-call",
-      "publicDigest": "bd8fb032759ae0b2e9232f9c9fcb41aedcb817eeda2ec0cf580617b8572df2c8",
-      "contextDigest": "0ac497b926af426fa28486ce8b3286f4d73eda9656bd5f0e16bb4fd0b6568f4d"
+      "publicDigest": "084d2a293fd51ffdecc23b96c377cd5fd380b5e000f8801553d1937f8521b1e7",
+      "contextDigest": "94460dfa2d7546ab51cde9a8b9ef1b441b41cf7f53adce03dd1a6612f1f98d02"
     },
     {
       "id": "protocol-region:source-promise-executor-retained-resolution",
       "publicDigest": "4ebf7b919e5b2191d655b22b2d8fd89dad1f4ecee6f64058ff6c6fde23051811",
-      "contextDigest": "f74b44cdbc65a56e9be50edc610862684cb3ade9184241152ffff1315cf885f9"
+      "contextDigest": "796d69da6dabed134258ae745d1a4d4ae34a590c46e951c961bd4470b195a333"
     },
     {
       "id": "protocol-region:source-promise-executor-abrupt",
       "publicDigest": "2494dc360b6b178634186cdf30f8d227df99ddeeac8ca0a0f1bcff3bec2bbd39",
-      "contextDigest": "b00f44f4ac7f7d3c87fe38dcdb48eac2a885ac33cfb0e59f6a9747dee6ea1004"
+      "contextDigest": "cba09b96c4552e0a3bb144305e195a37e767728d6d122b20e238778d451c79bd"
     },
     {
       "id": "protocol-region:source-ordinary-constructor-prototype",
@@ -2833,37 +2844,77 @@
     {
       "id": "protocol-region:source-promise-adoption-executor",
       "publicDigest": "36d138193179ab2abe153499a3e59ca6fbad1aa3208b6531f4a5780294229778",
-      "contextDigest": "ffecb8f64b09f16b939addf6f1cd96a3676b187c35bea04bde3e8863f3f86b3a"
+      "contextDigest": "61b76ec3c076e0e75765e86bd8e9900126b86eae11e462a4909ccbef97074140"
     },
     {
       "id": "protocol-region:source-promise-adoption-async-return",
       "publicDigest": "248276df4d76e30f9cee1f72741f3d3c8d5248955c907c0609ac7ae1587d7ebf",
-      "contextDigest": "6a43dcb23fe19b3389d4da82cb8ddc229f6450f4afc6be20f3bb6757f868a746"
+      "contextDigest": "4db48b9095d14938de8e0761552c049c3383b267cd11979729f7a86aec45afba"
     },
     {
       "id": "protocol-region:source-promise-adoption-reaction-return",
       "publicDigest": "fa2f7a1ef47377d8783bf75c76ae250b188c625a8a82c3151119c68e98bd8736",
-      "contextDigest": "ac6c0e3b2eae52e022936524778e8688315a6d0b3b800b900ba40cbe92b62abc"
+      "contextDigest": "0b9224aabf96505abdb122f7ca3d8ad6447a43551d3d0ad9317c6a822b7d0f26"
+    },
+    {
+      "id": "protocol-region:source-async-iterator-array",
+      "publicDigest": "dd59e13cf878ffa7b50af67a53d1d11b95d0cfd98bc3e07c6ac27e5cfcb43a3b",
+      "contextDigest": "851cd134c956954b41d2ea54fd9874c40059a8480914fbe150d94f5592c929f7"
+    },
+    {
+      "id": "protocol-region:source-async-iterator-getters",
+      "publicDigest": "532888a72d40512cc68f759f4a2c40a18930b6f68975971d7dc002869e6a6cac",
+      "contextDigest": "a0f360af48047cd840a40c2407ac7fdfd5c210868a6b0a22a5315e7a35b1822a"
+    },
+    {
+      "id": "protocol-region:source-async-iterator-value-identity",
+      "publicDigest": "aa198741c03a947b1f8a61513d9b3ddfa753b314050ad676929d5dabc64be7a9",
+      "contextDigest": "470f5e4bc249d5bd9d573b6f13b5c57cf0525d9a4cee7119cd1e56e83e5c4508"
+    },
+    {
+      "id": "protocol-region:source-async-iterator-throw-precedence",
+      "publicDigest": "d8082f4e1c2aa949abe0904b21d20bfff5af7fabe8bf62c23fe0fbecc256d25f",
+      "contextDigest": "d1f8090229808c2eea14ba8e2b26359d857f4467b5ce172b5150044b47188ed9"
+    },
+    {
+      "id": "protocol-region:source-async-iterator-return-replaced",
+      "publicDigest": "ab6892c7b03a4a358925fbf35bb29f35e7d0b7049802fc10395ba11e0188cb2a",
+      "contextDigest": "abdaeb50ff585490ec4e4aa75fcb3e1cc627ac0bc0fe6293f9ebcfcf6bdc3bb1"
+    },
+    {
+      "id": "protocol-region:source-async-iterator-sync-rejection",
+      "publicDigest": "9337052b8094dad87bebcbf54bf883358f942fcf3ef508a2396f296318987a68",
+      "contextDigest": "188d77dca8b761c82692d1fcc20ca913507e46a6547909c187730fe30b1c974a"
+    },
+    {
+      "id": "protocol-region:source-async-iterator-sibling-cleanup",
+      "publicDigest": "57a8c88f836d3a1e673bbc497b0ee92509952caddcc36b13a24ad85328b930c9",
+      "contextDigest": "97eeafcfcebc1aa863f744ef04942fb45350d4cabbbdc5cd63525ce358bcfa64"
+    },
+    {
+      "id": "protocol-region:source-async-iterator-idle-completion",
+      "publicDigest": "d2bd7af63f2db0384bef6bbac354315db1ef05127bb19e76b75bb408d2adb792",
+      "contextDigest": "ecdc8aa2e0b1fb982dfa4ce9bcfe199b69dfb997dca0160a249fc3be1dbf2f73"
     },
     {
       "id": "protocol-host:join-host-join",
       "publicDigest": "59abb5d8e0b7b0e7ed6af87d4369f90c5d95b61f5daa6c1c18a999dfb7b228e1",
-      "contextDigest": "ee1eaee30324938d9f224b6369c891571f42d0fd917888924a3b8a098800d246"
+      "contextDigest": "ebb2aecede4086c1757171612800c9bd7bc03b554714f389f83fa840ababbe92"
     },
     {
       "id": "protocol-host:join-retained-callback",
       "publicDigest": "b60b3a888793d220ae03535fc8e6286ceb8c79d4112752ded36a28c2ed363401",
-      "contextDigest": "cc2a15df122394ff76537905a42f9f20f0187e6c8336e473fa927385bbcec254"
+      "contextDigest": "7a9731de264b440ed124c973f355a8012520cff1e876a8ad544ae8244f0b023d"
     },
     {
       "id": "protocol-host:callback-owned-join",
       "publicDigest": "160e87a503e36397e15bc95cd2cda3ac87f961181df673d1734311ccb6ab0d9d",
-      "contextDigest": "a2a8792b8d26da8c2a324f8d990138a4d078356d41d2e8442439817f3578cecf"
+      "contextDigest": "3f190133290f8d1682aaf62356747dca1701d6072abab10698f55cec15388572"
     },
     {
       "id": "protocol-host:callback-owned-join-awaited",
       "publicDigest": "7a390eba215b3bf8e0922c0e5cd54fc56403b84e142612884e6f160f4910d950",
-      "contextDigest": "eae4e8e21657c3430573010861aacdbc4170a02c4449fea4d077a4b74efbd0e9"
+      "contextDigest": "6cbae17454fbdac01ad1571c95fad9793243b980e665c7731e2ff1e79038a339"
     }
   ]
 }

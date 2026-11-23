@@ -115,8 +115,9 @@ def target_inventory(config_source, expected_source_ids_source=None):
             inventory.get("schema") == "semantic-v8-source-population/1"
             and inventory.get("registryDigest") == registry_digest
             and isinstance(expected_ids, list)
-            and len(expected_ids) == 64
-            and len(set(expected_ids)) == 64
+            and bool(expected_ids)
+            and all(isinstance(item, str) and item for item in expected_ids)
+            and len(set(expected_ids)) == len(expected_ids)
             and set(expected_ids) == registry_ids,
             "Support source inventory is invalid or differs from the prepared registry",
         )
@@ -137,10 +138,10 @@ def target_inventory(config_source, expected_source_ids_source=None):
         for split in ("train", "validation", "test")
     }
     require(
-        len(expected_ids) == 64
-        and split_counts == {"train": 48, "validation": 12, "test": 4}
+        bool(expected_train_ids)
+        and sum(split_counts.values()) == len(expected_ids)
         and set(split_by_id) == expected_ids,
-        "Inventory requires the exact 64-source, 48/12/4 registry",
+        "Inventory requires complete current source assignments and a nonempty training split",
     )
 
     model = build_model(

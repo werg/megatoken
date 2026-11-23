@@ -36,7 +36,8 @@ packets.set('semantic-generator-close-v8.json.gz.b64',{
     source:'independently-rechecked',native:'untested',model:'unmeasured'}
 });
 
-const sourcePacket=JSON.parse(readFileSync(join(producer,'test/fixtures/semantic-protocol-region-v8.json'),'utf8'));
+const sourcePacket=JSON.parse(gunzipSync(Buffer.from(readFileSync(
+  join(producer,'test/fixtures/semantic-protocol-region-v8.json.gz.b64'),'utf8'),'base64')));
 const enumeration=sourcePacket.cases.find(row=>row.id==='source-for-in-own-keys');
 assert(enumeration,'Original enumeration input required');
 const contract=JSON.parse(readFileSync(join(producer,'contracts/semantic-execution-v8.json'),'utf8'));

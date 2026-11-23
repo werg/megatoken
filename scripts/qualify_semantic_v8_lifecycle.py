@@ -282,6 +282,7 @@ def qualify_checkpoints(
     served,
     manifest,
     registry_digest,
+    prepared_train_source_ids,
     allowed_source_ids=None,
     target_inventory_path=None,
 ):
@@ -373,15 +374,9 @@ def qualify_checkpoints(
 
     datasets = first["train_config"]["datasets"]
     require(len(datasets) == 1, "Lifecycle position evidence requires one immutable prepared root")
-    position_registry = read_json(Path(datasets[0]) / "semantic-v8-families.json")
     position_inventory = prepared_position_inventory(
         first["train_config"],
-        source_ids=[
-            source_id
-            for component in position_registry["components"]
-            if component["split"] == "train"
-            for source_id in component["sourceIds"]
-        ],
+        source_ids=prepared_train_source_ids,
         prepared_manifest_fingerprint=prepared["fingerprint"],
     )
     position_exposure = qualify_position_history(
@@ -532,12 +527,57 @@ def read_support_source_inventory(path, registry_digest):
     ids = value["sourceIds"]
     require(
         isinstance(ids, list)
-        and len(ids) == 64
+        and bool(ids)
         and all(isinstance(item, str) and item for item in ids)
-        and len(set(ids)) == 64,
-        "Support inventory must contain exactly 64 unique source IDs",
+        and len(set(ids)) == len(ids),
+        "Support inventory must contain a nonempty set of unique source IDs",
     )
     return tuple(sorted(ids))
+
+
+def validate_bounded_population(prepared_root, source_path):
+    """Bind the single prepared source without shrinking its frozen registry."""
+    from megatoken.data import PreparedCorpus
+    from megatoken.data.semantic_corpus_v8 import _verify_binding
+
+    registry = read_json(Path(prepared_root) / "semantic-v8-families.json")
+    document = read_json(source_path)
+    identity, member, component, binding = _verify_binding(document, registry)
+    source_id = identity["sourceId"]
+    require(
+        component["split"] == "train",
+        "Bounded lifecycle sample must be a source-bound member of the frozen training inventory",
+    )
+    with PreparedCorpus([str(prepared_root)], split=None) as corpus:
+        episodes = list(corpus.iter_episodes())
+    require(len(episodes) == 1, "Bounded lifecycle requires exactly its selected prepared source")
+    episode = episodes[0]
+    try:
+        semantic = json.loads(episode.supervision.annotations_json)["semantic_execution"]
+    except (KeyError, TypeError, json.JSONDecodeError) as error:
+        raise ValueError("Prepared bounded episode has no source identity") from error
+    require(
+        semantic.get("sourceId") == source_id and episode.lineage.frozen_split == "train",
+        "Prepared bounded episode differs from the selected source or frozen training split",
+    )
+    public_artifact = {"public": document["public"], "contexts": document["contexts"]}
+    if "orchestrationTranscript" in document["sidecar"]:
+        public_artifact["sidecar"] = document["sidecar"]
+    require(
+        semantic.get("datasetBinding") == binding
+        and semantic.get("publicArtifact") == public_artifact,
+        "Lifecycle sample public/context/source bytes differ from the prepared training episode",
+    )
+    return {
+        "registryDigest": registry["digest"],
+        "sourceCount": 1,
+        "sourceInventory": [source_id],
+        "trainSourceIds": [source_id],
+        "splitCounts": {"train": 1, "validation": 0, "test": 0},
+        "sampleSourceId": source_id,
+        "sampleDatasetBinding": binding,
+        "sampleMember": member,
+    }
 
 
 def validate_support_population(prepared_root, source_path, inventory_path):
@@ -561,9 +601,9 @@ def validate_support_population(prepared_root, source_path, inventory_path):
     source_rows = registry.get("sources")
     require(
         isinstance(source_rows, list)
-        and len(source_rows) == 64
+        and len(source_rows) == len(expected)
         and {row.get("id") for row in source_rows if isinstance(row, dict)} == set(expected),
-        "Prepared support registry differs from the immutable 64-source inventory",
+        "Prepared support registry differs from the observed source inventory",
     )
     split_by_id = {}
     for component in registry.get("components", []):
@@ -620,13 +660,18 @@ def validate_support_population(prepared_root, source_path, inventory_path):
         "Lifecycle sample public/context/source bytes differ from the prepared training episode",
     )
     require(
-        counts == {"train": 48, "validation": 12, "test": 4},
-        "Prepared support corpus differs from its frozen 48/12/4 source split",
+        counts
+        == {split: sum(value == split for value in split_by_id.values()) for split in counts},
+        "Prepared support corpus differs from its authenticated source split",
     )
+    require(counts["test"] > 0, "Prepared support population must contain a test source")
     return {
         "registryDigest": registry_digest,
         "sourceCount": len(expected),
         "sourceInventory": list(expected),
+        "trainSourceIds": [
+            source_id for source_id in expected if split_by_id[source_id] == "train"
+        ],
         "splitCounts": counts,
         "sampleSourceId": sample_source_id,
         "sampleDatasetBinding": sample_binding,
@@ -682,10 +727,20 @@ def main():
     else:
         support = None
         require(
+            options.target_inventory is None,
+            "Positive-loss target inventory is only valid for the exact support population",
+        )
+        require(
             report["counts"]["admitted"] == 1 and not report["refusals"],
             "Expected one admitted source",
         )
+        bounded = validate_bounded_population(options.prepared, options.source)
+        require(
+            report.get("registryDigest") == bounded["registryDigest"],
+            "Prepared bounded report names another registry",
+        )
         orchestration = qualify_orchestration_preparation(options.source, options.prepared, report)
+    population = support if support is not None else bounded
     manifest = read_json(options.served / "manifest.json")
     registry = read_json(options.prepared / "semantic-v8-families.json")
     checkpoint = qualify_checkpoints(
@@ -695,7 +750,8 @@ def main():
         options.served,
         manifest,
         registry_digest=registry["digest"],
-        allowed_source_ids=None if support is None else support["sourceInventory"],
+        prepared_train_source_ids=population["trainSourceIds"],
+        allowed_source_ids=population["sourceInventory"],
         target_inventory_path=options.target_inventory,
     )
     serving = qualify_serving(root, options.served.resolve(), options.source, output, manifest)
@@ -714,6 +770,7 @@ def main():
         "driver": driver,
         "preparation": report,
         "preparedManifestFingerprint": prepared["fingerprint"],
+        "preparedPopulation": population,
         **(
             {
                 "supportPopulation": support,
