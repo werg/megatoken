@@ -1853,12 +1853,24 @@ def validate_completion_detail(shared_state, kind, fields):
         or scope.get("schema") != "semantic-handler-scopes/1"
     ):
         return False
+    scope = _validated_handler_scope(fields)
+    return _validate_handler_scope_machine(_internal_machine(shared_state), scope)
+
+
+def _validated_handler_scope(fields):
+    """Reject malformed handler details before inspecting any machine state."""
+    scope = fields["handler"]
     if fields.get("kind") != "cleanup" or fields.get("value") != ["undefined"]:
         _fail("ordinary handler-scope transfer kind/value")
     _exact(scope, {"schema", "frames"}, "ordinary handler scopes")
     if type(scope["frames"]) is not list or len(scope["frames"]) > 64:
         _fail("ordinary handler frame bound")
-    machine = _internal_machine(shared_state)
+    return scope
+
+
+def _validate_handler_scope_machine(machine, scope, invocations=None):
+    """Validate against an internal machine and the selected invocation stack."""
+    stack = machine["stack"] if invocations is None else invocations
     previous = -1
     identities = set()
 
@@ -1874,12 +1886,9 @@ def validate_completion_detail(shared_state, kind, fields):
             | ({"targets"} if type(frame) is dict and "targets" in frame else set()),
             "ordinary handler frame",
         )
-        if (
-            frame["invocation"] not in machine["stack"]
-            or frame["invocation"] not in machine["frameFunctions"]
-        ):
+        if frame["invocation"] not in stack or frame["invocation"] not in machine["frameFunctions"]:
             _fail("ordinary handler frame is not active")
-        index = machine["stack"].index(frame["invocation"])
+        index = stack.index(frame["invocation"])
         if index <= previous:
             _fail("ordinary handler frame stack order")
         previous = index
@@ -1961,8 +1970,8 @@ def validate_pending_scope(machine, pending, invocations=None):
     _known(machine, pending["value"])
     handler = pending.get("handler")
     if isinstance(handler, dict) and handler.get("schema") == "semantic-handler-scopes/1":
-        retained = {**machine, "stack": machine["stack"] if invocations is None else invocations}
-        if not validate_completion_detail(_external_machine(retained), "transfer", pending):
+        scope = _validated_handler_scope(pending)
+        if not _validate_handler_scope_machine(machine, scope, invocations):
             _fail("retained handler scope")
     elif has_handler:
         if handler is not None and not isinstance(handler, str):
