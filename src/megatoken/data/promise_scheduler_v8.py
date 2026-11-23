@@ -34,7 +34,7 @@ def create_promise(machine, identity):
     from .protocol_v8 import _assert_fresh_heap_identity
 
     _assert_fresh_heap_identity(machine, identity)
-    machine["heap"][identity] = {
+    row = {
         "kind": "promise",
         "properties": {},
         "state": "pending",
@@ -43,6 +43,11 @@ def create_promise(machine, identity):
         "external": None,
         "reactions": [],
     }
+    if (machine.get("protocol") or {}).get("promiseObjects") is not None:
+        from .promise_object_v8 import intrinsic_id
+
+        row["prototype"] = ["ref", intrinsic_id("Promise.prototype")]
+    machine["heap"][identity] = row
 
 
 def assert_plain_resolution(machine, value):

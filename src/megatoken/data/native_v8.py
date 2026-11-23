@@ -2240,6 +2240,11 @@ def _apply_detail(
         }
         state["effects"].append([effect, row_effect])
         if promise:
+            promise_prototype = None
+            if state.get("protocol", {}).get("promiseObjects") is not None:
+                from .promise_object_v8 import intrinsic_id
+
+                promise_prototype = ["ref", intrinsic_id("Promise.prototype")]
             _set_row(
                 state["heap"],
                 promise,
@@ -2251,6 +2256,7 @@ def _apply_detail(
                     "adopted": None,
                     "external": effect,
                     "reactions": [],
+                    **({"prototype": promise_prototype} if promise_prototype is not None else {}),
                 },
             )
         if obligations is not None:

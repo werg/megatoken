@@ -445,5 +445,153 @@ class OrdinaryArrayPropertyTests(unittest.TestCase):
         self.assertEqual(self.machine["heap"]["parent"]["prototype"], "ordinary")
 
 
+class PromiseOrdinaryPropertyTests(unittest.TestCase):
+    def setUp(self):
+        self.machine = {
+            "protocol": create_protocol_state(),
+            "heap": {},
+            "stack": ["root"],
+            "locals": {},
+            "captureAliases": {},
+            "frameFunctions": {"root": "root"},
+            "receiver": ["undefined"],
+            "pending": None,
+            "lastReturn": None,
+            "completion": None,
+        }
+        apply_protocol_record(self.machine, {"kind": "promise.intrinsics"})
+        from megatoken.data.promise_scheduler_v8 import create_promise
+
+        create_promise(self.machine, "p")
+
+    def test_promise_uses_intrinsic_prototype_and_ordinary_own_properties(self):
+        self.assertEqual(self.machine["heap"]["p"]["prototype"], ["ref", "intrinsicpromiseprototype"])
+        apply_protocol_record(
+            self.machine,
+            {
+                "kind": "property.set",
+                "object": "p",
+                "key": ["str", "label"],
+                "receiver": ["ref", "p"],
+                "value": ["str", "ready"],
+                "success": True,
+            },
+        )
+        apply_protocol_record(
+            self.machine,
+            {
+                "kind": "property.get",
+                "object": "p",
+                "key": ["str", "then"],
+                "receiver": ["ref", "p"],
+                "result": ["ref", "intrinsicpromiseprototypethen"],
+            },
+        )
+        self.assertEqual(self.machine["heap"]["p"]["properties"]["label"], ["str", "ready"])
+
+    def test_intrinsic_record_round_trips_descriptor_reflection(self):
+        apply_protocol_record(
+            self.machine,
+            {
+                "kind": "promise.intrinsic.get",
+                "base": "Promise",
+                "key": ["str", "prototype"],
+                "result": ["ref", "intrinsicpromiseprototype"],
+            },
+        )
+        apply_protocol_record(
+            self.machine,
+            {
+                "kind": "property.getPrototypeOf",
+                "object": "p",
+                "result": ["ref", "intrinsicpromiseprototype"],
+            },
+        )
+        apply_protocol_record(
+            self.machine,
+            {"kind": "property.isExtensible", "object": "p", "result": ["bool", True]},
+        )
+        record = {
+            "kind": "property.descriptor",
+            "object": "intrinsicpromiseprototype",
+            "key": ["str", "then"],
+            "descriptor": {
+                "kind": "data",
+                "value": ["ref", "intrinsicpromiseprototypethen"],
+                "writable": True,
+                "enumerable": False,
+                "configurable": True,
+            },
+            "name": "descriptor",
+        }
+        apply_protocol_record(self.machine, record)
+        self.assertEqual(
+            self.machine["heap"]["descriptor"]["properties"]["writable"], ["bool", True]
+        )
+
+    def test_adoption_checks_effective_then_and_tolerates_unrelated_own_keys(self):
+        from megatoken.data.promise_adoption_v8 import _assert_intrinsic_then
+
+        _assert_intrinsic_then(self.machine, "p")
+        self.machine["heap"]["p"]["properties"]["label"] = ["str", "ordinary"]
+        _assert_intrinsic_then(self.machine, "p")
+        self.machine["heap"]["p"]["properties"]["then"] = [
+            "ref",
+            "intrinsicpromiseprototypethen",
+        ]
+        _assert_intrinsic_then(self.machine, "p")
+        self.machine["heap"]["p"]["properties"]["then"] = ["str", "changed"]
+        with self.assertRaisesRegex(ProtocolV8Error, "then lookup"):
+            _assert_intrinsic_then(self.machine, "p")
+
+    def test_adoption_follows_actual_prototype_chain_and_refuses_getter_order(self):
+        from megatoken.data.promise_adoption_v8 import _assert_intrinsic_then
+
+        self.machine["heap"]["custom-prototype"] = {
+            "kind": "object",
+            "code": None,
+            "captures": [],
+            "prototype": ["ref", "intrinsicpromiseprototype"],
+            "properties": {},
+        }
+        self.machine["heap"]["p"]["prototype"] = ["ref", "custom-prototype"]
+        _assert_intrinsic_then(self.machine, "p")
+        self.machine["heap"]["custom-prototype"]["properties"]["then"] = [
+            "ref",
+            "intrinsicpromiseprototypecatch",
+        ]
+        with self.assertRaisesRegex(ProtocolV8Error, "then lookup"):
+            _assert_intrinsic_then(self.machine, "p")
+        self.machine["heap"]["custom-prototype"]["properties"].pop("then")
+        self.machine["heap"]["custom-prototype"].setdefault("descriptors", {})["then"] = {
+            "kind": "accessor",
+            "get": ["ref", "getter"],
+            "set": ["undefined"],
+            "enumerable": True,
+            "configurable": True,
+        }
+        with self.assertRaisesRegex(ProtocolV8Error, "then lookup"):
+            _assert_intrinsic_then(self.machine, "p")
+
+    def test_restored_mutable_then_is_checked_at_adoption(self):
+        from megatoken.data.protocol_v8 import _external_machine, validate_protocol_state
+        from megatoken.data.promise_adoption_v8 import _assert_intrinsic_then
+
+        before = _external_machine(self.machine)
+        self.assertTrue(validate_protocol_state(before["protocol"], before["heap"], before))
+        self.machine["heap"]["intrinsicpromiseprototype"]["properties"]["then"] = [
+            "ref",
+            "intrinsicpromiseprototypecatch",
+        ]
+        changed = _external_machine(self.machine)
+        self.assertTrue(validate_protocol_state(changed["protocol"], changed["heap"], changed))
+        with self.assertRaisesRegex(ProtocolV8Error, "then lookup"):
+            _assert_intrinsic_then(self.machine, "p")
+        intrinsic = dict(changed["heap"])["intrinsicpromiseprototypethen"]
+        intrinsic["intrinsicName"] = "forged"
+        with self.assertRaisesRegex(ProtocolV8Error, "intrinsic callable identity changed"):
+            validate_protocol_state(changed["protocol"], changed["heap"], changed)
+
+
 if __name__ == "__main__":
     unittest.main()

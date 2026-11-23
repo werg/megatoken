@@ -40,18 +40,42 @@ def _promise(machine, identity):
 
 def _assert_intrinsic_then(machine, identity):
     node = _promise(machine, identity)
-    properties = node.get("properties", {})
-    descriptors = node.get("descriptors", {})
-    if (
-        properties
-        or descriptors
-        or "prototype" in node
-        and node["prototype"] != "ordinary"
-        or node.get("extensible") is False
-        or node.get("callable") is not None
-        or node.get("proxy") is not None
-    ):
+    from .protocol_v8 import _descriptor, _lookup_descriptor
+    from .promise_object_v8 import intrinsic_id
+
+    if node.get("callable") is not None or node.get("proxy") is not None:
         _fail("Promise then lookup is overridden or has an unmodeled prototype")
+    # Own properties unrelated to `then` do not alter adoption. Check the
+    # effective property through the same prototype walk used by ordinary
+    # reads, so an own or inherited replacement cannot be hidden by a pristine
+    # Promise's settlement metadata.
+    own_then = _descriptor(node, "then")
+    prototype = node.get("prototype", "ordinary")
+    initialized = (machine.get("protocol") or {}).get("promiseObjects") is not None
+    if not initialized and prototype != "ordinary":
+        _fail("Promise then lookup has an unmodeled prototype")
+    if own_then is not None:
+        if (
+            not initialized
+            or own_then.get("kind") != "data"
+            or own_then.get("value") != ["ref", intrinsic_id("Promise.prototype.then")]
+        ):
+            _fail("Promise then lookup is overridden")
+    if prototype == "ordinary" and not initialized:
+        return
+    _, descriptor = _lookup_descriptor(machine, identity, "then")
+    if initialized:
+        intrinsic = machine["heap"].get(intrinsic_id("Promise.prototype.then"))
+        if (
+            descriptor is None
+            or descriptor.get("kind") != "data"
+            or descriptor.get("value") != ["ref", intrinsic_id("Promise.prototype.then")]
+            or not intrinsic
+            or intrinsic.get("kind") != "intrinsic"
+            or intrinsic.get("intrinsicName") != "Promise.prototype.then"
+            or intrinsic.get("callableKind") != "function"
+        ):
+            _fail("Promise then lookup is overridden")
 
 
 def _adoption(machine, identity):
