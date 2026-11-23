@@ -179,6 +179,31 @@ class NativeV8DetailedRegressionTests(unittest.TestCase):
         )
         self.assertIsNone(second["protocol"])
 
+    def test_new_retained_invocation_rejects_mutable_object_prototype(self):
+        from megatoken.data import promise_object_v8
+        from megatoken.data.protocol_v8 import (
+            _external_machine,
+            _internal_machine,
+            create_protocol_state,
+        )
+
+        first = _internal_machine(_initial_state({}, invocation([])))
+        first["protocol"] = create_protocol_state()
+        promise_object_v8.initialize(first)
+        retained = _external_machine(first)
+        object_prototype = promise_object_v8.intrinsic_id("Object.prototype")
+        retained_node = dict(retained["heap"])[object_prototype]
+        retained_node["prototype"] = [
+            "ref",
+            promise_object_v8.intrinsic_id("Promise.prototype"),
+        ]
+        with self.assertRaisesRegex(NativeV8Error, "Object.prototype immutable prototype"):
+            _initial_state(
+                {},
+                {**invocation([]), "invocationId": "invocation2"},
+                retained_state=retained,
+            )
+
     def test_literal_lazy_witness_is_checked_without_inventing_an_operator(self):
         state = {"locals": [], "captureAliases": [], "heap": []}
         for value, path in ((["bool", True], "use-left"), (["bool", False], "evaluate-right")):

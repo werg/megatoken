@@ -983,6 +983,9 @@ def _initial_state(
             }
             try:
                 promise_object_v8.validate_state({"protocol": protocol, "heap": retained_heap})
+                object_prototype = retained_heap[promise_object_v8.intrinsic_id("Object.prototype")]
+                if object_prototype.get("prototype") is not None:
+                    raise NativeV8Error("Retained Object.prototype immutable prototype changed")
             except (KeyError, TypeError, ValueError) as error:
                 raise NativeV8Error(
                     "Invalid retained Promise intrinsic group: " + str(error)
