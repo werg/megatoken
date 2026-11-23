@@ -511,9 +511,8 @@ class NativeV8AdmissionTests(unittest.TestCase):
             text=True,
             env=admit_semantic_v8._git_environment(),
         ).strip()
-        cases = json.loads((root / "test/fixtures/semantic-protocol-region-v8.json").read_text())[
-            "cases"
-        ]
+        payload = (root / "test/fixtures/semantic-protocol-region-v8.json.gz.b64").read_bytes()
+        cases = json.loads(gzip.decompress(base64.b64decode(payload)))["cases"]
         document = copy.deepcopy(
             next(
                 case["artifact"]
