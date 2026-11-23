@@ -103,7 +103,12 @@ def _clone_relations(rows, threshold, budget):
     costs = {"comparisons": 0, "candidateVisits": 0, "indexEntries": 0}
 
     def spend(resource, maximum):
-        _require(costs[resource] < budget[maximum], "clone resource budget exhausted: " + resource)
+        if costs[resource] >= budget[maximum]:
+            _require(
+                False,
+                f"clone resource budget exhausted: {resource}; {maximum}={budget[maximum]}; "
+                + ", ".join(f"{name}={value}" for name, value in costs.items()),
+            )
         costs[resource] += 1
 
     near_pairs = 0
@@ -112,9 +117,17 @@ def _clone_relations(rows, threshold, budget):
         size = len(shingles)
         if not size:
             continue
-        prefix = sorted(shingles, key=lambda item: (frequencies[item], item))[
-            : size - math.ceil(threshold * size) + 1
-        ]
+        # Find the first overlap accepted by the same rounded division as the
+        # final score. Multiplication followed by ceil can round a boundary
+        # upward and omit a pair that the score comparison accepts.
+        low, high = 0, size
+        while low < high:
+            middle = (low + high) // 2
+            if middle / size >= threshold:
+                high = middle
+            else:
+                low = middle + 1
+        prefix = sorted(shingles, key=lambda item: (frequencies[item], item))[: size - low + 1]
         candidates = set()
         for shingle in prefix:
             for other in postings[shingle]:

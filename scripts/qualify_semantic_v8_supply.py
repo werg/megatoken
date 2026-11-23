@@ -99,9 +99,12 @@ def validate_registry_population(registry, *, registry_digest: str, expected_sou
     source_ids = [row.get("id") for row in sources if isinstance(row, dict)]
     _require(
         len(source_ids) == len(sources)
-        and all(isinstance(source_id, str) and source_id for source_id in source_ids)
-        and len(source_ids) == len(set(source_ids))
-        and set(source_ids) == set(expected_source_ids),
+        and all(isinstance(source_id, str) and source_id for source_id in source_ids),
+        "Prepared source registry differs from the full expected source inventory",
+    )
+    source_id_set = set(source_ids)
+    _require(
+        len(source_ids) == len(source_id_set) and source_id_set == set(expected_source_ids),
         "Prepared source registry differs from the full expected source inventory",
     )
     source_splits: dict[str, str] = {}
@@ -115,13 +118,13 @@ def validate_registry_population(registry, *, registry_digest: str, expected_sou
         for source_id in component["sourceIds"]:
             _require(
                 isinstance(source_id, str)
-                and source_id in source_ids
+                and source_id in source_id_set
                 and source_id not in source_splits,
                 "Prepared source registry duplicates or invents a source assignment",
             )
             source_splits[source_id] = component["split"]
     _require(
-        set(source_splits) == set(source_ids)
+        set(source_splits) == source_id_set
         and all(
             any(split == candidate for split in source_splits.values()) for candidate in SPLITS
         ),

@@ -186,3 +186,36 @@ def test_supply_uses_complete_observed_source_membership(counts):
         )
         == expected
     )
+
+
+def test_large_supply_population_preserves_exact_assignment_and_refusal_checks():
+    registry, identities, expected = frozen_registry((17000, 2000, 1000))
+    assert (
+        validate_registry_population(
+            registry, registry_digest=registry["digest"], expected_source_ids=identities
+        )
+        == expected
+    )
+    for replacement in ("unknown-source", identities[0]):
+        changed = copy.deepcopy(registry)
+        changed["components"][-1]["sourceIds"] = [replacement]
+        changed["digest"] = stable_algorithm_hash(
+            {key: value for key, value in changed.items() if key != "digest"}
+        )
+        with pytest.raises(ValueError, match="duplicates or invents a source assignment"):
+            validate_registry_population(
+                changed, registry_digest=changed["digest"], expected_source_ids=identities
+            )
+
+
+@pytest.mark.parametrize("invalid_id", [None, "", [], {}, 7])
+def test_supply_refuses_malformed_source_ids_before_membership_indexing(invalid_id):
+    registry, identities, _expected = frozen_registry()
+    registry["sources"][0]["id"] = invalid_id
+    registry["digest"] = stable_algorithm_hash(
+        {key: value for key, value in registry.items() if key != "digest"}
+    )
+    with pytest.raises(ValueError, match="full expected source inventory"):
+        validate_registry_population(
+            registry, registry_digest=registry["digest"], expected_source_ids=identities
+        )
