@@ -93,10 +93,19 @@ def initialize(machine):
             callable_kind="constructor" if name in ("Promise", "Object") else "function",
         )
     object_proto = _row("object", None)
-    object_proto.update(code=None, captures=[], prototype=None, descriptors={}, keyOrder=[], extensible=True)
+    object_proto.update(
+        code=None, captures=[], prototype=None, descriptors={}, keyOrder=[], extensible=True
+    )
     heap[intrinsic_id("Object.prototype")] = object_proto
     promise_proto = _row("object", ["ref", intrinsic_id("Object.prototype")])
-    promise_proto.update(code=None, captures=[], prototype=["ref", intrinsic_id("Object.prototype")], descriptors={}, keyOrder=[], extensible=True)
+    promise_proto.update(
+        code=None,
+        captures=[],
+        prototype=["ref", intrinsic_id("Object.prototype")],
+        descriptors={},
+        keyOrder=[],
+        extensible=True,
+    )
     heap[intrinsic_id("Promise.prototype")] = promise_proto
     _install_value(promise_proto, "constructor", ["ref", intrinsic_id("Promise")])
     _install_value(object_proto, "constructor", ["ref", intrinsic_id("Object")])
@@ -107,11 +116,16 @@ def initialize(machine):
             continue
         _install_value(object_proto, name, ["ref", intrinsic_id("Object.prototype." + name)])
     object_proto["descriptors"]["__proto__"] = {
-        "kind": "accessor", "get": ["ref", intrinsic_id("Object.prototype.__proto__.get")],
-        "set": ["ref", intrinsic_id("Object.prototype.__proto__.set")], "enumerable": False, "configurable": True,
+        "kind": "accessor",
+        "get": ["ref", intrinsic_id("Object.prototype.__proto__.get")],
+        "set": ["ref", intrinsic_id("Object.prototype.__proto__.set")],
+        "enumerable": False,
+        "configurable": True,
     }
     object_proto["keyOrder"].append("__proto__")
-    _install_value(object_proto, "toLocaleString", ["ref", intrinsic_id("Object.prototype.toLocaleString")])
+    _install_value(
+        object_proto, "toLocaleString", ["ref", intrinsic_id("Object.prototype.toLocaleString")]
+    )
     for name in ("then", "catch", "finally"):
         identity = intrinsic_id("Promise.prototype." + name)
         _install_value(promise_proto, name, ["ref", identity])
@@ -126,7 +140,10 @@ def initialize(machine):
 def _install_value(node, key, value, *, writable=True, order_front=False):
     node["properties"][key] = copy.deepcopy(value)
     node["descriptors"][key] = {
-        "kind": "data", "writable": writable, "enumerable": False, "configurable": True,
+        "kind": "data",
+        "writable": writable,
+        "enumerable": False,
+        "configurable": True,
     }
     if order_front:
         node["keyOrder"].insert(0, key)
@@ -150,12 +167,18 @@ def _descriptor_object(machine, identity, descriptor, name):
         else ("get", "set", "enumerable", "configurable")
     )
     fields = {
-        key: ["bool", descriptor[key]] if type(descriptor[key]) is bool else copy.deepcopy(descriptor[key])
+        key: ["bool", descriptor[key]]
+        if type(descriptor[key]) is bool
+        else copy.deepcopy(descriptor[key])
         for key in field_order
     }
     props = {key: value for key, value in fields.items()}
     machine["heap"][name] = {
-        "kind": "object", "code": None, "captures": [], "properties": props, "prototype": "ordinary"
+        "kind": "object",
+        "code": None,
+        "captures": [],
+        "properties": props,
+        "prototype": "ordinary",
     }
 
 
@@ -200,7 +223,7 @@ def validate_record(record):
 
 
 def apply_record(machine, record):
-    from .protocol_v8 import _descriptor, _node, _key
+    from .protocol_v8 import _descriptor, _key, _node
 
     kind = record["kind"]
     if kind == "promise.intrinsics":
@@ -246,7 +269,6 @@ def apply_record(machine, record):
 
 
 def validate_state(machine):
-    from .protocol_v8 import _descriptor
 
     state = machine["protocol"].get("promiseObjects")
     if state is None:
@@ -261,7 +283,9 @@ def validate_state(machine):
     for name in NAMES:
         identity = intrinsic_id(name)
         row = heap[identity]
-        expected_kind = "object" if name in ("Promise.prototype", "Object.prototype") else "intrinsic"
+        expected_kind = (
+            "object" if name in ("Promise.prototype", "Object.prototype") else "intrinsic"
+        )
         if row.get("kind") != expected_kind:
             _fail("intrinsic row kind changed")
         if expected_kind == "intrinsic":

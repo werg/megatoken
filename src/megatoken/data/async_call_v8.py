@@ -485,7 +485,15 @@ def validate_state(machine):
                     adoption.get("target") == result[1]
                     and adoption.get("cause") == {"kind": "async", "invocation": call["invocation"]}
                     and adoption.get("phase")
-                    in ("intent", "queued", "reading", "observing", "completed", "rejected", "self"),
+                    in (
+                        "intent",
+                        "queued",
+                        "reading",
+                        "observing",
+                        "completed",
+                        "rejected",
+                        "self",
+                    ),
                     "retained async Promise result lacks adoption authority",
                 )
                 if adoption.get("phase") == "completed":
@@ -503,9 +511,11 @@ def validate_state(machine):
                     )
                 elif adoption.get("phase") == "rejected":
                     job_rows = machine.get("jobs", [])
-                    returned = (dict(job_rows) if isinstance(job_rows, list) else job_rows).get(
-                        adoption.get("job"), {}
-                    ).get("returned", {})
+                    returned = (
+                        (dict(job_rows) if isinstance(job_rows, list) else job_rows)
+                        .get(adoption.get("job"), {})
+                        .get("returned", {})
+                    )
                     _require(
                         returned.get("kind") == "throw"
                         and node["state"] == "rejected"
@@ -625,7 +635,15 @@ def validate_state(machine):
                         and adoption.get("cause")
                         == {"kind": "async", "invocation": call["invocation"]}
                         and adoption.get("phase")
-                        in ("intent", "queued", "reading", "observing", "completed", "rejected", "self"),
+                        in (
+                            "intent",
+                            "queued",
+                            "reading",
+                            "observing",
+                            "completed",
+                            "rejected",
+                            "self",
+                        ),
                         "retained async completion lacks adoption authority",
                     )
                     if adoption.get("phase") == "completed":
@@ -643,9 +661,11 @@ def validate_state(machine):
                         )
                     elif adoption.get("phase") == "rejected":
                         job_rows = machine.get("jobs", [])
-                        returned = (dict(job_rows) if isinstance(job_rows, list) else job_rows).get(
-                            adoption.get("job"), {}
-                        ).get("returned", {})
+                        returned = (
+                            (dict(job_rows) if isinstance(job_rows, list) else job_rows)
+                            .get(adoption.get("job"), {})
+                            .get("returned", {})
+                        )
                         _require(
                             returned.get("kind") == "throw"
                             and node["state"] == "rejected"

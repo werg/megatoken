@@ -10,7 +10,15 @@ FIELDS = {
     "promise.adopt.enqueue": {"kind", "promise", "target", "job"},
     "promise.adopt.enter": {"kind", "promise", "target", "job", "forwarding"},
     "promise.adopt.get": {"kind", "promise", "target", "job", "child"},
-    "promise.adopt.finish": {"kind", "promise", "target", "job", "child", "completion", "forwarding"},
+    "promise.adopt.finish": {
+        "kind",
+        "promise",
+        "target",
+        "job",
+        "child",
+        "completion",
+        "forwarding",
+    },
     "promise.adopt.forward": {"kind", "promise", "target", "job", "status", "value"},
     "promise.adopt.self": {"kind", "promise", "error"},
     "promise.reaction.complete": {"kind", "job", "owner", "promise", "target"},
@@ -42,8 +50,8 @@ def _promise(machine, identity):
 
 def _assert_intrinsic_then(machine, identity):
     node = _promise(machine, identity)
-    from .protocol_v8 import _descriptor, _lookup_descriptor
     from .promise_object_v8 import intrinsic_id
+    from .protocol_v8 import _descriptor, _lookup_descriptor
 
     if node.get("callable") is not None or node.get("proxy") is not None:
         _fail("Promise then lookup is overridden or has an unmodeled prototype")
@@ -163,10 +171,9 @@ def _assert_default_constructor(machine, identity):
     if descriptor is None:
         return
     if descriptor["kind"] == "accessor":
-        if (
-            (machine.get("protocol") or {}).get("promiseObjects") is not None
-            and descriptor["get"] == ["undefined"]
-        ):
+        if (machine.get("protocol") or {}).get("promiseObjects") is not None and descriptor[
+            "get"
+        ] == ["undefined"]:
             return
         _fail("adoption constructor getter requires its owned job continuation")
     if not _default_constructor(machine, descriptor["value"]):
@@ -314,7 +321,11 @@ def validate_record(record):
     _exact(record, FIELDS[record["kind"]], "Promise adoption record")
     for key in ("promise", "target", "job", "forwarding", "owner", "child"):
         if key in record:
-            if key == "forwarding" and record["kind"] == "promise.adopt.finish" and record[key] is None:
+            if (
+                key == "forwarding"
+                and record["kind"] == "promise.adopt.finish"
+                and record[key] is None
+            ):
                 continue
             _identity(record[key])
     if record["kind"] == "promise.adopt.finish":
@@ -679,14 +690,20 @@ def assert_next(machine, record):
             for node in machine.get("heap", {}).values()
             if node.get("kind") == "promise"
             and (node.get("adoption") or {}).get("phase") == "reading"
-            and (node.get("adoption") or {}).get("owner") == next(iter(machine.get("frameFunctions", {})), None)
+            and (node.get("adoption") or {}).get("owner")
+            == next(iter(machine.get("frameFunctions", {})), None)
         ),
         None,
     )
-    if reading and machine.get("stack", [])[-1:] == [reading["lookup"]["child"]] and kind in (
-        "return",
-        "throw",
-        "await",
+    if (
+        reading
+        and machine.get("stack", [])[-1:] == [reading["lookup"]["child"]]
+        and kind
+        in (
+            "return",
+            "throw",
+            "await",
+        )
     ):
         _fail("adoption getter completion requires promise.adopt.finish")
     if kind == "job" and selected_job and selected_job.get("reaction") in ("adopt", "adoption"):
@@ -852,7 +869,13 @@ def validate_state(machine):
             if row["forwarding"] is not None:
                 _assert_fresh_heap_identity(machine, row["forwarding"])
             job = rows.get(row["job"])
-            expected_job_status = "queued" if row["phase"] == "queued" else "running" if row["phase"] == "reading" else "completed"
+            expected_job_status = (
+                "queued"
+                if row["phase"] == "queued"
+                else "running"
+                if row["phase"] == "reading"
+                else "completed"
+            )
             getter_job = has_lookup
             if (
                 not job
@@ -868,30 +891,52 @@ def validate_state(machine):
                 or row["job"] in owned_jobs
             ):
                 _fail("retained assimilation job linkage")
-            expected_fields = {"status", "owner", "closure", "reaction", "adoptionPromise", "adoptionTarget", "readySequence"}
+            expected_fields = {
+                "status",
+                "owner",
+                "closure",
+                "reaction",
+                "adoptionPromise",
+                "adoptionTarget",
+                "readySequence",
+            }
             if getter_job:
                 expected_fields.update(("priorAliases", "priorReceiver"))
                 if row["phase"] != "reading":
                     expected_fields.add("returned")
-                    _exact(job.get("returned"), {"kind", "value"}, "retained adoption getter completion")
+                    _exact(
+                        job.get("returned"),
+                        {"kind", "value"},
+                        "retained adoption getter completion",
+                    )
                     returned = job["returned"]
                     _known(machine, returned["value"])
                     if row["phase"] == "rejected":
-                        if returned["kind"] != "throw" or node["state"] != "rejected" or node["result"] != returned["value"]:
+                        if (
+                            returned["kind"] != "throw"
+                            or node["state"] != "rejected"
+                            or node["result"] != returned["value"]
+                        ):
                             _fail("retained adoption getter rejection differs")
-                    elif returned["kind"] != "return" or not _default_constructor(machine, returned["value"]):
+                    elif returned["kind"] != "return" or not _default_constructor(
+                        machine, returned["value"]
+                    ):
                         _fail("retained adoption getter completion differs")
                 from .protocol_v8 import _known
 
                 _known(machine, job.get("priorReceiver"))
                 aliases = job.get("priorAliases")
-                if not isinstance(aliases, list) or any(
-                    not isinstance(pair, list)
-                    or len(pair) != 2
-                    or any(not isinstance(value, str) for value in pair)
-                    or pair[1] not in machine.get("locals", {})
-                    for pair in aliases
-                ) or len({pair[0] for pair in aliases}) != len(aliases):
+                if (
+                    not isinstance(aliases, list)
+                    or any(
+                        not isinstance(pair, list)
+                        or len(pair) != 2
+                        or any(not isinstance(value, str) for value in pair)
+                        or pair[1] not in machine.get("locals", {})
+                        for pair in aliases
+                    )
+                    or len({pair[0] for pair in aliases}) != len(aliases)
+                ):
                     _fail("adoption getter prior capture aliases")
             if set(job) != expected_fields:
                 _fail("retained assimilation job fields")

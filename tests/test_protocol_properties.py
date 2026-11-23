@@ -465,7 +465,9 @@ class PromiseOrdinaryPropertyTests(unittest.TestCase):
         create_promise(self.machine, "p")
 
     def test_promise_uses_intrinsic_prototype_and_ordinary_own_properties(self):
-        self.assertEqual(self.machine["heap"]["p"]["prototype"], ["ref", "intrinsicpromiseprototype"])
+        self.assertEqual(
+            self.machine["heap"]["p"]["prototype"], ["ref", "intrinsicpromiseprototype"]
+        )
         apply_protocol_record(
             self.machine,
             {
@@ -543,6 +545,73 @@ class PromiseOrdinaryPropertyTests(unittest.TestCase):
         self.machine["heap"]["p"]["properties"]["then"] = ["str", "changed"]
         with self.assertRaisesRegex(ProtocolV8Error, "then lookup"):
             _assert_intrinsic_then(self.machine, "p")
+
+    def test_intrinsic_then_method_cannot_be_used_as_plain_resolution_value(self):
+        from megatoken.data.promise_scheduler_v8 import assert_plain_resolution
+
+        self.machine["heap"]["thenable"] = {
+            "kind": "object",
+            "properties": {"then": ["ref", "intrinsicpromiseprototypethen"]},
+            "prototype": "ordinary",
+        }
+        with self.assertRaisesRegex(ProtocolV8Error, "callable then"):
+            assert_plain_resolution(self.machine, ["ref", "thenable"])
+
+    def test_default_array_intrinsic_overrides_are_not_fabricated(self):
+        for key in ("constructor", "toString", "toLocaleString"):
+            with self.subTest(key=key):
+                self.machine["heap"]["array"] = {
+                    "kind": "array",
+                    "properties": {"length": ["num", 0]},
+                    "prototype": "ordinary",
+                    "descriptors": {
+                        "length": {
+                            "kind": "data",
+                            "value": ["num", 0],
+                            "writable": True,
+                            "enumerable": False,
+                            "configurable": False,
+                        }
+                    },
+                }
+                with self.assertRaisesRegex(ProtocolV8Error, "inherited intrinsic"):
+                    apply_protocol_record(
+                        self.machine,
+                        {
+                            "kind": "property.get",
+                            "object": "array",
+                            "key": ["str", key],
+                            "receiver": ["ref", "array"],
+                            "result": ["undefined"],
+                        },
+                    )
+
+    def test_default_function_intrinsic_overrides_are_not_fabricated(self):
+        self.machine["heap"]["function"] = {
+            "kind": "closure",
+            "properties": {},
+            "code": None,
+            "captures": [],
+            "functionKind": "ordinary",
+            "lexicalReceiver": None,
+            "prototype": "ordinary",
+        }
+        for key in ("constructor", "toString"):
+            with (
+                self.subTest(key=key),
+                self.assertRaisesRegex(ProtocolV8Error, "inherited intrinsic"),
+            ):
+                apply_protocol_record(
+                    self.machine,
+                    {
+                        "kind": "property.get",
+                        "object": "function",
+                        "key": ["str", key],
+                        "receiver": ["ref", "function"],
+                        "result": ["undefined"],
+                    },
+                )
+
     def test_adoption_follows_actual_prototype_chain_and_refuses_getter_order(self):
         from megatoken.data.promise_adoption_v8 import _assert_intrinsic_then
 
@@ -718,8 +787,8 @@ class PromiseOrdinaryPropertyTests(unittest.TestCase):
             )
 
     def test_restored_mutable_then_is_checked_at_adoption(self):
-        from megatoken.data.protocol_v8 import _external_machine, validate_protocol_state
         from megatoken.data.promise_adoption_v8 import _assert_intrinsic_then
+        from megatoken.data.protocol_v8 import _external_machine, validate_protocol_state
 
         before = _external_machine(self.machine)
         self.assertTrue(validate_protocol_state(before["protocol"], before["heap"], before))

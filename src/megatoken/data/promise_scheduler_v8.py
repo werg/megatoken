@@ -84,7 +84,14 @@ def assert_plain_resolution(machine, value):
     method = descriptor["value"]
     if method[0] == "ref":
         selected = machine["heap"].get(method[1])
-        if not selected or selected.get("kind") in ("closure", "proxy"):
+        if (
+            not selected
+            or selected.get("kind") in ("closure", "proxy")
+            or (
+                selected.get("kind") == "intrinsic"
+                and selected.get("callableKind") in ("function", "constructor")
+            )
+        ):
             _fail("callable then requires explicit assimilation jobs")
     elif method[0] not in ("undefined", "null", "bool", "num", "str", "bigint", "symbol"):
         _fail("unmodeled then value requires an explicit resolution protocol")

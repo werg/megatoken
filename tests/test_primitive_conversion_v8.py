@@ -448,6 +448,82 @@ class PrimitiveConversionTests(unittest.TestCase):
                 finish("key", expected),
             )
 
+    def test_shared_object_prototype_conversion_override_is_observed(self):
+        state = machine()
+        apply(state, {"kind": "promise.intrinsics"}, allocate("input"))
+        object_prototype = state["heap"]["intrinsicobjectprototype"]
+        object_prototype["properties"]["valueOf"] = ["num", 11]
+        found = conversion._lookup(state, ["ref", "input"], ["str", "valueOf"])
+        self.assertEqual(
+            found,
+            {"descriptor": "data", "value": ["num", 11], "builtin": None},
+        )
+        object_prototype["properties"].pop("valueOf")
+        object_prototype["descriptors"]["valueOf"] = {
+            "kind": "accessor",
+            "get": ["ref", "getter"],
+            "set": ["undefined"],
+            "enumerable": False,
+            "configurable": True,
+        }
+        found = conversion._lookup(state, ["ref", "input"], ["str", "valueOf"])
+        self.assertEqual(
+            found,
+            {"descriptor": "accessor", "value": ["ref", "getter"], "builtin": None},
+        )
+
+    def test_intrinsic_conversion_callable_is_not_treated_as_noncallable(self):
+        state = machine()
+        apply(
+            state,
+            {"kind": "promise.intrinsics"},
+            allocate("input", [(["str", "valueOf"], ["ref", "intrinsicpromiseprototypethen"])]),
+        )
+        self.ordinary(state, "convert", "Number")
+        with self.assertRaisesRegex(ProtocolV8Error, "intrinsic or Proxy conversion callable"):
+            apply(
+                state,
+                lookup(
+                    "convert", ["str", "valueOf"], "data", ["ref", "intrinsicpromiseprototypethen"]
+                ),
+            )
+
+    def test_restored_conversion_fault_rejects_unsupported_callable_method(self):
+        for identity, node in (
+            ("intrinsicpromiseprototypethen", None),
+            ("proxy", {"kind": "proxy", "properties": {}}),
+        ):
+            with self.subTest(identity=identity):
+                state = machine()
+                apply(state, {"kind": "promise.intrinsics"}, allocate("input"))
+                if node is not None:
+                    state["heap"][identity] = node
+                method = ["ref", identity]
+                state["protocol"]["primitiveConversions"] = {
+                    "schema": conversion.SCHEMA,
+                    "operations": [
+                        {
+                            "id": "convert",
+                            "parent": "root",
+                            "goal": "Number",
+                            "input": ["ref", "input"],
+                            "index": -1,
+                            "method": method,
+                            "builtin": None,
+                            "child": None,
+                            "candidate": method,
+                            "result": None,
+                            "fault": "exotic-not-callable",
+                            "phase": "fault",
+                            "lookupKind": "data",
+                        }
+                    ],
+                }
+                with self.assertRaisesRegex(
+                    ProtocolV8Error, "intrinsic or Proxy conversion callable"
+                ):
+                    conversion.validate_state(state)
+
     def test_builtin_getter_join_sparse_and_symbol_boundaries_cannot_be_skipped(self):
         for boundary in ("tag-getter", "join-override", "sparse", "symbol-element"):
             state = machine()

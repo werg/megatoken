@@ -681,14 +681,27 @@ def _lookup_descriptor(machine, identity, key, *, for_set=False):
                         isinstance(key, tuple)
                         and key[1] in ("well-known:iterator", "well-known:unscopables")
                         or isinstance(key, str)
-                        and key in _ARRAY_INTRINSIC_NAMES
+                        and key
+                        in _ARRAY_INTRINSIC_NAMES | {"constructor", "toString", "toLocaleString"}
                     )
                     or node["kind"] == "closure"
                     and (
                         isinstance(key, tuple)
                         and key[1] == "well-known:hasInstance"
                         or isinstance(key, str)
-                        and key in ("call", "apply", "bind", "length", "name", "prototype", "arguments", "caller")
+                        and key
+                        in (
+                            "call",
+                            "apply",
+                            "bind",
+                            "length",
+                            "name",
+                            "prototype",
+                            "arguments",
+                            "caller",
+                            "constructor",
+                            "toString",
+                        )
                     )
                 ):
                     _fail("inherited intrinsic property requires its callable protocol")
@@ -907,7 +920,8 @@ def _eval(machine, expr):
                         "function"
                         if machine["heap"].get(a[1], {}).get("kind") == "closure"
                         or machine["heap"].get(a[1], {}).get("kind") == "intrinsic"
-                        and machine["heap"].get(a[1], {}).get("callableKind") in ("function", "constructor")
+                        and machine["heap"].get(a[1], {}).get("callableKind")
+                        in ("function", "constructor")
                         else "object"
                     ),
                 ]
@@ -1382,10 +1396,9 @@ def _apply(machine, record):
             before = node.get("prototype", "ordinary")
             from .promise_object_v8 import intrinsic_id
 
-            immutable_object_prototype = (
-                machine["protocol"].get("promiseObjects") is not None
-                and record["object"] == intrinsic_id("Object.prototype")
-            )
+            immutable_object_prototype = machine["protocol"].get(
+                "promiseObjects"
+            ) is not None and record["object"] == intrinsic_id("Object.prototype")
             effective_before = before
             if (
                 before == "ordinary"
@@ -1754,9 +1767,7 @@ def validate_protocol_state(snapshot, heap_ids=(), shared_state=None):
             )
             if active_machine.get("locals", {}).get(child + ":this") != expected_receiver:
                 _fail("pending accessor receiver differs from retained invocation")
-            frame = next(
-                (row for row in snapshot["callFrames"] if row["child"] == child), None
-            )
+            frame = next((row for row in snapshot["callFrames"] if row["child"] == child), None)
             expected_arguments = [] if pending["operation"] == "get" else [pending["value"]]
             if frame is not None and (
                 frame["parent"] != pending["parent"] or frame["arguments"] != expected_arguments
@@ -1813,15 +1824,17 @@ def validate_protocol_state(snapshot, heap_ids=(), shared_state=None):
                     _validate_descriptor(descriptor)
                     for field in ("get", "set"):
                         value = _known(known_machine, descriptor[field], identity)
-                        if value[0] == "ref" and heap_nodes.get(value[1], {}).get("kind") != "closure":
+                        if (
+                            value[0] == "ref"
+                            and heap_nodes.get(value[1], {}).get("kind") != "closure"
+                        ):
                             from .promise_object_v8 import intrinsic_id
 
                             builtin_proto_accessor = (
                                 snapshot.get("promiseObjects") is not None
                                 and identity == intrinsic_id("Object.prototype")
                                 and key == "__proto__"
-                                and value[1]
-                                == intrinsic_id("Object.prototype.__proto__." + field)
+                                and value[1] == intrinsic_id("Object.prototype.__proto__." + field)
                                 and heap_nodes.get(value[1], {}).get("kind") == "intrinsic"
                                 and heap_nodes.get(value[1], {}).get("intrinsicName")
                                 == "Object.prototype.__proto__." + field
