@@ -22,7 +22,9 @@ concurrency:
 jobs:
   paired-v8:
     runs-on: ubuntu-24.04
-    timeout-minutes: 45
+    # A slower hosted gallery run passed all 1,282 native tests at the former
+    # 45-minute cutoff. Retain every stage and individual subprocess deadline.
+    timeout-minutes: 60
     strategy:
       fail-fast: false
       matrix:
