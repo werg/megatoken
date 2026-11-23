@@ -104,6 +104,81 @@ class NativeV8DetailedRegressionTests(unittest.TestCase):
             _apply_detail(state, "allocate", bad, {"sequence": 2})
         self.assertEqual(state, before)
 
+    def test_new_retained_invocation_reseeds_only_valid_promise_intrinsics(self):
+        from megatoken.data import promise_object_v8, promise_scheduler_v8
+        from megatoken.data.protocol_v8 import (
+            _external_machine,
+            _internal_machine,
+            create_protocol_state,
+        )
+
+        first = _initial_state({}, invocation([]))
+        first_machine = _internal_machine(first)
+        first_machine["protocol"] = create_protocol_state()
+        promise_object_v8.initialize(first_machine)
+        retained = _external_machine(first_machine)
+
+        second = _initial_state(
+            {},
+            {**invocation([]), "invocationId": "invocation2"},
+            retained_state=retained,
+        )
+        self.assertEqual(second["protocol"]["sequence"], 0)
+        self.assertEqual(
+            second["protocol"]["promiseObjects"],
+            {"schema": promise_object_v8.STATE_SCHEMA, "initialized": True},
+        )
+        self.assertEqual(second["protocol"]["pendingCalls"], [])
+        self.assertEqual(second["protocol"]["callFrames"], [])
+
+        second_machine = _internal_machine(second)
+        promise_scheduler_v8.create_promise(second_machine, "pNew")
+        self.assertEqual(
+            second_machine["heap"]["pNew"]["prototype"],
+            ["ref", promise_object_v8.intrinsic_id("Promise.prototype")],
+        )
+
+    def test_new_retained_invocation_rejects_partial_promise_intrinsic_group(self):
+        from megatoken.data import promise_object_v8
+        from megatoken.data.protocol_v8 import (
+            _external_machine,
+            _internal_machine,
+            create_protocol_state,
+        )
+
+        first = _internal_machine(_initial_state({}, invocation([])))
+        first["protocol"] = create_protocol_state()
+        promise_object_v8.initialize(first)
+        retained = _external_machine(first)
+        retained["heap"] = [
+            pair
+            for pair in retained["heap"]
+            if pair[0] == promise_object_v8.intrinsic_id("Promise")
+        ]
+        with self.assertRaisesRegex(NativeV8Error, "retained Promise intrinsic group"):
+            _initial_state(
+                {},
+                {**invocation([]), "invocationId": "invocation2"},
+                retained_state=retained,
+            )
+
+    def test_reserved_intrinsic_looking_object_does_not_enable_promise_protocol(self):
+        from megatoken.data import promise_object_v8
+
+        retained = _initial_state({}, invocation([]))
+        retained["heap"].append(
+            [
+                promise_object_v8.intrinsic_id("Promise.prototype"),
+                {"kind": "object", "prototype": "ordinary", "properties": []},
+            ]
+        )
+        second = _initial_state(
+            {},
+            {**invocation([]), "invocationId": "invocation2"},
+            retained_state=retained,
+        )
+        self.assertIsNone(second["protocol"])
+
     def test_literal_lazy_witness_is_checked_without_inventing_an_operator(self):
         state = {"locals": [], "captureAliases": [], "heap": []}
         for value, path in ((["bool", True], "use-left"), (["bool", False], "evaluate-right")):
