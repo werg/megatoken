@@ -664,6 +664,7 @@ def validate_support_population(prepared_root, source_path, inventory_path):
         == {split: sum(value == split for value in split_by_id.values()) for split in counts},
         "Prepared support corpus differs from its authenticated source split",
     )
+    require(counts["test"] > 0, "Prepared support population must contain a test source")
     return {
         "registryDigest": registry_digest,
         "sourceCount": len(expected),

@@ -14,7 +14,9 @@ class SourceFamilyRegistryTests(unittest.TestCase):
     @classmethod
     def setUpClass(cls):
         cls.registry = json.loads(
-            (Path(__file__).parent / "fixtures/current-source-families-v8.json").read_text()
+            (Path(__file__).parent / "fixtures/current-source-families-v8.json").read_text(
+                encoding="utf-8"
+            )
         )
 
     def test_current_javascript_registry_rebuilds_with_uncertainty_and_exact_costs(self):

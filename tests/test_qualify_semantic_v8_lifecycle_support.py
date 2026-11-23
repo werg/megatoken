@@ -264,3 +264,12 @@ def test_support_lifecycle_uses_observed_inventory_and_splits(tmp_path, monkeypa
     result = MODULE.validate_support_population(root, sample, inventory)
     assert result["sourceCount"] == sum(counts)
     assert result["splitCounts"] == dict(zip(("train", "validation", "test"), counts, strict=True))
+
+
+@pytest.mark.parametrize("counts", [(1, 1, 0), (60, 4, 0)])
+def test_support_lifecycle_rejects_complete_population_without_test_sources(
+    tmp_path, monkeypatch, counts
+):
+    root, inventory, sample, *_ = _fixture(tmp_path, monkeypatch, counts)
+    with pytest.raises(ValueError, match="Prepared support population must contain a test source"):
+        MODULE.validate_support_population(root, sample, inventory)
