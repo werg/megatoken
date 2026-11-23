@@ -72,7 +72,9 @@ def two_split_supply(tmp_path_factory):
     root = tmp_path_factory.mktemp("v8-launch-corpus")
     fixture = Path(__file__).parent / "fixtures/semantic-regions-v8.json.gz.b64"
     examples = json.loads(gzip.decompress(base64.b64decode(fixture.read_bytes())))["examples"]
-    registry = json.loads((Path(__file__).parent / "fixtures/current-launch-registry-v8.json").read_text())
+    registry = json.loads(
+        (Path(__file__).parent / "fixtures/current-launch-registry-v8.json").read_text()
+    )
     documents, receipts = [], {}
     source_by_id = {source["id"]: source for source in registry["sources"]}
     component_by_source = {

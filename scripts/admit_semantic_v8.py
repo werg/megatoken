@@ -311,8 +311,10 @@ def checked_revision(root, expected=None):
         text=True,
         env=_git_environment(),
     ).strip()
-    if re.fullmatch(r"[a-f0-9]{40}", actual) is None or dirty or (
-        expected is not None and actual != expected
+    if (
+        re.fullmatch(r"[a-f0-9]{40}", actual) is None
+        or dirty
+        or (expected is not None and actual != expected)
     ):
         raise ValueError("V8 native receipt requires the exact clean consumer revision")
     top = subprocess.check_output(
@@ -324,12 +326,15 @@ def checked_revision(root, expected=None):
     # shadow module. Normal source-associated bytecode caches are not new code.
     untracked = subprocess.check_output(
         ["git", "ls-files", "--others", "-z", "--", "src", "scripts"],
-        cwd=root, text=True, env=_git_environment(),
+        cwd=root,
+        text=True,
+        env=_git_environment(),
     ).split("\0")
     if any(
         re.search(r"\.(?:py|pyc|pyo|so|pyd)$", name)
         and not re.search(r"(?:^|/)__pycache__/[^/]+\.pyc$", name)
-        for name in untracked if name
+        for name in untracked
+        if name
     ):
         raise ValueError("V8 native consumer contains untracked importable code")
     if not Path(__import__("megatoken").__file__).resolve().is_relative_to(root / "src"):
@@ -459,7 +464,10 @@ def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--input", type=Path, required=True)
     parser.add_argument("--output", type=Path, required=True)
-    parser.add_argument("--consumer-revision", help="Optional exact revision for reproducing an observed run; defaults to the current clean checkout")
+    parser.add_argument(
+        "--consumer-revision",
+        help="Optional exact revision for reproducing an observed run; defaults to the current clean checkout",
+    )
     parser.add_argument("--tokenizer-json", type=Path)
     parser.add_argument("--producer-root", type=Path)
     parser.add_argument("--producer-revision")
