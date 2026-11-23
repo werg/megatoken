@@ -543,7 +543,6 @@ class PromiseOrdinaryPropertyTests(unittest.TestCase):
         self.machine["heap"]["p"]["properties"]["then"] = ["str", "changed"]
         with self.assertRaisesRegex(ProtocolV8Error, "then lookup"):
             _assert_intrinsic_then(self.machine, "p")
-
     def test_adoption_follows_actual_prototype_chain_and_refuses_getter_order(self):
         from megatoken.data.promise_adoption_v8 import _assert_intrinsic_then
 
@@ -573,6 +572,151 @@ class PromiseOrdinaryPropertyTests(unittest.TestCase):
         with self.assertRaisesRegex(ProtocolV8Error, "then lookup"):
             _assert_intrinsic_then(self.machine, "p")
 
+    def test_materialized_object_prototype_lookup_preserves_unmodeled_array_methods(self):
+        from megatoken.data.protocol_v8 import _lookup_descriptor
+
+        self.machine["heap"]["o"] = {
+            "kind": "object",
+            "code": None,
+            "captures": [],
+            "prototype": "ordinary",
+            "properties": {},
+        }
+        _, descriptor = _lookup_descriptor(self.machine, "o", "toString")
+        self.assertEqual(descriptor["value"], ["ref", "intrinsicobjectprototypetostring"])
+        self.machine["heap"]["a"] = {
+            "kind": "array",
+            "code": None,
+            "captures": [],
+            "prototype": "ordinary",
+            "properties": {"length": ["num", 0]},
+        }
+        with self.assertRaisesRegex(ProtocolV8Error, "callable protocol"):
+            _lookup_descriptor(self.machine, "a", "map")
+
+    def test_implicit_prototype_same_value_and_object_prototype_immutability(self):
+        self.machine["heap"]["o"] = {
+            "kind": "object",
+            "code": None,
+            "captures": [],
+            "prototype": "ordinary",
+            "properties": {},
+            "extensible": False,
+        }
+        apply_protocol_record(
+            self.machine,
+            {
+                "kind": "property.prototype",
+                "object": "o",
+                "prototype": ["ref", "intrinsicobjectprototype"],
+                "success": True,
+            },
+        )
+        apply_protocol_record(
+            self.machine,
+            {
+                "kind": "property.prototype",
+                "object": "intrinsicobjectprototype",
+                "prototype": ["ref", "o"],
+                "success": False,
+            },
+        )
+
+    def test_restored_accessor_receiver_must_match_retained_invocation(self):
+        from megatoken.data.protocol_v8 import _external_machine, validate_protocol_state
+
+        apply_protocol_record(
+            self.machine,
+            {
+                "kind": "allocate",
+                "name": "getter",
+                "objectKind": "closure",
+                "length": None,
+                "properties": [],
+                "code": "getter-code",
+                "captures": [],
+                "functionKind": "ordinary",
+                "lexicalReceiver": None,
+            },
+        )
+        apply_protocol_record(
+            self.machine,
+            {
+                "kind": "allocate",
+                "name": "object",
+                "objectKind": "object",
+                "length": None,
+                "properties": [],
+                "code": None,
+                "captures": [],
+                "functionKind": None,
+                "lexicalReceiver": None,
+            },
+        )
+        apply_protocol_record(
+            self.machine,
+            {
+                "kind": "allocate",
+                "name": "other",
+                "objectKind": "object",
+                "length": None,
+                "properties": [],
+                "code": None,
+                "captures": [],
+                "functionKind": None,
+                "lexicalReceiver": None,
+            },
+        )
+        apply_protocol_record(
+            self.machine,
+            {
+                "kind": "property.define",
+                "object": "object",
+                "key": ["str", "x"],
+                "descriptor": {
+                    "kind": "accessor",
+                    "get": ["ref", "getter"],
+                    "set": ["undefined"],
+                    "enumerable": True,
+                    "configurable": True,
+                },
+                "success": True,
+            },
+        )
+        apply_protocol_record(
+            self.machine,
+            {
+                "kind": "property.get.call",
+                "id": "pending-get",
+                "child": "getter-invocation",
+                "object": "object",
+                "key": ["str", "x"],
+                "receiver": ["ref", "object"],
+            },
+        )
+        valid = _external_machine(self.machine)
+        self.assertTrue(validate_protocol_state(valid["protocol"], valid["heap"], valid))
+        changed = copy.deepcopy(valid)
+        changed["protocol"]["pendingCalls"][0]["receiver"] = ["ref", "other"]
+        with self.assertRaisesRegex(ProtocolV8Error, "retained invocation"):
+            validate_protocol_state(changed["protocol"], changed["heap"], changed)
+        apply_protocol_record(
+            self.machine,
+            {
+                "kind": "return",
+                "invocation": "getter-invocation",
+                "value": ["str", "returned"],
+            },
+        )
+        returned = _external_machine(self.machine)
+        self.assertTrue(validate_protocol_state(returned["protocol"], returned["heap"], returned))
+        changed_returned = copy.deepcopy(returned)
+        changed_returned["protocol"]["pendingCalls"][0]["receiver"] = ["ref", "other"]
+        with self.assertRaisesRegex(ProtocolV8Error, "retained invocation"):
+            validate_protocol_state(
+                changed_returned["protocol"], changed_returned["heap"], changed_returned
+            )
+
     def test_restored_mutable_then_is_checked_at_adoption(self):
         from megatoken.data.protocol_v8 import _external_machine, validate_protocol_state
         from megatoken.data.promise_adoption_v8 import _assert_intrinsic_then
@@ -590,6 +734,16 @@ class PromiseOrdinaryPropertyTests(unittest.TestCase):
         intrinsic = dict(changed["heap"])["intrinsicpromiseprototypethen"]
         intrinsic["intrinsicName"] = "forged"
         with self.assertRaisesRegex(ProtocolV8Error, "intrinsic callable identity changed"):
+            validate_protocol_state(changed["protocol"], changed["heap"], changed)
+
+    def test_restored_intrinsic_property_order_must_match_descriptors(self):
+        from megatoken.data.protocol_v8 import _external_machine, validate_protocol_state
+
+        changed = _external_machine(self.machine)
+        heap = dict(changed["heap"])
+        prototype = heap["intrinsicpromiseprototype"]
+        prototype["keyOrder"].pop()
+        with self.assertRaisesRegex(ProtocolV8Error, "property order"):
             validate_protocol_state(changed["protocol"], changed["heap"], changed)
 
 
