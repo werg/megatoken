@@ -137,6 +137,7 @@ FIELDS = {
     "property.define": {"kind", "object", "key", "descriptor", "success"},
     "property.get": {"kind", "object", "key", "receiver", "result"},
     "property.hasOwn": {"kind", "object", "key", "result"},
+    "property.has": {"kind", "object", "key", "result"},
     "property.set": {"kind", "object", "key", "receiver", "value", "success"},
     "property.delete": {"kind", "object", "key", "success"},
     "property.keys": {"kind", "object", "mode", "name", "keys"},
@@ -450,8 +451,8 @@ def validate_protocol_record(record):
         _fail("choice path")
     elif kind == "property.define":
         _validate_descriptor(record["descriptor"])
-    elif kind == "property.hasOwn" and record["result"][0] != "bool":
-        _fail("own property result boolean")
+    elif kind in ("property.hasOwn", "property.has") and record["result"][0] != "bool":
+        _fail("property existence result boolean")
     elif kind == "property.keys":
         if record["mode"] not in (
             "own",
@@ -657,7 +658,15 @@ def _missing_intrinsic(node, key):
     )
 
 
-def _lookup_descriptor(machine, identity, key, *, for_set=False):
+def _known_intrinsic_presence(node, key):
+    # A closure's `prototype` depends on its construction kind; the generic
+    # callable profile deliberately does not infer that own property.
+    return _missing_intrinsic(node, key) and not (
+        node["kind"] == "closure" and key == "prototype"
+    )
+
+
+def _lookup_descriptor(machine, identity, key, *, for_set=False, for_has=False):
     """Find an own or inherited descriptor and its owning object."""
     seen = set()
     while identity is not None:
@@ -704,6 +713,8 @@ def _lookup_descriptor(machine, identity, key, *, for_set=False):
                         )
                     )
                 ):
+                    if for_has and _known_intrinsic_presence(node, key):
+                        return None, {"kind": "data"}
                     _fail("inherited intrinsic property requires its callable protocol")
                 if object_prototype not in machine["heap"]:
                     _fail("initialized Object.prototype is missing")
@@ -718,6 +729,8 @@ def _lookup_descriptor(machine, identity, key, *, for_set=False):
             ):
                 return None, {"kind": "data", "writable": True}
             if _missing_intrinsic(node, key):
+                if for_has and _known_intrinsic_presence(node, key):
+                    return None, {"kind": "data"}
                 _fail("inherited intrinsic property requires its callable protocol")
             return None, None
         from .generator_v8 import INTRINSICS as GENERATOR_INTRINSICS
@@ -1310,6 +1323,11 @@ def _apply(machine, record):
             expected = ["bool", _descriptor(node, key) is not None]
             if expected != record["result"]:
                 _fail("false own property result")
+        elif kind == "property.has":
+            _, descriptor = _lookup_descriptor(machine, record["object"], key, for_has=True)
+            expected = ["bool", descriptor is not None]
+            if expected != record["result"]:
+                _fail("false inherited property result")
         elif kind == "property.get":
             _, descriptor = _lookup_descriptor(machine, record["object"], key)
             if (

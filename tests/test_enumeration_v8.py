@@ -4,6 +4,8 @@ import base64
 import copy
 import gzip
 import json
+import shutil
+import subprocess
 import unittest
 from pathlib import Path
 
@@ -156,7 +158,7 @@ class EnumerationV8Tests(unittest.TestCase):
         self.assertEqual(state["heap"]["cursor"]["nextIndex"], len(keys))
         self.assertTrue(state["heap"]["cursor"]["done"])
 
-    def test_value_writes_preserve_cursor_but_structural_changes_refuse_next(self):
+    def test_value_writes_and_new_properties_do_not_recapture_candidates_after_restore(self):
         state = machine()
         allocate(state, "source")
         define(state, "source", ["str", "key"], ["num", 1])
@@ -164,15 +166,211 @@ class EnumerationV8Tests(unittest.TestCase):
         define(state, "source", ["str", "key"], ["num", 2])
         advance(state, "key")
         define(state, "source", ["str", "new"], ["num", 3])
-        # This prefix may end in break; checkpoints preserve it without
-        # inventing another enumeration step or silently updating the snapshot.
         shared = json.loads(json.dumps(_external_machine(state)))
         self.assertTrue(validate_protocol_state(shared["protocol"], shared["heap"], shared))
         restored = _internal_machine(shared)
-        before = copy.deepcopy(restored)
-        with self.assertRaisesRegex(ProtocolV8Error, "structure changed"):
-            advance(restored, None, "end")
-        self.assertEqual(restored, before)
+        advance(restored, None, "end")
+        self.assertEqual(restored["heap"]["cursor"]["keys"], ["key"])
+        self.assertEqual(restored["heap"]["cursor"]["nextIndex"], 1)
+
+    def test_deleting_unvisited_own_and_inherited_properties_skips_live_absence(self):
+        state = machine()
+        allocate(state, "parent")
+        allocate(state, "child")
+        for identity, keys in (("child", ("a", "b")), ("parent", ("c", "d"))):
+            for key in keys:
+                define(state, identity, ["str", key], ["num", 1])
+        apply_protocol_record(
+            state,
+            {
+                "kind": "property.prototype",
+                "object": "child",
+                "prototype": ["ref", "parent"],
+                "success": True,
+            },
+        )
+        create(state, ["ref", "child"])
+        advance(state, "a", "first")
+        for identity, key in (("child", "b"), ("parent", "c")):
+            apply_protocol_record(
+                state,
+                {
+                    "kind": "property.delete",
+                    "object": identity,
+                    "key": ["str", key],
+                    "success": True,
+                },
+            )
+        shared = json.loads(json.dumps(_external_machine(state)))
+        self.assertTrue(validate_protocol_state(shared["protocol"], shared["heap"], shared))
+        state = _internal_machine(shared)
+        before = copy.deepcopy(state)
+        with self.assertRaisesRegex(ProtocolV8Error, "false next result"):
+            advance(state, "b", "forged")
+        self.assertEqual(state, before)
+        advance(state, "d", "second")
+        self.assertEqual(state["heap"]["cursor"]["nextIndex"], 4)
+        advance(state, None, "end")
+
+    def test_deleted_shadow_falls_back_to_inherited_candidate_without_reordering(self):
+        state = machine()
+        allocate(state, "parent")
+        allocate(state, "child")
+        define(state, "child", ["str", "a"], ["num", 1])
+        define(state, "child", ["str", "b"], ["num", 2])
+        define(state, "parent", ["str", "b"], ["num", 3])
+        define(state, "parent", ["str", "c"], ["num", 4])
+        apply_protocol_record(
+            state,
+            {
+                "kind": "property.prototype",
+                "object": "child",
+                "prototype": ["ref", "parent"],
+                "success": True,
+            },
+        )
+        create(state, ["ref", "child"])
+        advance(state, "a", "first")
+        apply_protocol_record(
+            state,
+            {"kind": "property.delete", "object": "child", "key": ["str", "b"], "success": True},
+        )
+        advance(state, "b", "second")
+        advance(state, "c", "third")
+        advance(state, None, "end")
+
+    def test_readded_candidate_keeps_its_captured_position_and_getters_are_not_read(self):
+        state = machine()
+        allocate(state, "source")
+        allocate(state, "getter", "closure")
+        for key in ("a", "b", "c"):
+            define(state, "source", ["str", key], ["num", 1])
+        create(state, ["ref", "source"])
+        advance(state, "a", "first")
+        apply_protocol_record(
+            state,
+            {"kind": "property.delete", "object": "source", "key": ["str", "b"], "success": True},
+        )
+        apply_protocol_record(
+            state,
+            {
+                "kind": "property.define",
+                "object": "source",
+                "key": ["str", "b"],
+                "descriptor": {
+                    "kind": "accessor",
+                    "get": ["ref", "getter"],
+                    "set": ["undefined"],
+                    "enumerable": True,
+                    "configurable": True,
+                },
+                "success": True,
+            },
+        )
+        advance(state, "b", "second")
+        advance(state, "c", "third")
+        advance(state, None, "end")
+        self.assertEqual(state["stack"], ["root"])
+        self.assertEqual(state["protocol"]["pendingCalls"], [])
+
+    def test_removed_hidden_shadow_does_not_add_a_previously_excluded_candidate(self):
+        state = machine()
+        allocate(state, "parent")
+        allocate(state, "child")
+        define(state, "child", ["str", "a"], ["num", 1])
+        define(state, "child", ["str", "hidden"], ["num", 2], enumerable=False)
+        define(state, "parent", ["str", "hidden"], ["num", 3])
+        apply_protocol_record(
+            state,
+            {
+                "kind": "property.prototype",
+                "object": "child",
+                "prototype": ["ref", "parent"],
+                "success": True,
+            },
+        )
+        create(state, ["ref", "child"])
+        advance(state, "a", "first")
+        apply_protocol_record(
+            state,
+            {
+                "kind": "property.delete",
+                "object": "child",
+                "key": ["str", "hidden"],
+                "success": True,
+            },
+        )
+        advance(state, None, "end")
+
+    def test_changed_enumerability_and_prototypes_are_refused_until_exhaustion(self):
+        original = machine()
+        allocate(original, "source")
+        allocate(original, "parent")
+        define(original, "source", ["str", "key"], ["num", 1])
+        create(original, ["ref", "source"])
+        for change, message in (("enumerability", "enumerability"), ("prototype", "prototype")):
+            with self.subTest(change=change):
+                state = copy.deepcopy(original)
+                if change == "enumerability":
+                    define(state, "source", ["str", "key"], ["num", 1], enumerable=False)
+                else:
+                    apply_protocol_record(
+                        state,
+                        {
+                            "kind": "property.prototype",
+                            "object": "source",
+                            "prototype": ["ref", "parent"],
+                            "success": True,
+                        },
+                    )
+                shared = _external_machine(state)
+                self.assertTrue(validate_protocol_state(shared["protocol"], shared["heap"], shared))
+                before = copy.deepcopy(state)
+                with self.assertRaisesRegex(ProtocolV8Error, message):
+                    advance(state, "key")
+                self.assertEqual(state, before)
+
+        advance(original, "key", "first")
+        advance(original, None, "end")
+        define(original, "source", ["str", "key"], ["num", 2], enumerable=False)
+        apply_protocol_record(
+            original,
+            {
+                "kind": "property.prototype",
+                "object": "source",
+                "prototype": ["ref", "parent"],
+                "success": True,
+            },
+        )
+        advance(original, None, "stillDone")
+        self.assertTrue(original["heap"]["cursor"]["done"])
+
+    @unittest.skipUnless(shutil.which("node"), "native JavaScript runtime is not available")
+    def test_mutation_policy_matches_independent_original_native_loops(self):
+        script = """
+            const runs=[];
+            function run(object, mutate) {
+                const keys=[];
+                for(const key in object) { keys.push(key); if(keys.length===1) mutate(object); }
+                runs.push(keys);
+            }
+            run({a:1,b:2,c:3}, object=>delete object.b);
+            run({a:1,b:2}, object=>{object.c=3;});
+            run(Object.assign(Object.create({b:20,c:30}),{a:1,b:2}), object=>delete object.b);
+            run(Object.assign(Object.create({b:20,c:30}),{a:1}), object=>delete Object.getPrototypeOf(object).b);
+            run({a:1,b:2,c:3}, object=>{
+                delete object.b;
+                Object.defineProperty(object,'b',{get(){throw new Error('read');},enumerable:true});
+            });
+            run(Object.defineProperty(Object.assign(Object.create({b:20}),{a:1}),
+                'b',{value:2,enumerable:false,configurable:true}), object=>delete object.b);
+            process.stdout.write(JSON.stringify(runs));
+        """
+        actual = json.loads(subprocess.check_output(["node", "-e", script], text=True))
+        self.assertEqual(
+            actual,
+            [["a", "c"], ["a", "b"], ["a", "b", "c"], ["a", "c"], ["a", "b", "c"], ["a"]],
+        )
 
     def test_utf16_string_keys_and_empty_primitive_sources(self):
         state = machine()
