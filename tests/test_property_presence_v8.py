@@ -173,6 +173,21 @@ class PropertyPresenceV8Tests(unittest.TestCase):
             with self.assertRaisesRegex(ProtocolV8Error, "intrinsic"):
                 has(state, "function", ["str", "prototype"], expected)
 
+    def test_implicit_promise_prototype_requires_its_owned_intrinsic_state(self):
+        from megatoken.data.promise_scheduler_v8 import create_promise
+
+        state = machine()
+        create_promise(state, "promise")
+        for key in ("then", "catch", "finally", "missing"):
+            for expected in (True, False):
+                with self.assertRaisesRegex(ProtocolV8Error, "initialized intrinsic prototype"):
+                    has(state, "promise", ["str", key], expected)
+        apply_protocol_record(state, {"kind": "promise.intrinsics"})
+        for key in ("then", "catch", "finally"):
+            has(state, "promise", ["str", key], True)
+        has(state, "promise", ["symbol", "well-known:toStringTag"], True)
+        has(state, "promise", ["str", "missing"], False)
+
     @unittest.skipUnless(shutil.which("node"), "native JavaScript runtime is not available")
     def test_native_has_property_agrees_without_observable_getter_calls(self):
         script = """

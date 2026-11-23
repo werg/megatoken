@@ -273,6 +273,30 @@ class EnumerationV8Tests(unittest.TestCase):
         self.assertEqual(state["stack"], ["root"])
         self.assertEqual(state["protocol"]["pendingCalls"], [])
 
+    def test_deleted_candidate_falls_back_to_implicit_intrinsic_without_calling_it(self):
+        for initialize in (False, True):
+            with self.subTest(initialized_intrinsics=initialize):
+                state = machine()
+                if initialize:
+                    apply_protocol_record(state, {"kind": "promise.intrinsics"})
+                allocate(state, "source")
+                define(state, "source", ["str", "a"], ["num", 1])
+                define(state, "source", ["str", "toString"], ["num", 2])
+                create(state, ["ref", "source"])
+                advance(state, "a", "first")
+                apply_protocol_record(
+                    state,
+                    {
+                        "kind": "property.delete",
+                        "object": "source",
+                        "key": ["str", "toString"],
+                        "success": True,
+                    },
+                )
+                advance(state, "toString", "second")
+                advance(state, None, "end")
+                self.assertEqual(state["stack"], ["root"])
+
     def test_removed_hidden_shadow_does_not_add_a_previously_excluded_candidate(self):
         state = machine()
         allocate(state, "parent")
@@ -364,12 +388,16 @@ class EnumerationV8Tests(unittest.TestCase):
             });
             run(Object.defineProperty(Object.assign(Object.create({b:20}),{a:1}),
                 'b',{value:2,enumerable:false,configurable:true}), object=>delete object.b);
+            run({a:1,toString:2}, object=>delete object.toString);
             process.stdout.write(JSON.stringify(runs));
         """
         actual = json.loads(subprocess.check_output(["node", "-e", script], text=True))
         self.assertEqual(
             actual,
-            [["a", "c"], ["a", "b"], ["a", "b", "c"], ["a", "c"], ["a", "b", "c"], ["a"]],
+            [
+                ["a", "c"], ["a", "b"], ["a", "b", "c"], ["a", "c"],
+                ["a", "b", "c"], ["a"], ["a", "toString"],
+            ],
         )
 
     def test_utf16_string_keys_and_empty_primitive_sources(self):

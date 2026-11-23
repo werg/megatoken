@@ -167,7 +167,6 @@ def _live_chain(machine, chain):
     """
     from .protocol_v8 import _descriptor
 
-    nodes = []
     for row in chain:
         node = _ordinary_node(machine, row["id"])
         if node.get("prototype", "ordinary") != row["prototype"]:
@@ -176,8 +175,6 @@ def _live_chain(machine, chain):
             descriptor = _descriptor(node, key)
             if descriptor is not None and descriptor["enumerable"] != enumerable:
                 _fail("enumerability changed during enumeration")
-        nodes.append(node)
-    return nodes
 
 
 def validate_state(machine):
@@ -230,17 +227,17 @@ def apply_record(machine, record):
         node = machine["heap"].get(record["object"])
         if type(node) is not dict or node.get("kind") != "enumerator":
             _fail("cursor identity")
-        from .protocol_v8 import _descriptor
+        from .protocol_v8 import _lookup_descriptor
 
         keys = node["keys"]
         index = node["nextIndex"]
         # Once exhausted, the iterator stays done even if later mutations
         # would be outside the active enumeration profile.
         if not node["done"] and node["source"][0] == "ref":
-            live = _live_chain(machine, node["chain"])
-            while index < len(keys) and not any(
-                _descriptor(current, keys[index]) is not None for current in live
-            ):
+            _live_chain(machine, node["chain"])
+            while index < len(keys) and _lookup_descriptor(
+                machine, node["source"][1], keys[index], for_has=True
+            )[1] is None:
                 index += 1
         done = node["done"] or index == len(keys)
         value = ["undefined"] if done else ["str", keys[index]]

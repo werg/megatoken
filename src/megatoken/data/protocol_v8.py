@@ -680,6 +680,8 @@ def _lookup_descriptor(machine, identity, key, *, for_set=False, for_has=False):
         prototype = node.get("prototype", "ordinary")
         if prototype == "ordinary":
             promise_objects = (machine.get("protocol") or {}).get("promiseObjects")
+            if for_has and node["kind"] == "promise" and promise_objects is None:
+                _fail("Promise existence lookup requires its initialized intrinsic prototype")
             from .promise_object_v8 import intrinsic_id
 
             object_prototype = intrinsic_id("Object.prototype")
