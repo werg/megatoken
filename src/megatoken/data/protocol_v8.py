@@ -985,6 +985,7 @@ def _apply(machine, record):
         "promise.adopt.enqueue",
         "promise.adopt.self",
         "promise.adopt.enter",
+        "promise.adopt.get",
         "promise.adopt.forward",
         "promise.intrinsics",
         "promise.intrinsic.get",
