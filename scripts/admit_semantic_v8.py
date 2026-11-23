@@ -543,6 +543,7 @@ def main():
                 "composed-protocol-source/1",
                 "promise-joins-source/1",
                 "promise-executors-source/1",
+                "promise-adoption-source/1",
                 "bound-module-scheduler-source/1",
             ):
                 supported = {
@@ -576,11 +577,25 @@ def main():
                     )
                 if profile == "promise-joins-source/1" and extensions != ["promise-join/1"]:
                     raise ValueError("V8 Promise join source evidence has an invalid inventory")
-                if profile == "promise-executors-source/1" and extensions not in (
-                    ["promise-executor/1"],
-                    ["promise-executor/1", "promise-join/1"],
+                # These specialized profiles use the compiler's sorted source
+                # components. Additional shared adapters use the composed profile.
+                if profile == "promise-executors-source/1" and (
+                    "promise-executor/1" not in extensions
+                    or extensions != sorted(extensions)
+                    or not set(extensions)
+                    <= {
+                        "async-scoped-call-source/1",
+                        "promise-adoption/1",
+                        "promise-executor/1",
+                        "promise-join/1",
+                    }
                 ):
                     raise ValueError("V8 Promise executor source evidence has an invalid inventory")
+                if profile == "promise-adoption-source/1" and extensions not in (
+                    ["promise-adoption/1"],
+                    ["promise-adoption/1", "promise-join/1"],
+                ):
+                    raise ValueError("V8 Promise adoption source evidence has an invalid inventory")
                 if profile == "bound-module-scheduler-source/1":
                     plan = source_sidecar.get("moduleSchedulerPlan")
                     published = [
