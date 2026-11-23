@@ -387,6 +387,32 @@
             "id",
             "completion"
           ],
+          "promise.intrinsics": [
+            "kind"
+          ],
+          "promise.intrinsic.get": [
+            "kind",
+            "base",
+            "key",
+            "result"
+          ],
+          "property.getPrototypeOf": [
+            "kind",
+            "object",
+            "result"
+          ],
+          "property.isExtensible": [
+            "kind",
+            "object",
+            "result"
+          ],
+          "property.descriptor": [
+            "kind",
+            "object",
+            "key",
+            "descriptor",
+            "name"
+          ],
           "module.scheduler.initialize": [
             "kind",
             "object",
@@ -948,6 +974,22 @@
             "job",
             "forwarding"
           ],
+          "promise.adopt.get": [
+            "kind",
+            "promise",
+            "target",
+            "job",
+            "child"
+          ],
+          "promise.adopt.finish": [
+            "kind",
+            "promise",
+            "target",
+            "job",
+            "child",
+            "completion",
+            "forwarding"
+          ],
           "promise.adopt.forward": [
             "kind",
             "promise",
@@ -999,6 +1041,7 @@
         },
         "profile": "symbols-ordinary-properties/1",
         "extensions": [
+          "promise-object/1",
           "bound-module-scheduler/1",
           "async-scoped-call/1",
           "module-namespace-live-cells/1",
@@ -2041,6 +2084,7 @@
         "pendingCalls",
         "callFrames",
         "sequence",
+        "promiseObjects",
         "construction",
         "primitiveConversions",
         "numberConversions",
@@ -2049,6 +2093,40 @@
       ],
       "initial": null,
       "heap": "Existing heap nodes with property, descriptor and private-element Maps serialized as entry arrays; Symbol keys remain tagged pairs.",
+      "promiseObjects": {
+        "profile": "promise-object/1",
+        "schema": "semantic-promise-object-state/1",
+        "fields": [
+          "schema",
+          "initialized"
+        ],
+        "intrinsicNames": [
+          "Promise",
+          "Promise.prototype",
+          "Promise.prototype.then",
+          "Promise.prototype.catch",
+          "Promise.prototype.finally",
+          "Object",
+          "Object.prototype",
+          "Object.prototype.__defineGetter__",
+          "Object.prototype.__defineSetter__",
+          "Object.prototype.hasOwnProperty",
+          "Object.prototype.__lookupGetter__",
+          "Object.prototype.__lookupSetter__",
+          "Object.prototype.isPrototypeOf",
+          "Object.prototype.propertyIsEnumerable",
+          "Object.prototype.toString",
+          "Object.prototype.valueOf",
+          "Object.prototype.toLocaleString",
+          "Object.prototype.__proto__.get",
+          "Object.prototype.__proto__.set"
+        ],
+        "intrinsicIdentity": "intrinsic followed by the lowercase intrinsic name with all non-ASCII-alphanumeric characters removed; names are a fixed unique set, never selected aliases.",
+        "storage": "Promise properties, descriptors, prototype links and extensibility occupy the same shared heap node as settlement and reactions. Intrinsic prototype objects are mutable; intrinsic callable identity markers are opaque and immutable.",
+        "initialization": "One deterministic intrinsic-group transition materializes all identities and upgrades implicit Promise prototype links without consuming ordinary object identities. Duplicate or partial initialization is rejected.",
+        "reflection": "Ordinary descriptor, hasOwn, key, get, set, delete, prototype and extensibility operations use the shared object machine. Accessors retain the original receiver, child call and exact normal or abrupt completion.",
+        "boundaries": "Opaque intrinsic callable own-state reflection, custom Promise species construction and modified then-call protocols require their separately declared operations. Unsupported behavior remains outside guest exceptions."
+      },
       "asyncCalls": {
         "profile": "async-scoped-call/1",
         "schema": "semantic-async-call-state/1",
@@ -2453,11 +2531,20 @@
           "forwarding",
           "error"
         ],
+        "optionalFields": [
+          "lookup"
+        ],
+        "lookupFields": [
+          "child",
+          "callee"
+        ],
         "phases": [
           "intent",
           "queued",
+          "reading",
           "observing",
           "completed",
+          "rejected",
           "self"
         ],
         "causes": [
@@ -2475,6 +2562,13 @@
           "adoptionTarget",
           "readySequence"
         ],
+        "getterJobFields": [
+          "priorAliases",
+          "priorReceiver"
+        ],
+        "completedGetterJobFields": [
+          "returned"
+        ],
         "forwardingJobFields": [
           "status",
           "owner",
@@ -2488,8 +2582,8 @@
           "adoptionTarget",
           "readySequence"
         ],
-        "capabilities": "Owned internal Promises with unchanged intrinsic then lookup use one existing realm FIFO. The original resolver or completed async/reaction frame binds an immediate resolution intent. Enqueue consumes that intent before any further record. The first job registers a forwarding dependency in registration order; a separate FIFO job forwards the settled target. First-call authority remains consumed throughout. Distinct mutual adoption cycles remain pending. Direct self resolution allocates a fresh declared TypeError identity at the self step, without either job. Source admission independently rebuilds each identity and source event.",
-        "boundaries": "Callable thenables, then getters, proxies, changed Promise properties/prototypes, async reaction activation and general Error reflection are outside this slice. A declared self error has ordinary name/message data properties; native Error descriptors, stack and prototype are not claimed equivalent. Original-source checks refuse any observable mismatch."
+        "capabilities": "Owned internal Promises with a resolved intrinsic then use one existing realm FIFO and shared ordinary descriptors/prototypes. The original resolver or completed async/reaction frame binds an immediate resolution intent. Enqueue consumes that intent before any further record. The first job checks the actual constructor. A synchronous owned constructor getter runs in that exact job with its original receiver, captures and nested calls; its explicit completion restores prior state and either rejects with the opaque thrown value or registers a forwarding dependency. A separate FIFO job forwards the settled target. First-call authority remains consumed throughout. Distinct mutual adoption cycles remain pending. Direct self resolution allocates a fresh declared TypeError identity at the self step, without either job. Source admission independently rebuilds each identity and source event.",
+        "boundaries": "Callable thenables, then getters, proxies, custom adoption constructors/species and general Promise.finally cleanup continuations require separate profiles. Unrelated Promise properties and valid prototype chains remain ordinary shared state. A declared self error has ordinary name/message data properties; native Error descriptors, stack and prototype are not claimed equivalent. Original-source checks refuse any observable mismatch."
       },
       "binaryMemory": {
         "profile": "owned-binary-memory/1",
@@ -2674,7 +2768,7 @@
       "default": "not promoted by engineering receipts alone"
     }
   },
-  "digest": "910859ac83e9b8bad83528397fcd12de616f05246586755f15f985cabb3513eb",
+  "digest": "38a5d7b90ad1da9cf3b56f29c4e730ac5bcec54427e2fe86e6a6afec3335f862",
   "fixtureDigest": "56f7f36d3b25b3b11a208be3de337e637b9782e6759faea1e1ec107b0a90f0ce",
   "fixtures": [
     {
@@ -2699,7 +2793,7 @@
       "reason": "old artifacts require their original contract"
     }
   ],
-  "interoperabilityDigest": "64f230e7b05dc6b33b3d0df359898e27158cb67a386c9cdeb63fd64b4729df2d",
+  "interoperabilityDigest": "84fe03aa5857dadf23a6025fe5de84758f9567d41920a703fe32110ec13816b3",
   "interoperability": [
     {
       "id": "ordered-map",
@@ -2719,202 +2813,302 @@
     {
       "id": "number-callback-cleanup",
       "publicDigest": "1a3e80e1f9ecac7c10c2c1b7a2f74a19bfe87f2efef7b901baf90857ed0d9b6d",
-      "contextDigest": "262eaf17fdeef6a64fc814eece9e861b8c3b8e7b3e573c2ef3b2c82f5853bb79"
+      "contextDigest": "08b29e7d70ace6cabfb48c9452b3170d7c1128d7ec17060bcf8d5da0a04ab142"
     },
     {
       "id": "custom-iterator-close",
-      "publicDigest": "bc1769fa7d4f0ff2ae78085b1c1380fe77ea522d1c425529a4b600597e077de6",
-      "contextDigest": "b8b86ee728117d6454fabf97025655b08db1467bfc7017269daab110576d4ea1"
+      "publicDigest": "2e1b7a13c39062555bf72ca3fa21ab10b82995a17c5479f7e85be1e1514d0cc0",
+      "contextDigest": "7cb30cfe1cc0842bbfd7cc7eb1bad1af0c9a87c9bd544083fd0526f7757e5061"
     },
     {
       "id": "iterable-binding-close",
-      "publicDigest": "6aba4f7a76c8a91df57e18f376595bf5c13e48b8b68303e6b81f19baebd7bb36",
-      "contextDigest": "b8c69da5829ea9e222dc4f3f89147c715c4b222146d68b4d847404d6d285be04"
+      "publicDigest": "fb361ab54588ee29efd51d0dcec352a9c046dce0af224af65f44332892b109c1",
+      "contextDigest": "37a81e13deeab34304fed4121fa11921d3731e33f3eb6549af1ec503038e8b70"
     },
     {
       "id": "protocol-machine",
       "schema": "semantic-protocol-fixtures/1",
-      "fixtureDigest": "d74a0d17a074abe5997685a94d14b96a5bb2aa804c3d21b2f9e991649e68b3b7"
+      "fixtureDigest": "ae84c364c0b65988e32d651c27fdeea742292f3f2e5cf3db2ac97705994686d6"
     },
     {
       "id": "iterator-machine",
       "schema": "semantic-protocol-fixtures/1",
-      "fixtureDigest": "9e8d6fe28deb6beb83c9a5a7aa9aea03772123adf9cfc66025b62a79d0c88cda"
+      "fixtureDigest": "eb04d4b71cd7407f35ceb592411878d4fa71e41129909a4541a97961e3dc7eeb"
     },
     {
       "id": "protocol-region:source-symbol-getter-arithmetic",
-      "publicDigest": "0af6a72907ab6f224e345a3c84631fa4f59d2335c9c6fbcb2ab632d62d5f8b9f",
-      "contextDigest": "fa08397d0c52697794cc6e64ac92ba0487bdc881850b7af31b6e28fd055840ff"
+      "publicDigest": "3a710529b48c825eaedc5a36ebd54c5870f0ad8d62f679e90fa20d543b5be688",
+      "contextDigest": "27ede0a61ddeffabcd72c96bf8ef6d4afd2249305f07b55ac68b0d979ee90c37"
     },
     {
       "id": "protocol-region:typed-views-shared-backing",
       "publicDigest": "bf88479ca947f7ae6250c493e458db1edac052b1ecd3ebdb8f8fe4f8b52e86d9",
-      "contextDigest": "6097d27410dc23c2d2d0820f7c0a700f47dbfe2fdfbdb2e88e5cca290534cfe4"
+      "contextDigest": "abb091bf5a0976b664020ad41fdba34826501a2e76eabc53fc5333e3e61024ee"
     },
     {
       "id": "protocol-region:source-derived-private-arithmetic",
-      "publicDigest": "801698f79a9c76008e553514885093cbe3408d44ce2c855bd044b651c362d6cc",
-      "contextDigest": "dacdc8fd7302676f185a47674d4694a0fe27b6615188448a419a4ef3b2ee42e6"
+      "publicDigest": "348cd005a8961b939269da46d5fe13605fcf536f36f60cac16d2d6914c3d2cac",
+      "contextDigest": "5cf4a0bbeb9f67eca8c63b47d1938ad7513449bcd827f0106f8e25f3d8063b09"
     },
     {
       "id": "protocol-region:builtin-iterator-mixed-arithmetic",
-      "publicDigest": "e3318681a071869838fa570d678e1e0348b27307e10aab43806bfe059554c7f5",
-      "contextDigest": "5bb152745b025c2ee800af34b9591e4efc98b6442603b9c0fbe845783320fcd0"
+      "publicDigest": "dad967c7c19ea840324b8c1c448ade2106b3a423e664476ef3820fb0edbcd1a3",
+      "contextDigest": "b9c5deb73dfa94659ddd07034de9568fe4cccd153f674f142daf2b2ac63fa22c"
     },
     {
       "id": "protocol-region:source-promise-all-reaction-arithmetic",
-      "publicDigest": "461f17c0e82e99316dcc4ae8e8095f3ba10f62951c82424cd88d173dbbe63341",
-      "contextDigest": "eb40c22af1c580f0616afa6067dfeca99cb3bfe466aeb831eac02e86788e8ef8"
+      "publicDigest": "aebbee7ddb879c0a7e96f2e33e4a993eaf0dc41d0731ac488fef442b9de287b9",
+      "contextDigest": "cfd066b85c67c8c2f2aabf51406f5bd2ea6fb2d85935cd56d45c77e3392c1e76"
     },
     {
       "id": "protocol-region:source-promise-join-rejection-finally",
       "publicDigest": "7d7365fa0f71e2301434f05bc1da3766e09f85588b76d12f94fc4380d5687001",
-      "contextDigest": "4498e3e0d9030aee700dcaffafac4d5618cc7e47235d96ab8942ef993d0f67c5"
+      "contextDigest": "7ee56a1aa1cfbeb6fbbab37b1273099def238196fe87375afc46cb9fded95204"
     },
     {
       "id": "protocol-region:source-number-private-arithmetic",
-      "publicDigest": "de4dc283874e9a8cecc14d91c012bf295022cc2174a48e79cbb77734d8a3b953",
-      "contextDigest": "372445ba42b82b04e5f793cc1a30e4abefd98ecef069459584a654f1518a2b11"
+      "publicDigest": "fe587302d525c9484fd6ddcc872b32c75e214fcae320a818a515d4b3474b5f5a",
+      "contextDigest": "2c1309ac184353d1decbcfc89b26ed3605ec7ecd0756a1b2753045ddbfa2e0a8"
     },
     {
       "id": "protocol-region:source-generator-cleanup-suspension",
       "publicDigest": "afd8010d455b42109bfd3bdc369a8011a6d2f463669125b19ba9cf0392cfd197",
-      "contextDigest": "e37c4eefc1bd41b22fa106a93b341898c0b6b2148ef6410017dc755b9ef33da9"
+      "contextDigest": "0cc971d81b4c9e2ac6bff874ffdbadb5b271abe911649c5cfb174cf2854115a0"
     },
     {
       "id": "protocol-region:source-generator-delegated-cleanup",
       "publicDigest": "323a3c71c668543e26bd4eb026b003cdbc9546cfd779106461f22493d4753221",
-      "contextDigest": "bb73f3b91421c6a13c31edc0d1f46dfe2c448f102cf97b2c0e295021f3fdb9b7"
+      "contextDigest": "ca574dd564fa92381aa51a9fa69de93f6782ebda4868e5ad0476b9f6631e0f58"
     },
     {
       "id": "protocol-region:source-proxy-traps-arithmetic",
-      "publicDigest": "be378045ac8bb4d378f73a57f27032e373f282e012b7f562a878a295e5827b24",
-      "contextDigest": "c83407c1b123e983e2d12e5e82c8d352cba22ddd8cd116f99da0632ae9dcb961"
+      "publicDigest": "e67d63e8be746b007f4e66401985635cfd4a551ab2292b19ccef7477709fc779",
+      "contextDigest": "d35c86536de023088fd1ad7d6a0615b4f05a29dd5a6b8562f8fb85321db1fdd5"
     },
     {
       "id": "protocol-region:source-base-initializer-throw",
       "publicDigest": "80f87fe2375a8e30ebdffa5e10643d69098523b172780e7ebfedc6b68012e777",
-      "contextDigest": "bfe4e1ed19c38999f20a05eff357f88560daef6ca5e3c72467d8f2429f9a09b9"
+      "contextDigest": "7595ee8b4b1c27966a057b76899169809902ed5be5710c241c19a8e2b0610245"
     },
     {
       "id": "protocol-region:source-derived-initializer-throw",
       "publicDigest": "308db677ef00a9bb681a3013e557b724db1c81d3995c279df5a33bdd09af52b6",
-      "contextDigest": "9b5ef778ffbe66c0728a9e5917ef4d8b6fcc4d93ceb25f20423e63281c0a109f"
+      "contextDigest": "177babb1b4a1eed13e04e8633245f11d21e1f4b888efd3ed45c0ef137d95a21e"
     },
     {
       "id": "protocol-region:source-promise-executor-first-call",
-      "publicDigest": "084d2a293fd51ffdecc23b96c377cd5fd380b5e000f8801553d1937f8521b1e7",
-      "contextDigest": "94460dfa2d7546ab51cde9a8b9ef1b441b41cf7f53adce03dd1a6612f1f98d02"
+      "publicDigest": "f28196339d3dceb0b2b2da72bb02a78a5020c78dd3ccc166476f2978d7686638",
+      "contextDigest": "0851596249b4857e431637323bcb8e9e415d8b71a3b21c849333e47642ec37b3"
     },
     {
       "id": "protocol-region:source-promise-executor-retained-resolution",
       "publicDigest": "4ebf7b919e5b2191d655b22b2d8fd89dad1f4ecee6f64058ff6c6fde23051811",
-      "contextDigest": "796d69da6dabed134258ae745d1a4d4ae34a590c46e951c961bd4470b195a333"
+      "contextDigest": "443e83f012c9c40ffc9cf8799f50cc49b83c22ed2850e0320d762ad815e38008"
     },
     {
       "id": "protocol-region:source-promise-executor-abrupt",
       "publicDigest": "2494dc360b6b178634186cdf30f8d227df99ddeeac8ca0a0f1bcff3bec2bbd39",
-      "contextDigest": "cba09b96c4552e0a3bb144305e195a37e767728d6d122b20e238778d451c79bd"
+      "contextDigest": "8d8bae8b0b60f0b0518a896413f50f012e1a029361d662f49af09fba15cb527f"
     },
     {
       "id": "protocol-region:source-ordinary-constructor-prototype",
       "publicDigest": "982388a5895e9fc5b37de5ebf970d1f9293e5ca6643c2e128af30bfee7106dfc",
-      "contextDigest": "405a00717970ebaf1e0ba9a09dd4ac7c3ded89a084659f9f0fd456a82b086639"
+      "contextDigest": "25423c03d9870e916b120a4e5f584c07686d7bff603053d53896918baea004d6"
     },
     {
       "id": "protocol-region:source-enumeration-map-callback",
       "publicDigest": "9b0ac56b147591d77ef3288f19d3b8e6d1a5bfd8a8b2cf942f96b030b9f881d2",
-      "contextDigest": "a543bc7f75cf6e9dc2d87efe2ca6a48578d33605a88827b1baccdc2cae49fdc8"
+      "contextDigest": "72e8528ebd31c8d379153bf095b4cfedb54ba3f3ad651c190e5c5abd3348c39f"
     },
     {
       "id": "protocol-region:generator-own-symbol-alias",
       "publicDigest": "9615d6b976e92697f24ef96fbc06ed29cf47b211f9b8dcbc50bb9cd737b7bc6e",
-      "contextDigest": "1be8c0615a4c3d1e4afd8ece1888a92bf3c04b51a53eb6921d60e2fcb14bc06a"
+      "contextDigest": "e65a4d8187c5b03eeb4d846612be00352a3af924f5e79a3506e3e370bda8ab03"
     },
     {
       "id": "protocol-region:source-logical-left-operands",
-      "publicDigest": "232b1a37f09d71f3ca77a3266f67e6e017395b90d88b22fc4f487158901eb0c7",
-      "contextDigest": "99eec5677d22021291316aaad36adf6571b8fffa86cd27c5a7c43e8a474fa045"
+      "publicDigest": "446020ec4e04537bdb6ad01b730b8858ebdad512a759b3da1102fa90cb50345a",
+      "contextDigest": "b4781a0e09470327add4dfb546cc857441e809b157f84f6e3394de614553dfbf"
     },
     {
       "id": "protocol-region:source-for-in-own-keys",
       "publicDigest": "5a5961de79bb1d7f3ad2565dba08869aa815f6f1410fce0579cc07afa98f03b3",
-      "contextDigest": "92eb19f1ac38a3253d4b626cb2c33207e4cc3228053830785a7c957ce6267c84"
+      "contextDigest": "32505c0d131925a8681055a0863dd8df5e2258b4c043a059c005507353931554"
     },
     {
       "id": "protocol-region:source-promise-adoption-executor",
       "publicDigest": "36d138193179ab2abe153499a3e59ca6fbad1aa3208b6531f4a5780294229778",
-      "contextDigest": "61b76ec3c076e0e75765e86bd8e9900126b86eae11e462a4909ccbef97074140"
+      "contextDigest": "578b5a602b5d41c4bcc6f75434134279b886e01065682449eec8ae68b77daa86"
     },
     {
       "id": "protocol-region:source-promise-adoption-async-return",
-      "publicDigest": "248276df4d76e30f9cee1f72741f3d3c8d5248955c907c0609ac7ae1587d7ebf",
-      "contextDigest": "4db48b9095d14938de8e0761552c049c3383b267cd11979729f7a86aec45afba"
+      "publicDigest": "e44cd226833b3225f6b9267dc4dfbae52df455f65193e9ad3fce6fc2416a22fd",
+      "contextDigest": "c5ec6a714f55cce5894a409b1ef5dcc18a89a67c970f44bc0bed6bf90a348859"
     },
     {
       "id": "protocol-region:source-promise-adoption-reaction-return",
-      "publicDigest": "fa2f7a1ef47377d8783bf75c76ae250b188c625a8a82c3151119c68e98bd8736",
-      "contextDigest": "0b9224aabf96505abdb122f7ca3d8ad6447a43551d3d0ad9317c6a822b7d0f26"
+      "publicDigest": "d469c6c923235655f26cdc48353a71f21cb552f54f91271a757a3d2627af3ca4",
+      "contextDigest": "63bdb9bf43b600988241aea0c724a3ba109d3120d101fc9da50b6584d78335f3"
     },
     {
       "id": "protocol-region:source-async-iterator-array",
       "publicDigest": "dd59e13cf878ffa7b50af67a53d1d11b95d0cfd98bc3e07c6ac27e5cfcb43a3b",
-      "contextDigest": "851cd134c956954b41d2ea54fd9874c40059a8480914fbe150d94f5592c929f7"
+      "contextDigest": "f92a5bea72e3a52f89deb942a3b21c96b660b559231cf39a14dcfe91c359651a"
     },
     {
       "id": "protocol-region:source-async-iterator-getters",
-      "publicDigest": "532888a72d40512cc68f759f4a2c40a18930b6f68975971d7dc002869e6a6cac",
-      "contextDigest": "a0f360af48047cd840a40c2407ac7fdfd5c210868a6b0a22a5315e7a35b1822a"
+      "publicDigest": "0c743be6c25d770931e11f74c9ce68ed02bc61c12c19956a36556f89d945b090",
+      "contextDigest": "9d4e008629c76a6c1e7ae8b991bbb584a0dc69ded359f19e5eb87af611b79d5f"
     },
     {
       "id": "protocol-region:source-async-iterator-value-identity",
       "publicDigest": "aa198741c03a947b1f8a61513d9b3ddfa753b314050ad676929d5dabc64be7a9",
-      "contextDigest": "470f5e4bc249d5bd9d573b6f13b5c57cf0525d9a4cee7119cd1e56e83e5c4508"
+      "contextDigest": "e4d58cadc989aa6fd7e4e370b1290d91e2ca07d9cb51b284dc0dffecaedbbcb1"
     },
     {
       "id": "protocol-region:source-async-iterator-throw-precedence",
       "publicDigest": "d8082f4e1c2aa949abe0904b21d20bfff5af7fabe8bf62c23fe0fbecc256d25f",
-      "contextDigest": "d1f8090229808c2eea14ba8e2b26359d857f4467b5ce172b5150044b47188ed9"
+      "contextDigest": "efdece4f8fa7fdc8c51e0130cb55e604f9bac1a5908fa0ac4c37f62e3ac7273f"
     },
     {
       "id": "protocol-region:source-async-iterator-return-replaced",
-      "publicDigest": "ab6892c7b03a4a358925fbf35bb29f35e7d0b7049802fc10395ba11e0188cb2a",
-      "contextDigest": "abdaeb50ff585490ec4e4aa75fcb3e1cc627ac0bc0fe6293f9ebcfcf6bdc3bb1"
+      "publicDigest": "1d0b7525cf35337afb551116fa1d219da578f2e6936d8f1c7099ed195fb1e47f",
+      "contextDigest": "eaac6f3f75bffd8634f85ac8716e457eb711a27e7cea4d37477c568e68906664"
     },
     {
       "id": "protocol-region:source-async-iterator-sync-rejection",
-      "publicDigest": "9337052b8094dad87bebcbf54bf883358f942fcf3ef508a2396f296318987a68",
-      "contextDigest": "188d77dca8b761c82692d1fcc20ca913507e46a6547909c187730fe30b1c974a"
+      "publicDigest": "10746b7036972803940f6450ac9c636e7f4b4a15d09109fdc01536c3d45a3b4d",
+      "contextDigest": "99291e58e967b2afac1f010215f3f016d61caaef9c396bdf89c045914bd6c150"
     },
     {
       "id": "protocol-region:source-async-iterator-sibling-cleanup",
-      "publicDigest": "57a8c88f836d3a1e673bbc497b0ee92509952caddcc36b13a24ad85328b930c9",
-      "contextDigest": "97eeafcfcebc1aa863f744ef04942fb45350d4cabbbdc5cd63525ce358bcfa64"
+      "publicDigest": "204e0f9229b087892ab6f4d6211dd9be10908c0dd7ebe7dfa782171dde227c6b",
+      "contextDigest": "3437948292f3e9a403013ba2127b5568e0cb1a820848c9efb474666afbf141ad"
     },
     {
       "id": "protocol-region:source-async-iterator-idle-completion",
-      "publicDigest": "d2bd7af63f2db0384bef6bbac354315db1ef05127bb19e76b75bb408d2adb792",
-      "contextDigest": "ecdc8aa2e0b1fb982dfa4ce9bcfe199b69dfb997dca0160a249fc3be1dbf2f73"
+      "publicDigest": "4fd8203280146e5eb7924fa33b7268ba6824aa6878acf4461a4c9a5bd210b3c5",
+      "contextDigest": "215099acc0953cf8bbbb86bd46a5be0bf9acc8aa5dbf7fcd1292051807354618"
+    },
+    {
+      "id": "protocol-region:promise-object-data-descriptor-reflection",
+      "publicDigest": "8e85eb08ee536d0bc3ca70a3e9e4172894c22165a8a4e5dd75b2c280f8471c4a",
+      "contextDigest": "294ee2d68955f5fab23659a1c161269556020f49f14f3d0ef5191859506da73e"
+    },
+    {
+      "id": "protocol-region:promise-object-accessor-alias-receiver",
+      "publicDigest": "1228277b6bdfa1bc884449cf899ef42ca8307c6e300af0ff021286b93c8ce66d",
+      "contextDigest": "51e5dfdb90fb535b76726351ab7fdf8d1e23d0ce3ace09473677183d6f4b68f7"
+    },
+    {
+      "id": "protocol-region:promise-object-accessor-setter",
+      "publicDigest": "683643357589dbb8b77f3c133811df9e92bdae68931cd3ec23e90ac4def273ae",
+      "contextDigest": "36930ec6be2a9f571faacbb01f237aabcff8d5d4accbcf0c1e565ebf158fa972"
+    },
+    {
+      "id": "protocol-region:promise-object-prototype-identity",
+      "publicDigest": "7f0be3cf756a21966fbadbed8bc89703884a3996ed91e3af98f453df70c14841",
+      "contextDigest": "e4e44cddd899f0a03dd66c02f4a2e1ce583ea8a07e256d5d866fc60026eb04a0"
+    },
+    {
+      "id": "protocol-region:promise-object-constructor-resolve-reentry",
+      "publicDigest": "8928d36c330febcad3afc9f0c23afe0784e3499b983d42aaee5b311d86c5c64b",
+      "contextDigest": "ad59e8d14fb7de827feaffd73361eae92b3550e012d6b327e8d2794e6f443839"
+    },
+    {
+      "id": "protocol-region:promise-object-constructor-await",
+      "publicDigest": "b8282199c5115560491b41194c676ecc46f5cbe8fff624bfdbc5a2265b2fa702",
+      "contextDigest": "471b66cd233b4e7455b8a1c19a812d3c733550b33f36bdf5bfe5d64040ceaa9f"
+    },
+    {
+      "id": "protocol-region:promise-object-constructor-reaction",
+      "publicDigest": "eb97656f6a4ba6d679fc121c852b1ead6bed415266d5ca847265c23b61314bc3",
+      "contextDigest": "807bc8ba3b78189055d2d5071c334f164ef6127b801c3004d71c67eee097d23a"
+    },
+    {
+      "id": "protocol-region:promise-object-constructor-throw-cleanup",
+      "publicDigest": "c9697a0630a7f4ca300d6e8c5e3c89189c5ebb2b71fff9667bbdf9a66416dbb0",
+      "contextDigest": "2d3212141e1e4317afc7268074164dc11cfba2f5842c555ee81f3f2e9e088987"
+    },
+    {
+      "id": "protocol-region:promise-object-shared-prototype-constructor",
+      "publicDigest": "09215e18e7007128be4e4e37fe2371032b7f088fed557e035c5c51a7b73792ee",
+      "contextDigest": "fcd9146ec5fe71894669eaa8c2b3f93b92e3f2870cf40012f67dd9deaa28128a"
+    },
+    {
+      "id": "protocol-region:promise-object-own-reflection-call",
+      "publicDigest": "272e7ce1efcdad507afa857f49314ccfca398e327d10b829c2540e955c8d09ee",
+      "contextDigest": "8df3c0ac844a81462c1acb0ae00bc6be8262a879939ad8f909db501df6f13973"
+    },
+    {
+      "id": "protocol-region:promise-object-nonextensible-reflection",
+      "publicDigest": "0c3b35400432959d86a08ea1fd3a04b4b7fceeb2b8b213ecfb3a01e2d23426f4",
+      "contextDigest": "26ffb4494e2b06c0d216a800d9c3b1e89f4f7757af5d07ec44712624e38fd143"
+    },
+    {
+      "id": "protocol-region:promise-object-own-key-filtering",
+      "publicDigest": "5f9cba13c20cc58162eb218bd0255ad1dc0a775492e3150ee817360164568c4f",
+      "contextDigest": "398f91449d37db12a84d30c4e40a14dfed4f15200cdafd2d2c2bdb11c42525e4"
+    },
+    {
+      "id": "protocol-region:promise-object-null-prototype-state",
+      "publicDigest": "6b2f75f78997a0e86caf6a87c151fb5faf537068ccd2f6b2dafcf22307535242",
+      "contextDigest": "c91e4a3e8f42ba9ea5bad55262b3177f06db52f290c89094cbfa48fc0f483731"
+    },
+    {
+      "id": "protocol-region:promise-object-constructor-await-job-order",
+      "publicDigest": "398a215ee2bbcdf9caecb6af0a9a1de36e8907ae0953f622f74b48c44dd2af49",
+      "contextDigest": "7e13b82a426a3c0f04bbdd5c4ea53000436014c7f9420189c3080eaed4995207"
+    },
+    {
+      "id": "protocol-region:promise-object-inherited-constructor-receiver",
+      "publicDigest": "cc5a2c8f64a26f76f22a66ab545f83cbb96d7f73d307840908215d0e7c91ec12",
+      "contextDigest": "f7f96ac61792704be1227a831d68c438690858841c79ad89fc1145355c091b0d"
+    },
+    {
+      "id": "protocol-region:promise-adoption-getter-receiver-and-fifo",
+      "publicDigest": "34934c84b7898d8a30ac11470686ae6b3a1c79160dfff6f1a0bfb7ca5f425d02",
+      "contextDigest": "ecbb2ef89981305e88511a72a2d0d551f2fac8c502563b7cea7161c8635df739"
+    },
+    {
+      "id": "protocol-region:promise-adoption-getter-throw-identity-and-cleanup",
+      "publicDigest": "892289737e2a9f692a788c7fc170b5ab6cf104064e39e3c963b18a188c4efd4a",
+      "contextDigest": "33f8ecbca46fe2de84f814173160dbf1931b129100f947494715febf74bb222e"
+    },
+    {
+      "id": "protocol-region:promise-adoption-getter-nested-constructor-reentry",
+      "publicDigest": "ab87b878b0762f74432365df5d63352d7c175e0a91c5286ff36b0e3d574d6535",
+      "contextDigest": "bc7dfe9162a0766fbfcf32de8bac31a498a5f6d40782f7d9bd315f1464beecd1"
+    },
+    {
+      "id": "protocol-region:promise-adoption-getter-pending-target",
+      "publicDigest": "739f4b2a0071a4489551fdb8fdf5a2ac04b9666a08317a957686869e3db381e0",
+      "contextDigest": "e395e1bdc77338a4e09e29198c8be65d64eabfbf1df90719427477e0d2fc9b23"
+    },
+    {
+      "id": "protocol-region:promise-adoption-getter-getter-replaces-own-descriptor",
+      "publicDigest": "5c90fa51e9505213d8cb46a56fe026d43d48173c3a893323de099d9c91f15482",
+      "contextDigest": "fb4f2612b697353d1f12d9b06801265e46f7adc6946b90d941b42735f477cdca"
     },
     {
       "id": "protocol-host:join-host-join",
       "publicDigest": "59abb5d8e0b7b0e7ed6af87d4369f90c5d95b61f5daa6c1c18a999dfb7b228e1",
-      "contextDigest": "ebb2aecede4086c1757171612800c9bd7bc03b554714f389f83fa840ababbe92"
+      "contextDigest": "051a82e139b63f52833b0706d9e4f3d9c3cc51c83b9e7dbfac582456037c83e0"
     },
     {
       "id": "protocol-host:join-retained-callback",
       "publicDigest": "b60b3a888793d220ae03535fc8e6286ceb8c79d4112752ded36a28c2ed363401",
-      "contextDigest": "7a9731de264b440ed124c973f355a8012520cff1e876a8ad544ae8244f0b023d"
+      "contextDigest": "506ad0ca4f2d507f82d2139d30bd2a2d3ad5c1113664a76cf6b80e067fac0085"
     },
     {
       "id": "protocol-host:callback-owned-join",
       "publicDigest": "160e87a503e36397e15bc95cd2cda3ac87f961181df673d1734311ccb6ab0d9d",
-      "contextDigest": "3f190133290f8d1682aaf62356747dca1701d6072abab10698f55cec15388572"
+      "contextDigest": "4ece04be1b7d70918d26d6d03dcbdaa465a489b2097512008bac3edc171528af"
     },
     {
       "id": "protocol-host:callback-owned-join-awaited",
       "publicDigest": "7a390eba215b3bf8e0922c0e5cd54fc56403b84e142612884e6f160f4910d950",
-      "contextDigest": "6cbae17454fbdac01ad1571c95fad9793243b980e665c7731e2ff1e79038a339"
+      "contextDigest": "0014151902015e5627908981fadd2ddbd45a262393667213b432d43c602b83e1"
     }
   ]
 }
