@@ -334,6 +334,12 @@
             "key",
             "result"
           ],
+          "property.has": [
+            "kind",
+            "object",
+            "key",
+            "result"
+          ],
           "property.set": [
             "kind",
             "object",
@@ -2124,7 +2130,7 @@
         "intrinsicIdentity": "intrinsic followed by the lowercase intrinsic name with all non-ASCII-alphanumeric characters removed; names are a fixed unique set, never selected aliases.",
         "storage": "Promise properties, descriptors, prototype links and extensibility occupy the same shared heap node as settlement and reactions. Intrinsic prototype objects are mutable; intrinsic callable identity markers are opaque and immutable.",
         "initialization": "One deterministic intrinsic-group transition materializes all identities and upgrades implicit Promise prototype links without consuming ordinary object identities. Duplicate or partial initialization is rejected.",
-        "reflection": "Ordinary descriptor, hasOwn, key, get, set, delete, prototype and extensibility operations use the shared object machine. Accessors retain the original receiver, child call and exact normal or abrupt completion.",
+        "reflection": "Ordinary descriptor, own and inherited existence, key, get, set, delete, prototype and extensibility operations use the shared object machine. Accessors retain the original receiver, child call and exact normal or abrupt completion.",
         "boundaries": "Opaque intrinsic callable own-state reflection, custom Promise species construction and modified then-call protocols require their separately declared operations. Unsupported behavior remains outside guest exceptions."
       },
       "asyncCalls": {
@@ -2295,7 +2301,7 @@
           "prototype",
           "keys"
         ],
-        "capabilities": "Stable ordinary for-in snapshots preserve own-key order, prototype walks, nonenumerable shadowing and fresh per-step result identities. Value writes are live; changed key/prototype structure is refused on the next step."
+        "capabilities": "Ordinary for-in snapshots preserve captured own-key order, prototype walks, nonenumerable shadowing and fresh per-step result identities. Value writes and additions/deletions are live: added names are ignored and candidates absent from the captured live chain are skipped. Completed cursors stay exhausted. Prototype replacement and changed enumerable flags on surviving captured names require separate qualification."
       },
       "promiseJoins": {
         "profile": "promise-join/1",
@@ -2768,7 +2774,7 @@
       "default": "not promoted by engineering receipts alone"
     }
   },
-  "digest": "38a5d7b90ad1da9cf3b56f29c4e730ac5bcec54427e2fe86e6a6afec3335f862",
+  "digest": "9e5946f6745460ad45698eed882641cbc8bb171feb58a98ee53b60984ba23658",
   "fixtureDigest": "56f7f36d3b25b3b11a208be3de337e637b9782e6759faea1e1ec107b0a90f0ce",
   "fixtures": [
     {
@@ -2793,7 +2799,7 @@
       "reason": "old artifacts require their original contract"
     }
   ],
-  "interoperabilityDigest": "84fe03aa5857dadf23a6025fe5de84758f9567d41920a703fe32110ec13816b3",
+  "interoperabilityDigest": "813034bfdedd09a779cc6f45109099fe8231621baac8b770f23379329fbd9218",
   "interoperability": [
     {
       "id": "ordered-map",
@@ -3089,6 +3095,106 @@
       "id": "protocol-region:promise-adoption-getter-getter-replaces-own-descriptor",
       "publicDigest": "5c90fa51e9505213d8cb46a56fe026d43d48173c3a893323de099d9c91f15482",
       "contextDigest": "fb4f2612b697353d1f12d9b06801265e46f7adc6946b90d941b42735f477cdca"
+    },
+    {
+      "id": "protocol-region:issue51-has-in-reflect-symbol-accessor",
+      "publicDigest": "73d192879fe437fbb8bbf52952ecc914ea83eb239d7cae28f13f2c021df686c8",
+      "contextDigest": "c1ae6dce71f3b905e4861d2ff463f01e70a05d461032c4660cdd566f0f90b8d2"
+    },
+    {
+      "id": "protocol-region:issue51-delete-own-and-inherited",
+      "publicDigest": "7a3ed6385aa4e6d939c2cf0140ecfa9ffa315b60972aa6a02861646c5d77f676",
+      "contextDigest": "18205c331e413389b86fe5ddccbc8888bf0047e7fe2d3e3ea91a82d62f058d0e"
+    },
+    {
+      "id": "protocol-region:issue51-reflect-delete-property",
+      "publicDigest": "57a6d8a55aca1a671796117845ae4690dc3a271ab07442ffa8edf104e14362e8",
+      "contextDigest": "1b434c120bf8aaee2b5a15a986608c1f07a9b1c02e49237c0faa83bbbfb50a87"
+    },
+    {
+      "id": "protocol-region:issue51-for-in-delete-fallback-addition",
+      "publicDigest": "4179d00492ee88950277620960021fd1198e38c9036146d58824484be3de2adc",
+      "contextDigest": "227393544080502982df8cb91312333e5e8b914295e8229e55dddbfb0ac074f1"
+    },
+    {
+      "id": "protocol-region:issue51-for-in-delete-prototype-candidate",
+      "publicDigest": "3285e871b40d8da194ac36f24fcf69040c3d892b1f8f7f50c7e24a7e611a7964",
+      "contextDigest": "d167be3a1f3ebc8e594cbdabde63fbd4f45e377f7b1df629801b48de814e69ef"
+    },
+    {
+      "id": "protocol-region:issue51-for-in-sparse-array",
+      "publicDigest": "a96c30f2ba731955e3a9e53a3c7ee44e62a70e449acf068589cc68b6513835c8",
+      "contextDigest": "384c624464841c27d349c002c415e57624877e73d4c48162cc880bfb21c6af00"
+    },
+    {
+      "id": "protocol-region:issue51-accessor-existence-enumeration-no-read",
+      "publicDigest": "bb34ad7a5da226a569d5151bb3d789015b3a1b59efe7c82043f45e51fe6340bd",
+      "contextDigest": "a114b0a99e47d2e71a097da0b1c3200ef174556dbd8b8066f191fe5483c0a401"
+    },
+    {
+      "id": "protocol-region:issue51-sparse-array-delete-preserves-length-and-holes",
+      "publicDigest": "352849b1c370ed19310b4424ec23082bb4a56f6c0e7bb83ace5cbe875aa1a5c4",
+      "contextDigest": "b9df9c11f24d9e66f703138520a4d32dbe11e49105bf2794c4a8d47f89940e3f"
+    },
+    {
+      "id": "protocol-region:issue51-reflect-delete-nonconfigurable-returns-false",
+      "publicDigest": "4a770da79d0963ddc01ab362c1f2322dc4e06d1255bb9b9104d031e7ef287e76",
+      "contextDigest": "f99f2dbbfc9b3b789078012c74894115519e224262ae6f138d1b228927fe2fca"
+    },
+    {
+      "id": "protocol-region:issue51-delete-and-readd-changes-key-order",
+      "publicDigest": "3a7068aee9341df4c6bcdb3b3d602403915c866aaf2485bcf6c8828209ea8d83",
+      "contextDigest": "edc997ea0a0aa5b5b0ad41b234bba560337068dd6c115fdefb67e8a24ef9a5d5"
+    },
+    {
+      "id": "protocol-region:issue51-existence-distinguishes-missing-undefined-accessor",
+      "publicDigest": "c02513a183e1a43ba133904ce0b08f9c1b30dd5d11eabc9f45b36031e0050b75",
+      "contextDigest": "55a4f4e171e988735cd65225cfed7cbf76b3ca5e6ca97fb25c297d9dec4a54b4"
+    },
+    {
+      "id": "protocol-region:issue51-delete-symbol-key",
+      "publicDigest": "ee4fd0320fb34a51ff27c2fed8df24a2797562548f2762c8d1b570b89f06e3a3",
+      "contextDigest": "b1f5a9836717a9e8b3626def751b82aebd7a70c399394abf150cea270680dfcb"
+    },
+    {
+      "id": "protocol-region:issue51-delete-own-tostring-reveals-intrinsic",
+      "publicDigest": "dde6e8d6af83ef6d801e67840f1c87e1a81961cd9224700da88dc9d2ff71f543",
+      "contextDigest": "dc91af14e80d9ab5554577605a1ce51309040338cb50fac1c21f74741d364629"
+    },
+    {
+      "id": "protocol-region:issue51-delete-inherited-for-in-candidate",
+      "publicDigest": "e244a1f91d548a02ff7f7ad600d0fa5da6f090060a655ef6e9908876c05274a1",
+      "contextDigest": "f3d8013c05ab121846a8f58aaf5fe4c9e0b6f98689abfd755d0199cd1f89f3a5"
+    },
+    {
+      "id": "protocol-region:issue51-delete-accessor-without-getter-call",
+      "publicDigest": "1262a6633adbcf65244e271e7d2aa5666c05417264f53f5003ad7c8d10efd16b",
+      "contextDigest": "084e69674dd503d0f79a5dfe2919d5ff359257ed1da40e5fef442104cd79e679"
+    },
+    {
+      "id": "protocol-region:issue51-in-object-key-to-primitive-order",
+      "publicDigest": "5b4eb2b735e428b8b7842e877db8534d4e7630b9b9689d8b844b269175e3613a",
+      "contextDigest": "f314940e1bbecf0e714ca5862513058df6c9c3384319a0ee59db98bb8a9bbdd9"
+    },
+    {
+      "id": "protocol-region:issue51-promise-property-composition",
+      "publicDigest": "a550ba11adc8816989e6cdafd95612bdf126a3f1ee7d202d7159c90e64b46772",
+      "contextDigest": "db4c547af0546ec2ea0c28a0bac563e266d229701955bdc7c28bdc503f2cb1b4"
+    },
+    {
+      "id": "protocol-region:issue51-promise-enumeration-mutation-composition",
+      "publicDigest": "6a9fdd9d43e990b1c579473ffd2ba595bfd3f23f151e302b4c417e42dea6dc79",
+      "contextDigest": "3463aca9fd51c4c2afe51c2ba51709687b958238fde962efe0dcf379cc73e892"
+    },
+    {
+      "id": "protocol-region:issue51-promise-object-key-conversion-composition",
+      "publicDigest": "3bc2cad85d31385d963e1b5eeeb4316d238f44199b8ae2bf7d79956a4d63b240",
+      "contextDigest": "6de07541836683d463357720dc8f0111f46e8895b83ca6734306255510d44b75"
+    },
+    {
+      "id": "protocol-region:issue51-promise-symbol-and-escaped-string-keys",
+      "publicDigest": "d304d52a019f29ade7f6c5fe5220bb8d2c7ef4b876d8c6669ef8e3b24bf5755a",
+      "contextDigest": "73aa7e2c83986fa99e48aef2afb2f11357d5c025a496a32cee859fbb979a80b6"
     },
     {
       "id": "protocol-host:join-host-join",
