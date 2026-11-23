@@ -69,6 +69,10 @@ from .promise_join_v8 import FIELDS as PROMISE_JOIN_FIELDS
 from .promise_join_v8 import apply_record as apply_promise_join_record
 from .promise_join_v8 import assert_next as assert_promise_join_next
 from .promise_join_v8 import validate_record as validate_promise_join_record
+from .promise_object_v8 import FIELDS as PROMISE_OBJECT_FIELDS
+from .promise_object_v8 import apply_record as apply_promise_object_record
+from .promise_object_v8 import validate_record as validate_promise_object_record
+from .promise_object_v8 import validate_state as validate_promise_object_state
 from .proxy_v8 import FIELDS as PROXY_FIELDS
 from .proxy_v8 import apply_record as apply_proxy_record
 from .proxy_v8 import assert_next as assert_proxy_next
@@ -155,6 +159,7 @@ FIELDS.update(ENUMERATION_FIELDS)
 FIELDS.update(PROMISE_JOIN_FIELDS)
 FIELDS.update(PROMISE_EXECUTOR_FIELDS)
 FIELDS.update(PROMISE_ADOPTION_FIELDS)
+FIELDS.update(PROMISE_OBJECT_FIELDS)
 FIELDS.update(NUMBER_FIELDS)
 FIELDS.update(PRIMITIVE_CONVERSION_FIELDS)
 FIELDS.update(GENERATOR_FIELDS)
@@ -287,6 +292,8 @@ def validate_protocol_record(record):
         return validate_promise_executor_record(record)
     if record["kind"] in PROMISE_ADOPTION_FIELDS:
         return validate_promise_adoption_record(record)
+    if record["kind"] in PROMISE_OBJECT_FIELDS:
+        return validate_promise_object_record(record)
     if type(record) is dict and record.get("kind") in PROXY_FIELDS:
         return validate_proxy_record(record)
     if type(record) is dict and record.get("kind") in NUMBER_FIELDS:
@@ -508,6 +515,7 @@ def create_protocol_state():
         "primitiveConversions": None,
         "proxyCalls": None,
         "promiseExecutors": None,
+        "promiseObjects": None,
     }
 
 
@@ -555,6 +563,7 @@ def _node(machine, identity):
         "array",
         "closure",
         "generator",
+        "promise",
     ):
         _fail("ordinary object required")
     node.setdefault("properties", {})
@@ -661,6 +670,45 @@ def _lookup_descriptor(machine, identity, key, *, for_set=False):
             return node, descriptor
         prototype = node.get("prototype", "ordinary")
         if prototype == "ordinary":
+            promise_objects = (machine.get("protocol") or {}).get("promiseObjects")
+            from .promise_object_v8 import intrinsic_id
+
+            object_prototype = intrinsic_id("Object.prototype")
+            if promise_objects is not None and identity != object_prototype:
+                if (
+                    node["kind"] == "array"
+                    and (
+                        isinstance(key, tuple)
+                        and key[1] in ("well-known:iterator", "well-known:unscopables")
+                        or isinstance(key, str)
+                        and key
+                        in _ARRAY_INTRINSIC_NAMES | {"constructor", "toString", "toLocaleString"}
+                    )
+                    or node["kind"] == "closure"
+                    and (
+                        isinstance(key, tuple)
+                        and key[1] == "well-known:hasInstance"
+                        or isinstance(key, str)
+                        and key
+                        in (
+                            "call",
+                            "apply",
+                            "bind",
+                            "length",
+                            "name",
+                            "prototype",
+                            "arguments",
+                            "caller",
+                            "constructor",
+                            "toString",
+                        )
+                    )
+                ):
+                    _fail("inherited intrinsic property requires its callable protocol")
+                if object_prototype not in machine["heap"]:
+                    _fail("initialized Object.prototype is missing")
+                identity = object_prototype
+                continue
             if for_set and (
                 isinstance(key, str)
                 and key != "__proto__"
@@ -871,6 +919,9 @@ def _eval(machine, expr):
                     else (
                         "function"
                         if machine["heap"].get(a[1], {}).get("kind") == "closure"
+                        or machine["heap"].get(a[1], {}).get("kind") == "intrinsic"
+                        and machine["heap"].get(a[1], {}).get("callableKind")
+                        in ("function", "constructor")
                         else "object"
                     ),
                 ]
@@ -948,7 +999,10 @@ def _apply(machine, record):
         "promise.adopt.enqueue",
         "promise.adopt.self",
         "promise.adopt.enter",
+        "promise.adopt.get",
         "promise.adopt.forward",
+        "promise.intrinsics",
+        "promise.intrinsic.get",
     ):
         _fail("active invocation required")
     kind = record["kind"]
@@ -990,6 +1044,10 @@ def _apply(machine, record):
     if kind in PROMISE_ADOPTION_FIELDS:
         if not apply_promise_adoption_record(machine, record):
             _fail("unsupported Promise adoption transition")
+        return
+    if kind in PROMISE_OBJECT_FIELDS:
+        if not apply_promise_object_record(machine, record):
+            _fail("unsupported Promise object transition")
         return
     if kind in NUMBER_FIELDS:
         if not apply_number_record(machine, record):
@@ -1336,7 +1394,28 @@ def _apply(machine, record):
             if isinstance(record["prototype"], list):
                 _known(machine, record["prototype"])
             before = node.get("prototype", "ordinary")
-            success = before == record["prototype"] or node.get("extensible", True)
+            from .promise_object_v8 import intrinsic_id
+
+            immutable_object_prototype = machine["protocol"].get(
+                "promiseObjects"
+            ) is not None and record["object"] == intrinsic_id("Object.prototype")
+            effective_before = before
+            if (
+                before == "ordinary"
+                and machine["protocol"].get("promiseObjects") is not None
+                and node["kind"] == "object"
+            ):
+                effective_before = ["ref", intrinsic_id("Object.prototype")]
+            effective_candidate = record["prototype"]
+            if (
+                effective_candidate == "ordinary"
+                and machine["protocol"].get("promiseObjects") is not None
+                and node["kind"] == "object"
+            ):
+                effective_candidate = ["ref", intrinsic_id("Object.prototype")]
+            success = effective_before == effective_candidate or (
+                not immutable_object_prototype and node.get("extensible", True)
+            )
             if success and isinstance(record["prototype"], list):
                 target = record["prototype"][1]
                 seen = set()
@@ -1347,6 +1426,12 @@ def _apply(machine, record):
                     seen.add(target)
                     ancestor = _node(machine, target)
                     parent = ancestor.get("prototype", "ordinary")
+                    if (
+                        parent == "ordinary"
+                        and machine["protocol"].get("promiseObjects") is not None
+                        and target != intrinsic_id("Object.prototype")
+                    ):
+                        parent = ["ref", intrinsic_id("Object.prototype")]
                     if not isinstance(parent, list) or parent[0] != "ref":
                         break
                     target = parent[1]
@@ -1513,6 +1598,7 @@ def validate_protocol_state(snapshot, heap_ids=(), shared_state=None):
         "primitiveConversions",
         "proxyCalls",
         "promiseExecutors",
+        "promiseObjects",
     }
     if type(snapshot) is dict and "construction" in snapshot:
         _exact(snapshot, base_fields | {"construction"}, "shared protocol state")
@@ -1664,6 +1750,35 @@ def validate_protocol_state(snapshot, heap_ids=(), shared_state=None):
         validate_primitive_conversion_state(conversion_machine)
     if shared_state is not None:
         active_machine = _internal_machine(shared_state)
+        for pending in snapshot["pendingCalls"]:
+            child = pending["child"]
+            callee_id = pending["callee"][1]
+            closure = active_machine["heap"].get(callee_id)
+            if (
+                not closure
+                or closure.get("kind") != "closure"
+                or active_machine.get("frameFunctions", {}).get(child) != closure.get("code")
+            ):
+                _fail("pending accessor call is not bound to its active callable")
+            expected_receiver = (
+                closure.get("lexicalReceiver")
+                if closure.get("functionKind") == "arrow"
+                else pending["receiver"]
+            )
+            if active_machine.get("locals", {}).get(child + ":this") != expected_receiver:
+                _fail("pending accessor receiver differs from retained invocation")
+            frame = next((row for row in snapshot["callFrames"] if row["child"] == child), None)
+            expected_arguments = [] if pending["operation"] == "get" else [pending["value"]]
+            if frame is not None and (
+                frame["parent"] != pending["parent"] or frame["arguments"] != expected_arguments
+            ):
+                _fail("pending accessor call differs from its retained call frame")
+            if active_machine.get("stack") and active_machine["stack"][-1] == child:
+                if active_machine.get("receiver") != expected_receiver:
+                    _fail("pending accessor receiver differs from active receiver")
+                aliases = {row["binding"]: row["cell"] for row in closure.get("captures", [])}
+                if active_machine.get("captureAliases", {}) != aliases:
+                    _fail("pending accessor captures differ from active callable")
         continuations = active_machine.get("continuations", [])
         for continuation in dict(continuations).values():
             validate_pending_scope(
@@ -1684,6 +1799,11 @@ def validate_protocol_state(snapshot, heap_ids=(), shared_state=None):
                 continue
             if len(set(node.get("properties", {})) | set(node.get("descriptors", {}))) > 4096:
                 _fail("own property bound")
+            if "keyOrder" in node:
+                order = node["keyOrder"]
+                own_keys = set(node.get("properties", {})) | set(node.get("descriptors", {}))
+                if len(order) != len(set(order)) or set(order) != own_keys:
+                    _fail("stored own property order differs from descriptors")
             for key, value in node.get("properties", {}).items():
                 if isinstance(key, tuple):
                     _symbol(known_machine, key[1])
@@ -1706,16 +1826,56 @@ def validate_protocol_state(snapshot, heap_ids=(), shared_state=None):
                         value = _known(known_machine, descriptor[field], identity)
                         if (
                             value[0] == "ref"
-                            and _node(known_machine, value[1])["kind"] != "closure"
+                            and heap_nodes.get(value[1], {}).get("kind") != "closure"
                         ):
-                            _fail("property accessor must be callable")
+                            from .promise_object_v8 import intrinsic_id
+
+                            builtin_proto_accessor = (
+                                snapshot.get("promiseObjects") is not None
+                                and identity == intrinsic_id("Object.prototype")
+                                and key == "__proto__"
+                                and value[1] == intrinsic_id("Object.prototype.__proto__." + field)
+                                and heap_nodes.get(value[1], {}).get("kind") == "intrinsic"
+                                and heap_nodes.get(value[1], {}).get("intrinsicName")
+                                == "Object.prototype.__proto__." + field
+                            )
+                            if not builtin_proto_accessor:
+                                _fail("property accessor must be callable")
             prototype = node.get("prototype", "ordinary")
             if isinstance(prototype, list):
                 _known(known_machine, prototype, identity)
             if node.get("functionKind") == "arrow":
                 _known(known_machine, node.get("lexicalReceiver"), identity)
+        if snapshot.get("promiseObjects") is not None:
+            from .promise_object_v8 import intrinsic_id
+
+            object_prototype = intrinsic_id("Object.prototype")
+            object_proto_node = heap_nodes.get(object_prototype)
+            if object_proto_node is not None and object_proto_node.get("prototype") is not None:
+                _fail("Object.prototype immutable prototype changed")
+            for identity, node in heap_nodes.items():
+                if not isinstance(node, dict):
+                    continue
+                current, seen = identity, set()
+                while current is not None:
+                    if current in seen:
+                        _fail("prototype cycle")
+                    seen.add(current)
+                    current_node = heap_nodes.get(current)
+                    if not isinstance(current_node, dict):
+                        _fail("prototype target is not an object")
+                    parent = current_node.get("prototype", "ordinary")
+                    if (
+                        parent == "ordinary"
+                        and current != object_prototype
+                        and current_node.get("kind") == "object"
+                    ):
+                        parent = ["ref", object_prototype]
+                    current = parent[1] if isinstance(parent, list) and parent[0] == "ref" else None
         memory_machine = (
-            _internal_machine(shared_state) if shared_state is not None else {"heap": heap_nodes}
+            _internal_machine(shared_state)
+            if shared_state is not None
+            else {"heap": heap_nodes, "protocol": snapshot}
         )
         validate_memory_state(memory_machine)
         validate_iterator_state(memory_machine)
@@ -1727,6 +1887,7 @@ def validate_protocol_state(snapshot, heap_ids=(), shared_state=None):
 
         validate_promise_executor_state(memory_machine)
         validate_promise_adoption_state(memory_machine)
+        validate_promise_object_state(memory_machine)
         validate_number_state(memory_machine)
         validate_generator_state(memory_machine)
         validate_async_call_state(memory_machine)

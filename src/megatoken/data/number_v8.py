@@ -100,8 +100,24 @@ def _state(machine):
     return state
 
 
+def _assert_supported_conversion_method(machine, value):
+    if value is None or value[0] != "ref":
+        return
+    selected = machine["heap"].get(value[1])
+    _require(
+        not selected
+        or selected.get("kind") != "proxy"
+        and not (
+            selected.get("kind") == "intrinsic"
+            and selected.get("callableKind") in ("function", "constructor")
+        ),
+        "intrinsic or Proxy conversion callable requires its own protocol",
+    )
+
+
 def _lookup(machine, value, key):
     p = _protocol()
+    promise_objects = (machine.get("protocol") or {}).get("promiseObjects") is not None
     current = value[1]
     seen = set()
     while True:
@@ -112,11 +128,62 @@ def _lookup(machine, value, key):
         descriptor = p._descriptor(node, p._key(key))
         if descriptor is not None:
             _require(descriptor["kind"] == "data", "accessor requires its getter continuation")
-            return descriptor["value"], None
+            value = descriptor["value"]
+            if value[0] == "ref":
+                method = machine["heap"].get(value[1])
+                if (
+                    method
+                    and method.get("kind") == "intrinsic"
+                    and method.get("callableKind") == "function"
+                ):
+                    if (
+                        key == ["str", "valueOf"]
+                        and method.get("intrinsicName") == "Object.prototype.valueOf"
+                    ):
+                        return ["undefined"], "Object.valueOf"
+                    if (
+                        key == ["str", "toString"]
+                        and method.get("intrinsicName") == "Object.prototype.toString"
+                    ):
+                        return ["undefined"], "Object.toString"
+            return value, None
         prototype = node.get("prototype", "ordinary")
         if prototype is None:
             return ["undefined"], None
         if prototype == "ordinary":
+            if promise_objects:
+                if node["kind"] == "array" and key in (
+                    ["str", "constructor"],
+                    ["str", "toLocaleString"],
+                ):
+                    _require(False, "array intrinsic conversion property requires its own profile")
+                if node["kind"] == "closure" and key in (
+                    ["str", "constructor"],
+                    ["str", "toString"],
+                    ["symbol", "well-known:toStringTag"],
+                ):
+                    _require(
+                        False, "function intrinsic prototype requires its own conversion profile"
+                    )
+                if node["kind"] == "array" and key == ["str", "toString"]:
+                    _require(False, "array stringification requires its own protocol")
+                from .promise_object_v8 import intrinsic_id
+
+                owner = p._node(machine, intrinsic_id("Object.prototype"))
+                inherited = p._descriptor(owner, p._key(key))
+                if inherited is None:
+                    return ["undefined"], None
+                _require(inherited["kind"] == "data", "accessor requires its getter continuation")
+                expected_builtin = {
+                    ("str", "valueOf"): "Object.valueOf",
+                    ("str", "toString"): "Object.toString",
+                }.get(tuple(key))
+                if expected_builtin is not None and inherited["value"] == [
+                    "ref",
+                    intrinsic_id("Object.prototype." + key[1]),
+                ]:
+                    return ["undefined"], expected_builtin
+                return inherited["value"], None
             _require(
                 node["kind"] != "closure"
                 or key not in (["str", "toString"], ["symbol", "well-known:toStringTag"]),
@@ -239,6 +306,7 @@ def apply_record(machine, record):
         if key[0] == "symbol":
             p._symbol(machine, key[1])
         p._known(machine, record["method"])
+        _assert_supported_conversion_method(machine, record["method"])
         selected = _lookup(machine, row["input"], key)
         _require(selected == (record["method"], record["builtin"]), "false method selection")
         method, builtin = copy.deepcopy(record["method"]), record["builtin"]
@@ -341,6 +409,7 @@ def validate_state(machine):
         for value in (row["method"], row["primitive"], row["result"]):
             if value is not None:
                 p._known(machine, value)
+        _assert_supported_conversion_method(machine, row["method"])
         if row["primitive"] and row["primitive"][0] in ("str", "bigint"):
             _require(len(row["primitive"][1]) <= 10000, "retained scalar bound")
         _require(row["builtin"] in BUILTINS, "retained builtin")

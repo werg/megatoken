@@ -962,6 +962,35 @@ def _initial_state(
         type(random_seed) is not int or not 0 <= random_seed <= 0xFFFFFFFF
     ):
         _fail("Malformed deterministic random seed")
+    protocol = None
+    if retained_state is not None:
+        # A new invocation gets a fresh protocol-local state.  If its retained
+        # heap carries Promise intrinsics, restore only the authenticated
+        # intrinsic-group marker into that fresh state; never inherit the
+        # previous invocation's protocol frames or counters.
+        from . import promise_object_v8
+        from .protocol_v8 import _internal_machine, create_protocol_state
+
+        retained_heap = _internal_machine(retained_state)["heap"]
+        has_promise_intrinsics = any(
+            row.get("kind") == "intrinsic" for row in retained_heap.values()
+        )
+        if has_promise_intrinsics:
+            protocol = create_protocol_state()
+            protocol["promiseObjects"] = {
+                "schema": promise_object_v8.STATE_SCHEMA,
+                "initialized": True,
+            }
+            try:
+                promise_object_v8.validate_state({"protocol": protocol, "heap": retained_heap})
+                object_prototype = retained_heap[promise_object_v8.intrinsic_id("Object.prototype")]
+                if object_prototype.get("prototype") is not None:
+                    raise NativeV8Error("Retained Object.prototype immutable prototype changed")
+            except (KeyError, TypeError, ValueError) as error:
+                raise NativeV8Error(
+                    "Invalid retained Promise intrinsic group: " + str(error)
+                ) from error
+
     return {
         "heap": heap,
         "locals": locals_,
@@ -987,7 +1016,7 @@ def _initial_state(
         else {"registration": 0, "ready": 0},
         "frameFunctions": [[invocation["invocationId"], invocation["entry"]]],
         "jobErrors": [],
-        "protocol": None,
+        "protocol": protocol,
     }
 
 
@@ -2240,6 +2269,11 @@ def _apply_detail(
         }
         state["effects"].append([effect, row_effect])
         if promise:
+            promise_prototype = None
+            if (state.get("protocol") or {}).get("promiseObjects") is not None:
+                from .promise_object_v8 import intrinsic_id
+
+                promise_prototype = ["ref", intrinsic_id("Promise.prototype")]
             _set_row(
                 state["heap"],
                 promise,
@@ -2251,6 +2285,7 @@ def _apply_detail(
                     "adopted": None,
                     "external": effect,
                     "reactions": [],
+                    **({"prototype": promise_prototype} if promise_prototype is not None else {}),
                 },
             )
         if obligations is not None:

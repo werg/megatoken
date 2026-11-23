@@ -403,15 +403,34 @@ def validate_state(machine):
                 and machine["heap"].get(value[1], {}).get("kind") == "promise"
                 and adoption.get("target") == value[1]
                 and adoption.get("cause") == {"kind": "resolver", "resolver": capability["resolve"]}
-                and adoption.get("phase") in ("intent", "queued", "observing", "completed", "self")
+                and adoption.get("phase")
+                in ("intent", "queued", "reading", "observing", "completed", "rejected", "self")
             )
+            adoption_phase = adoption.get("phase")
+            adoption_job = next(
+                (
+                    job
+                    for identity, job in machine.get("jobs", [])
+                    if identity == adoption.get("job")
+                ),
+                None,
+            )
+            adoption_returned = (adoption_job or {}).get("returned") or {}
             agrees = (
                 adopting
                 and (
                     adoption.get("phase") == "self"
                     and target["state"] == "rejected"
                     and target.get("result") == ["ref", adoption.get("error")]
-                    or target["state"] == "pending"
+                    or adoption_phase in ("intent", "queued", "reading", "observing")
+                    and target["state"] == "pending"
+                    and target.get("result") is None
+                    and target.get("adopted") is None
+                    or adoption_phase == "rejected"
+                    and isinstance(adoption.get("lookup"), dict)
+                    and adoption_returned.get("kind") == "throw"
+                    and target["state"] == "rejected"
+                    and target.get("result") == adoption_returned.get("value")
                     or adoption.get("phase") == "completed"
                     and target["state"] in ("fulfilled", "rejected")
                     and target.get("result") == _promise(machine, value[1]).get("result")

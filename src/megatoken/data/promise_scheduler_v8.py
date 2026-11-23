@@ -34,7 +34,7 @@ def create_promise(machine, identity):
     from .protocol_v8 import _assert_fresh_heap_identity
 
     _assert_fresh_heap_identity(machine, identity)
-    machine["heap"][identity] = {
+    row = {
         "kind": "promise",
         "properties": {},
         "state": "pending",
@@ -43,6 +43,11 @@ def create_promise(machine, identity):
         "external": None,
         "reactions": [],
     }
+    if (machine.get("protocol") or {}).get("promiseObjects") is not None:
+        from .promise_object_v8 import intrinsic_id
+
+        row["prototype"] = ["ref", intrinsic_id("Promise.prototype")]
+    machine["heap"][identity] = row
 
 
 def assert_plain_resolution(machine, value):
@@ -79,7 +84,14 @@ def assert_plain_resolution(machine, value):
     method = descriptor["value"]
     if method[0] == "ref":
         selected = machine["heap"].get(method[1])
-        if not selected or selected.get("kind") in ("closure", "proxy"):
+        if (
+            not selected
+            or selected.get("kind") in ("closure", "proxy")
+            or (
+                selected.get("kind") == "intrinsic"
+                and selected.get("callableKind") in ("function", "constructor")
+            )
+        ):
             _fail("callable then requires explicit assimilation jobs")
     elif method[0] not in ("undefined", "null", "bool", "num", "str", "bigint", "symbol"):
         _fail("unmodeled then value requires an explicit resolution protocol")

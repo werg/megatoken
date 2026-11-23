@@ -554,6 +554,7 @@ def main():
                     "promise-join/1",
                     "promise-executor/1",
                     "promise-adoption/1",
+                    "promise-object-source/1",
                     "number-conversion-source/1",
                     "primitive-conversion-source/1",
                     "ordinary-completions-source/1",
@@ -588,6 +589,7 @@ def main():
                         "promise-adoption/1",
                         "promise-executor/1",
                         "promise-join/1",
+                        "promise-object-source/1",
                     }
                 ):
                     raise ValueError("V8 Promise executor source evidence has an invalid inventory")

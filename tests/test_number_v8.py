@@ -68,6 +68,67 @@ def define(state, identity, key, value):
 
 
 class NumberProtocolTests(unittest.TestCase):
+    def test_restored_number_state_rejects_unsupported_callable_method(self):
+        for identity, node in (
+            ("intrinsicpromiseprototypethen", None),
+            ("proxy", {"kind": "proxy", "properties": {}}),
+        ):
+            for phase in ("complete", "abrupt"):
+                with self.subTest(identity=identity, phase=phase):
+                    state = machine()
+                    apply_protocol_record(state, {"kind": "promise.intrinsics"})
+                    allocate(state, "input")
+                    if node is not None:
+                        state["heap"][identity] = node
+                    state["protocol"]["numberConversions"] = {
+                        "schema": number.SCHEMA,
+                        "operations": [
+                            {
+                                "id": "number",
+                                "parent": "root",
+                                "input": ["ref", "input"],
+                                "index": 1,
+                                "method": ["ref", identity],
+                                "builtin": None,
+                                "child": None,
+                                "phase": phase,
+                                "primitive": ["num", 1],
+                                "result": ["num", 1],
+                            }
+                        ],
+                    }
+                    with self.assertRaisesRegex(
+                        ProtocolV8Error, "intrinsic or Proxy conversion callable"
+                    ):
+                        number.validate_state(state)
+
+    def test_retained_number_uses_live_shared_object_prototype_descriptor(self):
+        state = machine()
+        apply_protocol_record(state, {"kind": "promise.intrinsics"})
+        allocate(state, "input")
+        state["heap"]["intrinsicobjectprototype"]["properties"]["valueOf"] = ["num", 6]
+        apply(state, {"kind": "number.begin", "id": "n", "value": ["ref", "input"]})
+        apply(
+            state,
+            {
+                "kind": "number.select",
+                "id": "n",
+                "key": ["symbol", "well-known:toPrimitive"],
+                "method": ["undefined"],
+                "builtin": None,
+            },
+        )
+        apply(
+            state,
+            {
+                "kind": "number.select",
+                "id": "n",
+                "key": ["str", "valueOf"],
+                "method": ["num", 6],
+                "builtin": None,
+            },
+        )
+
     def test_retained_number_protocol_cannot_invent_function_prototype_stringification(self):
         state = machine()
         allocate(state, "prototype", "closure")
