@@ -33,8 +33,8 @@ from .generator_v8 import validate_record as validate_generator_record
 from .generator_v8 import validate_state as validate_generator_state
 from .intrinsic_error_v8 import FIELDS as INTRINSIC_ERROR_FIELDS
 from .intrinsic_error_v8 import apply_record as apply_intrinsic_error_record
-from .intrinsic_error_v8 import validate_error_node
 from .intrinsic_error_v8 import validate_record as validate_intrinsic_error_record
+from .intrinsic_error_v8 import validate_state as validate_intrinsic_error_state
 from .iterator_v8 import FIELDS as ITERATOR_FIELDS
 from .iterator_v8 import apply_record as apply_iterator_record
 from .iterator_v8 import validate_record as validate_iterator_record
@@ -525,6 +525,7 @@ def create_protocol_state():
         "proxyCalls": None,
         "promiseExecutors": None,
         "promiseObjects": None,
+        "intrinsicErrors": None,
     }
 
 
@@ -1626,6 +1627,7 @@ def validate_protocol_state(snapshot, heap_ids=(), shared_state=None):
         "proxyCalls",
         "promiseExecutors",
         "promiseObjects",
+        "intrinsicErrors",
     }
     if type(snapshot) is dict and "construction" in snapshot:
         _exact(snapshot, base_fields | {"construction"}, "shared protocol state")
@@ -1874,12 +1876,14 @@ def validate_protocol_state(snapshot, heap_ids=(), shared_state=None):
             ):
                 _fail("active closure capture is not initialized")
             _known(active_machine, active_machine["locals"][cell])
+    if heap_nodes is None and snapshot["intrinsicErrors"] is not None:
+        _fail("intrinsic error validation requires the full shared heap")
     if heap_nodes is not None:
         known_machine = {"heap": heap_nodes, "protocol": snapshot}
+        validate_intrinsic_error_state(known_machine)
         for identity, node in heap_nodes.items():
             if not isinstance(node, dict):
                 continue
-            validate_error_node(node)
             if len(set(node.get("properties", {})) | set(node.get("descriptors", {}))) > 4096:
                 _fail("own property bound")
             if "keyOrder" in node:

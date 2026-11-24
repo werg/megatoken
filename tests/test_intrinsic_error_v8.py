@@ -110,6 +110,51 @@ class IntrinsicErrorTests(unittest.TestCase):
             with self.assertRaises(ProtocolV8Error):
                 validate_protocol_state(forged["protocol"], forged["heap"], forged)
 
+    def test_known_error_brand_requires_its_derived_allocation_registry(self):
+        state = base_state()
+        forged = copy.deepcopy(state)
+        dict(forged["heap"])["target"]["declaredError"] = "TypeError"
+        with self.assertRaisesRegex(ProtocolV8Error, "allocation registry"):
+            validate_protocol_state(forged["protocol"], forged["heap"], forged)
+        step(
+            state,
+            {
+                "kind": "property.fault",
+                "operation": "has",
+                "target": ["null"],
+                "key": ["str", "x"],
+                "error": "fault",
+            },
+        )
+        self.assertEqual(
+            state["protocol"]["intrinsicErrors"],
+            {
+                "schema": "semantic-intrinsic-error-state/1",
+                "errors": [{"id": "fault", "errorType": "TypeError"}],
+            },
+        )
+        for mutate in (
+            lambda snapshot: snapshot["protocol"].__setitem__("intrinsicErrors", None),
+            lambda snapshot: snapshot["protocol"]["intrinsicErrors"].__setitem__("errors", []),
+            lambda snapshot: snapshot["protocol"]["intrinsicErrors"]["errors"][0].__setitem__(
+                "id", "target"
+            ),
+            lambda snapshot: snapshot["protocol"]["intrinsicErrors"]["errors"][0].__setitem__(
+                "errorType", "RangeError"
+            ),
+            lambda snapshot: snapshot["protocol"]["intrinsicErrors"]["errors"].append(
+                {"id": "fault", "errorType": "TypeError"}
+            ),
+            lambda snapshot: dict(snapshot["heap"])["fault"].pop("declaredError"),
+            lambda snapshot: dict(snapshot["heap"])["target"].__setitem__(
+                "declaredError", "TypeError"
+            ),
+        ):
+            forged = copy.deepcopy(state)
+            mutate(forged)
+            with self.assertRaises(ProtocolV8Error):
+                validate_protocol_state(forged["protocol"], forged["heap"], forged)
+
     def test_error_identity_and_message_bounds_match_javascript_utf16_units(self):
         from megatoken.data.intrinsic_error_v8 import allocate_intrinsic_error_v8
         from megatoken.data.protocol_v8 import _internal_machine

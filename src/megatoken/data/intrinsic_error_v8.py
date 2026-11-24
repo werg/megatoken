@@ -11,6 +11,8 @@ ERROR_TYPES = frozenset(
 )
 FIELDS = {"property.fault": {"kind", "operation", "target", "key", "error"}}
 INVALID_HAS_TARGET = "Right-hand side of in is not an object"
+STATE_SCHEMA = "semantic-intrinsic-error-state/1"
+ERROR_BOUND = 4096
 
 
 def _protocol():
@@ -31,6 +33,11 @@ def allocate_intrinsic_error_v8(machine, identity, error_type, message):
         or _js_string_length(message) > 4096
     ):
         p._fail("intrinsic error type or message")
+    registry = machine["protocol"].get("intrinsicErrors")
+    if registry is None:
+        registry = {"schema": STATE_SCHEMA, "errors": []}
+    if len(registry["errors"]) >= ERROR_BOUND:
+        p._fail("intrinsic error allocation bound")
     record = {
         "kind": "allocate",
         "name": identity,
@@ -56,6 +63,8 @@ def allocate_intrinsic_error_v8(machine, identity, error_type, message):
         else:
             machine["_internalProtocolTransition"] = prior
     machine["heap"][identity]["declaredError"] = error_type
+    registry["errors"].append({"id": identity, "errorType": error_type})
+    machine["protocol"]["intrinsicErrors"] = registry
     return ["ref", identity]
 
 
@@ -99,3 +108,44 @@ def validate_error_node(node):
         or node["declaredError"] not in ERROR_TYPES
     ):
         _protocol()._fail("intrinsic error brand")
+
+
+def validate_state(machine):
+    p = _protocol()
+    branded = {
+        identity: node for identity, node in machine["heap"].items() if "declaredError" in node
+    }
+    for node in branded.values():
+        validate_error_node(node)
+    registry = machine["protocol"].get("intrinsicErrors")
+    if registry is None:
+        if branded:
+            p._fail("intrinsic error brand lacks its allocation registry")
+        return True
+    p._exact(registry, {"schema", "errors"}, "intrinsic error registry")
+    if (
+        registry["schema"] != STATE_SCHEMA
+        or type(registry["errors"]) is not list
+        or len(registry["errors"]) > ERROR_BOUND
+    ):
+        p._fail("intrinsic error registry schema or bound")
+    seen = set()
+    for row in registry["errors"]:
+        p._exact(row, {"id", "errorType"}, "intrinsic error allocation")
+        identity, error_type = row["id"], row["errorType"]
+        if (
+            not isinstance(identity, str)
+            or not identity
+            or _js_string_length(identity) > 256
+            or identity in seen
+        ):
+            p._fail("intrinsic error allocation identity")
+        if not isinstance(error_type, str) or error_type not in ERROR_TYPES:
+            p._fail("intrinsic error allocation type")
+        node = branded.get(identity)
+        if node is None or node["declaredError"] != error_type:
+            p._fail("intrinsic error allocation identity or type differs from heap")
+        seen.add(identity)
+    if seen != set(branded):
+        p._fail("intrinsic error brand lacks its allocation registry entry")
+    return True
