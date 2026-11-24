@@ -1,7 +1,193 @@
 # Issue 51: object existence and mutation-sensitive enumeration
 
-Current completed scope and receipts are in **Checkpoint 6** below. Earlier
-checkpoint descriptions apply only to their recorded revisions.
+Current verified scope is in **Completed follow-up** immediately below.
+Earlier checkpoints describe only their recorded code and inputs.
+
+## Completed follow-up — retained object operations and recovery
+
+The paired implementation verified here is producer `a72267e26ab7b7fc5f22134abee315fd7ed6e64b` and consumer
+`053e9c78cad1dbb5313012421ab2987526fe6dab`, both clean when the recorded checks began. Documentation commits
+may advance the draft branches after these exact implementation and data pins.
+
+The receipt records the canonical generation source revision
+`76fd24a91ad7e535aac33af542b481e1337838df` and generated artifact revision
+`5553de1a10761626c5604a57453291039d73683d` separately from the verified producer
+revision above. The source fixture generator and unmodified standard contract
+gate both have successful, hashed evidence logs. When the verified producer
+revision exactly matches the generated artifact revision, the receipt uses
+those recorded generation and gate results without claiming a second rerun.
+For a later code-only producer revision, it records fresh source-check and
+gate runs. Original generation status and all ten generation logs are preserved
+separately as historical evidence.
+
+### What this follow-up establishes
+
+- Seven Proxy reflection operations now share the ordinary descriptor, prototype
+  and extensibility rules: `getPrototypeOf`, `setPrototypeOf`, `isExtensible`,
+  `preventExtensions`, `getOwnPropertyDescriptor`, `ownKeys` and
+  `defineProperty`. Object and Reflect callers retain their different behavior.
+  Callbacks use the selected handler and method; invariants inspect the target
+  after callback effects. Definition callbacks receive a fresh descriptor object
+  while the original descriptor snapshot remains authenticated through calls,
+  returns and checkpoints.
+- Transparent nested Proxy targets and `Proxy.revocable` retain distinct object,
+  handler, target and revoker identities. Repeated revocation has no second
+  effect. Revoked get, set, has and delete operations derive the correct
+  TypeError, message and standard prototype from their source operands.
+- A handler's own `has` getter is an explicit continuation. It runs once with
+  the handler receiver. Its returned closure remains selected across handler
+  mutation or revocation; a nullish result falls back to the captured target.
+  Getter throws preserve identity. Every exposed selection/call/return boundary
+  is checked on restoration.
+- Standard Error objects use shared ordinary descriptors and prototype identity,
+  including their inherited names, own messages and ordinary `instanceof`
+  behavior. Invalid `in` checks retain operand effects and reject an invalid
+  right-hand side before key conversion. Errors caught inside Promise reactions
+  remain ordinary shared objects. Self-resolution rejection creates its derived
+  TypeError after the ordinary invocation stack has emptied, through an internal
+  allocation path that public records cannot invoke.
+- Derived-constructor arrows retain the live receiver and `new.target` before
+  and after `super()`, including pre-initialization ReferenceErrors and later
+  scheduled calls. Promise reactions and adoption getters preserve nested call
+  scopes, captured values and authentic parameter bindings across returns and
+  suspended checkpoints.
+- Ordinary `for…in` checks captured candidates against live property state,
+  including prototype and enumerability changes under the pinned engine.
+  Stable transparent Proxy enumeration retains Proxy identity and target state.
+- Map and Set operations retain SameValueZero equality and ordered tombstones.
+  Live collection iterators observe supported mutations without restarting;
+  completed iterators stay complete. Array/string spread retains evaluated
+  values before later effects. Nested ordinary array binding, defaults, rest
+  and abrupt outer-iterator cleanup retain their order and identities.
+
+Preparation also preserves lone UTF-16 code units through JSON serialization
+and tokenization, keeping these valid JavaScript string examples admissible.
+
+### Verification on the recorded revisions
+
+| Check | Recorded result |
+| --- | --- |
+| Standard unmodified `npm run contracts:check` | Passed; 174 protocol source cases, 6 region examples, 4 host source cases |
+| Complete producer test selection | 3462 passed, 98 skipped, zero failures; 458 test modules |
+| Producer reference fixture | Passed |
+| Paired native-source checks | 9 selected titles passed with 0 selected failures/skips/cancellations; all 130 tests in 9 files ran (130 passed, 0 skipped, 0 failed/cancelled) at the recorded producer/consumer pins |
+| Independent Python regression selection | 550 passed, 0 skipped across 26 test modules |
+| Python Ruff lint and format checks | 2 steps passed |
+| Complete frozen issue51 cohort checks | 134 passed, 0 skipped |
+| Actual pinned-tokenizer preparation | 121 attempted, 121 admitted, zero refusals and zero optimizer steps |
+
+The producer command uses Node v24.22.3 with experimental VM
+modules and 4 concurrent test modules. The full command and individual test
+results are retained in the receipt and logs. The Python selection and its
+exact command are recorded separately; these counts are tests, not percentages
+of JavaScript or independent source families.
+
+The canonical population preserves all **93 previous
+source inputs** byte-for-byte for source, entry, arguments, family and ancestry.
+The issue51 cohort contains **122 declared originals: 121
+supported and 1 refused**, preserving all **122
+previous cohort inputs** in the same fields. Earlier negative controls were
+promoted only after their unchanged original source passed native execution,
+source observation checks and fresh replay. The cohort remains one declared
+ancestry group; additional examples do not become independent families.
+
+A separate historical correction run on producer `5553de1a10761626c5604a57453291039d73683d`
+and consumer `6bb4574931c4fdf19588a86aef96577b22ff6541` recorded 3,558 producer tests
+(3,429 passed, 31 failed, 98 skipped), an interrupted native run with 465 passed
+and 16 failed among 481 completed of 546 collected, 125 passed and 9 failed
+cohort tests, and preparation that admitted 111 of 121 attempts with 10 refusals.
+These results are retained as historical correction evidence and are not final
+passing verification. The receipt records the archive manifest hash and hashes
+for its small evidence files; the large cohort export, preparation JSONL and
+prepared output remain outside repository evidence. The failed initial paired
+test-title filtering attempt is also preserved as historical runner-selection
+evidence and is not counted as a semantic result. Its raw failure-detail counter
+is 18, while the TAP summary records the authoritative 9 distinct failed tests.
+
+A separate full-files paired native run on producer
+`a72267e26ab7b7fc5f22134abee315fd7ed6e64b` and consumer
+`80280e425b0402bb4ee5f18e42e27087fa91dea5` completed 130 tests: 129 passed,
+one failed, zero skipped or cancelled. The selected nine native checks had
+eight passes and one failure in the Promise self-resolution adoption replay:
+intrinsic Error allocation occurred without an active ordinary invocation,
+and the consumer rejected it with `active invocation required`. This is
+historical correction evidence, not a final passing result. Its manifest and
+five hash-verified files are preserved under
+`historical/finish-paired-self-resolution-80280e4/`.
+
+The receipt records operation and method counts for every accepted source.
+Method counts distinguish the operation and Object/Reflect caller where the
+record provides them. They describe exercised transitions, not general method
+coverage percentages.
+
+Preparation used the pinned Ling tokenizer with 8192 positions and 1024 history.
+The preparation report confirms zero optimizer steps and no learning claim.
+The full manifest/report fingerprint and tokenizer identity are retained.
+
+- Contract digest: `ef501aa5c4e5a41b77a7c7c58e0f38dc2ee6d0ae3ef1aa6b6c91e304ddbf6c2f`.
+- Fixture digest: `56f7f36d3b25b3b11a208be3de337e637b9782e6759faea1e1ec107b0a90f0ce`.
+- Interoperability digest: `aa3c9077e4627e90d81ea7534635ffc3b168051db1c02463c3b5fe9e989f1677`.
+- Frozen registry digest: `14348b06d4d128fc94ce7056fb20f52e87b237b5e6da17b00479ee940b64eb2f`.
+- Preparation manifest: `82042270808558a4e78df0a9015ae2c3a5db5f58c39bde47917a5864a8b8463f`.
+
+See [the exact verification receipt](evidence/issue51-20261124/finish-verification.json)
+and [the preparation result](evidence/issue51-20261124/finish-preparation.json).
+Successful logs and their SHA256 hashes accompany them. Earlier checkpoint
+receipts below remain historical evidence for their recorded revisions.
+
+### Explicit remaining boundaries
+
+Issue #51 is an ongoing umbrella and remains open. This follow-up does not
+claim every Proxy/constructor/iterator combination. Remaining bounded cases
+include general callable Proxy apply/construct, nested target invariant
+dispatch, effectful Proxy enumeration, trap getters beyond the own `has`
+path, non-callable trap-getter results, effectful descriptor or own-key list
+conversion, broader exotic inheritance and asynchronous callbacks, general
+nested custom iterables, assignment destructuring, and implicit captured
+builtin iterator bindings. Native engine-specific Error stacks remain outside
+the standard Error property profile.
+
+Only the recorded Node 24 environment was checked here. The separate combined CI gate file was compared byte-for-byte with
+historical baseline `f7696e63258913e7bb8a450c67a708b70c3232ee`; the baseline and
+current hashes and original definition values are in the receipt. The gate has
+`run: false`: this is a pin-preservation check, not a passing combined CI
+execution. Neither draft PR is merged.
+
+### Reproduction
+
+Check out the producer and consumer revisions above. Regenerate the paired
+fixtures with the repository generators only when intentionally changing their
+inputs; the saved receipts apply to the committed artifacts at these pins.
+
+```sh
+# In the producer:
+npm run contracts:check
+node --experimental-vm-modules --test --test-concurrency=4 test/*.test.js
+node fixtures/reference/reference-fixture.mjs
+node tools/export-issue51-evidence.mjs --out /tmp/issue51-finish.json
+
+# Create the preparation input from the same frozen export:
+python - /tmp/issue51-finish.json /tmp/issue51-artifacts.jsonl <<'PYINPUT'
+import json, sys
+with open(sys.argv[2], "w") as output:
+    for row in json.load(open(sys.argv[1]))["cases"]:
+        if row["artifact"] is not None:
+            print(json.dumps(row["artifact"]), file=output)
+PYINPUT
+
+# In the consumer:
+PYTHONPATH=src python -m pytest -q tests/test_issue51_object_source_v8.py
+PYTHONPATH=src python scripts/prepare_semantic_v8.py \
+  --input /tmp/issue51-artifacts.jsonl --output /tmp/issue51-prepared \
+  --producer-root /path/to/tracing-js-self \
+  --producer-revision a72267e26ab7b7fc5f22134abee315fd7ed6e64b \
+  --consumer-revision 053e9c78cad1dbb5313012421ab2987526fe6dab \
+  --tokenizer-json /path/to/pinned/tokenizer.json \
+  --max-positions 8192 --max-history 1024 --source-recheck-timeout-seconds 90
+```
+
+## Historical work record
+
 
 This is an implementation checkpoint for
 [tracing-js-self #51](https://github.com/werg/tracing-js-self/issues/51), coordinated

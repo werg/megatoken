@@ -1,0 +1,81 @@
+{
+  "command": [
+    "/tmp/issue51-resume.Ws1foQ/node24/node_modules/.bin/node",
+    "--experimental-vm-modules",
+    "--test",
+    "--test-concurrency=2",
+    "--test-name-pattern",
+    "^(?:native\\ independently\\ checks\\ adoption\\ constructor\\ jobs,\\ retained\\ scopes\\ and\\ selected\\ completions|actual\\ native\\ independently\\ replays\\ every\\ eligible\\ mutation\\-boundary\\ control|native\\ independently\\ replays\\ every\\ eligible\\ Promise\\ object\\ control|native\\ independently\\ checks\\ every\\ Promise\\ review\\ source\\ and\\ retained\\ continuation|native\\ independently\\ replays\\ retained\\ invocations\\ and\\ captured\\ adoption\\ selection|independent\\ native\\ checker\\ replays\\ every\\ new\\ source\\ and\\ retained\\ shared\\ state|independent\\ native\\ transitions\\ reproduce\\ all\\ Promise\\ object\\ cases\\ and\\ reject\\ altered\\ records|actual\\ native\\ adoption\\ consumer\\ independently\\ replays\\ every\\ source\\ context\\ and\\ restored\\ cut|actual\\ native\\ shared\\ replay\\ checks\\ every\\ generated\\ context\\ and\\ continuation)$",
+    "test/semantic-promise-adoption-getter-source-v8.test.js",
+    "test/semantic-promise-mutation-profile-source-v8.test.js",
+    "test/semantic-promise-object-profile-source-v8.test.js",
+    "test/semantic-promise-object-review-source-v8.test.js",
+    "test/semantic-promise-object-review-v8.test.js",
+    "test/semantic-promise-object-source-v8.test.js",
+    "test/semantic-promise-object-v8.test.js",
+    "test/semantic-protocol-promise-adoption-source-v8.test.js",
+    "test/semantic-shared-generator-source-v8.test.js"
+  ],
+  "consumerCleanAfter": true,
+  "consumerCleanBefore": true,
+  "consumerRevision": "80280e425b0402bb4ee5f18e42e27087fa91dea5",
+  "consumerRevisionAfter": "80280e425b0402bb4ee5f18e42e27087fa91dea5",
+  "durationSeconds": 3.169,
+  "error": null,
+  "exitCode": 1,
+  "expectedTestCount": 9,
+  "files": [
+    "test/semantic-promise-adoption-getter-source-v8.test.js",
+    "test/semantic-promise-mutation-profile-source-v8.test.js",
+    "test/semantic-promise-object-profile-source-v8.test.js",
+    "test/semantic-promise-object-review-source-v8.test.js",
+    "test/semantic-promise-object-review-v8.test.js",
+    "test/semantic-promise-object-source-v8.test.js",
+    "test/semantic-promise-object-v8.test.js",
+    "test/semantic-protocol-promise-adoption-source-v8.test.js",
+    "test/semantic-shared-generator-source-v8.test.js"
+  ],
+  "logPath": "/tmp/issue51-resume.Ws1foQ/finish-paired-native.log",
+  "nodeVersion": "v24.22.3",
+  "observedSelectedTests": {
+    "actual native adoption consumer independently replays every source context and restored cut": 2,
+    "actual native independently replays every eligible mutation-boundary control": 2,
+    "actual native shared replay checks every generated context and continuation": 2,
+    "independent native checker replays every new source and retained shared state": 2,
+    "independent native transitions reproduce all Promise object cases and reject altered records": 2,
+    "native independently checks adoption constructor jobs, retained scopes and selected completions": 2,
+    "native independently checks every Promise review source and retained continuation": 2,
+    "native independently replays every eligible Promise object control": 2,
+    "native independently replays retained invocations and captured adoption selection": 2
+  },
+  "producerCleanAfter": true,
+  "producerCleanBefore": true,
+  "producerRevision": "a72267e26ab7b7fc5f22134abee315fd7ed6e64b",
+  "producerRevisionAfter": "a72267e26ab7b7fc5f22134abee315fd7ed6e64b",
+  "pythonVersion": "Python 3.12.7",
+  "schema": "issue51-paired-native-run/1",
+  "tapSummary": {
+    "cancelled": 0,
+    "fail": 9,
+    "pass": 0,
+    "skipped": 0,
+    "tests": 9
+  },
+  "testCounts": {
+    "cancel": 0,
+    "fail": 18,
+    "pass": 0,
+    "skip": 0
+  },
+  "testTitles": [
+    "native independently checks adoption constructor jobs, retained scopes and selected completions",
+    "actual native independently replays every eligible mutation-boundary control",
+    "native independently replays every eligible Promise object control",
+    "native independently checks every Promise review source and retained continuation",
+    "native independently replays retained invocations and captured adoption selection",
+    "independent native checker replays every new source and retained shared state",
+    "independent native transitions reproduce all Promise object cases and reject altered records",
+    "actual native adoption consumer independently replays every source context and restored cut",
+    "actual native shared replay checks every generated context and continuation"
+  ]
+}

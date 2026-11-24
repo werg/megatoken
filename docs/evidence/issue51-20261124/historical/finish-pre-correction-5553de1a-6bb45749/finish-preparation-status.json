@@ -1,0 +1,28 @@
+{
+  "producerRevision": "5553de1a10761626c5604a57453291039d73683d",
+  "consumerRevision": "6bb4574931c4fdf19588a86aef96577b22ff6541",
+  "command": [
+    "/tmp/issue51-resume.Ws1foQ/.venv/bin/python",
+    "scripts/prepare_semantic_v8.py",
+    "--input",
+    "/tmp/issue51-resume.Ws1foQ/artifacts-finish.jsonl",
+    "--output",
+    "/tmp/issue51-resume.Ws1foQ/prepared-finish",
+    "--producer-root",
+    "/tmp/issue51-resume.Ws1foQ/producer-dev",
+    "--producer-revision",
+    "5553de1a10761626c5604a57453291039d73683d",
+    "--consumer-revision",
+    "6bb4574931c4fdf19588a86aef96577b22ff6541",
+    "--tokenizer-json",
+    "/tmp/issue51-resume.Ws1foQ/tokenizer.json",
+    "--max-positions",
+    "8192",
+    "--max-history",
+    "1024",
+    "--source-recheck-timeout-seconds",
+    "90"
+  ],
+  "exitCode": 0,
+  "seconds": 1706.076
+}

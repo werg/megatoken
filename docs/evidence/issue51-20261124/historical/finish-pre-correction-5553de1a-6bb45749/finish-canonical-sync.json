@@ -1,0 +1,14 @@
+{
+  "producerRevision": "5553de1a10761626c5604a57453291039d73683d",
+  "producerTreeClean": true,
+  "sourceCases": 174,
+  "preservedSources": 93,
+  "preservedCurrentSources": 174,
+  "preservationBaselineRevision": "78a284daf30b3dba8152659cfb43a8a8429ee5d7",
+  "preservationBaselineArchiveSha256": "5e1d002f7b44515c0904d39b51bde5a01831e8eeeb875091d5ef28bf022c6b4f",
+  "newSources": [],
+  "changedCounts": {},
+  "contractDigest": "ef501aa5c4e5a41b77a7c7c58e0f38dc2ee6d0ae3ef1aa6b6c91e304ddbf6c2f",
+  "fixtureDigest": "56f7f36d3b25b3b11a208be3de337e637b9782e6759faea1e1ec107b0a90f0ce",
+  "interoperabilityDigest": "aa3c9077e4627e90d81ea7534635ffc3b168051db1c02463c3b5fe9e989f1677"
+}

@@ -1,0 +1,50 @@
+{
+  "schema": "issue51-test-selection-correction/1",
+  "classification": "Historical test-runner selection failure: filtering to native aggregate titles excluded earlier tests that generate their example arrays; no semantic pass is claimed. The producer full run and successful export remain independent.",
+  "producerRevision": "a72267e26ab7b7fc5f22134abee315fd7ed6e64b",
+  "consumerRevision": "80280e425b0402bb4ee5f18e42e27087fa91dea5",
+  "exitCode": 1,
+  "testCounts": {
+    "cancel": 0,
+    "fail": 18,
+    "pass": 0,
+    "skip": 0
+  },
+  "tapSummary": {
+    "cancelled": 0,
+    "fail": 9,
+    "pass": 0,
+    "skipped": 0,
+    "tests": 9
+  },
+  "files": {
+    "run-finish-paired-native.py": {
+      "bytes": 7599,
+      "sha256": "8df6078f4faa430a62f5597b23d26952d6c1282b76c3d407bd7d354cbda59f8d"
+    },
+    "finish-paired-native.log": {
+      "bytes": 8146,
+      "sha256": "1da5a12fbd4a6b353be7209d6785318ae0fdf7f7553df18b999f3002047b3439"
+    },
+    "finish-paired-native-status.json": {
+      "bytes": 4724,
+      "sha256": "87dec93202cc302c26d7f11e44879ed07ae6f493dcb5fb1639351194090f0764"
+    },
+    "finish-corrected-paired-native-driver.log": {
+      "bytes": 4724,
+      "sha256": "87dec93202cc302c26d7f11e44879ed07ae6f493dcb5fb1639351194090f0764"
+    },
+    "run-finish-corrected-pipeline.py": {
+      "bytes": 24369,
+      "sha256": "bd9e2a9043f8425744a99d04218cce7a892f8b0e2cf1299d2244982355c9b394"
+    },
+    "finish-corrected-pipeline-status.json": {
+      "bytes": 11048,
+      "sha256": "c1962d88331ee7622132a6a3e803f497e675355d215d72d5ebf21eca558d1027"
+    },
+    "finish-corrected-root-driver.log": {
+      "bytes": 1815,
+      "sha256": "efcd339f9c127fb2d0ee7b58d257506ba60b6ad18b80b601607cca7088ac9018"
+    }
+  }
+}

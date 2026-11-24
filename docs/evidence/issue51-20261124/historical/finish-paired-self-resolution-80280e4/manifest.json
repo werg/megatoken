@@ -1,0 +1,48 @@
+{
+  "schema": "issue51-paired-consumer-correction/1",
+  "classification": "Historical complete paired-file run before the Promise self-resolution consumer correction. One selected native adoption check failed while allocating the required intrinsic error without an active ordinary invocation; this run is not a final pass.",
+  "producerRevision": "a72267e26ab7b7fc5f22134abee315fd7ed6e64b",
+  "consumerRevision": "80280e425b0402bb4ee5f18e42e27087fa91dea5",
+  "exitCode": 1,
+  "selectedTestCounts": {
+    "cancel": 0,
+    "fail": 1,
+    "pass": 8,
+    "skip": 0
+  },
+  "fileTestCounts": {
+    "cancel": 0,
+    "fail": 1,
+    "pass": 129,
+    "skip": 0
+  },
+  "tapSummary": {
+    "cancelled": 0,
+    "fail": 1,
+    "pass": 129,
+    "skipped": 0,
+    "tests": 130
+  },
+  "files": {
+    "run-finish-paired-native.py": {
+      "bytes": 8176,
+      "sha256": "090da74073709c9016e76400f36b5a18f95f07b5759cc93f1a7ee35c43e1a074"
+    },
+    "finish-paired-native.log": {
+      "bytes": 32506,
+      "sha256": "1a9c319da3d5a0c493187e9abda07fc87fc1a4aedaadb7d51402c2211945952c"
+    },
+    "finish-paired-native-status.json": {
+      "bytes": 3930,
+      "sha256": "df12ae2c127fb269be63c6b3c89c885340691a9311c64dd0a25bc09703e679a8"
+    },
+    "finish-paired-full-files-driver.log": {
+      "bytes": 3930,
+      "sha256": "df12ae2c127fb269be63c6b3c89c885340691a9311c64dd0a25bc09703e679a8"
+    },
+    "finish-paired-full-files-launch.json": {
+      "bytes": 326,
+      "sha256": "72ca74d8c8e7f9440c99abb19037d7b4507936a4268efe0896c2e8d612aa76c0"
+    }
+  }
+}

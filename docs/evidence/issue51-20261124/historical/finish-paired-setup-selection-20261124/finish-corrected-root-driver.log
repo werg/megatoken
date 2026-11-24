@@ -1,0 +1,28 @@
+producer-full-tests-and-export
+canonical-consumer-sync
+[codex/issue-51-object-semantics 873238e] Synchronize corrected canonical protocol fixtures
+ 2 files changed, 2 insertions(+), 2 deletions(-)
+waiting-for-issue-export
+full-cohort-sync
+[codex/issue-51-object-semantics 80280e4] Synchronize complete retained object source cohort
+ 1 file changed, 428591 insertions(+), 428591 deletions(-)
+paired-native-focused-gate
+Traceback (most recent call last):
+  File "/tmp/issue51-resume.Ws1foQ/run-finish-corrected-pipeline.py", line 471, in main
+    paired = wait_job(status, jobs, "paired-native")
+             ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/tmp/issue51-resume.Ws1foQ/run-finish-corrected-pipeline.py", line 261, in wait_job
+    assert exit_code == 0, (name, exit_code, status["jobs"][name])
+           ^^^^^^^^^^^^^^
+AssertionError: ('paired-native', 1, {'pid': 3683308, 'driver': 'run-finish-paired-native.py', 'log': 'finish-corrected-paired-native-driver.log', 'exitCode': 1, 'receipt': 'finish-paired-native-status.json'})
+Traceback (most recent call last):
+  File "/tmp/issue51-resume.Ws1foQ/run-finish-corrected-pipeline.py", line 536, in <module>
+    raise SystemExit(main())
+                     ^^^^^^
+  File "/tmp/issue51-resume.Ws1foQ/run-finish-corrected-pipeline.py", line 471, in main
+    paired = wait_job(status, jobs, "paired-native")
+             ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/tmp/issue51-resume.Ws1foQ/run-finish-corrected-pipeline.py", line 261, in wait_job
+    assert exit_code == 0, (name, exit_code, status["jobs"][name])
+           ^^^^^^^^^^^^^^
+AssertionError: ('paired-native', 1, {'pid': 3683308, 'driver': 'run-finish-paired-native.py', 'log': 'finish-corrected-paired-native-driver.log', 'exitCode': 1, 'receipt': 'finish-paired-native-status.json'})

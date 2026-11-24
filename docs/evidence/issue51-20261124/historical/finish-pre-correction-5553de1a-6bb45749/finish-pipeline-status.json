@@ -1,0 +1,182 @@
+{
+  "implementationRevision": "76fd24a91ad7e535aac33af542b481e1337838df",
+  "phase": "stopped-for-review",
+  "steps": [
+    {
+      "name": "canonical-sync",
+      "command": [
+        "/tmp/issue51-resume.Ws1foQ/.venv/bin/python",
+        "/tmp/issue51-resume.Ws1foQ/sync-object-canonical.py"
+      ],
+      "log": "finish-canonical-sync.json",
+      "exitCode": 0,
+      "seconds": 17.524
+    },
+    {
+      "name": "support",
+      "command": [
+        "/tmp/issue51-resume.Ws1foQ/.venv/bin/python",
+        "/tmp/issue51-resume.Ws1foQ/run-finish-support-fixtures.py"
+      ],
+      "log": "finish-pipeline-support.log",
+      "exitCode": 0,
+      "seconds": 9.703
+    },
+    {
+      "name": "format-canonical-test",
+      "command": [
+        "/tmp/issue51-resume.Ws1foQ/.venv/bin/ruff",
+        "format",
+        "/tmp/issue51-resume.Ws1foQ/consumer/tests/test_protocol_v8.py"
+      ],
+      "log": "finish-pipeline-format-canonical-test.log",
+      "exitCode": 0,
+      "seconds": 0.056
+    },
+    {
+      "name": "cohort-sync",
+      "command": [
+        "/tmp/issue51-resume.Ws1foQ/.venv/bin/python",
+        "/tmp/issue51-resume.Ws1foQ/sync-finish-cohort.py"
+      ],
+      "log": "finish-cohort-sync.json",
+      "exitCode": -15,
+      "seconds": 1120.816
+    },
+    {
+      "name": "cohort-sync",
+      "command": [
+        "/tmp/issue51-resume.Ws1foQ/.venv/bin/python",
+        "/tmp/issue51-resume.Ws1foQ/sync-finish-cohort.py"
+      ],
+      "log": "finish-cohort-sync.json",
+      "exitCode": 0,
+      "seconds": 25.72
+    },
+    {
+      "name": "format-cohort-test",
+      "command": [
+        "/tmp/issue51-resume.Ws1foQ/.venv/bin/ruff",
+        "format",
+        "/tmp/issue51-resume.Ws1foQ/consumer/tests/test_issue51_object_source_v8.py"
+      ],
+      "log": "finish-pipeline-format-cohort-test.log",
+      "exitCode": 0,
+      "seconds": 0.048
+    },
+    {
+      "name": "python-style",
+      "command": [
+        "/tmp/issue51-resume.Ws1foQ/.venv/bin/python",
+        "/tmp/issue51-resume.Ws1foQ/check-finish-python-style.py"
+      ],
+      "log": "finish-pipeline-python-style.log",
+      "exitCode": 0,
+      "seconds": 0.087
+    },
+    {
+      "name": "canonical-verification",
+      "command": [
+        "/tmp/issue51-resume.Ws1foQ/.venv/bin/python",
+        "/tmp/issue51-resume.Ws1foQ/recheck-finish-canonical.py"
+      ],
+      "log": "finish-pipeline-canonical-verification.log",
+      "exitCode": 0,
+      "seconds": 0.111
+    },
+    {
+      "name": "push-producer-artifacts",
+      "command": [
+        "git",
+        "-C",
+        "/tmp/issue51-resume.Ws1foQ/producer-dev",
+        "-c",
+        "credential.helper=",
+        "-c",
+        "credential.helper=!gh auth git-credential",
+        "push",
+        "origin",
+        "HEAD:refs/heads/codex/issue-51-object-semantics"
+      ],
+      "log": "finish-pipeline-push-producer-artifacts.log",
+      "exitCode": 0,
+      "seconds": 1.893
+    },
+    {
+      "name": "push-consumer-artifacts",
+      "command": [
+        "git",
+        "-C",
+        "/tmp/issue51-resume.Ws1foQ/consumer",
+        "-c",
+        "credential.helper=",
+        "-c",
+        "credential.helper=!gh auth git-credential",
+        "push",
+        "origin",
+        "HEAD:refs/heads/codex/issue-51-object-semantics"
+      ],
+      "log": "finish-pipeline-push-consumer-artifacts.log",
+      "exitCode": 1,
+      "seconds": 78.246
+    }
+  ],
+  "jobs": {
+    "producer": {
+      "pid": 2995095,
+      "driver": "run-finish-producer-checks.py",
+      "log": "finish-pipeline-producer.log"
+    },
+    "export": {
+      "pid": 2995096,
+      "driver": "run-finish-cohort-export.py",
+      "log": "finish-pipeline-export.log",
+      "completionRecoveredFromDriverStatus": "finish-cohort-export-status.json",
+      "exitCode": 0
+    },
+    "native": {
+      "pid": 3178342,
+      "driver": "run-finish-native-checks.py",
+      "log": "finish-pipeline-native.log"
+    },
+    "cohort": {
+      "pid": 3178343,
+      "driver": "run-finish-cohort-checks.py",
+      "log": "finish-pipeline-cohort.log"
+    },
+    "preparation": {
+      "pid": 3178344,
+      "driver": "run-finish-preparation.py",
+      "log": "finish-pipeline-preparation.log"
+    }
+  },
+  "producerRevision": "5553de1a10761626c5604a57453291039d73683d",
+  "orchestrationRecovery": {
+    "reason": "The commit allowlist omitted the exact uncompressed source fixture copied by the canonical synchronization helper.",
+    "preservedSuccessfulSteps": [
+      "canonical-sync",
+      "support",
+      "format-canonical-test"
+    ],
+    "existingJobsRetained": [
+      "producer",
+      "export"
+    ]
+  },
+  "consumerRevision": "6bb4574931c4fdf19588a86aef96577b22ff6541",
+  "packingRecovery": {
+    "reason": "Stopped the cohort sync worker before any output write to replace quadratic textwrap of one long base64 word with byte-equivalent linear slicing.",
+    "originalConsumerArchivePreserved": true,
+    "interruptedAttemptRetainedInSteps": 3,
+    "existingJobsRetained": [
+      "producer",
+      "export"
+    ]
+  },
+  "error": "('push-consumer-artifacts', 1, '/tmp/issue51-resume.Ws1foQ/finish-pipeline-push-consumer-artifacts.log')",
+  "jobsStillRunning": [
+    "native",
+    "cohort",
+    "preparation"
+  ]
+}

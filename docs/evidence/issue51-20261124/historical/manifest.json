@@ -1,0 +1,104 @@
+{
+  "producerRevision": "96e6d3203281d9992e2900ca053dfdc56c66d6f0",
+  "producerRunOutcome": "interrupted after failures; complete log contains six completed assertion failures and 327 cancelled tests; reference check did not run",
+  "note": "Original bytes preserved before final corrected-revision checks. Canonical synchronization, support generation and cohort export here describe the earlier revision.",
+  "files": {
+    "finish-producer-all.log": {
+      "bytes": 165492,
+      "sha256": "ce1fc0b7e1a02561b41940089079bb2bc95340eae575d4af1471ac4b0fd7630d"
+    },
+    "finish-producer-status.json": {
+      "bytes": 23045,
+      "sha256": "b10ec8429d054d093bcc674b068eccd34c80c3cf03dd7ef82beb3ad3a6855947"
+    },
+    "cohort-finish.json": {
+      "bytes": 273363516,
+      "sha256": "a26873777e270352e10b6bfe6d2d3bdba5f7a18633f7ad689289b83fffc1ae39"
+    },
+    "finish-cohort-export.log": {
+      "bytes": 199,
+      "sha256": "03ddaca42364ffc77463dc4fccdcfb71bf76e0fb4f2b0c57e7010682bfb09d11"
+    },
+    "finish-canonical-sync.json": {
+      "bytes": 8993,
+      "sha256": "c2eadede4b91945f0cff9e75d2a5c374d3ec09c7ab105222f558ec16ccb0db10"
+    },
+    "finish-support-status.json": {
+      "bytes": 1963,
+      "sha256": "29e8ac70d7b76ea76a4df3875d894962af7d9cff8c56c50e3e4942e1f61a6a1f"
+    },
+    "finish-support-fixtures.log": {
+      "bytes": 284,
+      "sha256": "5e6635118762813da8f539f3043faa7d956d39a8dd1e345efe11fda8a51dd68a"
+    },
+    "finish-canonical-status.json": {
+      "bytes": 2867,
+      "sha256": "e197481e088fc279f33ffbd89ec3eaf03c528b2a5025e5cfb048f9480c89cffc"
+    },
+    "finish-canonical-generation-prefix.json": {
+      "bytes": 2156,
+      "sha256": "5073305626eb3f2df018cad9b291ac9575f8ad8063c3c39a10f120c7940f8494"
+    },
+    "finish-canonical-00.log": {
+      "bytes": 72,
+      "sha256": "9631c178ce6d28c7f6c602939a2390a60b182c963a133c1fa7fab6c3eb878741"
+    },
+    "finish-canonical-01.log": {
+      "bytes": 44,
+      "sha256": "52a172b1d83e7e5b3eff5732b3edafc48d07f65e3ca01ebfcb53b45dfc442ac5"
+    },
+    "finish-canonical-02.log": {
+      "bytes": 48,
+      "sha256": "750ac476bb66a68d6757dc930210b6165df50bbc1e7e6c8a146d820b3614009a"
+    },
+    "finish-canonical-03.log": {
+      "bytes": 44,
+      "sha256": "1536e81379de3ee8d7df347a1af35d4785cfcba6a312b70d87e96c7687e25923"
+    },
+    "finish-canonical-04.log": {
+      "bytes": 449,
+      "sha256": "536e7717070ec908dd4d5c1abd02835f0ac1a4bb86318beccdc0c5a628aad280"
+    },
+    "finish-canonical-05.log": {
+      "bytes": 826,
+      "sha256": "1d10c201b16550fad60c7f81893cfc021034c69248fbc6b472cc5e370aaa71c1"
+    },
+    "finish-canonical-06.log": {
+      "bytes": 5083,
+      "sha256": "2a8389c0ab8f66c1a59cd28640f2d098f1bc1921ca9abb5011e1ed16b967a87f"
+    },
+    "finish-canonical-07.log": {
+      "bytes": 37392,
+      "sha256": "44f0ce305252a0ddcea4b8c2c7bd8b9c819497329d6fae24a9154e013d607eb7"
+    },
+    "finish-canonical-08.log": {
+      "bytes": 9103,
+      "sha256": "4b30407ea3e0a20734b8853639e2d66c965ea10ead15b3c26d5c5389d808e4f6"
+    },
+    "finish-canonical-09.log": {
+      "bytes": 10209,
+      "sha256": "01cc2f52ab73cbadfbd54c49c4aeaa8ac41dd9d4c8841491fe52336a598d8efd"
+    }
+  },
+  "observedAssertionFailures": [
+    "\u2716 uncaught namespace inspection TDZ propagates through module evaluation (279.727876ms)",
+    "\u2716 uncaught namespace freeze TypeError propagates through module evaluation (207.038355ms)",
+    "\u2716 async SCC errors before and after await retain one rejection and allow started siblings to finish (8913.897874ms)",
+    "\u2716 cycles that observe an uninitialized lexical binding throw like native ESM (17.186164ms)",
+    "\u2716 synthetic constructor and initializer identities require exact source definitions (81.795349ms)",
+    "\u2716 private accessors cannot masquerade as supported private initializer definitions (8.267676ms)"
+  ],
+  "interruptedRunCounts": {
+    "tests": 1159,
+    "pass": 826,
+    "fail": 6,
+    "cancelled": 327,
+    "skipped": 0
+  },
+  "failureClassification": {
+    "errorProjection": 4,
+    "constructionSourceInventory": 2
+  },
+  "reviewNote": "Initially three failures were observed before stopping the wrapper. Review of the completed interruption log found six assertion failures in total; cancelled test-file entries are recorded separately.",
+  "canonicalRunOutcome": "original generation and standard contract check passed at their recorded implementation and generated artifact revisions"
+}

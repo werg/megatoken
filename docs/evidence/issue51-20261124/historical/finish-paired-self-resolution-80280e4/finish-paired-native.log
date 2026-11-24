@@ -1,0 +1,842 @@
+TAP version 13
+# Subtest: source/reference adoption constructor: promise-adoption-getter-receiver-and-fifo
+ok 1 - source/reference adoption constructor: promise-adoption-getter-receiver-and-fifo
+  ---
+  duration_ms: 5154.662514
+  type: 'test'
+  ...
+# Subtest: source/reference adoption constructor: promise-adoption-getter-throw-identity-and-cleanup
+ok 2 - source/reference adoption constructor: promise-adoption-getter-throw-identity-and-cleanup
+  ---
+  duration_ms: 6538.953715
+  type: 'test'
+  ...
+# Subtest: source/reference adoption constructor: promise-adoption-getter-nested-constructor-reentry
+ok 3 - source/reference adoption constructor: promise-adoption-getter-nested-constructor-reentry
+  ---
+  duration_ms: 5712.195958
+  type: 'test'
+  ...
+# Subtest: source/reference adoption constructor: promise-adoption-getter-pending-target
+ok 4 - source/reference adoption constructor: promise-adoption-getter-pending-target
+  ---
+  duration_ms: 8805.296138
+  type: 'test'
+  ...
+# Subtest: source/reference adoption constructor: promise-adoption-getter-getter-replaces-own-descriptor
+ok 5 - source/reference adoption constructor: promise-adoption-getter-getter-replaces-own-descriptor
+  ---
+  duration_ms: 6122.862133
+  type: 'test'
+  ...
+# Subtest: source/reference adoption constructor: promise-adoption-getter-nested-helper-return
+ok 6 - source/reference adoption constructor: promise-adoption-getter-nested-helper-return
+  ---
+  duration_ms: 5043.107287
+  type: 'test'
+  ...
+# Subtest: source/reference adoption constructor: promise-adoption-getter-constructor-arrow-lexical-receiver
+ok 7 - source/reference adoption constructor: promise-adoption-getter-constructor-arrow-lexical-receiver
+  ---
+  duration_ms: 6692.753902
+  type: 'test'
+  ...
+# Subtest: adoption source retains explicit custom species and finally cleanup boundaries
+ok 8 - adoption source retains explicit custom species and finally cleanup boundaries
+  ---
+  duration_ms: 735.476963
+  type: 'test'
+  ...
+# Subtest: native independently checks adoption constructor jobs, retained scopes and selected completions
+ok 9 - native independently checks adoption constructor jobs, retained scopes and selected completions
+  ---
+  duration_ms: 82329.24044
+  type: 'test'
+  ...
+# Subtest: Promise mutation source boundary: positive-async-owned-return
+ok 10 - Promise mutation source boundary: positive-async-owned-return
+  ---
+  duration_ms: 2256.596656
+  type: 'test'
+  ...
+# Subtest: Promise mutation source boundary: external-published-literal-own-then-accessor
+ok 11 - Promise mutation source boundary: external-published-literal-own-then-accessor
+  ---
+  duration_ms: 816.033436
+  type: 'test'
+  ...
+# Subtest: Promise mutation source boundary: computed-binding-own-then-accessor
+ok 12 - Promise mutation source boundary: computed-binding-own-then-accessor
+  ---
+  duration_ms: 828.176337
+  type: 'test'
+  ...
+# Subtest: Promise mutation source boundary: computed-expression-own-then-accessor
+ok 13 - Promise mutation source boundary: computed-expression-own-then-accessor
+  ---
+  duration_ms: 809.708629
+  type: 'test'
+  ...
+# Subtest: Promise mutation source boundary: literal-own-then-assignment
+ok 14 - Promise mutation source boundary: literal-own-then-assignment
+  ---
+  duration_ms: 557.48205
+  type: 'test'
+  ...
+# Subtest: Promise mutation source boundary: computed-binding-own-then-assignment
+ok 15 - Promise mutation source boundary: computed-binding-own-then-assignment
+  ---
+  duration_ms: 771.088109
+  type: 'test'
+  ...
+# Subtest: Promise mutation source boundary: computed-expression-own-then-assignment
+ok 16 - Promise mutation source boundary: computed-expression-own-then-assignment
+  ---
+  duration_ms: 626.33528
+  type: 'test'
+  ...
+# Subtest: Promise mutation source boundary: aliased-promise-own-then-accessor
+ok 17 - Promise mutation source boundary: aliased-promise-own-then-accessor
+  ---
+  duration_ms: 722.369747
+  type: 'test'
+  ...
+# Subtest: Promise mutation source boundary: aliased-object-defineProperty
+ok 18 - Promise mutation source boundary: aliased-object-defineProperty
+  ---
+  duration_ms: 1136.642407
+  type: 'test'
+  ...
+# Subtest: Promise mutation source boundary: aliased-method-defineProperty
+ok 19 - Promise mutation source boundary: aliased-method-defineProperty
+  ---
+  duration_ms: 613.872445
+  type: 'test'
+  ...
+# Subtest: Promise mutation source boundary: destructured-method-defineProperty
+ok 20 - Promise mutation source boundary: destructured-method-defineProperty
+  ---
+  duration_ms: 758.037472
+  type: 'test'
+  ...
+# Subtest: Promise mutation source boundary: computed-object-assign-then
+ok 21 - Promise mutation source boundary: computed-object-assign-then
+  ---
+  duration_ms: 61.232796
+  type: 'test'
+  ...
+# Subtest: Promise mutation source boundary: computed-reflect-set-then
+ok 22 - Promise mutation source boundary: computed-reflect-set-then
+  ---
+  duration_ms: 66.235148
+  type: 'test'
+  ...
+# Subtest: Promise mutation source boundary: computed-defineProperties-then
+ok 23 - Promise mutation source boundary: computed-defineProperties-then
+  ---
+  duration_ms: 58.648205
+  type: 'test'
+  ...
+# Subtest: Promise mutation source boundary: aliased-setPrototypeOf
+ok 24 - Promise mutation source boundary: aliased-setPrototypeOf
+  ---
+  duration_ms: 474.090374
+  type: 'test'
+  ...
+# Subtest: Promise mutation source boundary: prototype-computed-then
+ok 25 - Promise mutation source boundary: prototype-computed-then
+  ---
+  duration_ms: 101.125481
+  type: 'test'
+  ...
+# Subtest: Promise mutation source boundary: aliased-promise-resolve-override
+ok 26 - Promise mutation source boundary: aliased-promise-resolve-override
+  ---
+  duration_ms: 79.510141
+  type: 'test'
+  ...
+# Subtest: Promise mutation source boundary: shadowed-promise-resolve
+ok 27 - Promise mutation source boundary: shadowed-promise-resolve
+  ---
+  duration_ms: 4283.473943
+  type: 'test'
+  ...
+# Subtest: Promise mutation source boundary: positive-unrelated-object-write
+ok 28 - Promise mutation source boundary: positive-unrelated-object-write
+  ---
+  duration_ms: 3491.317586
+  type: 'test'
+  ...
+# Subtest: Promise mutation source boundary: evaluated-spread-then-accessor
+ok 29 - Promise mutation source boundary: evaluated-spread-then-accessor
+  ---
+  duration_ms: 1450.86664
+  type: 'test'
+  ...
+# Subtest: Promise mutation source boundary: caught-unmodeled-promise-descriptor
+ok 30 - Promise mutation source boundary: caught-unmodeled-promise-descriptor
+  ---
+  duration_ms: 1999.775904
+  type: 'test'
+  ...
+# Subtest: Promise mutation source boundary: unmodeled-non-then-promise-property
+ok 31 - Promise mutation source boundary: unmodeled-non-then-promise-property
+  ---
+  duration_ms: 2087.610597
+  type: 'test'
+  ...
+# Subtest: Promise mutation source boundary: shadowed-object-define-property
+ok 32 - Promise mutation source boundary: shadowed-object-define-property
+  ---
+  duration_ms: 2227.347937
+  type: 'test'
+  ...
+# Subtest: Promise mutation source boundary: ordinary-object-descriptor
+ok 33 - Promise mutation source boundary: ordinary-object-descriptor
+  ---
+  duration_ms: 2083.536766
+  type: 'test'
+  ...
+# Subtest: actual native independently replays every eligible mutation-boundary control
+ok 34 - actual native independently replays every eligible mutation-boundary control
+  ---
+  duration_ms: 14337.52857
+  type: 'test'
+  ...
+# Subtest: Promise object profile preserves prototype-null
+ok 35 - Promise object profile preserves prototype-null
+  ---
+  duration_ms: 1738.318005
+  type: 'test'
+  ...
+# Subtest: Promise object profile preserves prototype-object
+ok 36 - Promise object profile preserves prototype-object
+  ---
+  duration_ms: 1826.074556
+  type: 'test'
+  ...
+# Subtest: Promise object profile preserves prototype-computed
+ok 37 - Promise object profile preserves prototype-computed
+  ---
+  duration_ms: 1625.35122
+  type: 'test'
+  ...
+# Subtest: Promise object profile preserves prototype-target-alias
+ok 38 - Promise object profile preserves prototype-target-alias
+  ---
+  duration_ms: 1941.666581
+  type: 'test'
+  ...
+# Subtest: Promise object profile preserves prototype-evaluated-spread
+ok 39 - Promise object profile preserves prototype-evaluated-spread
+  ---
+  duration_ms: 1897.49694
+  type: 'test'
+  ...
+# Subtest: Promise object profile preserves prototype-caught
+ok 40 - Promise object profile preserves prototype-caught
+  ---
+  duration_ms: 1612.752358
+  type: 'test'
+  ...
+# Subtest: Promise object profile preserves prototype-read
+ok 41 - Promise object profile preserves prototype-read
+  ---
+  duration_ms: 1258.987007
+  type: 'test'
+  ...
+# Subtest: Promise object profile preserves prototype-read-computed
+ok 42 - Promise object profile preserves prototype-read-computed
+  ---
+  duration_ms: 1598.654582
+  type: 'test'
+  ...
+# Subtest: Promise object profile preserves prototype-read-caught
+ok 43 - Promise object profile preserves prototype-read-caught
+  ---
+  duration_ms: 1502.019312
+  type: 'test'
+  ...
+# Subtest: Promise object profile preserves create-with-promise-prototype
+ok 44 - Promise object profile preserves create-with-promise-prototype
+  ---
+  duration_ms: 1281.932256
+  type: 'test'
+  ...
+# Subtest: Promise object profile preserves create-computed
+ok 45 - Promise object profile preserves create-computed
+  ---
+  duration_ms: 1656.645103
+  type: 'test'
+  ...
+# Subtest: Promise object profile preserves promise-as-new-prototype
+ok 46 - Promise object profile preserves promise-as-new-prototype
+  ---
+  duration_ms: 1605.201316
+  type: 'test'
+  ...
+# Subtest: Promise object profile preserves promise-as-descriptor
+ok 47 - Promise object profile preserves promise-as-descriptor
+  ---
+  duration_ms: 1228.309932
+  type: 'test'
+  ...
+# Subtest: Promise object profile preserves prevent-extensions
+ok 48 - Promise object profile preserves prevent-extensions
+  ---
+  duration_ms: 1451.469386
+  type: 'test'
+  ...
+# Subtest: Promise object profile preserves prevent-extensions-spread
+ok 49 - Promise object profile preserves prevent-extensions-spread
+  ---
+  duration_ms: 1298.009698
+  type: 'test'
+  ...
+# Subtest: Promise object profile preserves extensibility-read
+ok 50 - Promise object profile preserves extensibility-read
+  ---
+  duration_ms: 1157.51702
+  type: 'test'
+  ...
+# Subtest: Promise object profile preserves extensibility-read-computed
+ok 51 - Promise object profile preserves extensibility-read-computed
+  ---
+  duration_ms: 1415.353731
+  type: 'test'
+  ...
+# Subtest: Promise object profile preserves promise-identity
+ok 52 - Promise object profile preserves promise-identity
+  ---
+  duration_ms: 1026.060428
+  type: 'test'
+  ...
+# Subtest: Promise object profile preserves promise-not-frozen
+ok 53 - Promise object profile preserves promise-not-frozen
+  ---
+  duration_ms: 1171.546963
+  type: 'test'
+  ...
+# Subtest: Promise object profile preserves shadowed-extensibility-method
+ok 54 - Promise object profile preserves shadowed-extensibility-method
+  ---
+  duration_ms: 1451.094441
+  type: 'test'
+  ...
+# Subtest: Promise object profile preserves shadowed-prototype-method
+ok 55 - Promise object profile preserves shadowed-prototype-method
+  ---
+  duration_ms: 1472.950026
+  type: 'test'
+  ...
+# Subtest: Promise object profile preserves ordinary-object-prototype
+ok 56 - Promise object profile preserves ordinary-object-prototype
+  ---
+  duration_ms: 939.685396
+  type: 'test'
+  ...
+# Subtest: native independently replays every eligible Promise object control
+ok 57 - native independently replays every eligible Promise object control
+  ---
+  duration_ms: 16880.326204
+  type: 'test'
+  ...
+# Subtest: original/reference Promise review source: promise-review-captured-then-after-queued-mutation
+ok 58 - original/reference Promise review source: promise-review-captured-then-after-queued-mutation
+  ---
+  duration_ms: 2833.23442
+  type: 'test'
+  ...
+# Subtest: original/reference Promise review source: promise-review-queued-then-and-live-constructor
+ok 59 - original/reference Promise review source: promise-review-queued-then-and-live-constructor
+  ---
+  duration_ms: 8259.540473
+  type: 'test'
+  ...
+# Subtest: original/reference Promise review source: promise-review-arrow-constructor-lexical-receiver
+ok 60 - original/reference Promise review source: promise-review-arrow-constructor-lexical-receiver
+  ---
+  duration_ms: 3799.267205
+  type: 'test'
+  ...
+# Subtest: original/reference Promise review source: promise-review-method-has-own-accessor
+ok 61 - original/reference Promise review source: promise-review-method-has-own-accessor
+  ---
+  duration_ms: 4195.133853
+  type: 'test'
+  ...
+# Subtest: original/reference Promise review source: promise-review-borrowed-has-own-receiver
+ok 62 - original/reference Promise review source: promise-review-borrowed-has-own-receiver
+  ---
+  duration_ms: 3895.247265
+  type: 'test'
+  ...
+# Subtest: original/reference Promise review source: promise-review-numeric-update-conversion-and-modes
+ok 63 - original/reference Promise review source: promise-review-numeric-update-conversion-and-modes
+  ---
+  duration_ms: 5738.252144
+  type: 'test'
+  ...
+# Subtest: original/reference Promise review source: promise-review-bigint-update-modes
+ok 64 - original/reference Promise review source: promise-review-bigint-update-modes
+  ---
+  duration_ms: 2319.188798
+  type: 'test'
+  ...
+# Subtest: original/reference Promise review source: promise-review-inherited-update-creates-own-data
+ok 65 - original/reference Promise review source: promise-review-inherited-update-creates-own-data
+  ---
+  duration_ms: 2626.009715
+  type: 'test'
+  ...
+# Subtest: altered update computation cannot substitute a matching terminal completion
+ok 66 - altered update computation cannot substitute a matching terminal completion
+  ---
+  duration_ms: 53.292944
+  type: 'test'
+  ...
+# Subtest: accessor and object-coercing updates retain their precise source continuation boundaries
+ok 67 - accessor and object-coercing updates retain their precise source continuation boundaries
+  ---
+  duration_ms: 398.617025
+  type: 'test'
+  ...
+# Subtest: the first actual await checkpoints once through ordinary and constructor-getter suspension
+ok 68 - the first actual await checkpoints once through ordinary and constructor-getter suspension
+  ---
+  duration_ms: 1354.078044
+  type: 'test'
+  ...
+# Subtest: requesting an await checkpoint without any suspension remains an explicit refusal
+ok 69 - requesting an await checkpoint without any suspension remains an explicit refusal
+  ---
+  duration_ms: 84.469191
+  type: 'test'
+  ...
+# Subtest: native independently checks every Promise review source and retained continuation
+ok 70 - native independently checks every Promise review source and retained continuation
+  ---
+  duration_ms: 42661.166512
+  type: 'test'
+  ...
+# Subtest: a new retained invocation derives intrinsic initialization without inheriting local protocol state
+ok 71 - a new retained invocation derives intrinsic initialization without inheriting local protocol state
+  ---
+  duration_ms: 311.010587
+  type: 'test'
+  ...
+# Subtest: queued adoption keeps selected then while constructor lookup remains live at its job
+ok 72 - queued adoption keeps selected then while constructor lookup remains live at its job
+  ---
+  duration_ms: 744.222713
+  type: 'test'
+  ...
+# Subtest: an altered then before initial resolution remains an explicit transactional refusal
+ok 73 - an altered then before initial resolution remains an explicit transactional refusal
+  ---
+  duration_ms: 29.19108
+  type: 'test'
+  ...
+# Subtest: native independently replays retained invocations and captured adoption selection
+ok 74 - native independently replays retained invocations and captured adoption selection
+  ---
+  duration_ms: 8472.798856
+  type: 'test'
+  ...
+# Subtest: original/reference and checked Promise object source: promise-object-data-descriptor-reflection
+ok 75 - original/reference and checked Promise object source: promise-object-data-descriptor-reflection
+  ---
+  duration_ms: 4998.034671
+  type: 'test'
+  ...
+# Subtest: original/reference and checked Promise object source: promise-object-accessor-alias-receiver
+ok 76 - original/reference and checked Promise object source: promise-object-accessor-alias-receiver
+  ---
+  duration_ms: 3112.182214
+  type: 'test'
+  ...
+# Subtest: original/reference and checked Promise object source: promise-object-accessor-setter
+ok 77 - original/reference and checked Promise object source: promise-object-accessor-setter
+  ---
+  duration_ms: 3570.494223
+  type: 'test'
+  ...
+# Subtest: original/reference and checked Promise object source: promise-object-prototype-identity
+ok 78 - original/reference and checked Promise object source: promise-object-prototype-identity
+  ---
+  duration_ms: 1574.701825
+  type: 'test'
+  ...
+# Subtest: original/reference and checked Promise object source: promise-object-constructor-resolve-reentry
+ok 79 - original/reference and checked Promise object source: promise-object-constructor-resolve-reentry
+  ---
+  duration_ms: 3498.468989
+  type: 'test'
+  ...
+# Subtest: original/reference and checked Promise object source: promise-object-constructor-await
+ok 80 - original/reference and checked Promise object source: promise-object-constructor-await
+  ---
+  duration_ms: 3215.752207
+  type: 'test'
+  ...
+# Subtest: original/reference and checked Promise object source: promise-object-constructor-await-job-order
+ok 81 - original/reference and checked Promise object source: promise-object-constructor-await-job-order
+  ---
+  duration_ms: 3711.900404
+  type: 'test'
+  ...
+# Subtest: original/reference and checked Promise object source: promise-object-constructor-reaction
+ok 82 - original/reference and checked Promise object source: promise-object-constructor-reaction
+  ---
+  duration_ms: 4087.225982
+  type: 'test'
+  ...
+# Subtest: original/reference and checked Promise object source: promise-object-constructor-throw-cleanup
+ok 83 - original/reference and checked Promise object source: promise-object-constructor-throw-cleanup
+  ---
+  duration_ms: 4182.511737
+  type: 'test'
+  ...
+# Subtest: original/reference and checked Promise object source: promise-object-shared-prototype-constructor
+ok 84 - original/reference and checked Promise object source: promise-object-shared-prototype-constructor
+  ---
+  duration_ms: 3473.579219
+  type: 'test'
+  ...
+# Subtest: original/reference and checked Promise object source: promise-object-inherited-constructor-receiver
+ok 85 - original/reference and checked Promise object source: promise-object-inherited-constructor-receiver
+  ---
+  duration_ms: 5275.148424
+  type: 'test'
+  ...
+# Subtest: original/reference and checked Promise object source: promise-object-own-reflection-call
+ok 86 - original/reference and checked Promise object source: promise-object-own-reflection-call
+  ---
+  duration_ms: 1540.940274
+  type: 'test'
+  ...
+# Subtest: original/reference and checked Promise object source: promise-object-nonextensible-reflection
+ok 87 - original/reference and checked Promise object source: promise-object-nonextensible-reflection
+  ---
+  duration_ms: 1564.57338
+  type: 'test'
+  ...
+# Subtest: original/reference and checked Promise object source: promise-object-own-key-filtering
+ok 88 - original/reference and checked Promise object source: promise-object-own-key-filtering
+  ---
+  duration_ms: 2117.373472
+  type: 'test'
+  ...
+# Subtest: original/reference and checked Promise object source: promise-object-null-prototype-state
+ok 89 - original/reference and checked Promise object source: promise-object-null-prototype-state
+  ---
+  duration_ms: 2003.103491
+  type: 'test'
+  ...
+# Subtest: altered original source binding cannot be recertified by matching a final scalar
+ok 90 - altered original source binding cannot be recertified by matching a final scalar
+  ---
+  duration_ms: 613.735466
+  type: 'test'
+  ...
+# Subtest: independent native checker replays every new source and retained shared state
+ok 91 - independent native checker replays every new source and retained shared state
+  ---
+  duration_ms: 54666.581201
+  type: 'test'
+  ...
+# Subtest: intrinsic initialization is atomic, collision-free, shared and retained by subsequent Promises
+ok 92 - intrinsic initialization is atomic, collision-free, shared and retained by subsequent Promises
+  ---
+  duration_ms: 354.553429
+  type: 'test'
+  ...
+# Subtest: Promise data descriptors, aliases, reflection and failed definitions use shared ordinary state
+ok 93 - Promise data descriptors, aliases, reflection and failed definitions use shared ordinary state
+  ---
+  duration_ms: 291.719967
+  type: 'test'
+  ...
+# Subtest: inherited Promise getters retain their original receiver across nested calls and completion restoration
+ok 94 - inherited Promise getters retain their original receiver across nested calls and completion restoration
+  ---
+  duration_ms: 470.402031
+  type: 'test'
+  ...
+# Subtest: Promise setters preserve the assignment result and getter throws retain exact thrown identity
+ok 95 - Promise setters preserve the assignment result and getter throws retain exact thrown identity
+  ---
+  duration_ms: 430.983967
+  type: 'test'
+  ...
+# Subtest: Promise prototype mutations, cycle checks and extensibility are ordinary checked transitions
+ok 96 - Promise prototype mutations, cycle checks and extensibility are ordinary checked transitions
+  ---
+  duration_ms: 463.737764
+  type: 'test'
+  ...
+# Subtest: restored Promise object state rejects altered intrinsic identities, descriptors and pending receiver
+ok 97 - restored Promise object state rejects altered intrinsic identities, descriptors and pending receiver
+  ---
+  duration_ms: 66.430358
+  type: 'test'
+  ...
+# Subtest: independent native transitions reproduce all Promise object cases and reject altered records
+ok 98 - independent native transitions reproduce all Promise object cases and reject altered records
+  ---
+  duration_ms: 18379.563223
+  type: 'test'
+  ...
+# Subtest: independent original source and public adoption: settled-executor
+ok 99 - independent original source and public adoption: settled-executor
+  ---
+  duration_ms: 3277.61338
+  type: 'test'
+  ...
+# Subtest: independent original source and public adoption: pending-executor
+ok 100 - independent original source and public adoption: pending-executor
+  ---
+  duration_ms: 2503.731717
+  type: 'test'
+  ...
+# Subtest: independent original source and public adoption: source-fifo-microtask
+ok 101 - independent original source and public adoption: source-fifo-microtask
+  ---
+  duration_ms: 6698.303306
+  type: 'test'
+  ...
+# Subtest: independent original source and public adoption: pending-forwarding-before-microtask-settlement
+ok 102 - independent original source and public adoption: pending-forwarding-before-microtask-settlement
+  ---
+  duration_ms: 6300.295171
+  type: 'test'
+  ...
+# Subtest: independent original source and public adoption: rejected-executor
+ok 103 - independent original source and public adoption: rejected-executor
+  ---
+  duration_ms: 2911.317468
+  type: 'test'
+  ...
+# Subtest: independent original source and public adoption: root-async-result
+ok 104 - independent original source and public adoption: root-async-result
+  ---
+  duration_ms: 1015.176848
+  type: 'test'
+  ...
+# Subtest: independent original source and public adoption: nested-async-result
+ok 105 - independent original source and public adoption: nested-async-result
+  ---
+  duration_ms: 1791.044115
+  type: 'test'
+  ...
+# Subtest: independent original source and public adoption: reaction-result
+ok 106 - independent original source and public adoption: reaction-result
+  ---
+  duration_ms: 3147.751869
+  type: 'test'
+  ...
+# Subtest: independent original source and public adoption: reaction-fifo-chain
+ok 107 - independent original source and public adoption: reaction-fifo-chain
+  ---
+  duration_ms: 8031.840271
+  type: 'test'
+  ...
+# Subtest: independent original source and public adoption: late-resolver-and-throw
+ok 108 - independent original source and public adoption: late-resolver-and-throw
+  ---
+  duration_ms: 2511.493495
+  type: 'test'
+  ...
+# Subtest: independent original source and public adoption: executor-self-ignored-error
+ok 109 - independent original source and public adoption: executor-self-ignored-error
+  ---
+  duration_ms: 1913.206928
+  type: 'test'
+  ...
+# Subtest: independent original source and public adoption: reaction-self-ignored-error
+ok 110 - independent original source and public adoption: reaction-self-ignored-error
+  ---
+  duration_ms: 2422.901599
+  type: 'test'
+  ...
+# Subtest: independent original source and public adoption: reaction-join-result
+ok 111 - independent original source and public adoption: reaction-join-result
+  ---
+  duration_ms: 3904.026933
+  type: 'test'
+  ...
+# Subtest: independent original source and public adoption: nested-async-receiver
+ok 112 - independent original source and public adoption: nested-async-receiver
+  ---
+  duration_ms: 3407.393018
+  type: 'test'
+  ...
+# Subtest: independent original source and public adoption: rejected-async-result
+ok 113 - independent original source and public adoption: rejected-async-result
+  ---
+  duration_ms: 3835.497069
+  type: 'test'
+  ...
+# Subtest: source ownership and identities are independent of registry order
+ok 114 - source ownership and identities are independent of registry order
+  ---
+  duration_ms: 1923.938172
+  type: 'test'
+  ...
+# Subtest: every source adoption, original completion and first-call cut restores exact public continuation
+ok 115 - every source adoption, original completion and first-call cut restores exact public continuation
+  ---
+  duration_ms: 6994.390375
+  type: 'test'
+  ...
+# Subtest: source recheck refuses changed adoption targets, original source and an invented current-event certificate
+ok 116 - source recheck refuses changed adoption targets, original source and an invented current-event certificate
+  ---
+  duration_ms: 53.637047
+  type: 'test'
+  ...
+# Subtest: independent native queueMicrotask order changes with actual source scheduling and retains its process deadline
+ok 117 - independent native queueMicrotask order changes with actual source scheduling and retains its process deadline
+  ---
+  duration_ms: 1421.439302
+  type: 'test'
+  ...
+# Subtest: unqualified then lookup, async callback activation, reflected self Error and pending cycles remain source refusals
+ok 118 - unqualified then lookup, async callback activation, reflected self Error and pending cycles remain source refusals
+  ---
+  duration_ms: 945.335075
+  type: 'test'
+  ...
+# Subtest: actual native adoption consumer independently replays every source context and restored cut
+not ok 119 - actual native adoption consumer independently replays every source context and restored cut
+  ---
+  duration_ms: 64867.230916
+  type: 'test'
+  location: '/tmp/issue51-resume.Ws1foQ/producer-dev/test/semantic-protocol-promise-adoption-source-v8.test.js:122:1'
+  failureType: 'testCodeFailure'
+  error: |-
+    Traceback (most recent call last):
+      File "/tmp/issue51-resume.Ws1foQ/consumer/src/megatoken/data/native_v8.py", line 1415, in _replay_shared_state
+        state = apply_protocol_to_shared_state(
+                ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+      File "/tmp/issue51-resume.Ws1foQ/consumer/src/megatoken/data/protocol_v8.py", line 2163, in apply_protocol_to_shared_state
+        apply_protocol_record(machine, record)
+      File "/tmp/issue51-resume.Ws1foQ/consumer/src/megatoken/data/protocol_v8.py", line 1600, in apply_protocol_record
+        _apply(staged, record)
+      File "/tmp/issue51-resume.Ws1foQ/consumer/src/megatoken/data/protocol_v8.py", line 1108, in _apply
+        if not apply_promise_adoption_record(machine, record):
+               ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+      File "/tmp/issue51-resume.Ws1foQ/consumer/src/megatoken/data/promise_adoption_v8.py", line 589, in apply_record
+        allocate_intrinsic_error_v8(
+      File "/tmp/issue51-resume.Ws1foQ/consumer/src/megatoken/data/intrinsic_error_v8.py", line 62, in allocate_intrinsic_error_v8
+        p._apply(machine, record)
+      File "/tmp/issue51-resume.Ws1foQ/consumer/src/megatoken/data/protocol_v8.py", line 1060, in _apply
+        _fail("active invocation required")
+      File "/tmp/issue51-resume.Ws1foQ/consumer/src/megatoken/data/protocol_v8.py", line 188, in _fail
+        raise ProtocolV8Error(f"Invalid {SCHEMA}: {message}")
+    megatoken.data.protocol_v8.ProtocolV8Error: Invalid semantic-protocol-record/1: active invocation required
+    
+    The above exception was the direct cause of the following exception:
+    
+    Traceback (most recent call last):
+      File "<string>", line 7, in <module>
+      File "/tmp/issue51-resume.Ws1foQ/consumer/src/megatoken/data/native_v8.py", line 354, in validate_v8_artifact
+        final_restored = _replay_shared_state(timeline, contexts, programs, roundtrip=True)
+                         ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+      File "/tmp/issue51-resume.Ws1foQ/consumer/src/megatoken/data/native_v8.py", line 1424, in _replay_shared_state
+        raise NativeV8Error(
+    megatoken.data.native_v8.NativeV8Error: Invalid independently replayed protocol transition: Invalid semantic-protocol-record/1: active invocation required
+    
+    
+    1 !== 0
+    
+  code: 'ERR_ASSERTION'
+  name: 'AssertionError'
+  expected: 0
+  actual: 1
+  operator: 'strictEqual'
+  stack: |-
+    TestContext.<anonymous> (file:///tmp/issue51-resume.Ws1foQ/producer-dev/test/semantic-protocol-promise-adoption-source-v8.test.js:141:10)
+    Test.runInAsyncScope (node:async_hooks:227:14)
+    Test.run (node:internal/test_runner/test:1402:25)
+    Test.processPendingSubtests (node:internal/test_runner/test:974:18)
+    Test.postRun (node:internal/test_runner/test:1542:19)
+    Test.run (node:internal/test_runner/test:1467:12)
+    process.processTicksAndRejections (node:internal/process/task_queues:104:5)
+    async Test.processPendingSubtests (node:internal/test_runner/test:974:7)
+  ...
+# Subtest: shared generator: initial declaration, suspension, completion and reaction
+ok 120 - shared generator: initial declaration, suspension, completion and reaction
+  ---
+  duration_ms: 5585.568269
+  type: 'test'
+  ...
+# Subtest: shared generator: injected rejection is caught before cleanup suspends
+ok 121 - shared generator: injected rejection is caught before cleanup suspends
+  ---
+  duration_ms: 7752.489713
+  type: 'test'
+  ...
+# Subtest: shared generator: live capture remains shared across Promise suspension
+ok 122 - shared generator: live capture remains shared across Promise suspension
+  ---
+  duration_ms: 4037.581765
+  type: 'test'
+  ...
+# Subtest: shared generator: generator without yield and already completed next
+ok 123 - shared generator: generator without yield and already completed next
+  ---
+  duration_ms: 3934.710966
+  type: 'test'
+  ...
+# Subtest: shared generator: abrupt return before first resume
+ok 124 - shared generator: abrupt return before first resume
+  ---
+  duration_ms: 2735.305764
+  type: 'test'
+  ...
+# Subtest: shared generator: uncaught generator rejection unwinds the exact executor
+ok 125 - shared generator: uncaught generator rejection unwinds the exact executor
+  ---
+  duration_ms: 3056.089558
+  type: 'test'
+  ...
+# Subtest: a retained generator inside its executor resumes from the exact JSON checkpoint
+ok 126 - a retained generator inside its executor resumes from the exact JSON checkpoint
+  ---
+  duration_ms: 99.712442
+  type: 'test'
+  ...
+# Subtest: generator event ownership cannot be removed or duplicated before preparation
+ok 127 - generator event ownership cannot be removed or duplicated before preparation
+  ---
+  duration_ms: 154.450363
+  type: 'test'
+  ...
+# Subtest: a generator observer failure rolls back its frame, descriptor state and Promise peers
+ok 128 - a generator observer failure rolls back its frame, descriptor state and Promise peers
+  ---
+  duration_ms: 299.410851
+  type: 'test'
+  ...
+# Subtest: composition refuses undeclared delegation
+ok 129 - composition refuses undeclared delegation
+  ---
+  duration_ms: 90.080662
+  type: 'test'
+  ...
+# Subtest: actual native shared replay checks every generated context and continuation
+ok 130 - actual native shared replay checks every generated context and continuation
+  ---
+  duration_ms: 16048.688157
+  type: 'test'
+  ...
+1..130
+# tests 130
+# suites 0
+# pass 129
+# fail 1
+# cancelled 0
+# skipped 0
+# todo 0
+# duration_ms 323993.250061

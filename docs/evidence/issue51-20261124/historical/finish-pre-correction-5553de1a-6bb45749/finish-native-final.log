@@ -1,0 +1,1764 @@
+........................................................................ [ 13%]
+.....F..........................F....................................... [ 26%]
+.......F.............................................................F.. [ 39%]
+.......................................................F................ [ 52%]
+F....................................................................... [ 65%]
+................................................FF....F................. [ 79%]
+..........FFFF..FF.F.............................
+=================================== FAILURES ===================================
+_ PrimitiveConversionTests.test_intrinsic_fault_causes_are_derived_allocation_is_atomic_and_error_is_mutable _
+
+self = <test_primitive_conversion_v8.PrimitiveConversionTests testMethod=test_intrinsic_fault_causes_are_derived_allocation_is_atomic_and_error_is_mutable>
+
+    def test_intrinsic_fault_causes_are_derived_allocation_is_atomic_and_error_is_mutable(self):
+        for cause in ("exotic-not-callable", "exotic-nonprimitive", "ordinary-exhausted"):
+            state = machine()
+            apply(
+                state,
+                allocate("method", kind="closure"),
+                allocate("input"),
+                allocate("nonprimitive"),
+                allocate("occupied"),
+            )
+            if cause == "exotic-not-callable":
+                apply(
+                    state,
+                    define("input", EXOTIC, ["num", 1]),
+                    begin("convert", "Number", ["ref", "input"]),
+                    lookup("convert", EXOTIC, "data", ["num", 1]),
+                )
+            elif cause == "exotic-nonprimitive":
+                apply(
+                    state,
+                    define("input", EXOTIC, ["ref", "method"]),
+                    begin("convert", "Number", ["ref", "input"]),
+                    lookup("convert", EXOTIC, "data", ["ref", "method"]),
+                    {"kind": "conversion.call", "id": "convert", "child": "child"},
+                )
+                returned(state, "convert", "child", ["ref", "nonprimitive"])
+            else:
+                apply(
+                    state,
+                    {
+                        "kind": "property.prototype",
+                        "object": "input",
+                        "prototype": None,
+                        "success": True,
+                    },
+                )
+                self.ordinary(state, "convert")
+                apply(
+                    state,
+                    lookup("convert", ["str", "toString"]),
+                    lookup("convert", ["str", "valueOf"]),
+                )
+            self.assertEqual(
+                state["protocol"]["primitiveConversions"]["operations"][0]["fault"], cause
+            )
+            self.refuse(
+                state,
+                {"kind": "conversion.fault", "id": "convert", "error": "occupied"},
+                "heap identity",
+            )
+            self.refuse(
+                state,
+                {
+                    "kind": "conversion.fault",
+                    "id": "convert",
+                    "error": "error",
+                    "message": "invented",
+                },
+                "fields",
+            )
+            malformed = copy.deepcopy(state)
+            malformed["protocol"]["primitiveConversions"]["operations"][0]["fault"] = (
+                "symbol-to-number"
+            )
+            with self.assertRaises(ProtocolV8Error):
+                conversion.validate_state(malformed)
+            apply(state, {"kind": "conversion.fault", "id": "convert", "error": "error"})
+>           self.assertEqual(
+                state["heap"]["error"]["properties"],
+                {"name": ["str", "TypeError"], "message": ["str", conversion.FAULTS[cause]]},
+            )
+E           AssertionError: {'message': ['str', 'Symbol.toPrimitive is not callable']} != {'name': ['str', 'TypeError'], 'message': [[40 chars]le']}
+E           - {'message': ['str', 'Symbol.toPrimitive is not callable']}
+E           ?                                                          ^
+E           
+E           + {'message': ['str', 'Symbol.toPrimitive is not callable'],
+E           ?                                                          ^
+E           
+E           +  'name': ['str', 'TypeError']}
+
+tests/test_primitive_conversion_v8.py:550: AssertionError
+_____ test_native_source_artifact_replay_and_every_checkpoint[promise-key] _____
+
+case = {'artifact': {'contexts': [{'input': {'graph': {'objects': [], 'roots': []}}, 'invocationId': 'invocation1', 'obligati.....}, 'id': 'promise-key', 'sourceInputDigest': '6caa432fd36ae1e745fc116df59585dd56201dc4ed8fa55fa59b03503452dcaa', ...}
+
+    @pytest.mark.parametrize("case", ACCEPTED, ids=lambda row: row["id"])
+    def test_native_source_artifact_replay_and_every_checkpoint(case):
+        artifact = case["artifact"]
+>       checked = validate_v8_artifact(artifact)
+                  ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+tests/test_primitive_conversion_source_v8.py:81: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+src/megatoken/data/native_v8.py:354: in validate_v8_artifact
+    final_restored = _replay_shared_state(timeline, contexts, programs, roundtrip=True)
+                     ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+src/megatoken/data/native_v8.py:1312: in _replay_shared_state
+    _fail(
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+
+msg = "Public continuation differs from independently replayed shared state at 29 fields ['locals', 'receiver']"
+
+    def _fail(msg):
+>       raise NativeV8Error(msg)
+E       megatoken.data.native_v8.NativeV8Error: Public continuation differs from independently replayed shared state at 29 fields ['locals', 'receiver']
+
+src/megatoken/data/native_v8.py:91: NativeV8Error
+_ ProtocolV8NativeReplayTests.test_source_qualified_protocol_region_public_golden_replays_and_continues _
+
+self = <test_protocol_v8.ProtocolV8NativeReplayTests testMethod=test_source_qualified_protocol_region_public_golden_replays_and_continues>
+
+    def test_source_qualified_protocol_region_public_golden_replays_and_continues(self):
+        self.assertEqual(self.artifact["schema"], "semantic-protocol-region-fixtures/1")
+        expected = {
+            "source-symbol-getter-arithmetic": (12, 3, 9),
+            "typed-views-shared-backing": (13, 0, 8),
+            "source-derived-private-arithmetic": (64, 2, 21),
+            "builtin-iterator-mixed-arithmetic": (16, 2, 12),
+            "source-promise-all-reaction-arithmetic": (7, 2, 27),
+            "source-promise-join-rejection-finally": (3, 1, 29),
+            "source-number-private-arithmetic": (51, 2, 15),
+            "source-generator-cleanup-suspension": (30, 0, 6),
+            "source-generator-delegated-cleanup": (48, 0, 30),
+            "source-proxy-traps-arithmetic": (22, 3, 25),
+            "source-base-initializer-throw": (22, 0, 8),
+            "source-derived-initializer-throw": (38, 0, 15),
+            "source-promise-executor-first-call": (5, 2, 16),
+            "source-promise-executor-retained-resolution": (5, 1, 10),
+            "source-promise-executor-abrupt": (3, 0, 15),
+            "source-ordinary-constructor-prototype": (25, 0, 8),
+            "source-enumeration-map-callback": (19, 0, 7),
+            "generator-own-symbol-alias": (27, 0, 12),
+            "source-logical-left-operands": (29, 1, 19),
+            "source-for-in-own-keys": (22, 0, 20),
+            "source-promise-adoption-executor": (12, 1, 14),
+            "source-promise-adoption-async-return": (10, 0, 13),
+            "source-promise-adoption-reaction-return": (12, 0, 17),
+            "source-async-iterator-array": (49, 1, 79),
+            "source-async-iterator-getters": (63, 1, 76),
+            "source-async-iterator-value-identity": (17, 0, 33),
+            "source-async-iterator-throw-precedence": (24, 1, 57),
+            "source-async-iterator-return-replaced": (32, 1, 43),
+            "source-async-iterator-sync-rejection": (34, 1, 47),
+            "source-async-iterator-sibling-cleanup": (78, 1, 100),
+            "source-async-iterator-idle-completion": (78, 1, 84),
+            "promise-object-data-descriptor-reflection": (4, 0, 20),
+            "promise-object-accessor-alias-receiver": (6, 0, 15),
+            "promise-object-accessor-setter": (10, 1, 12),
+            "promise-object-prototype-identity": (3, 0, 7),
+            "promise-object-constructor-resolve-reentry": (6, 1, 17),
+            "promise-object-constructor-await": (6, 1, 17),
+            "promise-object-constructor-reaction": (9, 1, 22),
+            "promise-object-constructor-throw-cleanup": (6, 1, 22),
+            "promise-object-shared-prototype-constructor": (7, 1, 16),
+            "promise-object-own-reflection-call": (4, 0, 7),
+            "promise-object-nonextensible-reflection": (3, 0, 7),
+            "promise-object-own-key-filtering": (4, 0, 10),
+            "promise-object-null-prototype-state": (5, 0, 8),
+            "promise-object-constructor-await-job-order": (9, 1, 21),
+            "promise-object-inherited-constructor-receiver": (10, 1, 25),
+            "promise-adoption-getter-receiver-and-fifo": (13, 1, 23),
+            "promise-adoption-getter-throw-identity-and-cleanup": (15, 1, 40),
+            "promise-adoption-getter-nested-constructor-reentry": (16, 1, 24),
+            "promise-adoption-getter-pending-target": (21, 1, 29),
+            "promise-adoption-getter-getter-replaces-own-descriptor": (13, 1, 22),
+            "issue51-has-in-reflect-symbol-accessor": (40, 0, 13),
+            "issue51-delete-own-and-inherited": (16, 0, 7),
+            "issue51-reflect-delete-property": (13, 0, 5),
+            "issue51-for-in-delete-fallback-addition": (33, 0, 28),
+            "issue51-for-in-delete-prototype-candidate": (28, 0, 22),
+            "issue51-for-in-sparse-array": (20, 0, 19),
+            "issue51-accessor-existence-enumeration-no-read": (27, 1, 18),
+            "issue51-sparse-array-delete-preserves-length-and-holes": (16, 0, 7),
+            "issue51-reflect-delete-nonconfigurable-returns-false": (12, 0, 6),
+            "issue51-delete-and-readd-changes-key-order": (29, 0, 21),
+            "issue51-existence-distinguishes-missing-undefined-accessor": (14, 1, 5),
+            "issue51-delete-symbol-key": (12, 0, 6),
+            "issue51-delete-own-tostring-reveals-intrinsic": (10, 0, 5),
+            "issue51-delete-inherited-for-in-candidate": (25, 0, 22),
+            "issue51-delete-accessor-without-getter-call": (13, 1, 6),
+            "issue51-in-object-key-to-primitive-order": (32, 0, 10),
+            "issue51-promise-property-composition": (6, 0, 18),
+            "issue51-promise-enumeration-mutation-composition": (5, 0, 25),
+            "issue51-promise-object-key-conversion-composition": (11, 0, 18),
+            "issue51-promise-symbol-and-escaped-string-keys": (8, 1, 21),
+            "issue51-reflect-object-key-getter-and-argument-order": (63, 0, 14),
+            "issue51-reflect-object-key-symbol": (37, 0, 10),
+            "issue51-promise-reflect-object-key": (19, 0, 25),
+            "issue51-constructor-arrow-after-super-and-return": (58, 0, 19),
+            "issue51-constructor-arrow-return-substitution": (58, 0, 19),
+            "issue51-constructor-arrow-conversion-callback": (63, 1, 20),
+            "issue51-proxy-key-order-and-trap-replacement": (54, 1, 29),
+            "issue51-proxy-constructor-arrow-retains-private-receiver": (51, 0, 21),
+            "issue51-proxy-strict-false-delete-error": (14, 0, 6),
+            "issue51-proxy-strict-transparent-delete-error": (15, 0, 8),
+            "issue51-proxy-has-protected-property-error": (19, 0, 8),
+            "issue51-proxy-has-nonextensible-error": (13, 0, 8),
+            "issue51-proxy-delete-nonextensible-error": (13, 0, 8),
+            "issue51-proxy-trap-throw-retains-identity": (11, 0, 8),
+            "issue51-proxy-has-checks-late-protection": (22, 1, 12),
+            "issue51-proxy-delete-checks-late-extensibility": (20, 1, 12),
+            "issue51-proxy-delete-uses-live-absence": (18, 1, 8),
+            "issue51-control-in-invalid-rhs-before-key-coercion": (11, 1, 10),
+            "issue51-invalid-in-rhs-caught-error-identity-partial-effects": (22, 1, 18),
+            "issue51-promise-fresh-symbol-conversion": (25, 0, 19),
+            "issue51-promise-registered-symbol-alias": (10, 0, 17),
+            "issue51-promise-captured-symbol": (12, 0, 14),
+            "promise-adoption-getter-nested-helper-return": (17, 1, 19),
+            "promise-adoption-getter-constructor-arrow-lexical-receiver": (30, 0, 19),
+            "issue51-control-for-in-proxy": (11, 1, 9),
+            "issue51-control-constructor-arrow-in-promise-reaction": (19, 0, 18),
+            "issue51-derived-constructor-arrow-in-promise-reaction": (35, 0, 29),
+            "issue51-derived-this-before-super-reference-error": (22, 0, 13),
+            "issue51-derived-this-captured-arrow-before-super-reference-error": (27, 0, 14),
+            "issue51-set-live-iterator-delete-readd": (33, 0, 18),
+            "issue51-map-live-entries-overwrite-delete-append": (31, 0, 15),
+            "issue51-map-same-value-zero-size-clear": (34, 0, 12),
+            "issue51-array-spread-snapshot-and-mutation": (17, 0, 9),
+            "issue51-string-spread-code-points-and-holes": (13, 0, 1),
+            "issue51-nested-array-default-and-rest-order": (31, 0, 75),
+            "issue51-nested-array-default-abrupt-closes-outer-iterator": (43, 2, 49),
+            "issue51-invalid-in-message-object-no-conversion": (14, 0, 8),
+            "issue51-invalid-in-message-symbol": (5, 0, 6),
+            "issue51-invalid-in-message-negative-zero": (3, 0, 7),
+            "issue51-invalid-in-message-null-prototype": (6, 0, 9),
+            "issue51-error-own-message-descriptor": (16, 0, 8),
+            "issue51-error-prototype-identities": (12, 0, 12),
+            "issue51-error-instance-prototype-mutation": (17, 0, 9),
+            "issue51-error-inherited-prototype-mutation": (9, 0, 8),
+            "issue51-error-accessor-receiver": (18, 0, 10),
+            "issue51-error-instanceof-live-chain": (27, 0, 34),
+            "issue51-error-instanceof-prototype-replacement": (21, 0, 27),
+            "issue51-error-instanceof-custom-hasinstance": (11, 0, 13),
+            "issue51-class-instanceof-shared-prototype-chain": (21, 0, 18),
+            "issue51-async-caught-error-standard-properties": (6, 0, 18),
+            "issue51-async-caught-error-instanceof": (7, 0, 13),
+            "issue51-shared-promise-caught-error-properties": (6, 0, 19),
+            "issue51-async-unhandled-derived-typeerror": (2, 0, 5),
+            "issue51-promise-reaction-caught-error-properties": (7, 0, 19),
+            "issue51-for-in-replaced-prototype-live-existence": (36, 0, 28),
+            "issue51-for-in-removed-prototype-skips-candidate": (25, 0, 22),
+            "issue51-for-in-flags-retain-original-candidates": (38, 0, 28),
+            "issue51-for-in-initial-nonenumerable-shadow-survives": (32, 0, 22),
+            "issue51-for-in-transparent-proxy-value-writes": (32, 0, 21),
+            "issue51-for-in-nested-transparent-proxy": (28, 0, 18),
+            "issue51-control-for-in-prototype-replacement": (20, 1, 13),
+            "issue51-proxy-revoked-get": (17, 0, 10),
+            "issue51-proxy-revoked-set": (17, 0, 10),
+            "issue51-proxy-revoked-has": (17, 0, 10),
+            "issue51-proxy-revoked-deleteProperty": (17, 0, 10),
+            "issue51-control-proxy-trap-getter": (18, 0, 2),
+            "issue51-proxy-getmethod-handler-mutation": (34, 1, 13),
+            "issue51-proxy-getmethod-revocation": (23, 1, 8),
+            "issue51-proxy-getmethod-nullish-after-revocation": (20, 1, 6),
+            "issue51-proxy-getmethod-throw-identity": (15, 0, 8),
+            "issue51-proxy-revocable-revoke-idempotent": (19, 1, 11),
+            "issue51-control-proxy-nested-target": (8, 0, 2),
+            "issue51-proxy-strict-false-set-error": (18, 1, 10),
+            "issue51-control-proxy-strict-false-set": (10, 0, 2),
+            "issue51-proxy-get-prototype-alias": (13, 0, 8),
+            "issue51-proxy-extensible-live-target": (16, 0, 6),
+            "issue51-proxy-prevent-extensions-mutation": (16, 0, 7),
+            "issue51-proxy-set-prototype-mutation": (18, 0, 10),
+            "issue51-proxy-transparent-prototype-extensibility": (13, 0, 6),
+            "issue51-proxy-isextensible-invariant-fault": (16, 0, 9),
+            "issue51-proxy-reflect-false-mutators": (20, 0, 3),
+            "issue51-proxy-get-prototype-invalid-result": (15, 1, 12),
+            "issue51-proxy-get-prototype-frozen-mutation": (14, 0, 8),
+            "issue51-proxy-prevent-extensions-invariant-fault": (15, 1, 10),
+            "issue51-proxy-set-prototype-object-false": (12, 0, 8),
+            "issue51-proxy-reflection-trap-retained-selection": (18, 1, 8),
+            "issue51-proxy-descriptor-result": (27, 0, 9),
+            "issue51-proxy-ownkeys-symbol-order": (29, 0, 6),
+            "issue51-proxy-descriptor-live-invariant": (19, 0, 7),
+            "issue51-proxy-descriptor-hide-fixed": (15, 0, 10),
+            "issue51-proxy-ownkeys-missing-fixed": (16, 0, 9),
+            "issue51-proxy-descriptor-ownkeys-forward": (14, 0, 4),
+            "issue51-proxy-ownkeys-arraylike": (17, 0, 3),
+            "issue51-proxy-ownkeys-duplicate": (15, 0, 7),
+            "issue51-proxy-ownkeys-nonextensible-extra": (15, 0, 9),
+            "issue51-proxy-descriptor-invented-fixed": (14, 0, 10),
+            "issue51-proxy-descriptor-accessor-result": (26, 0, 9),
+            "issue51-proxy-definition-from-descriptor": (28, 0, 12),
+            "issue51-proxy-definition-reflect-false": (13, 0, 3),
+            "issue51-proxy-definition-object-false": (14, 0, 8),
+            "issue51-proxy-definition-nonextensible-fault": (15, 0, 9),
+            "issue51-proxy-definition-copy-mutation": (19, 0, 12),
+            "issue51-proxy-definition-forward-omitted-fields": (20, 0, 5),
+        }
+        from megatoken.data.semantic_contract_v8 import CONTRACT
+    
+        published = {row["id"]: row for row in CONTRACT["interoperability"]}
+        case_ids = {case["id"] for case in self.artifact["cases"]}
+        self.assertEqual(case_ids, set(expected))
+        self.assertEqual(
+            {"protocol-region:" + identity for identity in case_ids},
+            {identity for identity in published if identity.startswith("protocol-region:")},
+        )
+        for golden in self.artifact["cases"]:
+            case = golden["artifact"]
+            with self.subTest(case=golden["id"]):
+                protocol_records, regions, details = expected[golden["id"]]
+                declaration = published["protocol-region:" + golden["id"]]
+                artifact = {"public": case["public"], "contexts": case["contexts"]}
+                self.assertEqual(stable_algorithm_hash(case["public"]), declaration["publicDigest"])
+                self.assertEqual(
+                    stable_algorithm_hash(case["contexts"]), declaration["contextDigest"]
+                )
+>               result = validate_v8_artifact(artifact)
+                         ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+tests/test_protocol_v8.py:515: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+src/megatoken/data/native_v8.py:354: in validate_v8_artifact
+    final_restored = _replay_shared_state(timeline, contexts, programs, roundtrip=True)
+                     ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+src/megatoken/data/native_v8.py:1312: in _replay_shared_state
+    _fail(
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+
+msg = "Public continuation differs from independently replayed shared state at 34 fields ['lastReturn']"
+
+    def _fail(msg):
+>       raise NativeV8Error(msg)
+E       megatoken.data.native_v8.NativeV8Error: Public continuation differs from independently replayed shared state at 34 fields ['lastReturn']
+
+src/megatoken/data/native_v8.py:91: NativeV8Error
+_ PromiseExecutorTests.test_executor_inside_reaction_preserves_job_and_nested_helper_scope _
+
+self = <test_promise_executor_boundaries_v8.PromiseExecutorTests testMethod=test_executor_inside_reaction_preserves_job_and_nested_helper_scope>
+
+    def test_executor_inside_reaction_preserves_job_and_nested_helper_scope(self):
+        state = executor_machine(active_job=True)
+        allocate(state, "helper", "closure")
+        enter(state)
+        apply_protocol_record(
+            state,
+            {
+                "kind": "call",
+                "callee": ["ref", "helper"],
+                "child": "helper-call",
+                "receiver": ["undefined"],
+                "arguments": [],
+            },
+        )
+        apply_protocol_record(
+            state, {"kind": "return", "invocation": "helper-call", "value": ["num", 4]}
+        )
+        resolve(state, ["num", 4])
+        finish(state)
+>       state = restore(state)
+                ^^^^^^^^^^^^^^
+
+tests/test_promise_executor_boundaries_v8.py:256: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+tests/test_promise_executor_boundaries_v8.py:65: in restore
+    validate_protocol_state(shared["protocol"], shared["heap"], shared)
+src/megatoken/data/protocol_v8.py:2104: in validate_protocol_state
+    validate_active_callback_state(memory_machine)
+src/megatoken/data/promise_scheduler_v8.py:223: in validate_active_callback_state
+    _validate_callback_frame(machine, active, job, selected_callback(job))
+src/megatoken/data/promise_scheduler_v8.py:160: in _validate_callback_frame
+    _fail("active scheduler job lacks its selected callback")
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+
+message = 'active scheduler job lacks its selected callback'
+
+    def _fail(message):
+        from .protocol_v8 import ProtocolV8Error
+    
+>       raise ProtocolV8Error("Invalid owned Promise scheduler: " + message)
+E       megatoken.data.protocol_v8.ProtocolV8Error: Invalid owned Promise scheduler: active scheduler job lacks its selected callback
+
+src/megatoken/data/promise_scheduler_v8.py:11: ProtocolV8Error
+_ PredictionPrefixV8Tests.test_retained_prediction_boundaries_need_no_future_target _
+
+self = <test_prediction_prefix_v8.PredictionPrefixV8Tests testMethod=test_retained_prediction_boundaries_need_no_future_target>
+
+    def test_retained_prediction_boundaries_need_no_future_target(self):
+        for name in (
+            "semantic-regions-v8.json.gz.b64",
+            "semantic-callback-regions-v8.json.gz.b64",
+            "semantic-protocol-region-v8.json.gz.b64",
+            "semantic-generator-close-v8.json.gz.b64",
+        ):
+            for example in examples(name):
+                count = len(example["contexts"])
+                indices = (
+                    range(count)
+                    if "callback" in name
+                    else sorted({0, 1, count // 2, count - 1} & set(range(count)))
+                )
+                for index in indices:
+                    with self.subTest(fixture=name, case=example.get("id"), boundary=index):
+                        public, contexts, context = prefix(example, index)
+>                       checked = validate_v8_prediction_prefix(public, contexts, context)
+                                  ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+tests/test_prediction_prefix_v8.py:53: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+src/megatoken/data/prefix_v8.py:76: in validate_v8_prediction_prefix
+    checked = validate_v8_committed_prefix(public, contexts)
+              ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+src/megatoken/data/prefix_v8.py:58: in validate_v8_committed_prefix
+    validate_v8_artifact({"public": public, "contexts": contexts})
+src/megatoken/data/native_v8.py:354: in validate_v8_artifact
+    final_restored = _replay_shared_state(timeline, contexts, programs, roundtrip=True)
+                     ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+src/megatoken/data/native_v8.py:1312: in _replay_shared_state
+    _fail(
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+
+msg = "Public continuation differs from independently replayed shared state at 34 fields ['lastReturn']"
+
+    def _fail(msg):
+>       raise NativeV8Error(msg)
+E       megatoken.data.native_v8.NativeV8Error: Public continuation differs from independently replayed shared state at 34 fields ['lastReturn']
+
+src/megatoken/data/native_v8.py:91: NativeV8Error
+_ EnumerationV8Tests.test_source_golden_replays_every_context_and_matches_the_contract _
+
+self = <test_enumeration_v8.EnumerationV8Tests testMethod=test_source_golden_replays_every_context_and_matches_the_contract>
+
+    def test_source_golden_replays_every_context_and_matches_the_contract(self):
+        fixture = Path(__file__).parent / "fixtures/semantic-enumeration-v8.json.gz.b64"
+        artifact = json.loads(gzip.decompress(base64.b64decode(fixture.read_bytes())))
+        from megatoken.data.semantic_contract_v8 import CONTRACT
+    
+        declaration = next(
+            row
+            for row in CONTRACT["interoperability"]
+            if row["id"] == "protocol-region:source-for-in-own-keys"
+        )
+        self.assertEqual(stable_algorithm_hash(artifact["public"]), declaration["publicDigest"])
+        self.assertEqual(stable_algorithm_hash(artifact["contexts"]), declaration["contextDigest"])
+        receipt = validate_v8_artifact(artifact)
+        for check in ("replay", "contexts", "continuation"):
+            self.assertEqual(receipt["checks"][check], "passed")
+>       self.assertEqual(receipt["counts"]["contexts"], 40)
+E       AssertionError: 42 != 40
+
+tests/test_enumeration_v8.py:81: AssertionError
+_ test_full_native_fixture_replay_and_recovery_without_legacy_wire_imports[semantic-protocol-region-v8:issue51-derived-this-before-super-reference-error] _
+
+filename = 'semantic-protocol-region-v8.json.gz.b64', case_index = 98
+source_refused = False
+
+    @pytest.mark.parametrize("filename,case_index,source_refused", fixture_cases())
+    def test_full_native_fixture_replay_and_recovery_without_legacy_wire_imports(
+        filename, case_index, source_refused
+    ):
+        # Every source case gets a fresh interpreter and the same bounded deadline.
+        # Expanding the published population must not consume another case's time
+        # budget or let an earlier import cache conceal a legacy dependency.
+        script = textwrap.dedent(
+            r"""
+            import base64
+            import copy
+            import gzip
+            import importlib.abc
+            import json
+            from pathlib import Path
+            import sys
+    
+            blocked = {
+                "megatoken.data.algorithm_v7",
+                "megatoken.data.detailed_v7",
+                "megatoken.data.detailed_harness_v7",
+                "megatoken.data.detailed_context_v7",
+                "megatoken.data.semantic_harness_v6",
+                "megatoken.data.semantic_contract",
+                "megatoken.data.semantic_contract_v7",
+                "megatoken.data.witness_v6",
+            }
+            class NoLegacyWire(importlib.abc.MetaPathFinder):
+                def find_spec(self, fullname, path=None, target=None):
+                    if fullname in blocked:
+                        raise AssertionError("Legacy wire dependency: " + fullname)
+            sys.meta_path.insert(0, NoLegacyWire())
+            from megatoken.data.native_v8 import (
+                NativeV8Error, _native_checkpoint, _restore_native_checkpoint,
+                prepare_native_v8_training, validate_v8_artifact,
+            )
+            from megatoken.data.prefix_v8 import validate_v8_prediction_prefix
+            from megatoken.data.semantic_json import stable_algorithm_hash
+            from megatoken.generation.codec import ByteCodec
+    
+            directory = Path(sys.argv[1])
+            checked = targets = source_refused = 0
+            for filename in (sys.argv[2],):
+                fixture = json.loads(gzip.decompress(base64.b64decode((directory / filename).read_bytes())))
+                examples = [fixture] if "public" in fixture else fixture.get("examples", fixture.get("cases", []))
+                assert examples, filename
+                for row in (examples[int(sys.argv[3])],):
+                    if row.get("status") == "source-unqualified":
+                        assert filename == "semantic-primitive-conversion-v8.json.gz.b64"
+                        assert "artifact" not in row and row["boundary"] in {
+                            "intrinsic-error-source-metadata", "node24-reference-disagreement"
+                        }
+                        source_refused += 1
+                        continue
+                    example = row.get("artifact", row)
+                    result = validate_v8_artifact(example)
+                    assert result["admitted"] is False
+                    assert all(result["checks"][field] == "passed"
+                               for field in ("replay", "contexts", "continuation"))
+                    context = example["contexts"][-1]
+                    public = {**example["public"],
+                              "timeline": example["public"]["timeline"][:context["visibleThrough"]]}
+                    contexts = example["contexts"][:-1]
+                    prefix = validate_v8_prediction_prefix(public, contexts, context)
+                    packet = _native_checkpoint(public["timeline"], prefix["context"])
+                    restored = _restore_native_checkpoint(
+                        packet, expected_prefix=public["timeline"],
+                        expected_state=context["state"], expected_cursor=context["regionCursor"],
+                        expected_obligations=context["obligations"],
+                    )
+                    assert restored == context["state"]
+                    checked += 1
+                    targets += len(example["contexts"])
+                    # Engineering codec only: exercise framing without claiming
+                    # pinned-tokenizer or private source admission.
+                    if filename == "semantic-regions-v8.json.gz.b64" and int(sys.argv[3]) == 0:
+                        _, training = prepare_native_v8_training(example, codec=ByteCodec.byte_fallback())
+                        assert training["maskValidation"]
+                    forged = copy.deepcopy(example)
+                    forged["contexts"][-1]["state"]["completion"] = {"kind":"return", "value":["num", 987654]}
+                    # Rehashing a claimed state cannot replace independent replay.
+                    forged["contexts"][-1]["prefixDigest"] = stable_algorithm_hash(public["timeline"])
+                    try:
+                        validate_v8_artifact(forged)
+                    except (NativeV8Error, ValueError):
+                        pass
+                    else:
+                        raise AssertionError("Forged continuation accepted: " + str(row.get("id")))
+            assert not blocked.intersection(sys.modules)
+            print(json.dumps({"examples":checked, "prediction_contexts":targets,
+                              "source_refused":source_refused}))
+            """
+        )
+        completed = subprocess.run(
+            [
+                sys.executable,
+                "-c",
+                script,
+                str(Path(__file__).parent / "fixtures"),
+                filename,
+                str(case_index),
+            ],
+            capture_output=True,
+            text=True,
+            check=False,
+            timeout=240,
+            env={**os.environ, "PYTHONDONTWRITEBYTECODE": "1"},
+        )
+>       assert completed.returncode == 0, completed.stderr
+E       AssertionError: Traceback (most recent call last):
+E           File "<string>", line 48, in <module>
+E           File "/tmp/issue51-resume.Ws1foQ/consumer/src/megatoken/data/native_v8.py", line 354, in validate_v8_artifact
+E             final_restored = _replay_shared_state(timeline, contexts, programs, roundtrip=True)
+E                              ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+E           File "/tmp/issue51-resume.Ws1foQ/consumer/src/megatoken/data/native_v8.py", line 1312, in _replay_shared_state
+E             _fail(
+E           File "/tmp/issue51-resume.Ws1foQ/consumer/src/megatoken/data/native_v8.py", line 91, in _fail
+E             raise NativeV8Error(msg)
+E         megatoken.data.native_v8.NativeV8Error: Public continuation differs from independently replayed shared state at 34 fields ['lastReturn']
+E         
+E       assert 1 == 0
+E        +  where 1 = CompletedProcess(args=['/tmp/issue51-resume.Ws1foQ/.venv/bin/python', '-c', '\nimport base64\nimport copy\nimport gzip...8.NativeV8Error: Public continuation differs from independently replayed shared state at 34 fields [\'lastReturn\']\n').returncode
+
+tests/test_native_v8_without_legacy.py:160: AssertionError
+_ test_full_native_fixture_replay_and_recovery_without_legacy_wire_imports[semantic-protocol-region-v8:issue51-derived-this-captured-arrow-before-super-reference-error] _
+
+filename = 'semantic-protocol-region-v8.json.gz.b64', case_index = 99
+source_refused = False
+
+    @pytest.mark.parametrize("filename,case_index,source_refused", fixture_cases())
+    def test_full_native_fixture_replay_and_recovery_without_legacy_wire_imports(
+        filename, case_index, source_refused
+    ):
+        # Every source case gets a fresh interpreter and the same bounded deadline.
+        # Expanding the published population must not consume another case's time
+        # budget or let an earlier import cache conceal a legacy dependency.
+        script = textwrap.dedent(
+            r"""
+            import base64
+            import copy
+            import gzip
+            import importlib.abc
+            import json
+            from pathlib import Path
+            import sys
+    
+            blocked = {
+                "megatoken.data.algorithm_v7",
+                "megatoken.data.detailed_v7",
+                "megatoken.data.detailed_harness_v7",
+                "megatoken.data.detailed_context_v7",
+                "megatoken.data.semantic_harness_v6",
+                "megatoken.data.semantic_contract",
+                "megatoken.data.semantic_contract_v7",
+                "megatoken.data.witness_v6",
+            }
+            class NoLegacyWire(importlib.abc.MetaPathFinder):
+                def find_spec(self, fullname, path=None, target=None):
+                    if fullname in blocked:
+                        raise AssertionError("Legacy wire dependency: " + fullname)
+            sys.meta_path.insert(0, NoLegacyWire())
+            from megatoken.data.native_v8 import (
+                NativeV8Error, _native_checkpoint, _restore_native_checkpoint,
+                prepare_native_v8_training, validate_v8_artifact,
+            )
+            from megatoken.data.prefix_v8 import validate_v8_prediction_prefix
+            from megatoken.data.semantic_json import stable_algorithm_hash
+            from megatoken.generation.codec import ByteCodec
+    
+            directory = Path(sys.argv[1])
+            checked = targets = source_refused = 0
+            for filename in (sys.argv[2],):
+                fixture = json.loads(gzip.decompress(base64.b64decode((directory / filename).read_bytes())))
+                examples = [fixture] if "public" in fixture else fixture.get("examples", fixture.get("cases", []))
+                assert examples, filename
+                for row in (examples[int(sys.argv[3])],):
+                    if row.get("status") == "source-unqualified":
+                        assert filename == "semantic-primitive-conversion-v8.json.gz.b64"
+                        assert "artifact" not in row and row["boundary"] in {
+                            "intrinsic-error-source-metadata", "node24-reference-disagreement"
+                        }
+                        source_refused += 1
+                        continue
+                    example = row.get("artifact", row)
+                    result = validate_v8_artifact(example)
+                    assert result["admitted"] is False
+                    assert all(result["checks"][field] == "passed"
+                               for field in ("replay", "contexts", "continuation"))
+                    context = example["contexts"][-1]
+                    public = {**example["public"],
+                              "timeline": example["public"]["timeline"][:context["visibleThrough"]]}
+                    contexts = example["contexts"][:-1]
+                    prefix = validate_v8_prediction_prefix(public, contexts, context)
+                    packet = _native_checkpoint(public["timeline"], prefix["context"])
+                    restored = _restore_native_checkpoint(
+                        packet, expected_prefix=public["timeline"],
+                        expected_state=context["state"], expected_cursor=context["regionCursor"],
+                        expected_obligations=context["obligations"],
+                    )
+                    assert restored == context["state"]
+                    checked += 1
+                    targets += len(example["contexts"])
+                    # Engineering codec only: exercise framing without claiming
+                    # pinned-tokenizer or private source admission.
+                    if filename == "semantic-regions-v8.json.gz.b64" and int(sys.argv[3]) == 0:
+                        _, training = prepare_native_v8_training(example, codec=ByteCodec.byte_fallback())
+                        assert training["maskValidation"]
+                    forged = copy.deepcopy(example)
+                    forged["contexts"][-1]["state"]["completion"] = {"kind":"return", "value":["num", 987654]}
+                    # Rehashing a claimed state cannot replace independent replay.
+                    forged["contexts"][-1]["prefixDigest"] = stable_algorithm_hash(public["timeline"])
+                    try:
+                        validate_v8_artifact(forged)
+                    except (NativeV8Error, ValueError):
+                        pass
+                    else:
+                        raise AssertionError("Forged continuation accepted: " + str(row.get("id")))
+            assert not blocked.intersection(sys.modules)
+            print(json.dumps({"examples":checked, "prediction_contexts":targets,
+                              "source_refused":source_refused}))
+            """
+        )
+        completed = subprocess.run(
+            [
+                sys.executable,
+                "-c",
+                script,
+                str(Path(__file__).parent / "fixtures"),
+                filename,
+                str(case_index),
+            ],
+            capture_output=True,
+            text=True,
+            check=False,
+            timeout=240,
+            env={**os.environ, "PYTHONDONTWRITEBYTECODE": "1"},
+        )
+>       assert completed.returncode == 0, completed.stderr
+E       AssertionError: Traceback (most recent call last):
+E           File "<string>", line 48, in <module>
+E           File "/tmp/issue51-resume.Ws1foQ/consumer/src/megatoken/data/native_v8.py", line 354, in validate_v8_artifact
+E             final_restored = _replay_shared_state(timeline, contexts, programs, roundtrip=True)
+E                              ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+E           File "/tmp/issue51-resume.Ws1foQ/consumer/src/megatoken/data/native_v8.py", line 1312, in _replay_shared_state
+E             _fail(
+E           File "/tmp/issue51-resume.Ws1foQ/consumer/src/megatoken/data/native_v8.py", line 91, in _fail
+E             raise NativeV8Error(msg)
+E         megatoken.data.native_v8.NativeV8Error: Public continuation differs from independently replayed shared state at 39 fields ['lastReturn']
+E         
+E       assert 1 == 0
+E        +  where 1 = CompletedProcess(args=['/tmp/issue51-resume.Ws1foQ/.venv/bin/python', '-c', '\nimport base64\nimport copy\nimport gzip...8.NativeV8Error: Public continuation differs from independently replayed shared state at 39 fields [\'lastReturn\']\n').returncode
+
+tests/test_native_v8_without_legacy.py:160: AssertionError
+_ test_full_native_fixture_replay_and_recovery_without_legacy_wire_imports[semantic-protocol-region-v8:issue51-string-spread-code-points-and-holes] _
+
+filename = 'semantic-protocol-region-v8.json.gz.b64', case_index = 104
+source_refused = False
+
+    @pytest.mark.parametrize("filename,case_index,source_refused", fixture_cases())
+    def test_full_native_fixture_replay_and_recovery_without_legacy_wire_imports(
+        filename, case_index, source_refused
+    ):
+        # Every source case gets a fresh interpreter and the same bounded deadline.
+        # Expanding the published population must not consume another case's time
+        # budget or let an earlier import cache conceal a legacy dependency.
+        script = textwrap.dedent(
+            r"""
+            import base64
+            import copy
+            import gzip
+            import importlib.abc
+            import json
+            from pathlib import Path
+            import sys
+    
+            blocked = {
+                "megatoken.data.algorithm_v7",
+                "megatoken.data.detailed_v7",
+                "megatoken.data.detailed_harness_v7",
+                "megatoken.data.detailed_context_v7",
+                "megatoken.data.semantic_harness_v6",
+                "megatoken.data.semantic_contract",
+                "megatoken.data.semantic_contract_v7",
+                "megatoken.data.witness_v6",
+            }
+            class NoLegacyWire(importlib.abc.MetaPathFinder):
+                def find_spec(self, fullname, path=None, target=None):
+                    if fullname in blocked:
+                        raise AssertionError("Legacy wire dependency: " + fullname)
+            sys.meta_path.insert(0, NoLegacyWire())
+            from megatoken.data.native_v8 import (
+                NativeV8Error, _native_checkpoint, _restore_native_checkpoint,
+                prepare_native_v8_training, validate_v8_artifact,
+            )
+            from megatoken.data.prefix_v8 import validate_v8_prediction_prefix
+            from megatoken.data.semantic_json import stable_algorithm_hash
+            from megatoken.generation.codec import ByteCodec
+    
+            directory = Path(sys.argv[1])
+            checked = targets = source_refused = 0
+            for filename in (sys.argv[2],):
+                fixture = json.loads(gzip.decompress(base64.b64decode((directory / filename).read_bytes())))
+                examples = [fixture] if "public" in fixture else fixture.get("examples", fixture.get("cases", []))
+                assert examples, filename
+                for row in (examples[int(sys.argv[3])],):
+                    if row.get("status") == "source-unqualified":
+                        assert filename == "semantic-primitive-conversion-v8.json.gz.b64"
+                        assert "artifact" not in row and row["boundary"] in {
+                            "intrinsic-error-source-metadata", "node24-reference-disagreement"
+                        }
+                        source_refused += 1
+                        continue
+                    example = row.get("artifact", row)
+                    result = validate_v8_artifact(example)
+                    assert result["admitted"] is False
+                    assert all(result["checks"][field] == "passed"
+                               for field in ("replay", "contexts", "continuation"))
+                    context = example["contexts"][-1]
+                    public = {**example["public"],
+                              "timeline": example["public"]["timeline"][:context["visibleThrough"]]}
+                    contexts = example["contexts"][:-1]
+                    prefix = validate_v8_prediction_prefix(public, contexts, context)
+                    packet = _native_checkpoint(public["timeline"], prefix["context"])
+                    restored = _restore_native_checkpoint(
+                        packet, expected_prefix=public["timeline"],
+                        expected_state=context["state"], expected_cursor=context["regionCursor"],
+                        expected_obligations=context["obligations"],
+                    )
+                    assert restored == context["state"]
+                    checked += 1
+                    targets += len(example["contexts"])
+                    # Engineering codec only: exercise framing without claiming
+                    # pinned-tokenizer or private source admission.
+                    if filename == "semantic-regions-v8.json.gz.b64" and int(sys.argv[3]) == 0:
+                        _, training = prepare_native_v8_training(example, codec=ByteCodec.byte_fallback())
+                        assert training["maskValidation"]
+                    forged = copy.deepcopy(example)
+                    forged["contexts"][-1]["state"]["completion"] = {"kind":"return", "value":["num", 987654]}
+                    # Rehashing a claimed state cannot replace independent replay.
+                    forged["contexts"][-1]["prefixDigest"] = stable_algorithm_hash(public["timeline"])
+                    try:
+                        validate_v8_artifact(forged)
+                    except (NativeV8Error, ValueError):
+                        pass
+                    else:
+                        raise AssertionError("Forged continuation accepted: " + str(row.get("id")))
+            assert not blocked.intersection(sys.modules)
+            print(json.dumps({"examples":checked, "prediction_contexts":targets,
+                              "source_refused":source_refused}))
+            """
+        )
+        completed = subprocess.run(
+            [
+                sys.executable,
+                "-c",
+                script,
+                str(Path(__file__).parent / "fixtures"),
+                filename,
+                str(case_index),
+            ],
+            capture_output=True,
+            text=True,
+            check=False,
+            timeout=240,
+            env={**os.environ, "PYTHONDONTWRITEBYTECODE": "1"},
+        )
+>       assert completed.returncode == 0, completed.stderr
+E       AssertionError: Traceback (most recent call last):
+E           File "<string>", line 56, in <module>
+E           File "/tmp/issue51-resume.Ws1foQ/consumer/src/megatoken/data/prefix_v8.py", line 74, in validate_v8_prediction_prefix
+E             if len(canonical_semantic_observation([public, contexts, context])) > MAX_PREFIX_BYTES:
+E                    ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+E           File "/tmp/issue51-resume.Ws1foQ/consumer/src/megatoken/controls.py", line 41, in canonical_semantic_observation
+E             ).encode("utf-8")
+E               ^^^^^^^^^^^^^^^
+E         UnicodeEncodeError: 'utf-8' codec can't encode character '\ud800' in position 25338: surrogates not allowed
+E         
+E       assert 1 == 0
+E        +  where 1 = CompletedProcess(args=['/tmp/issue51-resume.Ws1foQ/.venv/bin/python', '-c', '\nimport base64\nimport copy\nimport gzip...\nUnicodeEncodeError: \'utf-8\' codec can\'t encode character \'\\ud800\' in position 25338: surrogates not allowed\n').returncode
+
+tests/test_native_v8_without_legacy.py:160: AssertionError
+_ test_full_native_fixture_replay_and_recovery_without_legacy_wire_imports[semantic-protocol-region-v8:issue51-proxy-revoked-get] _
+
+filename = 'semantic-protocol-region-v8.json.gz.b64', case_index = 132
+source_refused = False
+
+    @pytest.mark.parametrize("filename,case_index,source_refused", fixture_cases())
+    def test_full_native_fixture_replay_and_recovery_without_legacy_wire_imports(
+        filename, case_index, source_refused
+    ):
+        # Every source case gets a fresh interpreter and the same bounded deadline.
+        # Expanding the published population must not consume another case's time
+        # budget or let an earlier import cache conceal a legacy dependency.
+        script = textwrap.dedent(
+            r"""
+            import base64
+            import copy
+            import gzip
+            import importlib.abc
+            import json
+            from pathlib import Path
+            import sys
+    
+            blocked = {
+                "megatoken.data.algorithm_v7",
+                "megatoken.data.detailed_v7",
+                "megatoken.data.detailed_harness_v7",
+                "megatoken.data.detailed_context_v7",
+                "megatoken.data.semantic_harness_v6",
+                "megatoken.data.semantic_contract",
+                "megatoken.data.semantic_contract_v7",
+                "megatoken.data.witness_v6",
+            }
+            class NoLegacyWire(importlib.abc.MetaPathFinder):
+                def find_spec(self, fullname, path=None, target=None):
+                    if fullname in blocked:
+                        raise AssertionError("Legacy wire dependency: " + fullname)
+            sys.meta_path.insert(0, NoLegacyWire())
+            from megatoken.data.native_v8 import (
+                NativeV8Error, _native_checkpoint, _restore_native_checkpoint,
+                prepare_native_v8_training, validate_v8_artifact,
+            )
+            from megatoken.data.prefix_v8 import validate_v8_prediction_prefix
+            from megatoken.data.semantic_json import stable_algorithm_hash
+            from megatoken.generation.codec import ByteCodec
+    
+            directory = Path(sys.argv[1])
+            checked = targets = source_refused = 0
+            for filename in (sys.argv[2],):
+                fixture = json.loads(gzip.decompress(base64.b64decode((directory / filename).read_bytes())))
+                examples = [fixture] if "public" in fixture else fixture.get("examples", fixture.get("cases", []))
+                assert examples, filename
+                for row in (examples[int(sys.argv[3])],):
+                    if row.get("status") == "source-unqualified":
+                        assert filename == "semantic-primitive-conversion-v8.json.gz.b64"
+                        assert "artifact" not in row and row["boundary"] in {
+                            "intrinsic-error-source-metadata", "node24-reference-disagreement"
+                        }
+                        source_refused += 1
+                        continue
+                    example = row.get("artifact", row)
+                    result = validate_v8_artifact(example)
+                    assert result["admitted"] is False
+                    assert all(result["checks"][field] == "passed"
+                               for field in ("replay", "contexts", "continuation"))
+                    context = example["contexts"][-1]
+                    public = {**example["public"],
+                              "timeline": example["public"]["timeline"][:context["visibleThrough"]]}
+                    contexts = example["contexts"][:-1]
+                    prefix = validate_v8_prediction_prefix(public, contexts, context)
+                    packet = _native_checkpoint(public["timeline"], prefix["context"])
+                    restored = _restore_native_checkpoint(
+                        packet, expected_prefix=public["timeline"],
+                        expected_state=context["state"], expected_cursor=context["regionCursor"],
+                        expected_obligations=context["obligations"],
+                    )
+                    assert restored == context["state"]
+                    checked += 1
+                    targets += len(example["contexts"])
+                    # Engineering codec only: exercise framing without claiming
+                    # pinned-tokenizer or private source admission.
+                    if filename == "semantic-regions-v8.json.gz.b64" and int(sys.argv[3]) == 0:
+                        _, training = prepare_native_v8_training(example, codec=ByteCodec.byte_fallback())
+                        assert training["maskValidation"]
+                    forged = copy.deepcopy(example)
+                    forged["contexts"][-1]["state"]["completion"] = {"kind":"return", "value":["num", 987654]}
+                    # Rehashing a claimed state cannot replace independent replay.
+                    forged["contexts"][-1]["prefixDigest"] = stable_algorithm_hash(public["timeline"])
+                    try:
+                        validate_v8_artifact(forged)
+                    except (NativeV8Error, ValueError):
+                        pass
+                    else:
+                        raise AssertionError("Forged continuation accepted: " + str(row.get("id")))
+            assert not blocked.intersection(sys.modules)
+            print(json.dumps({"examples":checked, "prediction_contexts":targets,
+                              "source_refused":source_refused}))
+            """
+        )
+        completed = subprocess.run(
+            [
+                sys.executable,
+                "-c",
+                script,
+                str(Path(__file__).parent / "fixtures"),
+                filename,
+                str(case_index),
+            ],
+            capture_output=True,
+            text=True,
+            check=False,
+            timeout=240,
+            env={**os.environ, "PYTHONDONTWRITEBYTECODE": "1"},
+        )
+>       assert completed.returncode == 0, completed.stderr
+E       AssertionError: Traceback (most recent call last):
+E           File "<string>", line 48, in <module>
+E           File "/tmp/issue51-resume.Ws1foQ/consumer/src/megatoken/data/native_v8.py", line 354, in validate_v8_artifact
+E             final_restored = _replay_shared_state(timeline, contexts, programs, roundtrip=True)
+E                              ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+E           File "/tmp/issue51-resume.Ws1foQ/consumer/src/megatoken/data/native_v8.py", line 1312, in _replay_shared_state
+E             _fail(
+E           File "/tmp/issue51-resume.Ws1foQ/consumer/src/megatoken/data/native_v8.py", line 91, in _fail
+E             raise NativeV8Error(msg)
+E         megatoken.data.native_v8.NativeV8Error: Public continuation differs from independently replayed shared state at 7 fields ['heap']
+E         
+E       assert 1 == 0
+E        +  where 1 = CompletedProcess(args=['/tmp/issue51-resume.Ws1foQ/.venv/bin/python', '-c', '\nimport base64\nimport copy\nimport gzip...ative_v8.NativeV8Error: Public continuation differs from independently replayed shared state at 7 fields [\'heap\']\n').returncode
+
+tests/test_native_v8_without_legacy.py:160: AssertionError
+_ test_full_native_fixture_replay_and_recovery_without_legacy_wire_imports[semantic-protocol-region-v8:issue51-proxy-revoked-set] _
+
+filename = 'semantic-protocol-region-v8.json.gz.b64', case_index = 133
+source_refused = False
+
+    @pytest.mark.parametrize("filename,case_index,source_refused", fixture_cases())
+    def test_full_native_fixture_replay_and_recovery_without_legacy_wire_imports(
+        filename, case_index, source_refused
+    ):
+        # Every source case gets a fresh interpreter and the same bounded deadline.
+        # Expanding the published population must not consume another case's time
+        # budget or let an earlier import cache conceal a legacy dependency.
+        script = textwrap.dedent(
+            r"""
+            import base64
+            import copy
+            import gzip
+            import importlib.abc
+            import json
+            from pathlib import Path
+            import sys
+    
+            blocked = {
+                "megatoken.data.algorithm_v7",
+                "megatoken.data.detailed_v7",
+                "megatoken.data.detailed_harness_v7",
+                "megatoken.data.detailed_context_v7",
+                "megatoken.data.semantic_harness_v6",
+                "megatoken.data.semantic_contract",
+                "megatoken.data.semantic_contract_v7",
+                "megatoken.data.witness_v6",
+            }
+            class NoLegacyWire(importlib.abc.MetaPathFinder):
+                def find_spec(self, fullname, path=None, target=None):
+                    if fullname in blocked:
+                        raise AssertionError("Legacy wire dependency: " + fullname)
+            sys.meta_path.insert(0, NoLegacyWire())
+            from megatoken.data.native_v8 import (
+                NativeV8Error, _native_checkpoint, _restore_native_checkpoint,
+                prepare_native_v8_training, validate_v8_artifact,
+            )
+            from megatoken.data.prefix_v8 import validate_v8_prediction_prefix
+            from megatoken.data.semantic_json import stable_algorithm_hash
+            from megatoken.generation.codec import ByteCodec
+    
+            directory = Path(sys.argv[1])
+            checked = targets = source_refused = 0
+            for filename in (sys.argv[2],):
+                fixture = json.loads(gzip.decompress(base64.b64decode((directory / filename).read_bytes())))
+                examples = [fixture] if "public" in fixture else fixture.get("examples", fixture.get("cases", []))
+                assert examples, filename
+                for row in (examples[int(sys.argv[3])],):
+                    if row.get("status") == "source-unqualified":
+                        assert filename == "semantic-primitive-conversion-v8.json.gz.b64"
+                        assert "artifact" not in row and row["boundary"] in {
+                            "intrinsic-error-source-metadata", "node24-reference-disagreement"
+                        }
+                        source_refused += 1
+                        continue
+                    example = row.get("artifact", row)
+                    result = validate_v8_artifact(example)
+                    assert result["admitted"] is False
+                    assert all(result["checks"][field] == "passed"
+                               for field in ("replay", "contexts", "continuation"))
+                    context = example["contexts"][-1]
+                    public = {**example["public"],
+                              "timeline": example["public"]["timeline"][:context["visibleThrough"]]}
+                    contexts = example["contexts"][:-1]
+                    prefix = validate_v8_prediction_prefix(public, contexts, context)
+                    packet = _native_checkpoint(public["timeline"], prefix["context"])
+                    restored = _restore_native_checkpoint(
+                        packet, expected_prefix=public["timeline"],
+                        expected_state=context["state"], expected_cursor=context["regionCursor"],
+                        expected_obligations=context["obligations"],
+                    )
+                    assert restored == context["state"]
+                    checked += 1
+                    targets += len(example["contexts"])
+                    # Engineering codec only: exercise framing without claiming
+                    # pinned-tokenizer or private source admission.
+                    if filename == "semantic-regions-v8.json.gz.b64" and int(sys.argv[3]) == 0:
+                        _, training = prepare_native_v8_training(example, codec=ByteCodec.byte_fallback())
+                        assert training["maskValidation"]
+                    forged = copy.deepcopy(example)
+                    forged["contexts"][-1]["state"]["completion"] = {"kind":"return", "value":["num", 987654]}
+                    # Rehashing a claimed state cannot replace independent replay.
+                    forged["contexts"][-1]["prefixDigest"] = stable_algorithm_hash(public["timeline"])
+                    try:
+                        validate_v8_artifact(forged)
+                    except (NativeV8Error, ValueError):
+                        pass
+                    else:
+                        raise AssertionError("Forged continuation accepted: " + str(row.get("id")))
+            assert not blocked.intersection(sys.modules)
+            print(json.dumps({"examples":checked, "prediction_contexts":targets,
+                              "source_refused":source_refused}))
+            """
+        )
+        completed = subprocess.run(
+            [
+                sys.executable,
+                "-c",
+                script,
+                str(Path(__file__).parent / "fixtures"),
+                filename,
+                str(case_index),
+            ],
+            capture_output=True,
+            text=True,
+            check=False,
+            timeout=240,
+            env={**os.environ, "PYTHONDONTWRITEBYTECODE": "1"},
+        )
+>       assert completed.returncode == 0, completed.stderr
+E       AssertionError: Traceback (most recent call last):
+E           File "<string>", line 48, in <module>
+E           File "/tmp/issue51-resume.Ws1foQ/consumer/src/megatoken/data/native_v8.py", line 354, in validate_v8_artifact
+E             final_restored = _replay_shared_state(timeline, contexts, programs, roundtrip=True)
+E                              ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+E           File "/tmp/issue51-resume.Ws1foQ/consumer/src/megatoken/data/native_v8.py", line 1312, in _replay_shared_state
+E             _fail(
+E           File "/tmp/issue51-resume.Ws1foQ/consumer/src/megatoken/data/native_v8.py", line 91, in _fail
+E             raise NativeV8Error(msg)
+E         megatoken.data.native_v8.NativeV8Error: Public continuation differs from independently replayed shared state at 7 fields ['heap']
+E         
+E       assert 1 == 0
+E        +  where 1 = CompletedProcess(args=['/tmp/issue51-resume.Ws1foQ/.venv/bin/python', '-c', '\nimport base64\nimport copy\nimport gzip...ative_v8.NativeV8Error: Public continuation differs from independently replayed shared state at 7 fields [\'heap\']\n').returncode
+
+tests/test_native_v8_without_legacy.py:160: AssertionError
+_ test_full_native_fixture_replay_and_recovery_without_legacy_wire_imports[semantic-protocol-region-v8:issue51-proxy-revoked-has] _
+
+filename = 'semantic-protocol-region-v8.json.gz.b64', case_index = 134
+source_refused = False
+
+    @pytest.mark.parametrize("filename,case_index,source_refused", fixture_cases())
+    def test_full_native_fixture_replay_and_recovery_without_legacy_wire_imports(
+        filename, case_index, source_refused
+    ):
+        # Every source case gets a fresh interpreter and the same bounded deadline.
+        # Expanding the published population must not consume another case's time
+        # budget or let an earlier import cache conceal a legacy dependency.
+        script = textwrap.dedent(
+            r"""
+            import base64
+            import copy
+            import gzip
+            import importlib.abc
+            import json
+            from pathlib import Path
+            import sys
+    
+            blocked = {
+                "megatoken.data.algorithm_v7",
+                "megatoken.data.detailed_v7",
+                "megatoken.data.detailed_harness_v7",
+                "megatoken.data.detailed_context_v7",
+                "megatoken.data.semantic_harness_v6",
+                "megatoken.data.semantic_contract",
+                "megatoken.data.semantic_contract_v7",
+                "megatoken.data.witness_v6",
+            }
+            class NoLegacyWire(importlib.abc.MetaPathFinder):
+                def find_spec(self, fullname, path=None, target=None):
+                    if fullname in blocked:
+                        raise AssertionError("Legacy wire dependency: " + fullname)
+            sys.meta_path.insert(0, NoLegacyWire())
+            from megatoken.data.native_v8 import (
+                NativeV8Error, _native_checkpoint, _restore_native_checkpoint,
+                prepare_native_v8_training, validate_v8_artifact,
+            )
+            from megatoken.data.prefix_v8 import validate_v8_prediction_prefix
+            from megatoken.data.semantic_json import stable_algorithm_hash
+            from megatoken.generation.codec import ByteCodec
+    
+            directory = Path(sys.argv[1])
+            checked = targets = source_refused = 0
+            for filename in (sys.argv[2],):
+                fixture = json.loads(gzip.decompress(base64.b64decode((directory / filename).read_bytes())))
+                examples = [fixture] if "public" in fixture else fixture.get("examples", fixture.get("cases", []))
+                assert examples, filename
+                for row in (examples[int(sys.argv[3])],):
+                    if row.get("status") == "source-unqualified":
+                        assert filename == "semantic-primitive-conversion-v8.json.gz.b64"
+                        assert "artifact" not in row and row["boundary"] in {
+                            "intrinsic-error-source-metadata", "node24-reference-disagreement"
+                        }
+                        source_refused += 1
+                        continue
+                    example = row.get("artifact", row)
+                    result = validate_v8_artifact(example)
+                    assert result["admitted"] is False
+                    assert all(result["checks"][field] == "passed"
+                               for field in ("replay", "contexts", "continuation"))
+                    context = example["contexts"][-1]
+                    public = {**example["public"],
+                              "timeline": example["public"]["timeline"][:context["visibleThrough"]]}
+                    contexts = example["contexts"][:-1]
+                    prefix = validate_v8_prediction_prefix(public, contexts, context)
+                    packet = _native_checkpoint(public["timeline"], prefix["context"])
+                    restored = _restore_native_checkpoint(
+                        packet, expected_prefix=public["timeline"],
+                        expected_state=context["state"], expected_cursor=context["regionCursor"],
+                        expected_obligations=context["obligations"],
+                    )
+                    assert restored == context["state"]
+                    checked += 1
+                    targets += len(example["contexts"])
+                    # Engineering codec only: exercise framing without claiming
+                    # pinned-tokenizer or private source admission.
+                    if filename == "semantic-regions-v8.json.gz.b64" and int(sys.argv[3]) == 0:
+                        _, training = prepare_native_v8_training(example, codec=ByteCodec.byte_fallback())
+                        assert training["maskValidation"]
+                    forged = copy.deepcopy(example)
+                    forged["contexts"][-1]["state"]["completion"] = {"kind":"return", "value":["num", 987654]}
+                    # Rehashing a claimed state cannot replace independent replay.
+                    forged["contexts"][-1]["prefixDigest"] = stable_algorithm_hash(public["timeline"])
+                    try:
+                        validate_v8_artifact(forged)
+                    except (NativeV8Error, ValueError):
+                        pass
+                    else:
+                        raise AssertionError("Forged continuation accepted: " + str(row.get("id")))
+            assert not blocked.intersection(sys.modules)
+            print(json.dumps({"examples":checked, "prediction_contexts":targets,
+                              "source_refused":source_refused}))
+            """
+        )
+        completed = subprocess.run(
+            [
+                sys.executable,
+                "-c",
+                script,
+                str(Path(__file__).parent / "fixtures"),
+                filename,
+                str(case_index),
+            ],
+            capture_output=True,
+            text=True,
+            check=False,
+            timeout=240,
+            env={**os.environ, "PYTHONDONTWRITEBYTECODE": "1"},
+        )
+>       assert completed.returncode == 0, completed.stderr
+E       AssertionError: Traceback (most recent call last):
+E           File "<string>", line 48, in <module>
+E           File "/tmp/issue51-resume.Ws1foQ/consumer/src/megatoken/data/native_v8.py", line 354, in validate_v8_artifact
+E             final_restored = _replay_shared_state(timeline, contexts, programs, roundtrip=True)
+E                              ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+E           File "/tmp/issue51-resume.Ws1foQ/consumer/src/megatoken/data/native_v8.py", line 1312, in _replay_shared_state
+E             _fail(
+E           File "/tmp/issue51-resume.Ws1foQ/consumer/src/megatoken/data/native_v8.py", line 91, in _fail
+E             raise NativeV8Error(msg)
+E         megatoken.data.native_v8.NativeV8Error: Public continuation differs from independently replayed shared state at 7 fields ['heap']
+E         
+E       assert 1 == 0
+E        +  where 1 = CompletedProcess(args=['/tmp/issue51-resume.Ws1foQ/.venv/bin/python', '-c', '\nimport base64\nimport copy\nimport gzip...ative_v8.NativeV8Error: Public continuation differs from independently replayed shared state at 7 fields [\'heap\']\n').returncode
+
+tests/test_native_v8_without_legacy.py:160: AssertionError
+_ test_full_native_fixture_replay_and_recovery_without_legacy_wire_imports[semantic-protocol-region-v8:issue51-proxy-revoked-deleteProperty] _
+
+filename = 'semantic-protocol-region-v8.json.gz.b64', case_index = 135
+source_refused = False
+
+    @pytest.mark.parametrize("filename,case_index,source_refused", fixture_cases())
+    def test_full_native_fixture_replay_and_recovery_without_legacy_wire_imports(
+        filename, case_index, source_refused
+    ):
+        # Every source case gets a fresh interpreter and the same bounded deadline.
+        # Expanding the published population must not consume another case's time
+        # budget or let an earlier import cache conceal a legacy dependency.
+        script = textwrap.dedent(
+            r"""
+            import base64
+            import copy
+            import gzip
+            import importlib.abc
+            import json
+            from pathlib import Path
+            import sys
+    
+            blocked = {
+                "megatoken.data.algorithm_v7",
+                "megatoken.data.detailed_v7",
+                "megatoken.data.detailed_harness_v7",
+                "megatoken.data.detailed_context_v7",
+                "megatoken.data.semantic_harness_v6",
+                "megatoken.data.semantic_contract",
+                "megatoken.data.semantic_contract_v7",
+                "megatoken.data.witness_v6",
+            }
+            class NoLegacyWire(importlib.abc.MetaPathFinder):
+                def find_spec(self, fullname, path=None, target=None):
+                    if fullname in blocked:
+                        raise AssertionError("Legacy wire dependency: " + fullname)
+            sys.meta_path.insert(0, NoLegacyWire())
+            from megatoken.data.native_v8 import (
+                NativeV8Error, _native_checkpoint, _restore_native_checkpoint,
+                prepare_native_v8_training, validate_v8_artifact,
+            )
+            from megatoken.data.prefix_v8 import validate_v8_prediction_prefix
+            from megatoken.data.semantic_json import stable_algorithm_hash
+            from megatoken.generation.codec import ByteCodec
+    
+            directory = Path(sys.argv[1])
+            checked = targets = source_refused = 0
+            for filename in (sys.argv[2],):
+                fixture = json.loads(gzip.decompress(base64.b64decode((directory / filename).read_bytes())))
+                examples = [fixture] if "public" in fixture else fixture.get("examples", fixture.get("cases", []))
+                assert examples, filename
+                for row in (examples[int(sys.argv[3])],):
+                    if row.get("status") == "source-unqualified":
+                        assert filename == "semantic-primitive-conversion-v8.json.gz.b64"
+                        assert "artifact" not in row and row["boundary"] in {
+                            "intrinsic-error-source-metadata", "node24-reference-disagreement"
+                        }
+                        source_refused += 1
+                        continue
+                    example = row.get("artifact", row)
+                    result = validate_v8_artifact(example)
+                    assert result["admitted"] is False
+                    assert all(result["checks"][field] == "passed"
+                               for field in ("replay", "contexts", "continuation"))
+                    context = example["contexts"][-1]
+                    public = {**example["public"],
+                              "timeline": example["public"]["timeline"][:context["visibleThrough"]]}
+                    contexts = example["contexts"][:-1]
+                    prefix = validate_v8_prediction_prefix(public, contexts, context)
+                    packet = _native_checkpoint(public["timeline"], prefix["context"])
+                    restored = _restore_native_checkpoint(
+                        packet, expected_prefix=public["timeline"],
+                        expected_state=context["state"], expected_cursor=context["regionCursor"],
+                        expected_obligations=context["obligations"],
+                    )
+                    assert restored == context["state"]
+                    checked += 1
+                    targets += len(example["contexts"])
+                    # Engineering codec only: exercise framing without claiming
+                    # pinned-tokenizer or private source admission.
+                    if filename == "semantic-regions-v8.json.gz.b64" and int(sys.argv[3]) == 0:
+                        _, training = prepare_native_v8_training(example, codec=ByteCodec.byte_fallback())
+                        assert training["maskValidation"]
+                    forged = copy.deepcopy(example)
+                    forged["contexts"][-1]["state"]["completion"] = {"kind":"return", "value":["num", 987654]}
+                    # Rehashing a claimed state cannot replace independent replay.
+                    forged["contexts"][-1]["prefixDigest"] = stable_algorithm_hash(public["timeline"])
+                    try:
+                        validate_v8_artifact(forged)
+                    except (NativeV8Error, ValueError):
+                        pass
+                    else:
+                        raise AssertionError("Forged continuation accepted: " + str(row.get("id")))
+            assert not blocked.intersection(sys.modules)
+            print(json.dumps({"examples":checked, "prediction_contexts":targets,
+                              "source_refused":source_refused}))
+            """
+        )
+        completed = subprocess.run(
+            [
+                sys.executable,
+                "-c",
+                script,
+                str(Path(__file__).parent / "fixtures"),
+                filename,
+                str(case_index),
+            ],
+            capture_output=True,
+            text=True,
+            check=False,
+            timeout=240,
+            env={**os.environ, "PYTHONDONTWRITEBYTECODE": "1"},
+        )
+>       assert completed.returncode == 0, completed.stderr
+E       AssertionError: Traceback (most recent call last):
+E           File "<string>", line 48, in <module>
+E           File "/tmp/issue51-resume.Ws1foQ/consumer/src/megatoken/data/native_v8.py", line 354, in validate_v8_artifact
+E             final_restored = _replay_shared_state(timeline, contexts, programs, roundtrip=True)
+E                              ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+E           File "/tmp/issue51-resume.Ws1foQ/consumer/src/megatoken/data/native_v8.py", line 1312, in _replay_shared_state
+E             _fail(
+E           File "/tmp/issue51-resume.Ws1foQ/consumer/src/megatoken/data/native_v8.py", line 91, in _fail
+E             raise NativeV8Error(msg)
+E         megatoken.data.native_v8.NativeV8Error: Public continuation differs from independently replayed shared state at 7 fields ['heap']
+E         
+E       assert 1 == 0
+E        +  where 1 = CompletedProcess(args=['/tmp/issue51-resume.Ws1foQ/.venv/bin/python', '-c', '\nimport base64\nimport copy\nimport gzip...ative_v8.NativeV8Error: Public continuation differs from independently replayed shared state at 7 fields [\'heap\']\n').returncode
+
+tests/test_native_v8_without_legacy.py:160: AssertionError
+_ test_full_native_fixture_replay_and_recovery_without_legacy_wire_imports[semantic-protocol-region-v8:issue51-proxy-getmethod-revocation] _
+
+filename = 'semantic-protocol-region-v8.json.gz.b64', case_index = 138
+source_refused = False
+
+    @pytest.mark.parametrize("filename,case_index,source_refused", fixture_cases())
+    def test_full_native_fixture_replay_and_recovery_without_legacy_wire_imports(
+        filename, case_index, source_refused
+    ):
+        # Every source case gets a fresh interpreter and the same bounded deadline.
+        # Expanding the published population must not consume another case's time
+        # budget or let an earlier import cache conceal a legacy dependency.
+        script = textwrap.dedent(
+            r"""
+            import base64
+            import copy
+            import gzip
+            import importlib.abc
+            import json
+            from pathlib import Path
+            import sys
+    
+            blocked = {
+                "megatoken.data.algorithm_v7",
+                "megatoken.data.detailed_v7",
+                "megatoken.data.detailed_harness_v7",
+                "megatoken.data.detailed_context_v7",
+                "megatoken.data.semantic_harness_v6",
+                "megatoken.data.semantic_contract",
+                "megatoken.data.semantic_contract_v7",
+                "megatoken.data.witness_v6",
+            }
+            class NoLegacyWire(importlib.abc.MetaPathFinder):
+                def find_spec(self, fullname, path=None, target=None):
+                    if fullname in blocked:
+                        raise AssertionError("Legacy wire dependency: " + fullname)
+            sys.meta_path.insert(0, NoLegacyWire())
+            from megatoken.data.native_v8 import (
+                NativeV8Error, _native_checkpoint, _restore_native_checkpoint,
+                prepare_native_v8_training, validate_v8_artifact,
+            )
+            from megatoken.data.prefix_v8 import validate_v8_prediction_prefix
+            from megatoken.data.semantic_json import stable_algorithm_hash
+            from megatoken.generation.codec import ByteCodec
+    
+            directory = Path(sys.argv[1])
+            checked = targets = source_refused = 0
+            for filename in (sys.argv[2],):
+                fixture = json.loads(gzip.decompress(base64.b64decode((directory / filename).read_bytes())))
+                examples = [fixture] if "public" in fixture else fixture.get("examples", fixture.get("cases", []))
+                assert examples, filename
+                for row in (examples[int(sys.argv[3])],):
+                    if row.get("status") == "source-unqualified":
+                        assert filename == "semantic-primitive-conversion-v8.json.gz.b64"
+                        assert "artifact" not in row and row["boundary"] in {
+                            "intrinsic-error-source-metadata", "node24-reference-disagreement"
+                        }
+                        source_refused += 1
+                        continue
+                    example = row.get("artifact", row)
+                    result = validate_v8_artifact(example)
+                    assert result["admitted"] is False
+                    assert all(result["checks"][field] == "passed"
+                               for field in ("replay", "contexts", "continuation"))
+                    context = example["contexts"][-1]
+                    public = {**example["public"],
+                              "timeline": example["public"]["timeline"][:context["visibleThrough"]]}
+                    contexts = example["contexts"][:-1]
+                    prefix = validate_v8_prediction_prefix(public, contexts, context)
+                    packet = _native_checkpoint(public["timeline"], prefix["context"])
+                    restored = _restore_native_checkpoint(
+                        packet, expected_prefix=public["timeline"],
+                        expected_state=context["state"], expected_cursor=context["regionCursor"],
+                        expected_obligations=context["obligations"],
+                    )
+                    assert restored == context["state"]
+                    checked += 1
+                    targets += len(example["contexts"])
+                    # Engineering codec only: exercise framing without claiming
+                    # pinned-tokenizer or private source admission.
+                    if filename == "semantic-regions-v8.json.gz.b64" and int(sys.argv[3]) == 0:
+                        _, training = prepare_native_v8_training(example, codec=ByteCodec.byte_fallback())
+                        assert training["maskValidation"]
+                    forged = copy.deepcopy(example)
+                    forged["contexts"][-1]["state"]["completion"] = {"kind":"return", "value":["num", 987654]}
+                    # Rehashing a claimed state cannot replace independent replay.
+                    forged["contexts"][-1]["prefixDigest"] = stable_algorithm_hash(public["timeline"])
+                    try:
+                        validate_v8_artifact(forged)
+                    except (NativeV8Error, ValueError):
+                        pass
+                    else:
+                        raise AssertionError("Forged continuation accepted: " + str(row.get("id")))
+            assert not blocked.intersection(sys.modules)
+            print(json.dumps({"examples":checked, "prediction_contexts":targets,
+                              "source_refused":source_refused}))
+            """
+        )
+        completed = subprocess.run(
+            [
+                sys.executable,
+                "-c",
+                script,
+                str(Path(__file__).parent / "fixtures"),
+                filename,
+                str(case_index),
+            ],
+            capture_output=True,
+            text=True,
+            check=False,
+            timeout=240,
+            env={**os.environ, "PYTHONDONTWRITEBYTECODE": "1"},
+        )
+>       assert completed.returncode == 0, completed.stderr
+E       AssertionError: Traceback (most recent call last):
+E           File "<string>", line 48, in <module>
+E           File "/tmp/issue51-resume.Ws1foQ/consumer/src/megatoken/data/native_v8.py", line 354, in validate_v8_artifact
+E             final_restored = _replay_shared_state(timeline, contexts, programs, roundtrip=True)
+E                              ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+E           File "/tmp/issue51-resume.Ws1foQ/consumer/src/megatoken/data/native_v8.py", line 1312, in _replay_shared_state
+E             _fail(
+E           File "/tmp/issue51-resume.Ws1foQ/consumer/src/megatoken/data/native_v8.py", line 91, in _fail
+E             raise NativeV8Error(msg)
+E         megatoken.data.native_v8.NativeV8Error: Public continuation differs from independently replayed shared state at 12 fields ['heap']
+E         
+E       assert 1 == 0
+E        +  where 1 = CompletedProcess(args=['/tmp/issue51-resume.Ws1foQ/.venv/bin/python', '-c', '\nimport base64\nimport copy\nimport gzip...tive_v8.NativeV8Error: Public continuation differs from independently replayed shared state at 12 fields [\'heap\']\n').returncode
+
+tests/test_native_v8_without_legacy.py:160: AssertionError
+_ test_full_native_fixture_replay_and_recovery_without_legacy_wire_imports[semantic-protocol-region-v8:issue51-proxy-getmethod-nullish-after-revocation] _
+
+filename = 'semantic-protocol-region-v8.json.gz.b64', case_index = 139
+source_refused = False
+
+    @pytest.mark.parametrize("filename,case_index,source_refused", fixture_cases())
+    def test_full_native_fixture_replay_and_recovery_without_legacy_wire_imports(
+        filename, case_index, source_refused
+    ):
+        # Every source case gets a fresh interpreter and the same bounded deadline.
+        # Expanding the published population must not consume another case's time
+        # budget or let an earlier import cache conceal a legacy dependency.
+        script = textwrap.dedent(
+            r"""
+            import base64
+            import copy
+            import gzip
+            import importlib.abc
+            import json
+            from pathlib import Path
+            import sys
+    
+            blocked = {
+                "megatoken.data.algorithm_v7",
+                "megatoken.data.detailed_v7",
+                "megatoken.data.detailed_harness_v7",
+                "megatoken.data.detailed_context_v7",
+                "megatoken.data.semantic_harness_v6",
+                "megatoken.data.semantic_contract",
+                "megatoken.data.semantic_contract_v7",
+                "megatoken.data.witness_v6",
+            }
+            class NoLegacyWire(importlib.abc.MetaPathFinder):
+                def find_spec(self, fullname, path=None, target=None):
+                    if fullname in blocked:
+                        raise AssertionError("Legacy wire dependency: " + fullname)
+            sys.meta_path.insert(0, NoLegacyWire())
+            from megatoken.data.native_v8 import (
+                NativeV8Error, _native_checkpoint, _restore_native_checkpoint,
+                prepare_native_v8_training, validate_v8_artifact,
+            )
+            from megatoken.data.prefix_v8 import validate_v8_prediction_prefix
+            from megatoken.data.semantic_json import stable_algorithm_hash
+            from megatoken.generation.codec import ByteCodec
+    
+            directory = Path(sys.argv[1])
+            checked = targets = source_refused = 0
+            for filename in (sys.argv[2],):
+                fixture = json.loads(gzip.decompress(base64.b64decode((directory / filename).read_bytes())))
+                examples = [fixture] if "public" in fixture else fixture.get("examples", fixture.get("cases", []))
+                assert examples, filename
+                for row in (examples[int(sys.argv[3])],):
+                    if row.get("status") == "source-unqualified":
+                        assert filename == "semantic-primitive-conversion-v8.json.gz.b64"
+                        assert "artifact" not in row and row["boundary"] in {
+                            "intrinsic-error-source-metadata", "node24-reference-disagreement"
+                        }
+                        source_refused += 1
+                        continue
+                    example = row.get("artifact", row)
+                    result = validate_v8_artifact(example)
+                    assert result["admitted"] is False
+                    assert all(result["checks"][field] == "passed"
+                               for field in ("replay", "contexts", "continuation"))
+                    context = example["contexts"][-1]
+                    public = {**example["public"],
+                              "timeline": example["public"]["timeline"][:context["visibleThrough"]]}
+                    contexts = example["contexts"][:-1]
+                    prefix = validate_v8_prediction_prefix(public, contexts, context)
+                    packet = _native_checkpoint(public["timeline"], prefix["context"])
+                    restored = _restore_native_checkpoint(
+                        packet, expected_prefix=public["timeline"],
+                        expected_state=context["state"], expected_cursor=context["regionCursor"],
+                        expected_obligations=context["obligations"],
+                    )
+                    assert restored == context["state"]
+                    checked += 1
+                    targets += len(example["contexts"])
+                    # Engineering codec only: exercise framing without claiming
+                    # pinned-tokenizer or private source admission.
+                    if filename == "semantic-regions-v8.json.gz.b64" and int(sys.argv[3]) == 0:
+                        _, training = prepare_native_v8_training(example, codec=ByteCodec.byte_fallback())
+                        assert training["maskValidation"]
+                    forged = copy.deepcopy(example)
+                    forged["contexts"][-1]["state"]["completion"] = {"kind":"return", "value":["num", 987654]}
+                    # Rehashing a claimed state cannot replace independent replay.
+                    forged["contexts"][-1]["prefixDigest"] = stable_algorithm_hash(public["timeline"])
+                    try:
+                        validate_v8_artifact(forged)
+                    except (NativeV8Error, ValueError):
+                        pass
+                    else:
+                        raise AssertionError("Forged continuation accepted: " + str(row.get("id")))
+            assert not blocked.intersection(sys.modules)
+            print(json.dumps({"examples":checked, "prediction_contexts":targets,
+                              "source_refused":source_refused}))
+            """
+        )
+        completed = subprocess.run(
+            [
+                sys.executable,
+                "-c",
+                script,
+                str(Path(__file__).parent / "fixtures"),
+                filename,
+                str(case_index),
+            ],
+            capture_output=True,
+            text=True,
+            check=False,
+            timeout=240,
+            env={**os.environ, "PYTHONDONTWRITEBYTECODE": "1"},
+        )
+>       assert completed.returncode == 0, completed.stderr
+E       AssertionError: Traceback (most recent call last):
+E           File "<string>", line 48, in <module>
+E           File "/tmp/issue51-resume.Ws1foQ/consumer/src/megatoken/data/native_v8.py", line 354, in validate_v8_artifact
+E             final_restored = _replay_shared_state(timeline, contexts, programs, roundtrip=True)
+E                              ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+E           File "/tmp/issue51-resume.Ws1foQ/consumer/src/megatoken/data/native_v8.py", line 1312, in _replay_shared_state
+E             _fail(
+E           File "/tmp/issue51-resume.Ws1foQ/consumer/src/megatoken/data/native_v8.py", line 91, in _fail
+E             raise NativeV8Error(msg)
+E         megatoken.data.native_v8.NativeV8Error: Public continuation differs from independently replayed shared state at 12 fields ['heap']
+E         
+E       assert 1 == 0
+E        +  where 1 = CompletedProcess(args=['/tmp/issue51-resume.Ws1foQ/.venv/bin/python', '-c', '\nimport base64\nimport copy\nimport gzip...tive_v8.NativeV8Error: Public continuation differs from independently replayed shared state at 12 fields [\'heap\']\n').returncode
+
+tests/test_native_v8_without_legacy.py:160: AssertionError
+_ test_full_native_fixture_replay_and_recovery_without_legacy_wire_imports[semantic-protocol-region-v8:issue51-proxy-revocable-revoke-idempotent] _
+
+filename = 'semantic-protocol-region-v8.json.gz.b64', case_index = 141
+source_refused = False
+
+    @pytest.mark.parametrize("filename,case_index,source_refused", fixture_cases())
+    def test_full_native_fixture_replay_and_recovery_without_legacy_wire_imports(
+        filename, case_index, source_refused
+    ):
+        # Every source case gets a fresh interpreter and the same bounded deadline.
+        # Expanding the published population must not consume another case's time
+        # budget or let an earlier import cache conceal a legacy dependency.
+        script = textwrap.dedent(
+            r"""
+            import base64
+            import copy
+            import gzip
+            import importlib.abc
+            import json
+            from pathlib import Path
+            import sys
+    
+            blocked = {
+                "megatoken.data.algorithm_v7",
+                "megatoken.data.detailed_v7",
+                "megatoken.data.detailed_harness_v7",
+                "megatoken.data.detailed_context_v7",
+                "megatoken.data.semantic_harness_v6",
+                "megatoken.data.semantic_contract",
+                "megatoken.data.semantic_contract_v7",
+                "megatoken.data.witness_v6",
+            }
+            class NoLegacyWire(importlib.abc.MetaPathFinder):
+                def find_spec(self, fullname, path=None, target=None):
+                    if fullname in blocked:
+                        raise AssertionError("Legacy wire dependency: " + fullname)
+            sys.meta_path.insert(0, NoLegacyWire())
+            from megatoken.data.native_v8 import (
+                NativeV8Error, _native_checkpoint, _restore_native_checkpoint,
+                prepare_native_v8_training, validate_v8_artifact,
+            )
+            from megatoken.data.prefix_v8 import validate_v8_prediction_prefix
+            from megatoken.data.semantic_json import stable_algorithm_hash
+            from megatoken.generation.codec import ByteCodec
+    
+            directory = Path(sys.argv[1])
+            checked = targets = source_refused = 0
+            for filename in (sys.argv[2],):
+                fixture = json.loads(gzip.decompress(base64.b64decode((directory / filename).read_bytes())))
+                examples = [fixture] if "public" in fixture else fixture.get("examples", fixture.get("cases", []))
+                assert examples, filename
+                for row in (examples[int(sys.argv[3])],):
+                    if row.get("status") == "source-unqualified":
+                        assert filename == "semantic-primitive-conversion-v8.json.gz.b64"
+                        assert "artifact" not in row and row["boundary"] in {
+                            "intrinsic-error-source-metadata", "node24-reference-disagreement"
+                        }
+                        source_refused += 1
+                        continue
+                    example = row.get("artifact", row)
+                    result = validate_v8_artifact(example)
+                    assert result["admitted"] is False
+                    assert all(result["checks"][field] == "passed"
+                               for field in ("replay", "contexts", "continuation"))
+                    context = example["contexts"][-1]
+                    public = {**example["public"],
+                              "timeline": example["public"]["timeline"][:context["visibleThrough"]]}
+                    contexts = example["contexts"][:-1]
+                    prefix = validate_v8_prediction_prefix(public, contexts, context)
+                    packet = _native_checkpoint(public["timeline"], prefix["context"])
+                    restored = _restore_native_checkpoint(
+                        packet, expected_prefix=public["timeline"],
+                        expected_state=context["state"], expected_cursor=context["regionCursor"],
+                        expected_obligations=context["obligations"],
+                    )
+                    assert restored == context["state"]
+                    checked += 1
+                    targets += len(example["contexts"])
+                    # Engineering codec only: exercise framing without claiming
+                    # pinned-tokenizer or private source admission.
+                    if filename == "semantic-regions-v8.json.gz.b64" and int(sys.argv[3]) == 0:
+                        _, training = prepare_native_v8_training(example, codec=ByteCodec.byte_fallback())
+                        assert training["maskValidation"]
+                    forged = copy.deepcopy(example)
+                    forged["contexts"][-1]["state"]["completion"] = {"kind":"return", "value":["num", 987654]}
+                    # Rehashing a claimed state cannot replace independent replay.
+                    forged["contexts"][-1]["prefixDigest"] = stable_algorithm_hash(public["timeline"])
+                    try:
+                        validate_v8_artifact(forged)
+                    except (NativeV8Error, ValueError):
+                        pass
+                    else:
+                        raise AssertionError("Forged continuation accepted: " + str(row.get("id")))
+            assert not blocked.intersection(sys.modules)
+            print(json.dumps({"examples":checked, "prediction_contexts":targets,
+                              "source_refused":source_refused}))
+            """
+        )
+        completed = subprocess.run(
+            [
+                sys.executable,
+                "-c",
+                script,
+                str(Path(__file__).parent / "fixtures"),
+                filename,
+                str(case_index),
+            ],
+            capture_output=True,
+            text=True,
+            check=False,
+            timeout=240,
+            env={**os.environ, "PYTHONDONTWRITEBYTECODE": "1"},
+        )
+>       assert completed.returncode == 0, completed.stderr
+E       AssertionError: Traceback (most recent call last):
+E           File "<string>", line 48, in <module>
+E           File "/tmp/issue51-resume.Ws1foQ/consumer/src/megatoken/data/native_v8.py", line 354, in validate_v8_artifact
+E             final_restored = _replay_shared_state(timeline, contexts, programs, roundtrip=True)
+E                              ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+E           File "/tmp/issue51-resume.Ws1foQ/consumer/src/megatoken/data/native_v8.py", line 1312, in _replay_shared_state
+E             _fail(
+E           File "/tmp/issue51-resume.Ws1foQ/consumer/src/megatoken/data/native_v8.py", line 91, in _fail
+E             raise NativeV8Error(msg)
+E         megatoken.data.native_v8.NativeV8Error: Public continuation differs from independently replayed shared state at 7 fields ['heap']
+E         
+E       assert 1 == 0
+E        +  where 1 = CompletedProcess(args=['/tmp/issue51-resume.Ws1foQ/.venv/bin/python', '-c', '\nimport base64\nimport copy\nimport gzip...ative_v8.NativeV8Error: Public continuation differs from independently replayed shared state at 7 fields [\'heap\']\n').returncode
+
+tests/test_native_v8_without_legacy.py:160: AssertionError
+=========================== short test summary info ============================
+FAILED tests/test_primitive_conversion_v8.py::PrimitiveConversionTests::test_intrinsic_fault_causes_are_derived_allocation_is_atomic_and_error_is_mutable
+FAILED tests/test_primitive_conversion_source_v8.py::test_native_source_artifact_replay_and_every_checkpoint[promise-key]
+FAILED tests/test_protocol_v8.py::ProtocolV8NativeReplayTests::test_source_qualified_protocol_region_public_golden_replays_and_continues
+FAILED tests/test_promise_executor_boundaries_v8.py::PromiseExecutorTests::test_executor_inside_reaction_preserves_job_and_nested_helper_scope
+FAILED tests/test_prediction_prefix_v8.py::PredictionPrefixV8Tests::test_retained_prediction_boundaries_need_no_future_target
+FAILED tests/test_enumeration_v8.py::EnumerationV8Tests::test_source_golden_replays_every_context_and_matches_the_contract
+FAILED tests/test_native_v8_without_legacy.py::test_full_native_fixture_replay_and_recovery_without_legacy_wire_imports[semantic-protocol-region-v8:issue51-derived-this-before-super-reference-error]
+FAILED tests/test_native_v8_without_legacy.py::test_full_native_fixture_replay_and_recovery_without_legacy_wire_imports[semantic-protocol-region-v8:issue51-derived-this-captured-arrow-before-super-reference-error]
+FAILED tests/test_native_v8_without_legacy.py::test_full_native_fixture_replay_and_recovery_without_legacy_wire_imports[semantic-protocol-region-v8:issue51-string-spread-code-points-and-holes]
+FAILED tests/test_native_v8_without_legacy.py::test_full_native_fixture_replay_and_recovery_without_legacy_wire_imports[semantic-protocol-region-v8:issue51-proxy-revoked-get]
+FAILED tests/test_native_v8_without_legacy.py::test_full_native_fixture_replay_and_recovery_without_legacy_wire_imports[semantic-protocol-region-v8:issue51-proxy-revoked-set]
+FAILED tests/test_native_v8_without_legacy.py::test_full_native_fixture_replay_and_recovery_without_legacy_wire_imports[semantic-protocol-region-v8:issue51-proxy-revoked-has]
+FAILED tests/test_native_v8_without_legacy.py::test_full_native_fixture_replay_and_recovery_without_legacy_wire_imports[semantic-protocol-region-v8:issue51-proxy-revoked-deleteProperty]
+FAILED tests/test_native_v8_without_legacy.py::test_full_native_fixture_replay_and_recovery_without_legacy_wire_imports[semantic-protocol-region-v8:issue51-proxy-getmethod-revocation]
+FAILED tests/test_native_v8_without_legacy.py::test_full_native_fixture_replay_and_recovery_without_legacy_wire_imports[semantic-protocol-region-v8:issue51-proxy-getmethod-nullish-after-revocation]
+FAILED tests/test_native_v8_without_legacy.py::test_full_native_fixture_replay_and_recovery_without_legacy_wire_imports[semantic-protocol-region-v8:issue51-proxy-revocable-revoke-idempotent]
+!!!!!!!!!!!!!!!!!!!!!!!!!!!!!! KeyboardInterrupt !!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
+/usr/lib/python3.12/selectors.py:415: KeyboardInterrupt
+(to show a full traceback on KeyboardInterrupt use --full-trace)
+16 failed, 465 passed in 3406.75s (0:56:46)

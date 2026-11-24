@@ -1,0 +1,56 @@
+producer-tests-and-export
+synchronizing-canonical-consumer-data
+Traceback (most recent call last):
+  File "/tmp/issue51-resume.Ws1foQ/run-finish-pipeline.py", line 133, in <module>
+    commit_data('Synchronize corrected construction source fixtures')
+  File "/tmp/issue51-resume.Ws1foQ/run-finish-pipeline.py", line 101, in commit_data
+    assert all(path in exact or (path.startswith('tests/fixtures/semantic-')
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+AssertionError: ['src/megatoken/data/contracts/semantic-execution-v8.json', 'tests/fixtures/semantic-generator-close-v8.json.gz.b64', 'tests/fixtures/semantic-host-recovery-v8.json.gz.b64', 'tests/fixtures/semantic-protocol-region-v8.json.gz.b64', 'tests/fixtures/semantic-protocol-source-v8.json', 'tests/fixtures/semantic-regions-v8.json.gz.b64']
+Traceback (most recent call last):
+  File "/tmp/issue51-resume.Ws1foQ/run-finish-pipeline.py", line 133, in <module>
+    commit_data('Synchronize corrected construction source fixtures')
+  File "/tmp/issue51-resume.Ws1foQ/run-finish-pipeline.py", line 101, in commit_data
+    assert all(path in exact or (path.startswith('tests/fixtures/semantic-')
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+AssertionError: ['src/megatoken/data/contracts/semantic-execution-v8.json', 'tests/fixtures/semantic-generator-close-v8.json.gz.b64', 'tests/fixtures/semantic-host-recovery-v8.json.gz.b64', 'tests/fixtures/semantic-protocol-region-v8.json.gz.b64', 'tests/fixtures/semantic-protocol-source-v8.json', 'tests/fixtures/semantic-regions-v8.json.gz.b64']
+[codex/issue-51-object-semantics ac294ea] Synchronize corrected construction source fixtures
+ 6 files changed, 8 insertions(+), 8 deletions(-)
+awaiting-complete-issue-export
+Traceback (most recent call last):
+  File "/tmp/issue51-resume.Ws1foQ/run-finish-pipeline.py", line 188, in <module>
+    run('cohort-sync', [python, str(root / 'sync-finish-cohort.py')],
+  File "/tmp/issue51-resume.Ws1foQ/run-finish-pipeline.py", line 95, in run
+    assert result.returncode == 0, (name, result.returncode, str(path))
+           ^^^^^^^^^^^^^^^^^^^^^^
+AssertionError: ('cohort-sync', -15, '/tmp/issue51-resume.Ws1foQ/finish-cohort-sync.json')
+Traceback (most recent call last):
+  File "/tmp/issue51-resume.Ws1foQ/run-finish-pipeline.py", line 188, in <module>
+    run('cohort-sync', [python, str(root / 'sync-finish-cohort.py')],
+  File "/tmp/issue51-resume.Ws1foQ/run-finish-pipeline.py", line 95, in run
+    assert result.returncode == 0, (name, result.returncode, str(path))
+           ^^^^^^^^^^^^^^^^^^^^^^
+AssertionError: ('cohort-sync', -15, '/tmp/issue51-resume.Ws1foQ/finish-cohort-sync.json')
+awaiting-complete-issue-export
+[codex/issue-51-object-semantics 6bb4574] Synchronize complete retained object source cohort
+ 2 files changed, 429111 insertions(+), 69284 deletions(-)
+consumer-verification-and-preparation
+confirming-canonical-gate
+Traceback (most recent call last):
+  File "/tmp/issue51-resume.Ws1foQ/run-finish-pipeline.py", line 223, in <module>
+    push(consumer, 'push-consumer-artifacts')
+  File "/tmp/issue51-resume.Ws1foQ/run-finish-pipeline.py", line 180, in push
+    run(name, ['git', '-C', str(repo), '-c', 'credential.helper=', '-c',
+  File "/tmp/issue51-resume.Ws1foQ/run-finish-pipeline.py", line 114, in run
+    assert result.returncode == 0, (name, result.returncode, str(path))
+           ^^^^^^^^^^^^^^^^^^^^^^
+AssertionError: ('push-consumer-artifacts', 1, '/tmp/issue51-resume.Ws1foQ/finish-pipeline-push-consumer-artifacts.log')
+Traceback (most recent call last):
+  File "/tmp/issue51-resume.Ws1foQ/run-finish-pipeline.py", line 223, in <module>
+    push(consumer, 'push-consumer-artifacts')
+  File "/tmp/issue51-resume.Ws1foQ/run-finish-pipeline.py", line 180, in push
+    run(name, ['git', '-C', str(repo), '-c', 'credential.helper=', '-c',
+  File "/tmp/issue51-resume.Ws1foQ/run-finish-pipeline.py", line 114, in run
+    assert result.returncode == 0, (name, result.returncode, str(path))
+           ^^^^^^^^^^^^^^^^^^^^^^
+AssertionError: ('push-consumer-artifacts', 1, '/tmp/issue51-resume.Ws1foQ/finish-pipeline-push-consumer-artifacts.log')
