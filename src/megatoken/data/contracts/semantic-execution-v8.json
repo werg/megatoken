@@ -3189,7 +3189,7 @@
       "reason": "old artifacts require their original contract"
     }
   ],
-  "interoperabilityDigest": "96e88ce302fd61ac508291eb4e6c7549b76d8b24e2cef6a3c4fbe0b9c215dbd6",
+  "interoperabilityDigest": "aa3c9077e4627e90d81ea7534635ffc3b168051db1c02463c3b5fe9e989f1677",
   "interoperability": [
     {
       "id": "ordered-map",
@@ -3718,8 +3718,8 @@
     },
     {
       "id": "protocol-region:issue51-derived-constructor-arrow-in-promise-reaction",
-      "publicDigest": "4f6b27cf64a5f1ce44599e0722c928db923618f0814372953e4a7d1680a34380",
-      "contextDigest": "83fab98b4b69889f88da3cbb1e7feda4d53de51a831fc4537038acbaf331d17c"
+      "publicDigest": "9361a3b770fa9cda7d62af4be4e6c5063a1e0751c504dada8523cd18b0cbac6a",
+      "contextDigest": "04825e3e2ed0da82b997e0c3a603961e948be14e10fa29f3867de78c06faa1cb"
     },
     {
       "id": "protocol-region:issue51-derived-this-before-super-reference-error",
