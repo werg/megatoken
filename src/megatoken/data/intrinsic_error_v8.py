@@ -33,6 +33,7 @@ def allocate_intrinsic_error_v8(machine, identity, error_type, message):
         or _js_string_length(message) > 4096
     ):
         p._fail("intrinsic error type or message")
+    validate_state(machine)
     registry = machine["protocol"].get("intrinsicErrors")
     if registry is None:
         registry = {"schema": STATE_SCHEMA, "errors": []}

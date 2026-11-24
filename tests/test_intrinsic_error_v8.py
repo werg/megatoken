@@ -116,6 +116,19 @@ class IntrinsicErrorTests(unittest.TestCase):
         dict(forged["heap"])["target"]["declaredError"] = "TypeError"
         with self.assertRaisesRegex(ProtocolV8Error, "allocation registry"):
             validate_protocol_state(forged["protocol"], forged["heap"], forged)
+        before = copy.deepcopy(forged)
+        with self.assertRaisesRegex(ProtocolV8Error, "allocation registry"):
+            step(
+                forged,
+                {
+                    "kind": "property.fault",
+                    "operation": "has",
+                    "target": ["null"],
+                    "key": ["str", "x"],
+                    "error": "second",
+                },
+            )
+        self.assertEqual(forged, before)
         step(
             state,
             {
