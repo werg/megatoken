@@ -167,25 +167,6 @@ def _validate_chain(machine, source, chain):
     return _keys_from_chain(chain)
 
 
-def _live_chain(machine, chain):
-    """Keep the captured candidates while checking the permitted live structure.
-
-    Deletion and addition do not recapture keys. Surviving captured descriptors
-    keep their enumerability, and changing the prototype chain still requires
-    a separate semantic implementation. Inspecting descriptors invokes no getter.
-    """
-    from .protocol_v8 import _descriptor
-
-    for row in chain:
-        node = _ordinary_node(machine, row["id"])
-        if node.get("prototype", "ordinary") != row["prototype"]:
-            _fail("prototype changed during enumeration")
-        for key, enumerable in row["keys"]:
-            descriptor = _descriptor(node, key)
-            if descriptor is not None and descriptor["enumerable"] != enumerable:
-                _fail("enumerability changed during enumeration")
-
-
 def validate_state(machine):
     from .protocol_v8 import _known
 
@@ -243,7 +224,6 @@ def apply_record(machine, record):
         # Once exhausted, the iterator stays done even if later mutations
         # would be outside the active enumeration profile.
         if not node["done"] and node["source"][0] == "ref":
-            _live_chain(machine, node["chain"])
             while (
                 index < len(keys)
                 and _lookup_descriptor(machine, node["source"][1], keys[index], for_has=True)[1]

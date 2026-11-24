@@ -8,6 +8,64 @@ from tests.test_proxy_v8 import REF, base_state, step
 
 
 class IntrinsicErrorTests(unittest.TestCase):
+    def test_invalid_has_messages_are_derived_from_values_without_conversion(self):
+        cases = (
+            (["str", "x"], ["null"], "Cannot use 'in' operator to search for 'x' in null"),
+            (["num", "-0"], ["bool", False], "Cannot use 'in' operator to search for '0' in false"),
+            (
+                ["symbol", "well-known:iterator"],
+                ["undefined"],
+                "Cannot use 'in' operator to search for 'Symbol(Symbol.iterator)' in undefined",
+            ),
+            (
+                REF("target"),
+                ["bigint", "7"],
+                "Cannot use 'in' operator to search for '#<Object>' in 7",
+            ),
+            (
+                ["str", "a\n\x00b"],
+                ["str", "text"],
+                "Cannot use 'in' operator to search for 'a\n\x00b' in text",
+            ),
+        )
+        for key, target, message in cases:
+            with self.subTest(key=key, target=target):
+                state = base_state()
+                step(
+                    state,
+                    {
+                        "kind": "property.fault",
+                        "operation": "has",
+                        "target": target,
+                        "key": key,
+                        "error": "fault",
+                    },
+                )
+                step(
+                    state,
+                    {
+                        "kind": "property.get",
+                        "object": "fault",
+                        "key": ["str", "message"],
+                        "receiver": REF("fault"),
+                        "result": ["str", message],
+                    },
+                )
+                self.assertEqual(state["protocol"]["callFrames"], [])
+                before = copy.deepcopy(state)
+                with self.assertRaises(ProtocolV8Error):
+                    step(
+                        state,
+                        {
+                            "kind": "property.get",
+                            "object": "fault",
+                            "key": ["str", "message"],
+                            "receiver": REF("fault"),
+                            "result": ["str", "forged"],
+                        },
+                    )
+                self.assertEqual(state, before)
+
     def test_invalid_has_rhs_allocates_a_new_error_before_key_conversion(self):
         for target in (
             ["null"],

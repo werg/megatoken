@@ -10,7 +10,6 @@ ERROR_TYPES = frozenset(
     ("Error", "EvalError", "RangeError", "ReferenceError", "SyntaxError", "TypeError", "URIError")
 )
 FIELDS = {"property.fault": {"kind", "operation", "target", "key", "error"}}
-INVALID_HAS_TARGET = "Right-hand side of in is not an object"
 STATE_SCHEMA = "semantic-intrinsic-error-state/1"
 ERROR_BOUND = 4096
 
@@ -87,6 +86,42 @@ def validate_record(record):
     return True
 
 
+def invalid_has_message(machine, key, target):
+    from .semantic_primitives import _to_string
+
+    p = _protocol()
+
+    def display(value):
+        if value[0] == "symbol":
+            identity = value[1]
+            if identity.startswith("well-known:"):
+                description = ["str", "Symbol." + identity[11:]]
+            else:
+                row = next(
+                    (row for row in machine["protocol"]["symbols"] if row["id"] == identity), None
+                )
+                description = row.get("description") if row else None
+            if not description or description[0] not in ("str", "undefined"):
+                p._fail("invalid-in diagnostic requires a declared Symbol")
+            return "Symbol(" + (description[1] if description[0] == "str" else "") + ")"
+        if value[0] == "ref":
+            node = machine["heap"].get(value[1], {})
+            if node.get("kind") == "array":
+                return "[object Array]"
+            if (
+                node.get("kind") == "object"
+                and node.get("prototype", "ordinary") in ("ordinary", "Object.prototype", None)
+                and "declaredError" not in node
+            ):
+                return (
+                    "[object Object]" if node.get("prototype", "ordinary") is None else "#<Object>"
+                )
+            p._fail("invalid-in diagnostic requires its owned object display profile")
+        return _to_string(value)
+
+    return "Cannot use 'in' operator to search for '" + display(key) + "' in " + display(target)
+
+
 def apply_record(machine, record):
     if not validate_record(record):
         return False
@@ -97,7 +132,12 @@ def apply_record(machine, record):
     p._known(machine, record["key"])
     if record["target"][0] not in ("undefined", "null", "bool", "num", "str", "bigint", "symbol"):
         p._fail("property fault requires a non-object has target")
-    value = allocate_intrinsic_error_v8(machine, record["error"], "TypeError", INVALID_HAS_TARGET)
+    value = allocate_intrinsic_error_v8(
+        machine,
+        record["error"],
+        "TypeError",
+        invalid_has_message(machine, record["key"], record["target"]),
+    )
     machine["lastReturn"] = {"kind": "throw", "value": copy.deepcopy(value)}
     return True
 

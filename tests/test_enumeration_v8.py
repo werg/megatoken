@@ -366,13 +366,13 @@ class EnumerationV8Tests(unittest.TestCase):
         )
         advance(state, None, "end")
 
-    def test_changed_enumerability_and_prototypes_are_refused_until_exhaustion(self):
+    def test_changed_enumerability_and_prototypes_keep_captured_candidates(self):
         original = machine()
         allocate(original, "source")
         allocate(original, "parent")
         define(original, "source", ["str", "key"], ["num", 1])
         create(original, ["ref", "source"])
-        for change, message in (("enumerability", "enumerability"), ("prototype", "prototype")):
+        for change in ("enumerability", "prototype"):
             with self.subTest(change=change):
                 state = copy.deepcopy(original)
                 if change == "enumerability":
@@ -389,10 +389,10 @@ class EnumerationV8Tests(unittest.TestCase):
                     )
                 shared = _external_machine(state)
                 self.assertTrue(validate_protocol_state(shared["protocol"], shared["heap"], shared))
-                before = copy.deepcopy(state)
-                with self.assertRaisesRegex(ProtocolV8Error, message):
-                    advance(state, "key")
-                self.assertEqual(state, before)
+                resumed = copy.deepcopy(state)
+                advance(resumed, "key")
+                advance(resumed, None, "done")
+                self.assertEqual(resumed["heap"]["cursor"]["keys"], ["key"])
 
         advance(original, "key", "first")
         advance(original, None, "end")
