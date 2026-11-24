@@ -202,9 +202,8 @@ def _adoption_get(machine, record, row, job):
         or closure.get("generatorFunction")
         or closure.get("promiseResolver")
         or closure.get("callable", {}).get("classConstructor")
-        or closure.get("callable", {}).get("lexicalConstruction") is not None
     ):
-        _fail("adoption getter cannot use an unauthenticated constructor capture")
+        _fail("adoption getter requires its selected synchronous owned getter")
     if any(capture["cell"] not in machine["locals"] for capture in closure["captures"]):
         _fail("adoption constructor getter capture is not initialized")
     protocol = machine["protocol"]
@@ -216,11 +215,9 @@ def _adoption_get(machine, record, row, job):
         _fail("adoption getter invocation identity is not fresh")
     prior_aliases = [[key, value] for key, value in machine.get("captureAliases", {}).items()]
     prior_receiver = copy.deepcopy(machine.get("receiver", ["undefined"]))
-    receiver = (
-        copy.deepcopy(closure.get("lexicalReceiver"))
-        if closure.get("functionKind") == "arrow"
-        else ["ref", record["target"]]
-    )
+    from .construction_v8 import _lexical_receiver
+
+    receiver = _lexical_receiver(machine, closure, ["ref", record["target"]])
     machine["frameFunctions"][child] = closure["code"]
     machine["locals"][child + ":this"] = copy.deepcopy(receiver)
     machine["captureAliases"] = {item["binding"]: item["cell"] for item in closure["captures"]}
@@ -841,18 +838,18 @@ def validate_state(machine):
                 if callee[0] != "ref":
                     _fail("adoption getter identity is not a closure reference")
                 closure = machine["heap"].get(callee[1])
-                receiver = (
-                    closure.get("lexicalReceiver")
-                    if closure and closure.get("functionKind") == "arrow"
-                    else ["ref", row["target"]]
-                )
+                if closure:
+                    from .construction_v8 import _lexical_receiver
+
+                    receiver = _lexical_receiver(machine, closure, ["ref", row["target"]])
+                else:
+                    receiver = ["ref", row["target"]]
                 if (
                     not closure
                     or closure.get("kind") != "closure"
                     or closure.get("asyncFunction")
                     or closure.get("generatorFunction")
                     or closure.get("promiseResolver")
-                    or closure.get("callable", {}).get("lexicalConstruction") is not None
                 ):
                     _fail("retained adoption getter uses an unauthenticated constructor capture")
                 if local_owner and (

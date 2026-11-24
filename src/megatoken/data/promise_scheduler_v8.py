@@ -63,18 +63,16 @@ def _callback_aliases(machine, identity, job, callback, frame):
         not isinstance(definition, dict)
         or set(definition) != {"code", "name", "start", "params"}
         or definition.get("code") != node.get("code")
-        or not isinstance(definition.get("name"), str)
-        or not definition["name"]
+        or definition.get("name") is not None
+        and (not isinstance(definition.get("name"), str) or not definition["name"])
         or not isinstance(definition.get("code"), str)
         or not definition["code"]
         or type(definition.get("start")) not in (int, type(None))
         or (definition.get("start") is not None and definition["start"] < 0)
-        or definition["code"]
-        not in (
-            definition["name"],
-            "function:" + str(definition["start"])
-            if definition["start"] is not None
-            else definition["name"],
+        or not (
+            definition["code"] == definition["name"]
+            or definition["start"] is not None
+            and definition["code"] == "function:" + str(definition["start"])
         )
         or not isinstance(definition.get("params"), list)
         or len(definition["params"]) > 256
@@ -98,6 +96,7 @@ def _callback_aliases(machine, identity, job, callback, frame):
             not isinstance(row, dict)
             or set(row) != {"binding", "index", "cell", "initialValue"}
             or row.get("binding") != definition["params"][index]
+            or type(row.get("index")) is not int
             or row.get("index") != index
             or not isinstance(row.get("cell"), str)
             or not row["cell"]
@@ -586,8 +585,8 @@ def apply_detail(machine, kind, fields, *, root, functions=()):
                             name is not None and (not isinstance(name, str) or not name)
                             for name in parameter_definitions
                         )
-                        or not isinstance(function.get("name"), str)
-                        or not function["name"]
+                        or function.get("name") is not None
+                        and (not isinstance(function.get("name"), str) or not function["name"])
                         or function.get("start") is not None
                         and (type(function["start"]) is not int or function["start"] < 0)
                     ):
