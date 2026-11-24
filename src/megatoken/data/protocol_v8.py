@@ -18,6 +18,7 @@ from .async_call_v8 import validate_record as validate_async_call_record
 from .async_call_v8 import validate_state as validate_async_call_state
 from .construction_v8 import FIELDS as CONSTRUCTION_FIELDS
 from .construction_v8 import apply_record as apply_construction_record
+from .construction_v8 import _lexical_receiver
 from .construction_v8 import assert_next as assert_construction_next
 from .construction_v8 import validate_record as validate_construction_record
 from .construction_v8 import validate_state as validate_construction_record_state
@@ -1246,6 +1247,7 @@ def _apply(machine, record):
             {
                 "child": record["child"],
                 "parent": machine["stack"][-1],
+                "callee": copy.deepcopy(record["callee"]),
                 "priorReceiver": copy.deepcopy(machine.get("receiver", ["undefined"])),
                 "priorAliases": [
                     [key, value] for key, value in machine.get("captureAliases", {}).items()
@@ -1253,11 +1255,7 @@ def _apply(machine, record):
                 "arguments": copy.deepcopy(record["arguments"]),
             }
         )
-        machine["receiver"] = copy.deepcopy(
-            node.get("lexicalReceiver")
-            if node.get("functionKind") == "arrow"
-            else record["receiver"]
-        )
+        machine["receiver"] = _lexical_receiver(machine, node, record["receiver"])
         machine["captureAliases"] = {row["binding"]: row["cell"] for row in node["captures"]}
         machine["locals"][record["child"] + ":this"] = copy.deepcopy(machine["receiver"])
         for index, value in enumerate(record["arguments"]):
@@ -1717,6 +1715,13 @@ def validate_protocol_state(snapshot, heap_ids=(), shared_state=None):
         or len(snapshot["callFrames"]) > 64
     ):
         _fail("pending calls/frame bound")
+    if snapshot["callFrames"]:
+        if shared_state is None:
+            _fail("call frame validation requires complete shared state")
+        call_frame_machine = _internal_machine(shared_state)
+        call_frame_machine["protocol"] = snapshot
+    else:
+        call_frame_machine = {"heap": heap_nodes or {}, "protocol": snapshot}
     pending_ids = set()
     for pending in snapshot["pendingCalls"]:
         _exact(
@@ -1742,11 +1747,34 @@ def validate_protocol_state(snapshot, heap_ids=(), shared_state=None):
     for frame in snapshot["callFrames"]:
         _exact(
             frame,
-            {"child", "parent", "priorReceiver", "priorAliases", "arguments"},
+            {"child", "parent", "callee", "priorReceiver", "priorAliases", "arguments"},
             "protocol call frame",
         )
         _identity(frame["child"])
         _identity(frame["parent"])
+        _known(call_frame_machine, frame["callee"])
+        if (
+            frame["callee"][0] != "ref"
+            or _node(call_frame_machine, frame["callee"][1]).get("kind") != "closure"
+            or call_frame_machine["frameFunctions"].get(frame["child"])
+            != _node(call_frame_machine, frame["callee"][1]).get("code")
+        ):
+            _fail("call frame callee identity")
+        called = _node(call_frame_machine, frame["callee"][1])
+        if called.get("functionKind") == "arrow":
+            expected_receiver = _lexical_receiver(call_frame_machine, called, ["undefined"])
+            if call_frame_machine.get("locals", {}).get(frame["child"] + ":this") != expected_receiver:
+                _fail("call frame arrow receiver/callee identity")
+            capture = called.get("callable", {}).get("lexicalConstruction")
+            observed_target = call_frame_machine.get("locals", {}).get(frame["child"] + ":lexical-newTarget")
+            if capture is not None and observed_target is not None:
+                owner = next(
+                    (row for row in (snapshot.get("construction") or {}).get("frames", [])
+                     if row["id"] == capture["frame"]),
+                    None,
+                )
+                if owner is None or observed_target != owner["newTarget"]:
+                    _fail("call frame lexical newTarget/callee identity")
         validate_protocol_value(frame["priorReceiver"])
         if not isinstance(frame["priorAliases"], list) or not isinstance(frame["arguments"], list):
             _fail("call frame arrays")
@@ -1789,17 +1817,15 @@ def validate_protocol_state(snapshot, heap_ids=(), shared_state=None):
                 or active_machine.get("frameFunctions", {}).get(child) != closure.get("code")
             ):
                 _fail("pending accessor call is not bound to its active callable")
-            expected_receiver = (
-                closure.get("lexicalReceiver")
-                if closure.get("functionKind") == "arrow"
-                else pending["receiver"]
-            )
+            expected_receiver = _lexical_receiver(active_machine, closure, pending["receiver"])
             if active_machine.get("locals", {}).get(child + ":this") != expected_receiver:
                 _fail("pending accessor receiver differs from retained invocation")
             frame = next((row for row in snapshot["callFrames"] if row["child"] == child), None)
             expected_arguments = [] if pending["operation"] == "get" else [pending["value"]]
             if frame is not None and (
-                frame["parent"] != pending["parent"] or frame["arguments"] != expected_arguments
+                frame["callee"] != pending["callee"]
+                or frame["parent"] != pending["parent"]
+                or frame["arguments"] != expected_arguments
             ):
                 _fail("pending accessor call differs from its retained call frame")
             if active_machine.get("stack") and active_machine["stack"][-1] == child:

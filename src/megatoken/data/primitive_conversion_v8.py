@@ -792,8 +792,16 @@ def validate_state(machine):
                     None,
                 )
                 getter, node = row["phase"] == "getter-waiting", p._node(machine, row["method"][1])
+                from .construction_v8 import _lexical_receiver
+
+                expected_receiver = (
+                    _lexical_receiver(machine, node, ["undefined"])
+                    if node.get("functionKind") == "arrow"
+                    else row["input"]
+                )
                 _require(
                     frame is not None
+                    and frame["callee"] == row["method"]
                     and frame["parent"] == row["parent"]
                     and _eq(
                         frame["arguments"],
@@ -801,11 +809,9 @@ def validate_state(machine):
                     )
                     and _eq(
                         machine["locals"].get(row["child"] + ":this"),
-                        node.get("lexicalReceiver")
-                        if node.get("functionKind") == "arrow"
-                        else row["input"],
+                        expected_receiver,
                     ),
-                    "conversion callback receiver or hint",
+                    "conversion callback callee, receiver or hint",
                 )
             elif row["phase"] != "abrupt":
                 _require(

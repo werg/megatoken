@@ -9,6 +9,14 @@ from megatoken.data.protocol_v8 import (
     create_protocol_state,
     validate_protocol_state,
 )
+from megatoken.data.construction_v8 import _id as _construction_id
+
+
+class ConstructionIdentityBoundsTests(unittest.TestCase):
+    def test_constructor_identity_bound_counts_utf16_code_units(self):
+        _construction_id("😀" * 128)
+        with self.assertRaisesRegex(ProtocolV8Error, "identity"):
+            _construction_id("😀" * 129)
 
 
 class ConstructionInitializerTests(unittest.TestCase):
