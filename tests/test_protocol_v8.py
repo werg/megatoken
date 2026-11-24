@@ -389,6 +389,9 @@ class ProtocolV8NativeReplayTests(unittest.TestCase):
             "issue51-promise-enumeration-mutation-composition": (5, 0, 25),
             "issue51-promise-object-key-conversion-composition": (11, 0, 18),
             "issue51-promise-symbol-and-escaped-string-keys": (8, 1, 21),
+            "issue51-reflect-object-key-getter-and-argument-order": (63, 0, 14),
+            "issue51-reflect-object-key-symbol": (37, 0, 10),
+            "issue51-promise-reflect-object-key": (19, 0, 25),
         }
         from megatoken.data.semantic_contract_v8 import CONTRACT
 

@@ -2799,7 +2799,7 @@
       "reason": "old artifacts require their original contract"
     }
   ],
-  "interoperabilityDigest": "813034bfdedd09a779cc6f45109099fe8231621baac8b770f23379329fbd9218",
+  "interoperabilityDigest": "809f6b29878f3f8321e082463acb825e76946b2371f5d8e2f5cfc0c91df60f66",
   "interoperability": [
     {
       "id": "ordered-map",
@@ -3195,6 +3195,21 @@
       "id": "protocol-region:issue51-promise-symbol-and-escaped-string-keys",
       "publicDigest": "d304d52a019f29ade7f6c5fe5220bb8d2c7ef4b876d8c6669ef8e3b24bf5755a",
       "contextDigest": "73aa7e2c83986fa99e48aef2afb2f11357d5c025a496a32cee859fbb979a80b6"
+    },
+    {
+      "id": "protocol-region:issue51-reflect-object-key-getter-and-argument-order",
+      "publicDigest": "3d752687137438e06891ac165598e60a9c9b691fa63945c6fb6d6d991960a7ff",
+      "contextDigest": "29dff89c461d0061da676656c79c1c5820ce97f5ccd7a6706e9b644843f51984"
+    },
+    {
+      "id": "protocol-region:issue51-reflect-object-key-symbol",
+      "publicDigest": "8e785136d5b7264d2ef6fec6d0ee0c0c030432d518a279c989420712685bc9c6",
+      "contextDigest": "764170e4849caa81db943811f2d6dcb1f9ff0a96e2f8b7c2ad119cdeb0a0a2f0"
+    },
+    {
+      "id": "protocol-region:issue51-promise-reflect-object-key",
+      "publicDigest": "76d9905f3edabc14bed309e0bd2d6f0294a1a07f2e98cadf103f1c5c5efb49b2",
+      "contextDigest": "3dfc7c8dea0328a80a1c66aa1c4d61891a234fa1f0369815b80363f1391d94e9"
     },
     {
       "id": "protocol-host:join-host-join",
