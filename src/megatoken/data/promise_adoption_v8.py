@@ -587,16 +587,11 @@ def apply_record(machine, record):
             _fail("self rejection lacks exact resolution intent")
         _check_cause(machine, adopter, row, adopter)
         _fresh_job(machine, error)
-        machine["heap"][error] = {
-            "kind": "object",
-            "code": None,
-            "captures": [],
-            "prototype": "ordinary",
-            "properties": {
-                "name": ["str", "TypeError"],
-                "message": ["str", "Chaining cycle detected for promise"],
-            },
-        }
+        from .intrinsic_error_v8 import allocate_intrinsic_error_v8
+
+        allocate_intrinsic_error_v8(
+            machine, error, "TypeError", "Chaining cycle detected for promise"
+        )
         error_value = ["ref", error]
         settle_promise(machine, adopter, "rejected", error_value)
         row.update(phase="self", error=error)

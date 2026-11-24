@@ -835,7 +835,17 @@ class ProxyFaultTests(unittest.TestCase):
             self.assertFalse(dict(state["heap"])["target"]["extensible"])
             error = dict(state["heap"])["fault"]
             self.assertEqual(error["declaredError"], "TypeError")
-            self.assertEqual(dict(error["properties"])["name"], ["str", "TypeError"])
+            self.assertNotIn("name", dict(error["properties"]))
+            step(
+                state,
+                {
+                    "kind": "property.get",
+                    "object": "fault",
+                    "key": ["str", "name"],
+                    "receiver": REF("fault"),
+                    "result": ["str", "TypeError"],
+                },
+            )
             validate_protocol_state(state["protocol"], state["heap"], state)
 
     def test_no_fault_can_replace_success_or_a_guest_thrown_identity(self):

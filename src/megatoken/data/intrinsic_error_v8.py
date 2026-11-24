@@ -38,13 +38,16 @@ def allocate_intrinsic_error_v8(machine, identity, error_type, message):
         registry = {"schema": STATE_SCHEMA, "errors": []}
     if len(registry["errors"]) >= ERROR_BOUND:
         p._fail("intrinsic error allocation bound")
+    from .promise_object_v8 import initialize, intrinsic_id
+
+    if machine["protocol"].get("promiseObjects") is None:
+        initialize(machine)
     record = {
         "kind": "allocate",
         "name": identity,
         "objectKind": "object",
         "length": None,
         "properties": [
-            {"key": ["str", "name"], "value": ["str", error_type]},
             {"key": ["str", "message"], "value": ["str", message]},
         ],
         "code": None,
@@ -62,7 +65,20 @@ def allocate_intrinsic_error_v8(machine, identity, error_type, message):
             machine.pop("_internalProtocolTransition", None)
         else:
             machine["_internalProtocolTransition"] = prior
-    machine["heap"][identity]["declaredError"] = error_type
+    node = machine["heap"][identity]
+    node["declaredError"] = error_type
+    node["prototype"] = ["ref", intrinsic_id(error_type + ".prototype")]
+    p._install(
+        node,
+        "message",
+        {
+            "kind": "data",
+            "value": ["str", message],
+            "writable": True,
+            "enumerable": False,
+            "configurable": True,
+        },
+    )
     registry["errors"].append({"id": identity, "errorType": error_type})
     machine["protocol"]["intrinsicErrors"] = registry
     return ["ref", identity]

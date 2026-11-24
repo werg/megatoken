@@ -24,6 +24,17 @@ OBJECT_METHODS = (
     "valueOf",
     "toLocaleString",
 )
+ERROR_TYPES = (
+    "Error",
+    "EvalError",
+    "RangeError",
+    "ReferenceError",
+    "SyntaxError",
+    "TypeError",
+    "URIError",
+)
+ERROR_PROTOTYPES = tuple(name + ".prototype" for name in ERROR_TYPES)
+
 NAMES = (
     "Promise",
     "Promise.prototype",
@@ -35,6 +46,9 @@ NAMES = (
     *("Object.prototype." + name for name in OBJECT_METHODS),
     "Object.prototype.__proto__.get",
     "Object.prototype.__proto__.set",
+    *ERROR_TYPES,
+    *ERROR_PROTOTYPES,
+    "Error.prototype.toString",
 )
 
 
@@ -84,13 +98,19 @@ def initialize(machine):
             node["prototype"] = ["ref", intrinsic_id("Promise.prototype")]
 
     heap = machine["heap"]
-    callables = [name for name in NAMES if name not in ("Promise.prototype", "Object.prototype")]
+    callables = [
+        name
+        for name in NAMES
+        if name not in ("Promise.prototype", "Object.prototype", *ERROR_PROTOTYPES)
+    ]
     for name in callables:
         identity = intrinsic_id(name)
         heap[identity] = _row(
             "intrinsic",
             intrinsic=name,
-            callable_kind="constructor" if name in ("Promise", "Object") else "function",
+            callable_kind="constructor"
+            if name in ("Promise", "Object", *ERROR_TYPES)
+            else "function",
         )
     object_proto = _row("object", None)
     object_proto.update(
@@ -131,6 +151,25 @@ def initialize(machine):
         _install_value(promise_proto, name, ["ref", identity])
     symbol_tag = ("symbol", "well-known:toStringTag")
     _install_value(promise_proto, symbol_tag, ["str", "Promise"], writable=False)
+    for name in ERROR_TYPES:
+        prototype = _row("object")
+        prototype.update(
+            code=None,
+            captures=[],
+            prototype=[
+                "ref",
+                intrinsic_id("Object.prototype" if name == "Error" else "Error.prototype"),
+            ],
+            descriptors={},
+            keyOrder=[],
+            extensible=True,
+        )
+        _install_value(prototype, "constructor", ["ref", intrinsic_id(name)])
+        _install_value(prototype, "name", ["str", name])
+        _install_value(prototype, "message", ["str", ""])
+        if name == "Error":
+            _install_value(prototype, "toString", ["ref", intrinsic_id("Error.prototype.toString")])
+        heap[intrinsic_id(name + ".prototype")] = prototype
     machine["protocol"]["promiseObjects"] = {
         "schema": STATE_SCHEMA,
         "initialized": True,
@@ -192,11 +231,25 @@ def validate_record(record):
     if kind == "promise.intrinsics":
         return True
     if kind == "promise.intrinsic.get":
-        if record["base"] not in ("Promise", "Object") or record["key"] != ["str", "prototype"]:
-            _fail("intrinsic prototype read shape")
+        validate_protocol_key(record["key"])
+        if (
+            record["base"] not in ("Promise", "Object", *ERROR_TYPES)
+            or record["key"][0] != "str"
+            or record["key"][1] not in ("prototype", "name", "length")
+            or record["base"] not in ERROR_TYPES
+            and record["key"][1] != "prototype"
+        ):
+            _fail("intrinsic member read shape")
         validate_protocol_value(record["result"])
-        if record["result"] != ["ref", intrinsic_id(record["base"] + ".prototype")]:
-            _fail("intrinsic prototype read result")
+        expected = (
+            ["ref", intrinsic_id(record["base"] + ".prototype")]
+            if record["key"][1] == "prototype"
+            else ["str", record["base"]]
+            if record["key"][1] == "name"
+            else ["num", 1]
+        )
+        if record["result"] != expected:
+            _fail("intrinsic member read result")
     elif kind == "property.getPrototypeOf":
         _identity(record["object"])
         result = record["result"]
@@ -232,6 +285,8 @@ def apply_record(machine, record):
     if machine["protocol"].get("promiseObjects") is None:
         _fail("intrinsics are not initialized")
     if kind == "promise.intrinsic.get":
+        if record["key"][1] != "prototype":
+            return True
         intrinsic = machine["heap"].get(record["result"][1])
         expected_name = record["base"] + ".prototype"
         if (
@@ -284,12 +339,16 @@ def validate_state(machine):
         identity = intrinsic_id(name)
         row = heap[identity]
         expected_kind = (
-            "object" if name in ("Promise.prototype", "Object.prototype") else "intrinsic"
+            "object"
+            if name in ("Promise.prototype", "Object.prototype", *ERROR_PROTOTYPES)
+            else "intrinsic"
         )
         if row.get("kind") != expected_kind:
             _fail("intrinsic row kind changed")
         if expected_kind == "intrinsic":
-            expected_callable_kind = "constructor" if name in ("Promise", "Object") else "function"
+            expected_callable_kind = (
+                "constructor" if name in ("Promise", "Object", *ERROR_TYPES) else "function"
+            )
             if (
                 row.get("intrinsicName") != name
                 or row.get("callableKind") != expected_callable_kind

@@ -8,6 +8,81 @@ from tests.test_proxy_v8 import REF, base_state, step
 
 
 class IntrinsicErrorTests(unittest.TestCase):
+    def test_error_standard_descriptors_and_live_prototypes_survive_restore(self):
+        from megatoken.data.promise_object_v8 import intrinsic_id
+
+        state = base_state()
+        step(
+            state,
+            {
+                "kind": "property.fault",
+                "operation": "has",
+                "target": ["null"],
+                "key": ["str", "x"],
+                "error": "fault",
+            },
+        )
+        node = dict(state["heap"])["fault"]
+        self.assertNotIn("name", dict(node["properties"]))
+        self.assertEqual(node["prototype"], REF(intrinsic_id("TypeError.prototype")))
+        step(
+            state,
+            {
+                "kind": "property.descriptor",
+                "object": "fault",
+                "key": ["str", "message"],
+                "name": "descriptor",
+                "descriptor": {
+                    "kind": "data",
+                    "value": ["str", "Cannot use 'in' operator to search for 'x' in null"],
+                    "writable": True,
+                    "enumerable": False,
+                    "configurable": True,
+                },
+            },
+        )
+        step(
+            state,
+            {
+                "kind": "property.set",
+                "object": intrinsic_id("TypeError.prototype"),
+                "key": ["str", "name"],
+                "receiver": REF(intrinsic_id("TypeError.prototype")),
+                "value": ["str", "changed"],
+                "success": True,
+            },
+        )
+        step(
+            state,
+            {
+                "kind": "property.get",
+                "object": "fault",
+                "key": ["str", "name"],
+                "receiver": REF("fault"),
+                "result": ["str", "changed"],
+            },
+        )
+        step(
+            state,
+            {
+                "kind": "property.prototype",
+                "object": "fault",
+                "prototype": REF("target"),
+                "success": True,
+            },
+        )
+        step(
+            state,
+            {
+                "kind": "property.delete",
+                "object": "fault",
+                "key": ["str", "message"],
+                "success": True,
+            },
+        )
+        validate_protocol_state(state["protocol"], state["heap"], state)
+        self.assertEqual(dict(state["heap"])["fault"]["declaredError"], "TypeError")
+
     def test_invalid_has_messages_are_derived_from_values_without_conversion(self):
         cases = (
             (["str", "x"], ["null"], "Cannot use 'in' operator to search for 'x' in null"),
