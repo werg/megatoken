@@ -161,7 +161,7 @@ def _route(machine, node):
 def _method(machine, node, operation):
     _route(machine, node)
     _, descriptor = _protocol()._lookup_descriptor(
-        machine, node["handler"][1], OPERATION_TRAPS[operation], for_has=True
+        machine, node["handler"][1], OPERATION_TRAPS.get(operation, operation), for_has=True
     )
     _require(
         descriptor is None or descriptor["kind"] == "data",

@@ -82,6 +82,11 @@ from .promise_object_v8 import FIELDS as PROMISE_OBJECT_FIELDS
 from .promise_object_v8 import apply_record as apply_promise_object_record
 from .promise_object_v8 import validate_record as validate_promise_object_record
 from .promise_object_v8 import validate_state as validate_promise_object_state
+from .proxy_reflection_v8 import FIELDS as PROXY_REFLECTION_FIELDS
+from .proxy_reflection_v8 import apply_record as apply_proxy_reflection_record
+from .proxy_reflection_v8 import assert_next as assert_proxy_reflection_next
+from .proxy_reflection_v8 import validate_record as validate_proxy_reflection_record
+from .proxy_reflection_v8 import validate_state as validate_proxy_reflection_state
 from .proxy_v8 import FIELDS as PROXY_FIELDS
 from .proxy_v8 import apply_record as apply_proxy_record
 from .proxy_v8 import assert_next as assert_proxy_next
@@ -176,6 +181,7 @@ FIELDS.update(NUMBER_FIELDS)
 FIELDS.update(PRIMITIVE_CONVERSION_FIELDS)
 FIELDS.update(GENERATOR_FIELDS)
 FIELDS.update(PROXY_FIELDS)
+FIELDS.update(PROXY_REFLECTION_FIELDS)
 
 
 def _fail(message):
@@ -310,6 +316,8 @@ def validate_protocol_record(record):
         return validate_promise_adoption_record(record)
     if record["kind"] in PROMISE_OBJECT_FIELDS:
         return validate_promise_object_record(record)
+    if type(record) is dict and record.get("kind") in PROXY_REFLECTION_FIELDS:
+        return validate_proxy_reflection_record(record)
     if type(record) is dict and record.get("kind") in PROXY_FIELDS:
         return validate_proxy_record(record)
     if type(record) is dict and record.get("kind") in NUMBER_FIELDS:
@@ -530,6 +538,7 @@ def create_protocol_state():
         "numberConversions": None,
         "primitiveConversions": None,
         "proxyCalls": None,
+        "proxyReflection": None,
         "promiseExecutors": None,
         "promiseObjects": None,
         "intrinsicErrors": None,
@@ -1056,6 +1065,7 @@ def _apply(machine, record):
         assert_primitive_conversion_next(machine, record)
         assert_generator_next(machine, record)
         assert_proxy_next(machine, record)
+        assert_proxy_reflection_next(machine, record)
         assert_promise_executor_next(machine, record)
         assert_promise_adoption_next(machine, record)
         assert_promise_join_next(machine, record)
@@ -1112,6 +1122,10 @@ def _apply(machine, record):
     if kind in GENERATOR_FIELDS:
         if not apply_generator_record(machine, record):
             _fail("unsupported generator transition")
+        return
+    if kind in PROXY_REFLECTION_FIELDS:
+        if not apply_proxy_reflection_record(machine, record):
+            _fail("unhandled Proxy reflection")
         return
     if kind in PROXY_FIELDS:
         if not apply_proxy_record(machine, record):
@@ -1651,6 +1665,7 @@ def validate_protocol_state(snapshot, heap_ids=(), shared_state=None):
         "numberConversions",
         "primitiveConversions",
         "proxyCalls",
+        "proxyReflection",
         "promiseExecutors",
         "promiseObjects",
         "intrinsicErrors",
@@ -2008,6 +2023,7 @@ def validate_protocol_state(snapshot, heap_ids=(), shared_state=None):
         validate_async_call_state(memory_machine)
         validate_module_scheduler_state(memory_machine)
         validate_proxy_state(memory_machine)
+        validate_proxy_reflection_state(memory_machine)
     return True
 
 
@@ -2098,6 +2114,7 @@ def apply_protocol_to_shared_state(
     assert_generator_next(machine, record)
     assert_async_call_next(machine, record)
     assert_proxy_next(machine, record)
+    assert_proxy_reflection_next(machine, record)
     assert_promise_executor_next(machine, record)
     assert_promise_adoption_next(machine, record)
     assert_promise_join_next(machine, record)
@@ -2303,6 +2320,7 @@ def assert_detailed_record_compatible(shared_state, kind, fields, *, namespace_p
     assert_generator_next(machine, record)
     assert_async_call_next(machine, record)
     assert_proxy_next(machine, record)
+    assert_proxy_reflection_next(machine, record)
     assert_promise_executor_next(machine, record)
     assert_promise_adoption_next(machine, record)
     assert_promise_join_next(machine, record)
