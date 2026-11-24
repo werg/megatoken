@@ -41,7 +41,7 @@ def _display(machine, key):
     return "Symbol(" + description + ")"
 
 
-def _descriptor(machine, value):
+def read_partial_descriptor(machine, value):
     fields = {}
     for name in ("enumerable", "configurable", "value", "writable", "get", "set"):
         present, selected = _read(machine, value, name)
@@ -59,18 +59,122 @@ def _descriptor(machine, value):
     accessor = "get" in fields or "set" in fields
     data = "value" in fields or "writable" in fields
     _require(not (accessor and data), "mixed descriptor needs intrinsic fault")
+    return fields
+
+
+def complete_descriptor(fields, current=None):
+    current = current or {}
+    accessor = "get" in fields or "set" in fields
+    data = "value" in fields or "writable" in fields
+    kind = "accessor" if accessor else "data" if data else current.get("kind", "data")
     result = {
-        "kind": "accessor" if accessor else "data",
-        "enumerable": fields.get("enumerable", False),
-        "configurable": fields.get("configurable", False),
+        "kind": kind,
+        "enumerable": fields.get("enumerable", current.get("enumerable", False)),
+        "configurable": fields.get("configurable", current.get("configurable", False)),
     }
-    if accessor:
-        result.update(get=fields.get("get", ["undefined"]), set=fields.get("set", ["undefined"]))
+    if kind == "accessor":
+        result.update(
+            get=fields.get("get", current.get("get", ["undefined"])),
+            set=fields.get("set", current.get("set", ["undefined"])),
+        )
     else:
         result.update(
-            value=fields.get("value", ["undefined"]), writable=fields.get("writable", False)
+            value=fields.get("value", current.get("value", ["undefined"])),
+            writable=fields.get("writable", current.get("writable", False)),
         )
     return result
+
+
+def _descriptor(machine, value):
+    return complete_descriptor(read_partial_descriptor(machine, value))
+
+
+def definition_fault(machine, row, returned):
+    target = machine["heap"][row["target"][1]]
+    key, fields = row["arguments"][0], row["definition"]
+    display, prefix = _display(machine, key), "'defineProperty' on proxy: "
+    if not _truthy(returned):
+        return (
+            prefix + "trap returned falsish for property '" + display + "'"
+            if row["caller"] == "Object.defineProperty"
+            else None
+        )
+    current = _p()._descriptor(target, _p()._key(key))
+    extensible, setting_fixed = (
+        target.get("extensible", True),
+        "configurable" in fields and not fields["configurable"],
+    )
+    if current is None:
+        if not extensible:
+            return (
+                prefix
+                + "trap returned truish for adding property '"
+                + display
+                + "'  to the non-extensible proxy target"
+            )
+        if setting_fixed:
+            return (
+                prefix
+                + "trap returned truish for defining non-configurable property '"
+                + display
+                + "' which is either non-existent or configurable in the proxy target"
+            )
+    else:
+        if not _compatible(current, complete_descriptor(fields, current), extensible):
+            return (
+                prefix
+                + "trap returned truish for adding property '"
+                + display
+                + "'  that is incompatible with the existing property in the proxy target"
+            )
+        if setting_fixed and current["configurable"]:
+            return (
+                prefix
+                + "trap returned truish for defining non-configurable property '"
+                + display
+                + "' which is either non-existent or configurable in the proxy target"
+            )
+        if (
+            current["kind"] == "data"
+            and not current["configurable"]
+            and current["writable"]
+            and "writable" in fields
+            and not fields["writable"]
+        ):
+            return (
+                prefix
+                + "trap returned truish for defining non-configurable property '"
+                + display
+                + "' which cannot be non-writable, unless there exists a corresponding non-configurable, non-writable own property of the target object."
+            )
+    return None
+
+
+def allocate_partial_descriptor(machine, identity, fields):
+    properties = [
+        {
+            "key": ["str", key],
+            "value": ["bool", fields[key]]
+            if key in ("writable", "enumerable", "configurable")
+            else fields[key],
+        }
+        for key in ("value", "writable", "get", "set", "enumerable", "configurable")
+        if key in fields
+    ]
+    _p()._apply(
+        machine,
+        {
+            "kind": "allocate",
+            "name": identity,
+            "objectKind": "object",
+            "length": None,
+            "properties": properties,
+            "code": None,
+            "captures": [],
+            "functionKind": None,
+            "lexicalReceiver": None,
+        },
+    )
 
 
 def _compatible(current, descriptor, extensible):

@@ -84,6 +84,7 @@ def call(state, operation, caller=None, arguments=()):
             "caller": caller or "Reflect." + operation,
             "arguments": list(arguments),
             "child": "callback",
+            "descriptorObject": "descriptor" if operation == "defineProperty" else None,
             "route": [
                 {
                     "object": "proxy",
@@ -315,3 +316,94 @@ def test_descriptor_cannot_hide_nonconfigurable_target():
     returned(state, ["undefined"])
     step(state, {"kind": "proxy.reflect.fault", "id": "reflection", "error": "error"})
     assert "non-configurable" in dict(dict(state["heap"])["error"]["properties"])["message"][1]
+
+
+def test_define_uses_snapshot_and_fresh_mutable_callback_descriptor():
+    state = base("defineProperty")
+    step(
+        state,
+        {
+            "kind": "property.define",
+            "object": "target",
+            "key": ["str", "x"],
+            "descriptor": {
+                "kind": "data",
+                "value": ["num", 1],
+                "writable": True,
+                "enumerable": False,
+                "configurable": False,
+            },
+            "success": True,
+        },
+    )
+    allocate_data(state, "input", [("writable", ["bool", False])])
+    call(state, "defineProperty", arguments=[["str", "x"], ref("input")])
+    assert dict(dict(state["heap"])["descriptor"]["properties"]) == {"writable": ["bool", False]}
+    step(
+        state,
+        {
+            "kind": "property.set",
+            "object": "descriptor",
+            "key": ["str", "writable"],
+            "receiver": ref("descriptor"),
+            "value": ["bool", True],
+            "success": True,
+        },
+    )
+    returned(state, ["bool", True])
+    step(state, {"kind": "proxy.reflect.fault", "id": "reflection", "error": "error"})
+    assert (
+        "cannot be non-writable" in dict(dict(state["heap"])["error"]["properties"])["message"][1]
+    )
+
+
+def test_define_generic_partial_fields_preserve_existing_value():
+    state = base()
+    step(
+        state,
+        {
+            "kind": "property.set",
+            "object": "target",
+            "key": ["str", "x"],
+            "receiver": ref("target"),
+            "value": ["num", 7],
+            "success": True,
+        },
+    )
+    allocate_data(state, "input", [("enumerable", ["bool", False])])
+    step(
+        state,
+        {
+            "kind": "proxy.reflect.direct",
+            "object": "proxy",
+            "operation": "defineProperty",
+            "caller": "Reflect.defineProperty",
+            "arguments": [["str", "x"], ref("input")],
+            "result": ["bool", True],
+            "route": [
+                {
+                    "object": "proxy",
+                    "target": ref("target"),
+                    "handler": ref("handler"),
+                    "method": ["undefined"],
+                }
+            ],
+        },
+    )
+    target = dict(state["heap"])["target"]
+    assert dict(target["properties"])["x"] == ["num", 7]
+    assert dict(target["descriptors"])["x"] == {
+        "kind": "data",
+        "writable": True,
+        "enumerable": False,
+        "configurable": True,
+    }
+
+
+def test_define_false_reflect_result_does_not_change_target():
+    state = base("defineProperty")
+    allocate_data(state, "input", [("value", ["num", 7])])
+    call(state, "defineProperty", arguments=[["str", "x"], ref("input")])
+    returned(state, ["bool", False])
+    finish(state, ["bool", False])
+    assert "x" not in dict(dict(state["heap"])["target"]["properties"])

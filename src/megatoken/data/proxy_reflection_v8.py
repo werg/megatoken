@@ -4,7 +4,15 @@ from __future__ import annotations
 
 import copy
 
-from .proxy_reflection_descriptors_v8 import describe_result, materialize_result
+from .proxy_reflection_descriptors_v8 import (
+    _compatible,
+    allocate_partial_descriptor,
+    complete_descriptor,
+    definition_fault,
+    describe_result,
+    materialize_result,
+    read_partial_descriptor,
+)
 from .proxy_v8 import _derive_route, _eq, _id, _retained_route, _truthy
 
 SCHEMA = "semantic-proxy-reflection/1"
@@ -15,6 +23,7 @@ OPERATIONS = (
     "preventExtensions",
     "getOwnPropertyDescriptor",
     "ownKeys",
+    "defineProperty",
 )
 FIELDS = {
     "proxy.reflect.call": {
@@ -26,6 +35,7 @@ FIELDS = {
         "arguments",
         "child",
         "route",
+        "descriptorObject",
     },
     "proxy.reflect.direct": {
         "kind",
@@ -52,6 +62,8 @@ CALL_FIELDS = {
     "handler",
     "callee",
     "route",
+    "definition",
+    "descriptorObject",
 }
 
 
@@ -96,7 +108,13 @@ def validate_record(record):
     _require(
         type(record["arguments"]) is list
         and len(record["arguments"])
-        == (1 if operation in ("setPrototypeOf", "getOwnPropertyDescriptor") else 0),
+        == (
+            2
+            if operation == "defineProperty"
+            else 1
+            if operation in ("setPrototypeOf", "getOwnPropertyDescriptor")
+            else 0
+        ),
         "argument count",
     )
     for value in record["arguments"]:
@@ -105,6 +123,10 @@ def validate_record(record):
     if record["kind"] == "proxy.reflect.call":
         _id(record["id"])
         _id(record["child"])
+        if operation == "defineProperty":
+            _id(record["descriptorObject"])
+        else:
+            _require(record["descriptorObject"] is None, "only definition has descriptor object")
     else:
         p.validate_protocol_value(record["result"])
     return True
@@ -141,13 +163,15 @@ def _prototype(machine, node):
 def _arguments(machine, row):
     for value in row["arguments"]:
         _p()._known(machine, value)
-    if row["operation"] == "getOwnPropertyDescriptor":
+    if row["operation"] in ("getOwnPropertyDescriptor", "defineProperty"):
         _p().validate_protocol_key(row["arguments"][0])
     if row["operation"] == "setPrototypeOf":
         _require(row["arguments"][0][0] in ("ref", "null"), "prototype must be object or null")
 
 
 def _fault(machine, row, value):
+    if row["operation"] == "defineProperty":
+        return definition_fault(machine, row, value)
     if row["operation"] in ("getOwnPropertyDescriptor", "ownKeys"):
         return describe_result(machine, row, value).get("fault")
     target = _ordinary(machine, row["target"])
@@ -188,6 +212,22 @@ def _normal(row, value):
 
 
 def _direct(machine, row, target):
+    if row["operation"] == "defineProperty":
+        key = _p()._key(row["arguments"][0])
+        current = _p()._descriptor(target, key)
+        completed = complete_descriptor(row["definition"], current)
+        success = _compatible(current, completed, target.get("extensible", True))
+        _require(
+            success or row["caller"] == "Reflect.defineProperty",
+            "Object.defineProperty failure needs ordinary fault",
+        )
+        if success:
+            _p()._install(target, key, completed)
+        return (
+            ["bool", success]
+            if row["caller"] == "Reflect.defineProperty"
+            else ["ref", row["object"]]
+        )
     if row["operation"] in ("getOwnPropertyDescriptor", "ownKeys"):
         return materialize_result(machine, row, None, row["result"], True)
     operation = row["operation"]
@@ -277,12 +317,19 @@ def apply_record(machine, record):
         return True
     _require(machine["heap"].get(record["object"], {}).get("kind") == "proxy", "object identity")
     _arguments(machine, record)
+    definition = (
+        read_partial_descriptor(machine, record["arguments"][1])
+        if record["operation"] == "defineProperty"
+        else None
+    )
     route = _derive_route(machine, record["object"], record["operation"])
     _require(_eq(record["route"], route["route"]), "route differs from live lookup")
     target = _ordinary(machine, route["target"])
     if kind == "proxy.reflect.direct":
         _require(route["selected"][0] in ("undefined", "null"), "explicit trap call required")
-        value = _direct(machine, {**record, "target": route["target"]}, target)
+        value = _direct(
+            machine, {**record, "target": route["target"], "definition": definition}, target
+        )
         _require(_eq(record["result"], value), "false direct result")
         return True
     pending = _state(machine)["pending"]
@@ -305,12 +352,24 @@ def apply_record(machine, record):
         target=copy.deepcopy(route["target"]),
         handler=copy.deepcopy(route["route"][-1]["handler"]),
         callee=copy.deepcopy(method),
+        definition=copy.deepcopy(definition),
+        descriptorObject=record["descriptorObject"],
     )
     from .construction_v8 import _call
 
-    _call(machine, row["child"], row["callee"], row["handler"], [row["target"], *row["arguments"]])
+    if row["operation"] == "defineProperty":
+        allocate_partial_descriptor(machine, row["descriptorObject"], definition)
+    _call(machine, row["child"], row["callee"], row["handler"], _callback_arguments(row))
     pending.append(row)
     return True
+
+
+def _callback_arguments(row):
+    return (
+        [row["target"], row["arguments"][0], ["ref", row["descriptorObject"]]]
+        if row["operation"] == "defineProperty"
+        else [row["target"], *row["arguments"]]
+    )
 
 
 def validate_state(machine):
@@ -340,6 +399,7 @@ def validate_state(machine):
                         "arguments",
                         "child",
                         "route",
+                        "descriptorObject",
                     )
                 },
             }
@@ -356,6 +416,29 @@ def validate_state(machine):
             and _eq(row["callee"], row["route"][-1]["method"]),
             "retained identities",
         )
+        if row["operation"] == "defineProperty":
+            fields = row["definition"]
+            _require(
+                type(fields) is dict
+                and set(fields)
+                <= {"value", "writable", "get", "set", "enumerable", "configurable"},
+                "retained descriptor fields",
+            )
+            for key, value in fields.items():
+                if key in ("writable", "enumerable", "configurable"):
+                    _require(type(value) is bool, "retained descriptor flag")
+                else:
+                    _p()._known(machine, value)
+            _require(
+                not ({"get", "set"} & set(fields) and {"value", "writable"} & set(fields)),
+                "retained descriptor conflict",
+            )
+            _p()._known(machine, ["ref", row["descriptorObject"]])
+        else:
+            _require(
+                row["definition"] is None and row["descriptorObject"] is None,
+                "unexpected retained descriptor",
+            )
         callee = _p()._node(machine, row["callee"][1])
         _require(
             callee["kind"] == "closure"
@@ -385,7 +468,7 @@ def validate_state(machine):
             _require(
                 frame
                 and _eq(frame["callee"], row["callee"])
-                and _eq(frame["arguments"], [row["target"], *row["arguments"]]),
+                and _eq(frame["arguments"], _callback_arguments(row)),
                 "callback arguments",
             )
         else:
