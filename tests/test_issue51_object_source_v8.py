@@ -34,9 +34,9 @@ BY_ID = {row["id"]: row for row in ACCEPTED}
 def test_original_population_includes_all_refusals_and_one_lineage():
     assert DOCUMENT["schema"] == "issue51-object-evidence/1"
     assert DOCUMENT["producerTreeClean"] is True
-    assert len(CASES) == 23
-    assert len(ACCEPTED) == 20
-    assert len({row["id"] for row in CASES}) == 23
+    assert len(CASES) == 26
+    assert len(ACCEPTED) == 23
+    assert len({row["id"] for row in CASES}) == 26
     registry = DOCUMENT["registry"]
     verify_region_family_registry(registry)
     assert len(registry["components"]) == 1
@@ -102,6 +102,21 @@ def _operation(case_id, kind):
             "issue51-delete-own-and-inherited",
             "property.delete",
             [{"object": "forged"}, {"success": False}],
+        ),
+        (
+            "issue51-reflect-object-key-getter-and-argument-order",
+            "conversion.finish",
+            [{"result": ["str", "forged"]}],
+        ),
+        (
+            "issue51-reflect-object-key-symbol",
+            "conversion.finish",
+            [{"result": ["str", "forged"]}],
+        ),
+        (
+            "issue51-promise-reflect-object-key",
+            "property.has",
+            [{"object": "forged"}, {"key": ["str", "__absent__"]}, {"result": ["bool", False]}],
         ),
         (
             "issue51-for-in-sparse-array",
