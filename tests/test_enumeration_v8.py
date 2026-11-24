@@ -78,9 +78,9 @@ class EnumerationV8Tests(unittest.TestCase):
         receipt = validate_v8_artifact(artifact)
         for check in ("replay", "contexts", "continuation"):
             self.assertEqual(receipt["checks"][check], "passed")
-        self.assertEqual(receipt["counts"]["contexts"], 40)
-        self.assertEqual(receipt["counts"]["protocolRecords"], 21)
-        self.assertEqual(receipt["counts"]["detailedRecords"], 19)
+        self.assertEqual(receipt["counts"]["contexts"], 42)
+        self.assertEqual(receipt["counts"]["protocolRecords"], 22)
+        self.assertEqual(receipt["counts"]["detailedRecords"], 20)
         self.assertFalse(receipt["admitted"])
         mutated = copy.deepcopy(artifact)
         context = next(
