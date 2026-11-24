@@ -605,30 +605,9 @@ def apply_record(machine, record):
     elif kind == "conversion.fault":
         _require(row["phase"] == "fault", "conversion fault requires a derived cause")
         _assert_fault(machine, row)
-        allocation = {
-            "kind": "allocate",
-            "name": record["error"],
-            "objectKind": "object",
-            "length": None,
-            "code": None,
-            "captures": [],
-            "functionKind": None,
-            "lexicalReceiver": None,
-            "properties": [
-                {"key": ["str", "name"], "value": ["str", "TypeError"]},
-                {"key": ["str", "message"], "value": ["str", FAULTS[row["fault"]]]},
-            ],
-        }
-        p.validate_protocol_record(allocation)
-        prior = machine.get("_internalProtocolTransition")
-        machine["_internalProtocolTransition"] = True
-        try:
-            p._apply(machine, allocation)
-        finally:
-            if prior is None:
-                machine.pop("_internalProtocolTransition", None)
-            else:
-                machine["_internalProtocolTransition"] = prior
+        from .intrinsic_error_v8 import allocate_intrinsic_error_v8
+
+        allocate_intrinsic_error_v8(machine, record["error"], "TypeError", FAULTS[row["fault"]])
         row.update(result=["ref", record["error"]], phase="abrupt")
         machine["lastReturn"] = {"kind": "throw", "value": copy.deepcopy(row["result"])}
     else:
