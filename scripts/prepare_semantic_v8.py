@@ -14,6 +14,12 @@ from admit_semantic_v8 import checked_revision, recheck_source_binding
 from megatoken.data.semantic_corpus_v8 import prepare_semantic_corpus_v8
 from megatoken.data.semantic_json import stable_algorithm_hash
 from megatoken.generation.codec import LING_TOKENIZER_SHA256, ByteCodec
+from megatoken.io import canonical_json
+
+
+def _write_source_recheck_artifact(path: Path, document: dict) -> None:
+    """Write JSON without converting lone JavaScript UTF-16 code units."""
+    path.write_bytes(canonical_json(document))
 
 
 def _documents(paths):
@@ -48,7 +54,7 @@ def main():
     def verify(document):
         with tempfile.TemporaryDirectory(prefix="semantic-source-v8-") as directory:
             artifact = Path(directory) / "artifact.json"
-            artifact.write_text(json.dumps(document, ensure_ascii=False, separators=(",", ":")))
+            _write_source_recheck_artifact(artifact, document)
             receipt = recheck_source_binding(
                 document,
                 artifact,
