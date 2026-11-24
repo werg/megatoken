@@ -104,8 +104,10 @@
           "construction": null,
           "primitiveConversions": null,
           "numberConversions": null,
+          "proxyReflection": null,
           "proxyCalls": null,
-          "promiseExecutors": null
+          "promiseExecutors": null,
+          "collections": null
         }
       },
       "lines": [
@@ -434,8 +436,10 @@
           "construction": null,
           "primitiveConversions": null,
           "numberConversions": null,
+          "proxyReflection": null,
           "proxyCalls": null,
-          "promiseExecutors": null
+          "promiseExecutors": null,
+          "collections": null
         }
       }
     },
@@ -541,8 +545,10 @@
           "construction": null,
           "primitiveConversions": null,
           "numberConversions": null,
+          "proxyReflection": null,
           "proxyCalls": null,
-          "promiseExecutors": null
+          "promiseExecutors": null,
+          "collections": null
         }
       },
       "lines": [
@@ -848,8 +854,10 @@
           "construction": null,
           "primitiveConversions": null,
           "numberConversions": null,
+          "proxyReflection": null,
           "proxyCalls": null,
-          "promiseExecutors": null
+          "promiseExecutors": null,
+          "collections": null
         }
       }
     },
@@ -955,8 +963,10 @@
           "construction": null,
           "primitiveConversions": null,
           "numberConversions": null,
+          "proxyReflection": null,
           "proxyCalls": null,
-          "promiseExecutors": null
+          "promiseExecutors": null,
+          "collections": null
         }
       },
       "lines": [
@@ -1192,8 +1202,10 @@
           "construction": null,
           "primitiveConversions": null,
           "numberConversions": null,
+          "proxyReflection": null,
           "proxyCalls": null,
-          "promiseExecutors": null
+          "promiseExecutors": null,
+          "collections": null
         }
       }
     }
