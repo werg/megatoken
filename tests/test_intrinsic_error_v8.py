@@ -349,6 +349,36 @@ class IntrinsicErrorTests(unittest.TestCase):
             with self.assertRaises(ProtocolV8Error):
                 validate_protocol_state(forged["protocol"], forged["heap"], forged)
 
+    def test_no_frame_public_allocation_rejects_a_forged_internal_marker(self):
+        from megatoken.data.protocol_v8 import _internal_machine, apply_protocol_record
+
+        allocation = {
+            "kind": "allocate",
+            "name": "forged-error",
+            "objectKind": "object",
+            "length": None,
+            "properties": [
+                {
+                    "key": ["str", "message"],
+                    "value": ["str", "Chaining cycle detected for promise"],
+                }
+            ],
+            "code": None,
+            "captures": [],
+            "functionKind": None,
+            "lexicalReceiver": None,
+        }
+        for forge_internal_marker in (False, True):
+            with self.subTest(forge_internal_marker=forge_internal_marker):
+                machine = _internal_machine(base_state())
+                machine["stack"] = []
+                if forge_internal_marker:
+                    machine["_internalProtocolTransition"] = True
+                before = copy.deepcopy(machine)
+                with self.assertRaisesRegex(ProtocolV8Error, "active invocation required"):
+                    apply_protocol_record(machine, allocation)
+                self.assertEqual(machine, before)
+
     def test_error_identity_and_message_bounds_match_javascript_utf16_units(self):
         from megatoken.data.intrinsic_error_v8 import allocate_intrinsic_error_v8
         from megatoken.data.protocol_v8 import _internal_machine

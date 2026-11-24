@@ -1037,28 +1037,60 @@ def _normalize_number(value):
     return value
 
 
-def _apply(machine, record, *, _internal_property_getter=False):
+def _apply(
+    machine,
+    record,
+    *,
+    _internal_property_getter=False,
+    _internal_intrinsic_error_allocate=False,
+):
     p = machine["protocol"]
     pending = p["pendingCalls"][-1] if p["pendingCalls"] else None
     if pending and pending["child"] not in machine["stack"] and record["kind"] != "property.finish":
         _fail("property finish must consume child completion")
     if machine.get("completion") is not None:
         _fail("record after completion")
-    if not machine["stack"] and record["kind"] not in (
-        "end",
-        "promise.join.step",
-        "async.resume",
-        "promise.reaction.complete",
-        "promise.adopt.enqueue",
-        "promise.adopt.self",
-        "promise.adopt.enter",
-        "promise.adopt.get",
-        "promise.adopt.forward",
-        "promise.intrinsics",
-        "promise.intrinsic.get",
+    kind = record["kind"]
+    if _internal_intrinsic_error_allocate:
+        properties = record.get("properties")
+        if (
+            kind != "allocate"
+            or record.get("objectKind") != "object"
+            or record.get("length") is not None
+            or record.get("code") is not None
+            or record.get("captures") != []
+            or record.get("functionKind") is not None
+            or record.get("lexicalReceiver") is not None
+            or type(properties) is not list
+            or len(properties) != 1
+            or type(properties[0]) is not dict
+            or set(properties[0]) != {"key", "value"}
+            or properties[0]["key"] != ["str", "message"]
+            or type(properties[0]["value"]) is not list
+            or len(properties[0]["value"]) != 2
+            or properties[0]["value"][0] != "str"
+            or not isinstance(properties[0]["value"][1], str)
+        ):
+            _fail("internal intrinsic error allocation")
+    if (
+        not machine["stack"]
+        and kind
+        not in (
+            "end",
+            "promise.join.step",
+            "async.resume",
+            "promise.reaction.complete",
+            "promise.adopt.enqueue",
+            "promise.adopt.self",
+            "promise.adopt.enter",
+            "promise.adopt.get",
+            "promise.adopt.forward",
+            "promise.intrinsics",
+            "promise.intrinsic.get",
+        )
+        and not _internal_intrinsic_error_allocate
     ):
         _fail("active invocation required")
-    kind = record["kind"]
     if not machine.get("_internalProtocolTransition"):
         assert_async_call_next(machine, record)
         assert_number_next(machine, record)

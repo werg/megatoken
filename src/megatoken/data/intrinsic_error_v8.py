@@ -59,7 +59,7 @@ def allocate_intrinsic_error_v8(machine, identity, error_type, message):
     prior = machine.get("_internalProtocolTransition")
     machine["_internalProtocolTransition"] = True
     try:
-        p._apply(machine, record)
+        p._apply(machine, record, _internal_intrinsic_error_allocate=True)
     finally:
         if prior is None:
             machine.pop("_internalProtocolTransition", None)

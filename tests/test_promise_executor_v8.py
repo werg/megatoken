@@ -458,6 +458,24 @@ class PromiseExecutorV8Tests(unittest.TestCase):
                 )
             self.assertEqual(state, before)
 
+    def test_no_frame_self_resolution_uses_internal_error_allocation_capability(self):
+        from megatoken.data.promise_adoption_v8 import stage_source_intent
+
+        state = executor_fixture()
+        state["stack"] = []
+        stage_source_intent(state, "promise", "promise")
+        apply_protocol_record(
+            state,
+            {"kind": "promise.adopt.self", "promise": "promise", "error": "self-typeerror"},
+        )
+        self.assertEqual(state["heap"]["promise"]["state"], "rejected")
+        self.assertEqual(state["heap"]["promise"]["result"], ["ref", "self-typeerror"])
+        self.assertEqual(state["heap"]["self-typeerror"]["declaredError"], "TypeError")
+        self.assertEqual(
+            state["heap"]["self-typeerror"]["properties"]["message"],
+            ["str", "Chaining cycle detected for promise"],
+        )
+
     def test_self_resolution_allocates_only_the_declared_typeerror(self):
         state = executor_fixture()
         enter(state)
