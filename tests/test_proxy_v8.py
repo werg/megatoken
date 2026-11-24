@@ -647,6 +647,78 @@ class ProxyFaultTests(unittest.TestCase):
             )
             self.assertEqual(state["lastReturn"], {"kind": "throw", "value": REF("fault")})
 
+    def test_transparent_strict_delete_fault_requires_live_nonconfigurable_property(self):
+        for key, display in (
+            (["str", "x"], "x"),
+            (["str", "a\0b"], "a\0b"),
+            (["symbol", "well-known:iterator"], "Symbol(Symbol.iterator)"),
+        ):
+            state = base_state()
+            fault = {"kind": "proxy.delete.fault", "object": "proxy", "key": key, "error": "fault"}
+            before = copy.deepcopy(state)
+            with self.assertRaisesRegex(ProtocolV8Error, "nonconfigurable"):
+                step(state, fault)
+            self.assertEqual(state, before)
+            step(
+                state,
+                {
+                    "kind": "property.define",
+                    "object": "target",
+                    "key": key,
+                    "descriptor": {
+                        "kind": "data",
+                        "value": ["num", 2],
+                        "writable": True,
+                        "enumerable": True,
+                        "configurable": False,
+                    },
+                    "success": True,
+                },
+            )
+            step(state, {"kind": "proxy.delete", "object": "proxy", "key": key, "success": False})
+            before = copy.deepcopy(state)
+            for forged in ({**fault, "error": "target"}, {**fault, "message": "invented"}):
+                with self.assertRaises(ProtocolV8Error):
+                    step(state, forged)
+                self.assertEqual(state, before)
+            target_before = copy.deepcopy(dict(state["heap"])["target"])
+            step(state, fault)
+            self.assertEqual(dict(state["heap"])["target"], target_before)
+            error = dict(state["heap"])["fault"]
+            self.assertEqual(error["declaredError"], "TypeError")
+            self.assertEqual(
+                dict(error["properties"])["message"],
+                ["str", "Cannot delete property '" + display + "' of #<Object>"],
+            )
+            self.assertEqual(state["lastReturn"], {"kind": "throw", "value": REF("fault")})
+            validate_protocol_state(state["protocol"], state["heap"], state)
+
+    def test_transparent_delete_fault_cannot_bypass_selected_trap(self):
+        state = base_state((("deleteTrap", REF("deleteTrap")),))
+        step(
+            state,
+            {
+                "kind": "property.define",
+                "object": "target",
+                "key": KEY,
+                "descriptor": {
+                    "kind": "data",
+                    "value": ["num", 2],
+                    "writable": True,
+                    "enumerable": True,
+                    "configurable": False,
+                },
+                "success": True,
+            },
+        )
+        before = copy.deepcopy(state)
+        with self.assertRaisesRegex(ProtocolV8Error, "explicit call boundary"):
+            step(
+                state,
+                {"kind": "proxy.delete.fault", "object": "proxy", "key": KEY, "error": "fault"},
+            )
+        self.assertEqual(state, before)
+
     def test_non_delete_operations_cannot_retain_strict_delete_context(self):
         state = self.begin("has")
         forged = copy.deepcopy(state)

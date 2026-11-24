@@ -32,6 +32,7 @@ FIELDS = {
     "proxy.set": {"kind", "object", "key", "value", "success"},
     "proxy.has": {"kind", "object", "key", "result"},
     "proxy.delete": {"kind", "object", "key", "success"},
+    "proxy.delete.fault": {"kind", "object", "key", "error"},
     "proxy.get.call": {"kind", "id", "object", "key", "child"},
     "proxy.set.call": {"kind", "id", "object", "key", "value", "child"},
     "proxy.has.call": {"kind", "id", "object", "key", "child"},
@@ -93,6 +94,8 @@ def validate_record(record):
     else:
         _id(record["object"])
         p.validate_protocol_key(record["key"])
+        if kind == "proxy.delete.fault":
+            _id(record["error"])
         if kind.endswith(".call"):
             _id(record["id"])
             _id(record["child"])
@@ -202,6 +205,18 @@ def _require(condition, message):
         _fail(message)
 
 
+def _key_display(machine, key):
+    if key[0] == "str":
+        return key[1]
+    symbol = _protocol()._symbol(machine, key[1])
+    description = (
+        ["str", "Symbol." + symbol["name"]]
+        if symbol["kind"] == "well-known"
+        else symbol["description"]
+    )
+    return "Symbol(" + (description[1] if description[0] == "str" else "") + ")"
+
+
 def _invariant_fault(machine, row, returned):
     if returned["kind"] != "return":
         return None
@@ -209,17 +224,11 @@ def _invariant_fault(machine, row, returned):
     operation, value = row["operation"], returned["value"]
     truth = _truthy(value)
     if operation == "delete" and row["strict"] and not truth:
-        if row["key"][0] == "str":
-            display = row["key"][1]
-        else:
-            symbol = p._symbol(machine, row["key"][1])
-            description = (
-                ["str", "Symbol." + symbol["name"]]
-                if symbol["kind"] == "well-known"
-                else symbol["description"]
-            )
-            display = "Symbol(" + (description[1] if description[0] == "str" else "") + ")"
-        return "'deleteProperty' on proxy: trap returned falsish for property '" + display + "'"
+        return (
+            "'deleteProperty' on proxy: trap returned falsish for property '"
+            + _key_display(machine, row["key"])
+            + "'"
+        )
     target = p._node(machine, row["target"][1])
     descriptor = p._descriptor(target, p._key(row["key"]))
     if not descriptor:
@@ -361,14 +370,24 @@ def apply_record(machine, record):
         _require(
             record["result"] == ["bool", descriptor is not None], "false Proxy existence result"
         )
-    elif kind == "proxy.delete":
+    elif kind in ("proxy.delete", "proxy.delete.fault"):
         target = p._node(machine, node["target"][1])
         key = p._key(record["key"])
         descriptor = p._descriptor(target, key)
         success = descriptor is None or descriptor["configurable"]
-        _require(record["success"] == success, "false Proxy deletion result")
-        if success:
-            p._remove(target, key)
+        if kind == "proxy.delete.fault":
+            _require(not success, "strict deletion fault requires a nonconfigurable own property")
+            from .intrinsic_error_v8 import allocate_intrinsic_error_v8
+
+            message = (
+                "Cannot delete property '" + _key_display(machine, record["key"]) + "' of #<Object>"
+            )
+            value = allocate_intrinsic_error_v8(machine, record["error"], "TypeError", message)
+            machine["lastReturn"] = {"kind": "throw", "value": copy.deepcopy(value)}
+        else:
+            _require(record["success"] == success, "false Proxy deletion result")
+            if success:
+                p._remove(target, key)
     elif kind == "proxy.get":
         _, descriptor = p._lookup_descriptor(machine, node["target"][1], p._key(record["key"]))
         _require(not descriptor or descriptor["kind"] == "data", "accessors require call boundary")
