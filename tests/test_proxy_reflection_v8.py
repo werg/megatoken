@@ -407,3 +407,71 @@ def test_define_false_reflect_result_does_not_change_target():
     returned(state, ["bool", False])
     finish(state, ["bool", False])
     assert "x" not in dict(dict(state["heap"])["target"]["properties"])
+
+
+def test_define_snapshot_is_bound_to_active_and_returned_callback_scope():
+    state = base("defineProperty")
+    allocate_data(state, "input", [("writable", ["bool", False])])
+    call(state, "defineProperty", arguments=[["str", "x"], ref("input")])
+    retained = {"kind": "proxy.defineProperty", "definition": {"writable": False}}
+    assert state["protocol"]["callFrames"][-1]["proxyReflectionScope"] == retained
+
+    forged_row = copy.deepcopy(state)
+    forged_row["protocol"]["proxyReflection"]["pending"][-1]["definition"]["writable"] = True
+    with pytest.raises(ProtocolV8Error, match="active callback scope"):
+        validate_protocol_state(forged_row["protocol"], forged_row["heap"], forged_row)
+
+    forged_scope = copy.deepcopy(state)
+    forged_scope["protocol"]["callFrames"][-1]["proxyReflectionScope"]["definition"]["writable"] = True
+    with pytest.raises(ProtocolV8Error, match="active callback scope"):
+        validate_protocol_state(forged_scope["protocol"], forged_scope["heap"], forged_scope)
+
+    returned(state, ["bool", True])
+    validate_protocol_state(state["protocol"], state["heap"], state)
+    assert state["lastReturn"]["proxyReflectionScope"] == retained
+
+    forged_return = copy.deepcopy(state)
+    forged_return["lastReturn"]["proxyReflectionScope"]["definition"]["writable"] = True
+    with pytest.raises(ProtocolV8Error, match="returned callback scope"):
+        validate_protocol_state(forged_return["protocol"], forged_return["heap"], forged_return)
+
+    finish(state, ["bool", True])
+    assert "proxyReflectionScope" not in state["lastReturn"]
+
+
+def test_define_fault_consumes_snapshot_receipt_after_mutable_copy():
+    state = base("defineProperty")
+    step(
+        state,
+        {
+            "kind": "property.define",
+            "object": "target",
+            "key": ["str", "x"],
+            "descriptor": {
+                "kind": "data",
+                "value": ["num", 1],
+                "writable": True,
+                "enumerable": False,
+                "configurable": False,
+            },
+            "success": True,
+        },
+    )
+    allocate_data(state, "input", [("writable", ["bool", False])])
+    call(state, "defineProperty", arguments=[["str", "x"], ref("input")])
+    step(
+        state,
+        {
+            "kind": "property.set",
+            "object": "descriptor",
+            "key": ["str", "writable"],
+            "receiver": ref("descriptor"),
+            "value": ["bool", True],
+            "success": True,
+        },
+    )
+    returned(state, ["bool", True])
+    validate_protocol_state(state["protocol"], state["heap"], state)
+    assert state["lastReturn"]["proxyReflectionScope"]["definition"] == {"writable": False}
+    step(state, {"kind": "proxy.reflect.fault", "id": "reflection", "error": "error"})
+    assert "proxyReflectionScope" not in state["lastReturn"]

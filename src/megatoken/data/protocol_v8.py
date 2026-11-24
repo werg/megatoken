@@ -1346,6 +1346,8 @@ def _apply(machine, record):
                 elif callback is not None and len(machine["stack"]) <= 1:
                     _fail("scheduled callback must complete through its retained call frame")
             machine["lastReturn"] = {"kind": kind, "value": copy.deepcopy(record["value"])}
+            if "proxyReflectionScope" in frame:
+                machine["lastReturn"]["proxyReflectionScope"] = copy.deepcopy(frame["proxyReflectionScope"])
         else:
             if machine.get("activeJob"):
                 _fail("job completion requires its scheduler profile")
@@ -1819,11 +1821,15 @@ def validate_protocol_state(snapshot, heap_ids=(), shared_state=None):
         if pending["operation"] == "set":
             validate_protocol_value(pending["value"])
     for frame_index, frame in enumerate(snapshot["callFrames"]):
-        _exact(
-            frame,
-            {"child", "parent", "callee", "priorReceiver", "priorAliases", "arguments"},
-            "protocol call frame",
-        )
+        call_frame_fields = {"child", "parent", "callee", "priorReceiver", "priorAliases", "arguments"}
+        if "proxyReflectionScope" in frame:
+            call_frame_fields.add("proxyReflectionScope")
+        _exact(frame, call_frame_fields, "protocol call frame")
+        if "proxyReflectionScope" in frame:
+            scope = frame["proxyReflectionScope"]
+            _exact(scope, {"kind", "definition"}, "Proxy reflection call scope")
+            if scope["kind"] != "proxy.defineProperty" or type(scope["definition"]) is not dict:
+                _fail("Proxy reflection call scope kind/definition")
         _identity(frame["child"])
         _identity(frame["parent"])
         stack = call_frame_machine["stack"]

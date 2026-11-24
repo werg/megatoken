@@ -291,6 +291,7 @@ def apply_record(machine, record):
             "callback completion",
         )
         _retained_route(machine, row)
+        _check_callback_scope(completion.get("proxyReflectionScope"), row, "completed callback scope")
         fault = (
             _fault(machine, row, completion["value"]) if completion["kind"] == "return" else None
         )
@@ -313,6 +314,7 @@ def apply_record(machine, record):
                 else _normal(row, completion["value"]),
             }
             _require(_eq(record["completion"], expected), "false completion")
+            completion.pop("proxyReflectionScope", None)
         pending.pop()
         return True
     _require(machine["heap"].get(record["object"], {}).get("kind") == "proxy", "object identity")
@@ -360,6 +362,8 @@ def apply_record(machine, record):
     if row["operation"] == "defineProperty":
         allocate_partial_descriptor(machine, row["descriptorObject"], definition)
     _call(machine, row["child"], row["callee"], row["handler"], _callback_arguments(row))
+    if row["operation"] == "defineProperty":
+        machine["protocol"]["callFrames"][-1]["proxyReflectionScope"] = _callback_scope(row)
     pending.append(row)
     return True
 
@@ -372,9 +376,30 @@ def _callback_arguments(row):
     )
 
 
+def _callback_scope(row):
+    return (
+        {"kind": "proxy.defineProperty", "definition": copy.deepcopy(row["definition"])}
+        if row["operation"] == "defineProperty"
+        else None
+    )
+
+
+def _check_callback_scope(receipt, row, label):
+    expected = _callback_scope(row)
+    if expected is None:
+        _require(receipt is None, label + " on non-definition callback")
+    else:
+        _require(receipt == expected, label + " differs from retained ToPropertyDescriptor")
+
+
 def validate_state(machine):
     snapshot = machine.get("protocol", {}).get("proxyReflection")
     if snapshot is None:
+        _require(
+            not any("proxyReflectionScope" in frame for frame in machine["protocol"].get("callFrames", []))
+            and "proxyReflectionScope" not in (machine.get("lastReturn") or {}),
+            "orphaned Proxy reflection callback scope",
+        )
         return True
     _p()._exact(snapshot, {"schema", "pending"}, "Proxy reflection state")
     _require(
@@ -471,6 +496,7 @@ def validate_state(machine):
                 and _eq(frame["arguments"], _callback_arguments(row)),
                 "callback arguments",
             )
+            _check_callback_scope(frame.get("proxyReflectionScope"), row, "active callback scope")
         else:
             _require(
                 row is snapshot["pending"][-1]
@@ -478,4 +504,26 @@ def validate_state(machine):
                 and (machine.get("lastReturn") or {}).get("kind") in ("return", "throw"),
                 "returned callback owner",
             )
+            _check_callback_scope(
+                (machine.get("lastReturn") or {}).get("proxyReflectionScope"),
+                row,
+                "returned callback scope",
+            )
+    scoped_frames = [
+        frame for frame in machine["protocol"]["callFrames"] if "proxyReflectionScope" in frame
+    ]
+    _require(
+        all(
+            any(row["child"] == frame["child"] and row["operation"] == "defineProperty"
+                for row in snapshot["pending"])
+            for frame in scoped_frames
+        ),
+        "orphaned active Proxy reflection scope",
+    )
+    if "proxyReflectionScope" in (machine.get("lastReturn") or {}):
+        _require(
+            snapshot["pending"][-1]["operation"] == "defineProperty"
+            and snapshot["pending"][-1]["child"] not in machine["stack"],
+            "orphaned returned Proxy reflection scope",
+        )
     return True
