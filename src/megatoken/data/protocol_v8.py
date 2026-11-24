@@ -1343,6 +1343,9 @@ def _apply(machine, record):
                         _fail("scheduled callback completion differs from its retained job")
                     machine["stack"].pop()
                     job["returned"] = {"kind": kind, "value": copy.deepcopy(record["value"])}
+                elif job and job.get("reaction") in ("adopt", "adoption"):
+                    if machine["stack"] != [expected_child]:
+                        _fail("adoption getter nested call must return to its retained getter frame")
                 elif callback is not None and len(machine["stack"]) <= 1:
                     _fail("scheduled callback must complete through its retained call frame")
             machine["lastReturn"] = {"kind": kind, "value": copy.deepcopy(record["value"])}
