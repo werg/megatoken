@@ -1064,7 +1064,7 @@ def validate_state(snapshot, machine):
             _known(machine, row["selectedSuper"])
             if info["constructorKind"] != "derived" or row["phase"] != "body":
                 _fail("super selected outside derived body")
-    for object_id, node in machine["heap"].items():
+    for node in machine["heap"].values():
         capture = node.get("callable", {}).get("lexicalConstruction")
         if capture is not None:
             entry = frames.get(capture["frame"])

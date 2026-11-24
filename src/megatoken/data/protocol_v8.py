@@ -1318,6 +1318,8 @@ def _apply(machine, record):
             if machine.get("activeJob"):
                 from .promise_scheduler_v8 import (
                     rows as _scheduler_rows,
+                )
+                from .promise_scheduler_v8 import (
                     selected_callback,
                     selected_child,
                 )

@@ -2,7 +2,6 @@ import copy
 import unittest
 
 from megatoken.data.promise_object_v8 import intrinsic_id
-
 from megatoken.data.protocol_v8 import (
     ProtocolV8Error,
     _external_machine,

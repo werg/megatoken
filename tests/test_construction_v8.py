@@ -1,6 +1,7 @@
 import copy
 import unittest
 
+from megatoken.data.construction_v8 import _id as _construction_id
 from megatoken.data.protocol_v8 import (
     ProtocolV8Error,
     _external_machine,
@@ -9,7 +10,6 @@ from megatoken.data.protocol_v8 import (
     create_protocol_state,
     validate_protocol_state,
 )
-from megatoken.data.construction_v8 import _id as _construction_id
 
 
 class ConstructionIdentityBoundsTests(unittest.TestCase):

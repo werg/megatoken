@@ -2166,7 +2166,8 @@ def _apply_detail(
             and state.get("protocol") is not None
             and invocation == state["stack"][-1]
         ):
-            from .promise_scheduler_v8 import rows as _job_rows, selected_callback, selected_child
+            from .promise_scheduler_v8 import rows as _job_rows
+            from .promise_scheduler_v8 import selected_callback, selected_child
 
             active = state["activeJob"]
             job = _job_rows(state.get("jobs", [])).get(active)
