@@ -134,12 +134,12 @@ consumer implementation revisions above:
 # Producer checkout at c3e1a55, consumer checkout at c3df6a3.
 node tools/export-issue51-evidence.mjs --out /tmp/issue51-cohort.json
 # In the consumer checkout, extract only the supported originals.
-python -c 'import json; d=json.load(open("/tmp/issue51-cohort.json")); print("\\n".join(json.dumps(x["artifact"]) for x in d["cases"] if x["artifact"] is not None))' > /tmp/issue51-artifacts.jsonl
-PYTHONPATH=src python scripts/prepare_semantic_v8.py \\
-  --input /tmp/issue51-artifacts.jsonl --output /tmp/issue51-prepared \\
-  --producer-root /path/to/tracing-js-self \\
-  --producer-revision c3e1a55f19eb04fc17957dd8fdea01031ca35ecd \\
-  --consumer-revision c3df6a32436233f714b365c3a7b2f3e5ce967b5c \\
+python -c 'import json; d=json.load(open("/tmp/issue51-cohort.json")); print("\n".join(json.dumps(x["artifact"]) for x in d["cases"] if x["artifact"] is not None))' > /tmp/issue51-artifacts.jsonl
+PYTHONPATH=src python scripts/prepare_semantic_v8.py \
+  --input /tmp/issue51-artifacts.jsonl --output /tmp/issue51-prepared \
+  --producer-root /path/to/tracing-js-self \
+  --producer-revision c3e1a55f19eb04fc17957dd8fdea01031ca35ecd \
+  --consumer-revision c3df6a32436233f714b365c3a7b2f3e5ce967b5c \
   --tokenizer-json /path/to/pinned/tokenizer.json --source-recheck-timeout-seconds 90
 ```
 
