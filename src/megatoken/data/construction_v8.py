@@ -680,13 +680,15 @@ def _apply_continuation(machine, record):
                 _fail("captured arrow does not retain this constructor receiver")
         if constructor.get("callable", {}).get("constructorKind") != "derived":
             _fail("derived constructor brand differs")
-        error = allocate_intrinsic_error_v8(
+        allocate_intrinsic_error_v8(
             machine,
             record["error"],
             "ReferenceError",
             "Must call super constructor in derived class before accessing 'this' or returning from derived constructor",
         )
-        machine["lastReturn"] = {"kind": "throw", "value": copy.deepcopy(error)}
+        # This authenticates the ReferenceError allocation. The following
+        # protocol throw row carries the constructor completion and updates
+        # lastReturn at its own sequence boundary.
     if kind == "super.select":
         owner = _frame(machine, record["owner"])
         if (

@@ -617,9 +617,10 @@ def apply_detail(machine, kind, fields, *, root, functions=()):
                             machine,
                             child,
                             ["ref", callback],
-                            _lexical_receiver(
-                                machine, node, node.get("lexicalReceiver", ["undefined"])
-                            ),
+                            # Promise reaction callbacks are called with an
+                            # undefined receiver. Arrow callbacks ignore this
+                            # argument and use their captured lexical receiver.
+                            _lexical_receiver(machine, node, ["undefined"]),
                             arguments,
                         )
                         frame = machine["protocol"]["callFrames"][-1]

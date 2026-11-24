@@ -280,6 +280,14 @@ class ConstructionThisFaultTests(unittest.TestCase):
         error = self.machine["heap"]["reference-error"]
         self.assertEqual(error["declaredError"], "ReferenceError")
         self.assertEqual(error["properties"]["message"], ["str", self.MESSAGE])
+        self.assertIsNone(self.machine["lastReturn"])
+        self.send(
+            {
+                "kind": "throw",
+                "invocation": "derived-body",
+                "value": ["ref", "reference-error"],
+            }
+        )
         self.assertEqual(
             self.machine["lastReturn"], {"kind": "throw", "value": ["ref", "reference-error"]}
         )
@@ -319,6 +327,14 @@ class ConstructionThisFaultTests(unittest.TestCase):
             {"kind": "construct.this.fault", "invocation": "arrow-body", "error": "reference-error"}
         )
         self.assertEqual(self.machine["heap"]["reference-error"]["declaredError"], "ReferenceError")
+        self.assertIsNone(self.machine["lastReturn"])
+        self.send(
+            {
+                "kind": "throw",
+                "invocation": "arrow-body",
+                "value": ["ref", "reference-error"],
+            }
+        )
         self.assertEqual(
             self.machine["lastReturn"], {"kind": "throw", "value": ["ref", "reference-error"]}
         )

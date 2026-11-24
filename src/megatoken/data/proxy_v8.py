@@ -682,8 +682,6 @@ def apply_record(machine, record):
         }
         result_node = {
             "kind": "object",
-            "code": None,
-            "captures": [],
             "prototype": "ordinary",
             "properties": {"proxy": ["ref", record["proxy"]], "revoke": ["ref", record["revoke"]]},
         }
