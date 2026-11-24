@@ -2,6 +2,8 @@
 
 import copy
 import json
+import shutil
+import subprocess
 import unittest
 from pathlib import Path
 
@@ -796,6 +798,120 @@ class ProxyFaultTests(unittest.TestCase):
             with self.assertRaisesRegex(ProtocolV8Error, "derived"):
                 step(state, {"kind": "proxy.fault", "id": "operation", "error": "invented"})
             self.assertEqual(state, before)
+
+    @unittest.skipUnless(shutil.which("node"), "Node is the independent Proxy diagnostic oracle")
+    def test_has_and_delete_invariant_messages_match_native_with_live_restrictions(self):
+        inputs, messages = [], []
+        for operation in ("has", "delete"):
+            for key in (["str", "x"], ["str", "a\0b"], ["symbol", "well-known:iterator"]):
+                for restriction in ("nonconfigurable", "nonextensible", "both"):
+                    state = self.begin(operation, key)
+                    step(
+                        state,
+                        {
+                            "kind": "property.define",
+                            "object": "target",
+                            "key": key,
+                            "descriptor": {
+                                "kind": "data",
+                                "value": ["num", 2],
+                                "writable": True,
+                                "enumerable": True,
+                                "configurable": restriction == "nonextensible",
+                            },
+                            "success": True,
+                        },
+                    )
+                    if restriction != "nonconfigurable":
+                        step(state, {"kind": "property.preventExtensions", "object": "target"})
+                    step(
+                        state,
+                        {
+                            "kind": "return",
+                            "invocation": "callback",
+                            "value": ["bool", operation == "delete"],
+                        },
+                    )
+                    step(state, {"kind": "proxy.fault", "id": "operation", "error": "fault"})
+                    messages.append(dict(dict(state["heap"])["fault"]["properties"])["message"][1])
+                    inputs.append([operation, key, restriction])
+        program = """const fs=require('node:fs');const inputs=JSON.parse(fs.readFileSync(0,'utf8'));
+        const messages=inputs.map(([operation,tag,restriction])=>{
+          const key=tag[0]==='symbol'?Symbol.iterator:tag[1],target={};
+          Object.defineProperty(target,key,{value:2,writable:true,enumerable:true,
+            configurable:restriction==='nonextensible'});
+          if(restriction!=='nonconfigurable')Object.preventExtensions(target);
+          const proxy=new Proxy(target,operation==='has'?{has(){return false;}}:{deleteProperty(){return true;}});
+          try{operation==='has'?Reflect.has(proxy,key):Reflect.deleteProperty(proxy,key);return null;}
+          catch(error){return error.message;}
+        });console.log(JSON.stringify(messages));"""
+        native = json.loads(
+            subprocess.check_output(
+                [shutil.which("node"), "-e", program], input=json.dumps(inputs).encode(), timeout=20
+            )
+        )
+        self.assertEqual(messages, native)
+
+    def test_frozen_get_and_set_faults_derive_from_return_and_live_descriptor(self):
+        for operation in ("get", "set"):
+            for descriptor in (
+                {
+                    "kind": "data",
+                    "value": ["num", 2],
+                    "writable": False,
+                    "enumerable": True,
+                    "configurable": False,
+                },
+                {
+                    "kind": "accessor",
+                    "get": ["undefined"],
+                    "set": ["undefined"],
+                    "enumerable": True,
+                    "configurable": False,
+                },
+            ):
+                name = operation + "Trap"
+                state = base_state(((name, REF(name)),))
+                step(
+                    state,
+                    {
+                        "kind": "proxy." + operation + ".call",
+                        "id": "operation",
+                        "object": "proxy",
+                        "key": KEY,
+                        "child": "callback",
+                        **({"value": ["num", 9]} if operation == "set" else {}),
+                    },
+                )
+                step(
+                    state,
+                    {
+                        "kind": "property.define",
+                        "object": "target",
+                        "key": KEY,
+                        "descriptor": descriptor,
+                        "success": True,
+                    },
+                )
+                step(state, {"kind": "return", "invocation": "callback", "value": ["num", 3]})
+                before = copy.deepcopy(state)
+                with self.assertRaisesRegex(ProtocolV8Error, "fault required"):
+                    step(
+                        state,
+                        {
+                            "kind": "proxy.finish",
+                            "id": "operation",
+                            "completion": {
+                                "kind": "normal",
+                                "value": ["num", 3 if operation == "get" else 9],
+                            },
+                        },
+                    )
+                self.assertEqual(state, before)
+                step(state, {"kind": "proxy.fault", "id": "operation", "error": "fault"})
+                self.assertEqual(state["lastReturn"], {"kind": "throw", "value": REF("fault")})
+                self.assertEqual(dict(state["heap"])["fault"]["declaredError"], "TypeError")
+                validate_protocol_state(state["protocol"], state["heap"], state)
 
     def test_false_strict_delete_is_a_caller_error_even_when_property_is_absent(self):
         for key, display in (

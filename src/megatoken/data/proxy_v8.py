@@ -236,9 +236,25 @@ def _invariant_fault(machine, row, returned):
         return None
     restricted = not descriptor["configurable"] or not target.get("extensible", True)
     if operation == "has" and not truth and restricted:
-        return "Proxy has trap contradicted target property existence"
+        return (
+            "'has' on proxy: trap returned falsish for property '"
+            + _key_display(machine, row["key"])
+            + (
+                "' which exists in the proxy target as non-configurable"
+                if not descriptor["configurable"]
+                else "' but the proxy target is not extensible"
+            )
+        )
     if operation == "delete" and truth and restricted:
-        return "Proxy deleteProperty trap contradicted target property invariants"
+        return (
+            "'deleteProperty' on proxy: trap returned truish for property '"
+            + _key_display(machine, row["key"])
+            + (
+                "' which is non-configurable in the proxy target"
+                if not descriptor["configurable"]
+                else "' but the proxy target is non-extensible"
+            )
+        )
     if operation in ("get", "set") and not descriptor["configurable"]:
         if operation == "set" and not truth:
             return None  # Caller strictness is a separate operation.
