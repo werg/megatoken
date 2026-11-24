@@ -419,6 +419,13 @@
             "descriptor",
             "name"
           ],
+          "property.fault": [
+            "kind",
+            "operation",
+            "target",
+            "key",
+            "error"
+          ],
           "module.scheduler.initialize": [
             "kind",
             "object",
@@ -525,6 +532,12 @@
             "object",
             "constructorKind",
             "classConstructor"
+          ],
+          "callable.capture": [
+            "kind",
+            "object",
+            "frame",
+            "thisCell"
           ],
           "callable.home": [
             "kind",
@@ -928,6 +941,18 @@
             "value",
             "success"
           ],
+          "proxy.has": [
+            "kind",
+            "object",
+            "key",
+            "result"
+          ],
+          "proxy.delete": [
+            "kind",
+            "object",
+            "key",
+            "success"
+          ],
           "proxy.get.call": [
             "kind",
             "id",
@@ -942,6 +967,32 @@
             "key",
             "value",
             "child"
+          ],
+          "proxy.has.call": [
+            "kind",
+            "id",
+            "object",
+            "key",
+            "child"
+          ],
+          "proxy.delete.call": [
+            "kind",
+            "id",
+            "object",
+            "key",
+            "child",
+            "strict"
+          ],
+          "proxy.delete.fault": [
+            "kind",
+            "object",
+            "key",
+            "error"
+          ],
+          "proxy.fault": [
+            "kind",
+            "id",
+            "error"
           ],
           "proxy.finish": [
             "kind",
@@ -1048,6 +1099,7 @@
         "profile": "symbols-ordinary-properties/1",
         "extensions": [
           "promise-object/1",
+          "intrinsic-errors/1",
           "bound-module-scheduler/1",
           "async-scoped-call/1",
           "module-namespace-live-cells/1",
@@ -2091,6 +2143,7 @@
         "callFrames",
         "sequence",
         "promiseObjects",
+        "intrinsicErrors",
         "construction",
         "primitiveConversions",
         "numberConversions",
@@ -2099,6 +2152,32 @@
       ],
       "initial": null,
       "heap": "Existing heap nodes with property, descriptor and private-element Maps serialized as entry arrays; Symbol keys remain tagged pairs.",
+      "callFrames": {
+        "fields": [
+          "child",
+          "parent",
+          "callee",
+          "priorReceiver",
+          "priorAliases",
+          "arguments"
+        ],
+        "restoration": "Retained callee identity binds source code, argument list, live lexical receiver and capture cells. Active receiver/captures and parent-child stack order are checked independently."
+      },
+      "intrinsicErrors": {
+        "profile": "intrinsic-errors/1",
+        "schema": "semantic-intrinsic-error-state/1",
+        "fields": [
+          "schema",
+          "errors"
+        ],
+        "rowFields": [
+          "id",
+          "errorType"
+        ],
+        "initial": null,
+        "maxErrors": 4096,
+        "meaning": "Private fault allocators register each fresh intrinsic Error identity after deriving its operation. Restoration requires an exact one-to-one match between registry rows and heap brands; guest writes may change ordinary name/message properties without changing the brand. No public free-standing Error creation record exists."
+      },
       "promiseObjects": {
         "profile": "promise-object/1",
         "schema": "semantic-promise-object-state/1",
@@ -2197,7 +2276,8 @@
           "classConstructor",
           "homeObject",
           "instanceInitializer",
-          "staticInitializer"
+          "staticInitializer",
+          "lexicalConstruction"
         ],
         "frameFields": [
           "id",
@@ -2219,7 +2299,12 @@
           "version"
         ],
         "sourceCallables": "Explicit function source offsets and source-inventoried class:<offset>:constructor|instance|static bodies.",
-        "continuations": "Owned base/derived constructor receivers, newTarget, field initializers and captured superclass selection; private fields and methods retain declaring-class identities."
+        "lexicalConstructionFields": [
+          "frame",
+          "thisCell"
+        ],
+        "continuations": "Owned base/derived constructor receivers, newTarget, field initializers and captured superclass selection; private fields and methods retain declaring-class identities. Constructor arrows retain the live this cell through super and after completion, including object-return substitution and synchronous property/conversion/Proxy callbacks.",
+        "boundaries": "Invoking a this-reading arrow before super, and captured constructor arrows in Promise jobs or adoption getter scopes, require separate completion or scheduling profiles."
       },
       "iterators": {
         "profile": "builtin-iterator/1",
@@ -2492,9 +2577,30 @@
           "handler",
           "key",
           "value",
-          "callee"
+          "callee",
+          "strict"
         ],
-        "capabilities": "Distinct Proxy, target and handler identities; ordinary data forwarding and synchronous owned get/set traps with live target invariants and exact pending callback completion. Callable or revoked proxies and other traps require explicit profiles."
+        "faultFields": {
+          "callback": [
+            "kind",
+            "id",
+            "error"
+          ],
+          "directStrictDelete": [
+            "kind",
+            "object",
+            "key",
+            "error"
+          ]
+        },
+        "resultSemantics": {
+          "has": "Boolean(ToBoolean(raw trap result))",
+          "delete": "Boolean(ToBoolean(raw trap result))",
+          "get": "raw callback result",
+          "set": "assigned value when trap returns truthy"
+        },
+        "capabilities": "Distinct Proxy, target, handler and retained callee identities; transparent forwarding and synchronous owned get, set, has and deleteProperty traps. Callback completion checks current target descriptors and extensibility after trap mutations. Has/delete return normalized booleans; operation-derived TypeErrors cover strict false delete results and live Proxy invariants, including frozen get/set data and accessor restrictions. Direct strict delete faults require an absent deleteProperty trap and a live non-configurable target property.",
+        "boundaries": "The source profile refuses revoked Proxies, nested Proxy targets, accessor trap lookup, and asynchronous or otherwise unowned trap calls. Source-derived abrupt faults are qualified for has/delete and strict delete; get/set invariant and strict false-set source faults require their own source evidence."
       },
       "promiseExecutors": {
         "profile": "promise-executor/1",
@@ -2774,7 +2880,7 @@
       "default": "not promoted by engineering receipts alone"
     }
   },
-  "digest": "9e5946f6745460ad45698eed882641cbc8bb171feb58a98ee53b60984ba23658",
+  "digest": "39a27911db67db3d1848a503a4d743f3c1cc9b699b6d2404d363dc37ce8d0a9d",
   "fixtureDigest": "56f7f36d3b25b3b11a208be3de337e637b9782e6759faea1e1ec107b0a90f0ce",
   "fixtures": [
     {
@@ -2799,7 +2905,7 @@
       "reason": "old artifacts require their original contract"
     }
   ],
-  "interoperabilityDigest": "809f6b29878f3f8321e082463acb825e76946b2371f5d8e2f5cfc0c91df60f66",
+  "interoperabilityDigest": "62e5f6862fc1498a3b56b823b5d7f5a6573a09bb0831075786d0ea92226a22f7",
   "interoperability": [
     {
       "id": "ordered-map",
@@ -2819,417 +2925,512 @@
     {
       "id": "number-callback-cleanup",
       "publicDigest": "1a3e80e1f9ecac7c10c2c1b7a2f74a19bfe87f2efef7b901baf90857ed0d9b6d",
-      "contextDigest": "08b29e7d70ace6cabfb48c9452b3170d7c1128d7ec17060bcf8d5da0a04ab142"
+      "contextDigest": "a419e94e90ba56c78e930003b775d3f197b6f375fde556982e68d81dfe8846cc"
     },
     {
       "id": "custom-iterator-close",
-      "publicDigest": "2e1b7a13c39062555bf72ca3fa21ab10b82995a17c5479f7e85be1e1514d0cc0",
-      "contextDigest": "7cb30cfe1cc0842bbfd7cc7eb1bad1af0c9a87c9bd544083fd0526f7757e5061"
+      "publicDigest": "7749259d19d32e7097734d85a42d96781369b90c1194e0d09fa25d8af6bd35d8",
+      "contextDigest": "416a69750f19823a9a737ffb77a2cc785bd9811b27145ba5bf9c0e9406dbd697"
     },
     {
       "id": "iterable-binding-close",
-      "publicDigest": "fb361ab54588ee29efd51d0dcec352a9c046dce0af224af65f44332892b109c1",
-      "contextDigest": "37a81e13deeab34304fed4121fa11921d3731e33f3eb6549af1ec503038e8b70"
+      "publicDigest": "fe858c329014dedbc6ebb312ae1331d117a4755a052eb5f0180ecbc5f703b3fc",
+      "contextDigest": "756274a0a40f8f2ffbf452c20fbeb40c1155bf257118eea4db82b655d5b6ecde"
     },
     {
       "id": "protocol-machine",
       "schema": "semantic-protocol-fixtures/1",
-      "fixtureDigest": "ae84c364c0b65988e32d651c27fdeea742292f3f2e5cf3db2ac97705994686d6"
+      "fixtureDigest": "54308c47265c19e40b4d1198d5f57253f7ec46f0352159ec95286d633614f941"
     },
     {
       "id": "iterator-machine",
       "schema": "semantic-protocol-fixtures/1",
-      "fixtureDigest": "eb04d4b71cd7407f35ceb592411878d4fa71e41129909a4541a97961e3dc7eeb"
+      "fixtureDigest": "10d9b6026fa4d7a7e63623320034dacb63304473c34dc441c4605fea6fde927b"
     },
     {
       "id": "protocol-region:source-symbol-getter-arithmetic",
-      "publicDigest": "3a710529b48c825eaedc5a36ebd54c5870f0ad8d62f679e90fa20d543b5be688",
-      "contextDigest": "27ede0a61ddeffabcd72c96bf8ef6d4afd2249305f07b55ac68b0d979ee90c37"
+      "publicDigest": "70046f3eb67205f5bd3598313988f16e3ca4b7c47ea5edd67d387048b6ce0731",
+      "contextDigest": "bff68c165d193458076c1fa4a4bb4f4d186b22a615076442d26b8005888d4dcf"
     },
     {
       "id": "protocol-region:typed-views-shared-backing",
       "publicDigest": "bf88479ca947f7ae6250c493e458db1edac052b1ecd3ebdb8f8fe4f8b52e86d9",
-      "contextDigest": "abb091bf5a0976b664020ad41fdba34826501a2e76eabc53fc5333e3e61024ee"
+      "contextDigest": "150d413469e4514f65181d3e1feb0fdbfa5c3af073bfedfde1d56324deeb320d"
     },
     {
       "id": "protocol-region:source-derived-private-arithmetic",
-      "publicDigest": "348cd005a8961b939269da46d5fe13605fcf536f36f60cac16d2d6914c3d2cac",
-      "contextDigest": "5cf4a0bbeb9f67eca8c63b47d1938ad7513449bcd827f0106f8e25f3d8063b09"
+      "publicDigest": "8368d444bde970bfad8f282e9ae21fbd26f695565430940c196797072b2fe195",
+      "contextDigest": "0393820321be65ff4b84bf179c0da77c2ed9d733f6956c82cee002aec8051230"
     },
     {
       "id": "protocol-region:builtin-iterator-mixed-arithmetic",
-      "publicDigest": "dad967c7c19ea840324b8c1c448ade2106b3a423e664476ef3820fb0edbcd1a3",
-      "contextDigest": "b9c5deb73dfa94659ddd07034de9568fe4cccd153f674f142daf2b2ac63fa22c"
+      "publicDigest": "c7e8cd2c3ba3cbf3956d9c47bcea286efcc63942a96ffd1940c4dba031e72166",
+      "contextDigest": "d1218fba7fffc55adba2fcc2fda16b06d8b773e3c3202e2fedf24ec83802995d"
     },
     {
       "id": "protocol-region:source-promise-all-reaction-arithmetic",
-      "publicDigest": "aebbee7ddb879c0a7e96f2e33e4a993eaf0dc41d0731ac488fef442b9de287b9",
-      "contextDigest": "cfd066b85c67c8c2f2aabf51406f5bd2ea6fb2d85935cd56d45c77e3392c1e76"
+      "publicDigest": "7650bd8ad9990653863bbe0c980c1a9a442b98b5b1cb15b4a34af0f759b8446a",
+      "contextDigest": "862ac43230038a4ce99a8e4e65f25efcb5279faadc9b831705e48e725d52f534"
     },
     {
       "id": "protocol-region:source-promise-join-rejection-finally",
       "publicDigest": "7d7365fa0f71e2301434f05bc1da3766e09f85588b76d12f94fc4380d5687001",
-      "contextDigest": "7ee56a1aa1cfbeb6fbbab37b1273099def238196fe87375afc46cb9fded95204"
+      "contextDigest": "9888c5f6d42e98f1edc98ffbd33a271a96f3eeca3a4e953e1c2453d3caa3dbfd"
     },
     {
       "id": "protocol-region:source-number-private-arithmetic",
-      "publicDigest": "fe587302d525c9484fd6ddcc872b32c75e214fcae320a818a515d4b3474b5f5a",
-      "contextDigest": "2c1309ac184353d1decbcfc89b26ed3605ec7ecd0756a1b2753045ddbfa2e0a8"
+      "publicDigest": "6b70163e5e376cdcab8f1ba8b846060ea9335702d1b7f13bd1427627fdf58966",
+      "contextDigest": "3530ee8fa5f67316e626c70a572808f4b9abb21e5340bdbe5a49da6546fbdd77"
     },
     {
       "id": "protocol-region:source-generator-cleanup-suspension",
       "publicDigest": "afd8010d455b42109bfd3bdc369a8011a6d2f463669125b19ba9cf0392cfd197",
-      "contextDigest": "0cc971d81b4c9e2ac6bff874ffdbadb5b271abe911649c5cfb174cf2854115a0"
+      "contextDigest": "ea02cc6dfffed1b0ea6c0b6c1d9e5cffba7206abc7d705a08ffd5b044ba4c8d5"
     },
     {
       "id": "protocol-region:source-generator-delegated-cleanup",
       "publicDigest": "323a3c71c668543e26bd4eb026b003cdbc9546cfd779106461f22493d4753221",
-      "contextDigest": "ca574dd564fa92381aa51a9fa69de93f6782ebda4868e5ad0476b9f6631e0f58"
+      "contextDigest": "c893a7faff88bfb6939000af6221ab73f8db2fd14e8c67290ecdc52942eed5b5"
     },
     {
       "id": "protocol-region:source-proxy-traps-arithmetic",
-      "publicDigest": "e67d63e8be746b007f4e66401985635cfd4a551ab2292b19ccef7477709fc779",
-      "contextDigest": "d35c86536de023088fd1ad7d6a0615b4f05a29dd5a6b8562f8fb85321db1fdd5"
+      "publicDigest": "bdad2bb75afc7253bbc2ca20e79f1c026b4dcb3605e6f7b320d81cb343f3921b",
+      "contextDigest": "3a4e7b86b7e31ffea59ab59e7e328df3ef10dde03b86f80df11433234744521b"
     },
     {
       "id": "protocol-region:source-base-initializer-throw",
       "publicDigest": "80f87fe2375a8e30ebdffa5e10643d69098523b172780e7ebfedc6b68012e777",
-      "contextDigest": "7595ee8b4b1c27966a057b76899169809902ed5be5710c241c19a8e2b0610245"
+      "contextDigest": "5b966bf51dac7cb3c1a36b69582eda6c5167d2de5e5b98e96eabd91f95b323b8"
     },
     {
       "id": "protocol-region:source-derived-initializer-throw",
       "publicDigest": "308db677ef00a9bb681a3013e557b724db1c81d3995c279df5a33bdd09af52b6",
-      "contextDigest": "177babb1b4a1eed13e04e8633245f11d21e1f4b888efd3ed45c0ef137d95a21e"
+      "contextDigest": "8aa31d795fb7ab5eee8486a982a5075635246f0c1c6bd56845ac5d639941e8d3"
     },
     {
       "id": "protocol-region:source-promise-executor-first-call",
-      "publicDigest": "f28196339d3dceb0b2b2da72bb02a78a5020c78dd3ccc166476f2978d7686638",
-      "contextDigest": "0851596249b4857e431637323bcb8e9e415d8b71a3b21c849333e47642ec37b3"
+      "publicDigest": "6c56868f2ee662640c5dabbe0cbbdde9aad0c2ee97fdd2ae8ca09ee409cb0a82",
+      "contextDigest": "92bb3a361334e56379a5a3c7794981a4bef8ac49f96683a3877cab5b63db3e05"
     },
     {
       "id": "protocol-region:source-promise-executor-retained-resolution",
       "publicDigest": "4ebf7b919e5b2191d655b22b2d8fd89dad1f4ecee6f64058ff6c6fde23051811",
-      "contextDigest": "443e83f012c9c40ffc9cf8799f50cc49b83c22ed2850e0320d762ad815e38008"
+      "contextDigest": "9b8ee468e1b717403b468104d6352bb66fdf5cdc09643c028f0a23c315f436f6"
     },
     {
       "id": "protocol-region:source-promise-executor-abrupt",
       "publicDigest": "2494dc360b6b178634186cdf30f8d227df99ddeeac8ca0a0f1bcff3bec2bbd39",
-      "contextDigest": "8d8bae8b0b60f0b0518a896413f50f012e1a029361d662f49af09fba15cb527f"
+      "contextDigest": "d3c1fe6cc3144752c971ea2704a5df315c7db33a1499823041ae8ffd88dbbe82"
     },
     {
       "id": "protocol-region:source-ordinary-constructor-prototype",
       "publicDigest": "982388a5895e9fc5b37de5ebf970d1f9293e5ca6643c2e128af30bfee7106dfc",
-      "contextDigest": "25423c03d9870e916b120a4e5f584c07686d7bff603053d53896918baea004d6"
+      "contextDigest": "62ac1ea8ec5b0885be2e9fd5893122d358ab178ae4d6e4afa4a3fb92a74a9daf"
     },
     {
       "id": "protocol-region:source-enumeration-map-callback",
       "publicDigest": "9b0ac56b147591d77ef3288f19d3b8e6d1a5bfd8a8b2cf942f96b030b9f881d2",
-      "contextDigest": "72e8528ebd31c8d379153bf095b4cfedb54ba3f3ad651c190e5c5abd3348c39f"
+      "contextDigest": "d333e255c526fc6db98a307c0087b91d725c04a25dae403dd69ba290cccc29be"
     },
     {
       "id": "protocol-region:generator-own-symbol-alias",
       "publicDigest": "9615d6b976e92697f24ef96fbc06ed29cf47b211f9b8dcbc50bb9cd737b7bc6e",
-      "contextDigest": "e65a4d8187c5b03eeb4d846612be00352a3af924f5e79a3506e3e370bda8ab03"
+      "contextDigest": "ad7e73b571bf3bb1f4c30a667d5b8774c5f5dec1c4e0fdcb0eb46639e40236a7"
     },
     {
       "id": "protocol-region:source-logical-left-operands",
-      "publicDigest": "446020ec4e04537bdb6ad01b730b8858ebdad512a759b3da1102fa90cb50345a",
-      "contextDigest": "b4781a0e09470327add4dfb546cc857441e809b157f84f6e3394de614553dfbf"
+      "publicDigest": "a565fb3806219ac0185af2a719fd5d51d75f1fe089c449120a378c0fc6aab08c",
+      "contextDigest": "508d25459efaa4839edc6fe14a772d3c810360edec1d8ea788d73c06be0bf519"
     },
     {
       "id": "protocol-region:source-for-in-own-keys",
       "publicDigest": "5a5961de79bb1d7f3ad2565dba08869aa815f6f1410fce0579cc07afa98f03b3",
-      "contextDigest": "32505c0d131925a8681055a0863dd8df5e2258b4c043a059c005507353931554"
+      "contextDigest": "ec4164fed6c07f293e2293b081b5519a9a860dfbc81f016d3a972db9f10da2fe"
     },
     {
       "id": "protocol-region:source-promise-adoption-executor",
       "publicDigest": "36d138193179ab2abe153499a3e59ca6fbad1aa3208b6531f4a5780294229778",
-      "contextDigest": "578b5a602b5d41c4bcc6f75434134279b886e01065682449eec8ae68b77daa86"
+      "contextDigest": "775ef4fb6969e29ddc24a0a369cdcb53581baaeb26ed17760e98851f581128d2"
     },
     {
       "id": "protocol-region:source-promise-adoption-async-return",
       "publicDigest": "e44cd226833b3225f6b9267dc4dfbae52df455f65193e9ad3fce6fc2416a22fd",
-      "contextDigest": "c5ec6a714f55cce5894a409b1ef5dcc18a89a67c970f44bc0bed6bf90a348859"
+      "contextDigest": "995926c7ea1f6a2b401382d167b01f17ca9a72f047ab2d19f90d5d2ea897b4f0"
     },
     {
       "id": "protocol-region:source-promise-adoption-reaction-return",
       "publicDigest": "d469c6c923235655f26cdc48353a71f21cb552f54f91271a757a3d2627af3ca4",
-      "contextDigest": "63bdb9bf43b600988241aea0c724a3ba109d3120d101fc9da50b6584d78335f3"
+      "contextDigest": "a06cd7ae84fcfeaa1a1f51f8bdd9b76400a3552a4dd02576ba6f94bd5e4be419"
     },
     {
       "id": "protocol-region:source-async-iterator-array",
       "publicDigest": "dd59e13cf878ffa7b50af67a53d1d11b95d0cfd98bc3e07c6ac27e5cfcb43a3b",
-      "contextDigest": "f92a5bea72e3a52f89deb942a3b21c96b660b559231cf39a14dcfe91c359651a"
+      "contextDigest": "9e9c8f7c2c541e2e046b9dc3b2e7002c7f2edc1bb2bcf49729f914c34febc751"
     },
     {
       "id": "protocol-region:source-async-iterator-getters",
       "publicDigest": "0c743be6c25d770931e11f74c9ce68ed02bc61c12c19956a36556f89d945b090",
-      "contextDigest": "9d4e008629c76a6c1e7ae8b991bbb584a0dc69ded359f19e5eb87af611b79d5f"
+      "contextDigest": "163524b9017bfca172996acbc11346470b8f0136ea35474974908b17d5368d82"
     },
     {
       "id": "protocol-region:source-async-iterator-value-identity",
       "publicDigest": "aa198741c03a947b1f8a61513d9b3ddfa753b314050ad676929d5dabc64be7a9",
-      "contextDigest": "e4d58cadc989aa6fd7e4e370b1290d91e2ca07d9cb51b284dc0dffecaedbbcb1"
+      "contextDigest": "b7e71c5906afb89f0feb8a6c5a6575e0f133f4640a681664aaed0ca6511e9721"
     },
     {
       "id": "protocol-region:source-async-iterator-throw-precedence",
       "publicDigest": "d8082f4e1c2aa949abe0904b21d20bfff5af7fabe8bf62c23fe0fbecc256d25f",
-      "contextDigest": "efdece4f8fa7fdc8c51e0130cb55e604f9bac1a5908fa0ac4c37f62e3ac7273f"
+      "contextDigest": "d0b900521d43367353eb8d83134c1059fda5e30ba888d40dd0fd4b3221b3fd87"
     },
     {
       "id": "protocol-region:source-async-iterator-return-replaced",
-      "publicDigest": "1d0b7525cf35337afb551116fa1d219da578f2e6936d8f1c7099ed195fb1e47f",
-      "contextDigest": "eaac6f3f75bffd8634f85ac8716e457eb711a27e7cea4d37477c568e68906664"
+      "publicDigest": "be1346f0d2c2231d40342513761609eb71d51de5c6ef956cb2a2c0e4bed77153",
+      "contextDigest": "0c0a48f688d5a5f280c430c394c4f3635b88ae9bd9e8eb0dff369187d6524dc9"
     },
     {
       "id": "protocol-region:source-async-iterator-sync-rejection",
       "publicDigest": "10746b7036972803940f6450ac9c636e7f4b4a15d09109fdc01536c3d45a3b4d",
-      "contextDigest": "99291e58e967b2afac1f010215f3f016d61caaef9c396bdf89c045914bd6c150"
+      "contextDigest": "15d79899c2ffd85562b104a4c0a5b219e56823d456c66a6ca933edbed79f20c7"
     },
     {
       "id": "protocol-region:source-async-iterator-sibling-cleanup",
-      "publicDigest": "204e0f9229b087892ab6f4d6211dd9be10908c0dd7ebe7dfa782171dde227c6b",
-      "contextDigest": "3437948292f3e9a403013ba2127b5568e0cb1a820848c9efb474666afbf141ad"
+      "publicDigest": "ad6c3b1834bc005550b595cc695ba8b18df93cc6d53763cef96b1cddab925fa4",
+      "contextDigest": "d528e574ebea1761d017ae11e001c6be95585529c8d3420548b149e400c68034"
     },
     {
       "id": "protocol-region:source-async-iterator-idle-completion",
-      "publicDigest": "4fd8203280146e5eb7924fa33b7268ba6824aa6878acf4461a4c9a5bd210b3c5",
-      "contextDigest": "215099acc0953cf8bbbb86bd46a5be0bf9acc8aa5dbf7fcd1292051807354618"
+      "publicDigest": "cf86f8344176d9c2a0c55613f44fcd33f14703df021060132ba48b2be0a3efe4",
+      "contextDigest": "e2eee0bce1f766aa47eb9d219820dcc92c0dc3e1483bea9fa76551b51c6ca973"
     },
     {
       "id": "protocol-region:promise-object-data-descriptor-reflection",
       "publicDigest": "8e85eb08ee536d0bc3ca70a3e9e4172894c22165a8a4e5dd75b2c280f8471c4a",
-      "contextDigest": "294ee2d68955f5fab23659a1c161269556020f49f14f3d0ef5191859506da73e"
+      "contextDigest": "87d10052878914c74f3d554224df5a8a7e6d3bd3570a9eb4c334a1d2bd390427"
     },
     {
       "id": "protocol-region:promise-object-accessor-alias-receiver",
       "publicDigest": "1228277b6bdfa1bc884449cf899ef42ca8307c6e300af0ff021286b93c8ce66d",
-      "contextDigest": "51e5dfdb90fb535b76726351ab7fdf8d1e23d0ce3ace09473677183d6f4b68f7"
+      "contextDigest": "14cfca53450cba6865cc324be62edd4cdad5d212542d9485c04d7bae1f2abbf7"
     },
     {
       "id": "protocol-region:promise-object-accessor-setter",
       "publicDigest": "683643357589dbb8b77f3c133811df9e92bdae68931cd3ec23e90ac4def273ae",
-      "contextDigest": "36930ec6be2a9f571faacbb01f237aabcff8d5d4accbcf0c1e565ebf158fa972"
+      "contextDigest": "2f1b75abc475dfbaaa6ebae83ff1d28e85c77b6a581c6d8fca738ec075712108"
     },
     {
       "id": "protocol-region:promise-object-prototype-identity",
       "publicDigest": "7f0be3cf756a21966fbadbed8bc89703884a3996ed91e3af98f453df70c14841",
-      "contextDigest": "e4e44cddd899f0a03dd66c02f4a2e1ce583ea8a07e256d5d866fc60026eb04a0"
+      "contextDigest": "ac27fea6a5cf68553f92d48a7c42ca35b5f8209d2839de16d0630bf0d4067673"
     },
     {
       "id": "protocol-region:promise-object-constructor-resolve-reentry",
       "publicDigest": "8928d36c330febcad3afc9f0c23afe0784e3499b983d42aaee5b311d86c5c64b",
-      "contextDigest": "ad59e8d14fb7de827feaffd73361eae92b3550e012d6b327e8d2794e6f443839"
+      "contextDigest": "030488ed78079875495172c9706ef86462c9e3b1c47f40a8e9fb200357753fba"
     },
     {
       "id": "protocol-region:promise-object-constructor-await",
       "publicDigest": "b8282199c5115560491b41194c676ecc46f5cbe8fff624bfdbc5a2265b2fa702",
-      "contextDigest": "471b66cd233b4e7455b8a1c19a812d3c733550b33f36bdf5bfe5d64040ceaa9f"
+      "contextDigest": "2000014be97318518f160be53414581abf7ea09576fe4eeaf3fda739ef8fc7fb"
     },
     {
       "id": "protocol-region:promise-object-constructor-reaction",
       "publicDigest": "eb97656f6a4ba6d679fc121c852b1ead6bed415266d5ca847265c23b61314bc3",
-      "contextDigest": "807bc8ba3b78189055d2d5071c334f164ef6127b801c3004d71c67eee097d23a"
+      "contextDigest": "4e20de99b89d3c980eeb14011717acd3c28fb085860f946b20285786c3a1d40c"
     },
     {
       "id": "protocol-region:promise-object-constructor-throw-cleanup",
       "publicDigest": "c9697a0630a7f4ca300d6e8c5e3c89189c5ebb2b71fff9667bbdf9a66416dbb0",
-      "contextDigest": "2d3212141e1e4317afc7268074164dc11cfba2f5842c555ee81f3f2e9e088987"
+      "contextDigest": "8d73ba1227b4045e39dfd5156331d42490b2df8047ee41ee7a7902de58558d63"
     },
     {
       "id": "protocol-region:promise-object-shared-prototype-constructor",
       "publicDigest": "09215e18e7007128be4e4e37fe2371032b7f088fed557e035c5c51a7b73792ee",
-      "contextDigest": "fcd9146ec5fe71894669eaa8c2b3f93b92e3f2870cf40012f67dd9deaa28128a"
+      "contextDigest": "4737078de65937454d6ac8f3607716c0f70b420649550635c18d8443be369119"
     },
     {
       "id": "protocol-region:promise-object-own-reflection-call",
       "publicDigest": "272e7ce1efcdad507afa857f49314ccfca398e327d10b829c2540e955c8d09ee",
-      "contextDigest": "8df3c0ac844a81462c1acb0ae00bc6be8262a879939ad8f909db501df6f13973"
+      "contextDigest": "c59e535a7b10999cfc3698b935f501d7dbbb4c62f5dc2b10c713bbe43e01c5d6"
     },
     {
       "id": "protocol-region:promise-object-nonextensible-reflection",
       "publicDigest": "0c3b35400432959d86a08ea1fd3a04b4b7fceeb2b8b213ecfb3a01e2d23426f4",
-      "contextDigest": "26ffb4494e2b06c0d216a800d9c3b1e89f4f7757af5d07ec44712624e38fd143"
+      "contextDigest": "c7d46812affa072c473b45000f18965a391bd4564ab40c7f164b7c9e7847b1a4"
     },
     {
       "id": "protocol-region:promise-object-own-key-filtering",
       "publicDigest": "5f9cba13c20cc58162eb218bd0255ad1dc0a775492e3150ee817360164568c4f",
-      "contextDigest": "398f91449d37db12a84d30c4e40a14dfed4f15200cdafd2d2c2bdb11c42525e4"
+      "contextDigest": "7b4dde7f7904edf9b9f5193dc76705dd4eb93fa04fe5a85098c2bee018c76324"
     },
     {
       "id": "protocol-region:promise-object-null-prototype-state",
       "publicDigest": "6b2f75f78997a0e86caf6a87c151fb5faf537068ccd2f6b2dafcf22307535242",
-      "contextDigest": "c91e4a3e8f42ba9ea5bad55262b3177f06db52f290c89094cbfa48fc0f483731"
+      "contextDigest": "0007be3d5e2c88c5841aa09ff8641a63d0f1ff24679cab6504bfbac7c6557009"
     },
     {
       "id": "protocol-region:promise-object-constructor-await-job-order",
       "publicDigest": "398a215ee2bbcdf9caecb6af0a9a1de36e8907ae0953f622f74b48c44dd2af49",
-      "contextDigest": "7e13b82a426a3c0f04bbdd5c4ea53000436014c7f9420189c3080eaed4995207"
+      "contextDigest": "70ab09db32469d2fa9e73fcb6c070f4246ed675c4594a09e896dbd49866ad3e3"
     },
     {
       "id": "protocol-region:promise-object-inherited-constructor-receiver",
       "publicDigest": "cc5a2c8f64a26f76f22a66ab545f83cbb96d7f73d307840908215d0e7c91ec12",
-      "contextDigest": "f7f96ac61792704be1227a831d68c438690858841c79ad89fc1145355c091b0d"
+      "contextDigest": "203ea008187e42b4b05d07d28adbfad46ad4b0d48bfd04d0637db8092e566f5c"
     },
     {
       "id": "protocol-region:promise-adoption-getter-receiver-and-fifo",
-      "publicDigest": "34934c84b7898d8a30ac11470686ae6b3a1c79160dfff6f1a0bfb7ca5f425d02",
-      "contextDigest": "ecbb2ef89981305e88511a72a2d0d551f2fac8c502563b7cea7161c8635df739"
+      "publicDigest": "d39a2b4157ecdaeaaa2549e105774044a940f241a7ba4d3bfe5e93bdb37469f4",
+      "contextDigest": "0cd5b9fd58fc37a0cdf8a8f036de22e5e98cc67877ad14acc5c1a22455a48e2a"
     },
     {
       "id": "protocol-region:promise-adoption-getter-throw-identity-and-cleanup",
-      "publicDigest": "892289737e2a9f692a788c7fc170b5ab6cf104064e39e3c963b18a188c4efd4a",
-      "contextDigest": "33f8ecbca46fe2de84f814173160dbf1931b129100f947494715febf74bb222e"
+      "publicDigest": "e8b40b58ed88cb18771741fcda2cc81459c161f842cc18ac4de11cd6ebbd0ba0",
+      "contextDigest": "a08be6b410ed782fa55b36013101da47609db18dcea6a197657830ab5b65139f"
     },
     {
       "id": "protocol-region:promise-adoption-getter-nested-constructor-reentry",
-      "publicDigest": "ab87b878b0762f74432365df5d63352d7c175e0a91c5286ff36b0e3d574d6535",
-      "contextDigest": "bc7dfe9162a0766fbfcf32de8bac31a498a5f6d40782f7d9bd315f1464beecd1"
+      "publicDigest": "a095c35428e99eb0fd672cdb426d988d4fb1ea78c324682876e2e42ffd9a2b0b",
+      "contextDigest": "f2dff621e3c063526a36219fc96090e366be8c0e0c1a8456b11b22ab247261b8"
     },
     {
       "id": "protocol-region:promise-adoption-getter-pending-target",
-      "publicDigest": "739f4b2a0071a4489551fdb8fdf5a2ac04b9666a08317a957686869e3db381e0",
-      "contextDigest": "e395e1bdc77338a4e09e29198c8be65d64eabfbf1df90719427477e0d2fc9b23"
+      "publicDigest": "b5151a144e2d777cafad867d6377d7d1bd2db95e3da37f8c61ffe13840de02d6",
+      "contextDigest": "6e62273016eff584a5684dd35ca5cbb1e4ff825a388032539f9ce24a409c1697"
     },
     {
       "id": "protocol-region:promise-adoption-getter-getter-replaces-own-descriptor",
-      "publicDigest": "5c90fa51e9505213d8cb46a56fe026d43d48173c3a893323de099d9c91f15482",
-      "contextDigest": "fb4f2612b697353d1f12d9b06801265e46f7adc6946b90d941b42735f477cdca"
+      "publicDigest": "7bdcd6eb834db3e408bb8595cfd6a10b0995761d308fb32256eba5eb15d15b95",
+      "contextDigest": "3352c232b2f87e600e48a6613133446a197489d4a0401977a6418815222148e2"
     },
     {
       "id": "protocol-region:issue51-has-in-reflect-symbol-accessor",
       "publicDigest": "73d192879fe437fbb8bbf52952ecc914ea83eb239d7cae28f13f2c021df686c8",
-      "contextDigest": "c1ae6dce71f3b905e4861d2ff463f01e70a05d461032c4660cdd566f0f90b8d2"
+      "contextDigest": "5e5692931291eac6b3b7ed175e769193635884d2024fc007056b8e4a20c3f18d"
     },
     {
       "id": "protocol-region:issue51-delete-own-and-inherited",
       "publicDigest": "7a3ed6385aa4e6d939c2cf0140ecfa9ffa315b60972aa6a02861646c5d77f676",
-      "contextDigest": "18205c331e413389b86fe5ddccbc8888bf0047e7fe2d3e3ea91a82d62f058d0e"
+      "contextDigest": "7cd4b09ede444958da03f797caeec0a987cfd5ce85a6be1c6954e959d85e71b5"
     },
     {
       "id": "protocol-region:issue51-reflect-delete-property",
       "publicDigest": "57a6d8a55aca1a671796117845ae4690dc3a271ab07442ffa8edf104e14362e8",
-      "contextDigest": "1b434c120bf8aaee2b5a15a986608c1f07a9b1c02e49237c0faa83bbbfb50a87"
+      "contextDigest": "548ee90095a75e5895d6489840c09b6f8c2a7e7a0010a281b6a448b5bd90071d"
     },
     {
       "id": "protocol-region:issue51-for-in-delete-fallback-addition",
       "publicDigest": "4179d00492ee88950277620960021fd1198e38c9036146d58824484be3de2adc",
-      "contextDigest": "227393544080502982df8cb91312333e5e8b914295e8229e55dddbfb0ac074f1"
+      "contextDigest": "668713db2f58e908e788cafbaf4a153784ef4f3393d0cd9cb566c3ed81e2f427"
     },
     {
       "id": "protocol-region:issue51-for-in-delete-prototype-candidate",
       "publicDigest": "3285e871b40d8da194ac36f24fcf69040c3d892b1f8f7f50c7e24a7e611a7964",
-      "contextDigest": "d167be3a1f3ebc8e594cbdabde63fbd4f45e377f7b1df629801b48de814e69ef"
+      "contextDigest": "e372759488a5e697646dbd879af460b851c9efd839a165eac3352c9fd7dff37a"
     },
     {
       "id": "protocol-region:issue51-for-in-sparse-array",
       "publicDigest": "a96c30f2ba731955e3a9e53a3c7ee44e62a70e449acf068589cc68b6513835c8",
-      "contextDigest": "384c624464841c27d349c002c415e57624877e73d4c48162cc880bfb21c6af00"
+      "contextDigest": "5e7bb1b66cfb6cac2f5d5db5b0e6bc7943ea1ccef7954eaaed1727f471fdf794"
     },
     {
       "id": "protocol-region:issue51-accessor-existence-enumeration-no-read",
       "publicDigest": "bb34ad7a5da226a569d5151bb3d789015b3a1b59efe7c82043f45e51fe6340bd",
-      "contextDigest": "a114b0a99e47d2e71a097da0b1c3200ef174556dbd8b8066f191fe5483c0a401"
+      "contextDigest": "58427f888660700b19f182f3ccdf35c5d82dee6f21b680e76533ee417ff5923d"
     },
     {
       "id": "protocol-region:issue51-sparse-array-delete-preserves-length-and-holes",
       "publicDigest": "352849b1c370ed19310b4424ec23082bb4a56f6c0e7bb83ace5cbe875aa1a5c4",
-      "contextDigest": "b9df9c11f24d9e66f703138520a4d32dbe11e49105bf2794c4a8d47f89940e3f"
+      "contextDigest": "74ec3e166b5cc60be053420fbaf3518ecb9922eb19d4d7a6d273573031dfeb19"
     },
     {
       "id": "protocol-region:issue51-reflect-delete-nonconfigurable-returns-false",
       "publicDigest": "4a770da79d0963ddc01ab362c1f2322dc4e06d1255bb9b9104d031e7ef287e76",
-      "contextDigest": "f99f2dbbfc9b3b789078012c74894115519e224262ae6f138d1b228927fe2fca"
+      "contextDigest": "72795a0d966c0cdb1277b96a32c5371cdf29d2e469b3dd8289d5a90f6ba4413b"
     },
     {
       "id": "protocol-region:issue51-delete-and-readd-changes-key-order",
       "publicDigest": "3a7068aee9341df4c6bcdb3b3d602403915c866aaf2485bcf6c8828209ea8d83",
-      "contextDigest": "edc997ea0a0aa5b5b0ad41b234bba560337068dd6c115fdefb67e8a24ef9a5d5"
+      "contextDigest": "27afb2295532c1fedcdceeadfbce88cb05e2f45804cae56c6782c421ff932782"
     },
     {
       "id": "protocol-region:issue51-existence-distinguishes-missing-undefined-accessor",
       "publicDigest": "c02513a183e1a43ba133904ce0b08f9c1b30dd5d11eabc9f45b36031e0050b75",
-      "contextDigest": "55a4f4e171e988735cd65225cfed7cbf76b3ca5e6ca97fb25c297d9dec4a54b4"
+      "contextDigest": "1587d360e09e511ba3335128150989868557ddf79aea8e839c2b8f231ba3e686"
     },
     {
       "id": "protocol-region:issue51-delete-symbol-key",
       "publicDigest": "ee4fd0320fb34a51ff27c2fed8df24a2797562548f2762c8d1b570b89f06e3a3",
-      "contextDigest": "b1f5a9836717a9e8b3626def751b82aebd7a70c399394abf150cea270680dfcb"
+      "contextDigest": "917dc77a329709925dc310113151730df696be09052b2c268d1d7ed71bed0e4b"
     },
     {
       "id": "protocol-region:issue51-delete-own-tostring-reveals-intrinsic",
       "publicDigest": "dde6e8d6af83ef6d801e67840f1c87e1a81961cd9224700da88dc9d2ff71f543",
-      "contextDigest": "dc91af14e80d9ab5554577605a1ce51309040338cb50fac1c21f74741d364629"
+      "contextDigest": "ce283aa659ad11be0a7875517e1cf7973a2f8963ed8c964a9320424d8e1b1e54"
     },
     {
       "id": "protocol-region:issue51-delete-inherited-for-in-candidate",
       "publicDigest": "e244a1f91d548a02ff7f7ad600d0fa5da6f090060a655ef6e9908876c05274a1",
-      "contextDigest": "f3d8013c05ab121846a8f58aaf5fe4c9e0b6f98689abfd755d0199cd1f89f3a5"
+      "contextDigest": "40af534e529ae798f8faccef64106a5d99eaeb7cd20de887107138a9f6320781"
     },
     {
       "id": "protocol-region:issue51-delete-accessor-without-getter-call",
       "publicDigest": "1262a6633adbcf65244e271e7d2aa5666c05417264f53f5003ad7c8d10efd16b",
-      "contextDigest": "084e69674dd503d0f79a5dfe2919d5ff359257ed1da40e5fef442104cd79e679"
+      "contextDigest": "0ebc26b9ceb778ed4ab53c196c3bd5533fa4e9b70d16b65d7149d9cf07b2f727"
     },
     {
       "id": "protocol-region:issue51-in-object-key-to-primitive-order",
       "publicDigest": "5b4eb2b735e428b8b7842e877db8534d4e7630b9b9689d8b844b269175e3613a",
-      "contextDigest": "f314940e1bbecf0e714ca5862513058df6c9c3384319a0ee59db98bb8a9bbdd9"
+      "contextDigest": "59348819edc43d92eec6da96bdd34ed4b5823b1f643a7e795fd9288cc0bcf2b3"
     },
     {
       "id": "protocol-region:issue51-promise-property-composition",
       "publicDigest": "a550ba11adc8816989e6cdafd95612bdf126a3f1ee7d202d7159c90e64b46772",
-      "contextDigest": "db4c547af0546ec2ea0c28a0bac563e266d229701955bdc7c28bdc503f2cb1b4"
+      "contextDigest": "b778fcdf3c4b9f1001c8e5d682cc90968f3657ab8e5028c2fe348636ee3df312"
     },
     {
       "id": "protocol-region:issue51-promise-enumeration-mutation-composition",
       "publicDigest": "6a9fdd9d43e990b1c579473ffd2ba595bfd3f23f151e302b4c417e42dea6dc79",
-      "contextDigest": "3463aca9fd51c4c2afe51c2ba51709687b958238fde962efe0dcf379cc73e892"
+      "contextDigest": "115304ab496e2ef7e7c27e82346b11d0ce79c8fb96857af244852d3df2cf19b4"
     },
     {
       "id": "protocol-region:issue51-promise-object-key-conversion-composition",
       "publicDigest": "3bc2cad85d31385d963e1b5eeeb4316d238f44199b8ae2bf7d79956a4d63b240",
-      "contextDigest": "6de07541836683d463357720dc8f0111f46e8895b83ca6734306255510d44b75"
+      "contextDigest": "a9dcdb5e738b94382e25aa61898c5034a98449a5001e4b055b35c9b2ad69f953"
     },
     {
       "id": "protocol-region:issue51-promise-symbol-and-escaped-string-keys",
       "publicDigest": "d304d52a019f29ade7f6c5fe5220bb8d2c7ef4b876d8c6669ef8e3b24bf5755a",
-      "contextDigest": "73aa7e2c83986fa99e48aef2afb2f11357d5c025a496a32cee859fbb979a80b6"
+      "contextDigest": "2de02bfd5ce5c9d32dd3204ddaa4538e181b23254c9a9d7bda9d0d3bb985c634"
     },
     {
       "id": "protocol-region:issue51-reflect-object-key-getter-and-argument-order",
       "publicDigest": "3d752687137438e06891ac165598e60a9c9b691fa63945c6fb6d6d991960a7ff",
-      "contextDigest": "29dff89c461d0061da676656c79c1c5820ce97f5ccd7a6706e9b644843f51984"
+      "contextDigest": "d02b86cbf41d3b3f65f1765ac6baba58cee2d5b8cf62732d80ee1f377cb06608"
     },
     {
       "id": "protocol-region:issue51-reflect-object-key-symbol",
       "publicDigest": "8e785136d5b7264d2ef6fec6d0ee0c0c030432d518a279c989420712685bc9c6",
-      "contextDigest": "764170e4849caa81db943811f2d6dcb1f9ff0a96e2f8b7c2ad119cdeb0a0a2f0"
+      "contextDigest": "628f9e6f65c29f179a8660c8ef25fe8a8215de44df5bc3e60aa783a69bff3d27"
     },
     {
       "id": "protocol-region:issue51-promise-reflect-object-key",
       "publicDigest": "76d9905f3edabc14bed309e0bd2d6f0294a1a07f2e98cadf103f1c5c5efb49b2",
-      "contextDigest": "3dfc7c8dea0328a80a1c66aa1c4d61891a234fa1f0369815b80363f1391d94e9"
+      "contextDigest": "5fbb539ed6ec03132f2473b80cafd303b90380750ddfd65d931b83bb75c88655"
+    },
+    {
+      "id": "protocol-region:issue51-constructor-arrow-after-super-and-return",
+      "publicDigest": "eedd6ef82ef11df069b6452e6d9735d51e998aadb8316576ab9bb8113c066046",
+      "contextDigest": "b066368bcc68dd89d71faf671e43965e612349e71cb5fdae2da9529867d8b34d"
+    },
+    {
+      "id": "protocol-region:issue51-constructor-arrow-return-substitution",
+      "publicDigest": "f0a2e8489d2a42da830c41bb103842a45800a7c7f3f3e92c4cd1e06f387f692f",
+      "contextDigest": "7d57a438ec4e8957b4d250549b0f541e85b490413608332ee038b31e8f463ded"
+    },
+    {
+      "id": "protocol-region:issue51-constructor-arrow-conversion-callback",
+      "publicDigest": "8162a2f9050f4c249b8c8b7b37a0259afe97859dada674498081c2ecf20b3210",
+      "contextDigest": "5c122cbe0bf91f6f1b11c8c8d406ec99998d068230139e5a162e184ae08bf9f5"
+    },
+    {
+      "id": "protocol-region:issue51-proxy-key-order-and-trap-replacement",
+      "publicDigest": "74fd9d4d724f853e5701f271040fee9a099725b6ca2597f8f94a4afd9f6f697c",
+      "contextDigest": "152e669f41ff9dce3ada80afe815996970b444f567163b7cf177d17eb1f008cf"
+    },
+    {
+      "id": "protocol-region:issue51-proxy-constructor-arrow-retains-private-receiver",
+      "publicDigest": "7ee6e408990ce009142761fe6ebc8a8014ad435542d79fb4c9a3a902c4b4c448",
+      "contextDigest": "7049f89a8c905b5bc6cc37214a0bbfaefbb947e1841f2724036e9d8ea150d257"
+    },
+    {
+      "id": "protocol-region:issue51-proxy-strict-false-delete-error",
+      "publicDigest": "a6d01d16c2c11505f5864d6ee36a1d438070b3a2a3331f5096813c6763941c3c",
+      "contextDigest": "60117eea2d590d0a1624f4b6a7d80fe264f934e4f17d3f78e8e829dfe680a6e0"
+    },
+    {
+      "id": "protocol-region:issue51-proxy-strict-transparent-delete-error",
+      "publicDigest": "7ea0ade5ed88495f5df8e80ccbcfc49e857f5172011b97442b25442ea26b9835",
+      "contextDigest": "0699a454878e6b365f9ea6de4bbefc91e3e6a2f19b3d367f8dd156ad408ee85b"
+    },
+    {
+      "id": "protocol-region:issue51-proxy-has-protected-property-error",
+      "publicDigest": "9c19657f453612add67bd958577f56f17bdd0b00f65974aef70a09fa09b08c6f",
+      "contextDigest": "48acec2448b629567d5e32a18900edc6140a493e264d81d7dabc0e89704ea67a"
+    },
+    {
+      "id": "protocol-region:issue51-proxy-has-nonextensible-error",
+      "publicDigest": "2b9f16b8bf7bc57ce02a4b166b770132fad3b30039bd579546333c4c6713acfa",
+      "contextDigest": "11a9ce3851fa69ead53c6e04e5850105a0b24376a6408c247e3d442e8a217148"
+    },
+    {
+      "id": "protocol-region:issue51-proxy-delete-nonextensible-error",
+      "publicDigest": "d248c17ad640d8db98391cda00c0ee0fea9214f9c9d5c454650b22c0cda62b67",
+      "contextDigest": "8c827ef8eafca1c4beb8a8e64848e4d30aa8bfeaa18a3ec1c105d73afefbbdf0"
+    },
+    {
+      "id": "protocol-region:issue51-proxy-trap-throw-retains-identity",
+      "publicDigest": "e3e17f3e3fb9888100014d859e25ae2e4dd85ade91a2ea162d5f881450b23a23",
+      "contextDigest": "621337560d91bd92d711c70718df19c0f3d1cb186f6a40cd0602b7d115decac5"
+    },
+    {
+      "id": "protocol-region:issue51-proxy-has-checks-late-protection",
+      "publicDigest": "673c7324895d2b823bf9cc664eecb0bf35518717cd9d525a6c1e5c0dc38b487b",
+      "contextDigest": "54f093312c414ea0caf51a2a3ea184160f4ac73a4d56435835f81d568f04c4b1"
+    },
+    {
+      "id": "protocol-region:issue51-proxy-delete-checks-late-extensibility",
+      "publicDigest": "41d5ccb433e7a861ebd8c244beacd0f1be6253dacbe2271be5e16abe611329ad",
+      "contextDigest": "c1e138f7974fd15f6e631efafb08f9302bcb02ba60ebf54b5c7b97f3036b52a3"
+    },
+    {
+      "id": "protocol-region:issue51-proxy-delete-uses-live-absence",
+      "publicDigest": "3bd423497bb6497e9a9b95413b9ec86e81549b9d9d2794880c4ae270c28cca4c",
+      "contextDigest": "8688d3ae2872decb28b87dc8740b421bc40dc5b8e55e9d7870414aca04cca25e"
+    },
+    {
+      "id": "protocol-region:issue51-control-in-invalid-rhs-before-key-coercion",
+      "publicDigest": "fb1f9f458ecf43129e734db8807b165139a5255467a6312124fcfc87582956f1",
+      "contextDigest": "eefdad63e8e99dbf4b1130d20cf7d8fc17fd4053f6c128704c34c5da34695b84"
+    },
+    {
+      "id": "protocol-region:issue51-invalid-in-rhs-caught-error-identity-partial-effects",
+      "publicDigest": "efd7458b1800ad16aeeba668180a525e9a92c1d55d3ecba602c3a2fd3a96d95e",
+      "contextDigest": "70e364b1db1e931a48019d75a788e0a35afc32f25d297378b52196652cc2187a"
+    },
+    {
+      "id": "protocol-region:issue51-promise-fresh-symbol-conversion",
+      "publicDigest": "487719cd79d39df1b05bd7c1fabf8c61a88601a3fbd57c3da26f00dd85d1787e",
+      "contextDigest": "780f317c0cc4fe4d406ac36cd00bb2dea1e9928735867ef185a17a34a95f5d3b"
+    },
+    {
+      "id": "protocol-region:issue51-promise-registered-symbol-alias",
+      "publicDigest": "7eef0ff475aa643cc3a47df8694945a8c02c90defd84ec63d40fbfd6f6819da6",
+      "contextDigest": "706a356cb4ff234904ebf53d08108caf9958b702115d1aeade7a8e63ad077ace"
+    },
+    {
+      "id": "protocol-region:issue51-promise-captured-symbol",
+      "publicDigest": "3720c6b27dc83ab3bd3be865248cb36b6abc213391c0957364955b88eb43a47b",
+      "contextDigest": "1ecdd83bf83260e8d3a7620da715741ecd595707e49c2c9226643eefe2e25771"
     },
     {
       "id": "protocol-host:join-host-join",
       "publicDigest": "59abb5d8e0b7b0e7ed6af87d4369f90c5d95b61f5daa6c1c18a999dfb7b228e1",
-      "contextDigest": "051a82e139b63f52833b0706d9e4f3d9c3cc51c83b9e7dbfac582456037c83e0"
+      "contextDigest": "bd804155c2394b554ded1f882505bd5db7768025561fd7dcced8112c231c6116"
     },
     {
       "id": "protocol-host:join-retained-callback",
       "publicDigest": "b60b3a888793d220ae03535fc8e6286ceb8c79d4112752ded36a28c2ed363401",
-      "contextDigest": "506ad0ca4f2d507f82d2139d30bd2a2d3ad5c1113664a76cf6b80e067fac0085"
+      "contextDigest": "4e3d459b8bed96d1bb0a9028cd2ff970127fbe00d1790ed8d2cf57e28549269d"
     },
     {
       "id": "protocol-host:callback-owned-join",
       "publicDigest": "160e87a503e36397e15bc95cd2cda3ac87f961181df673d1734311ccb6ab0d9d",
-      "contextDigest": "4ece04be1b7d70918d26d6d03dcbdaa465a489b2097512008bac3edc171528af"
+      "contextDigest": "18c422ba735ec000c7f169418e7698f693ae435b7adfc8591af7128ef4636566"
     },
     {
       "id": "protocol-host:callback-owned-join-awaited",
       "publicDigest": "7a390eba215b3bf8e0922c0e5cd54fc56403b84e142612884e6f160f4910d950",
-      "contextDigest": "0014151902015e5627908981fadd2ddbd45a262393667213b432d43c602b83e1"
+      "contextDigest": "aa1925896c0b7d6bf0dc3de8797f8a65622e71835e5521f6f1ad87f6810c76d8"
     }
   ]
 }
