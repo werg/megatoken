@@ -10,6 +10,7 @@ from megatoken.data.protocol_v8 import (
     apply_protocol_record,
     assert_detailed_record_compatible,
     create_protocol_state,
+    validate_protocol_state,
 )
 from tests.test_number_v8 import allocate, machine
 
@@ -143,9 +144,26 @@ class PromiseSchedulerTests(unittest.TestCase):
         detail(state, "await", promise="result", continuation="outer", invocation="root")
         detail(state, "job", action="dispatch", job="reaction", owner="root")
         self.assertEqual(state["receiver"], ["ref", "lexical"])
+        detail(state, "bind", name="value", value=["num", 8])
         detail(state, "await", promise="pause", continuation="inner", invocation="job:reaction")
         self.assertEqual(state["receiver"], ["ref", "owner"])
         self.assertEqual(dict(state["continuations"])["inner"]["receiver"], ["ref", "lexical"])
+        self.assertTrue(validate_protocol_state(state["protocol"], state["heap"], state))
+        cell = dict(state["jobs"])["reaction"]["parameterBindings"][0]["cell"]
+        self.assertEqual(dict(state["locals"])[cell], ["num", 8])
+        forged_alias = copy.deepcopy(state)
+        continuation = dict(forged_alias["continuations"])["inner"]
+        continuation["captureAliases"][0][1] = "forged-cell"
+        with self.assertRaisesRegex(ProtocolV8Error, "suspended scheduler callback"):
+            validate_protocol_state(
+                forged_alias["protocol"], forged_alias["heap"], forged_alias
+            )
+        forged_binding = copy.deepcopy(state)
+        dict(forged_binding["jobs"])["reaction"]["parameterBindings"][0]["index"] = 4
+        with self.assertRaisesRegex(ProtocolV8Error, "parameter binding receipt"):
+            validate_protocol_state(
+                forged_binding["protocol"], forged_binding["heap"], forged_binding
+            )
         before = copy.deepcopy(state)
         with self.assertRaisesRegex(NativeV8Error, "unresumed"):
             detail(state, "job", action="complete", job="reaction", owner="root")
@@ -159,6 +177,8 @@ class PromiseSchedulerTests(unittest.TestCase):
             result=["num", 1],
         )
         self.assertEqual(state["receiver"], ["ref", "lexical"])
+        self.assertTrue(validate_protocol_state(state["protocol"], state["heap"], state))
+        self.assertEqual(dict(state["locals"])[cell], ["num", 8])
         detail(state, "return", invocation="job:reaction", value=["num", 7])
         detail(state, "job", action="complete", job="reaction", owner="root")
         self.assertEqual(state["receiver"], ["ref", "owner"])

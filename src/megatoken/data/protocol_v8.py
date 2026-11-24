@@ -1876,7 +1876,12 @@ def validate_protocol_state(snapshot, heap_ids=(), shared_state=None):
             ):
                 _fail("active call frame receiver")
             aliases = {row["binding"]: row["cell"] for row in called.get("captures", [])}
-            if call_frame_machine.get("captureAliases", {}) != aliases:
+            from .promise_scheduler_v8 import is_scheduled_callback_frame
+
+            if (
+                not is_scheduled_callback_frame(call_frame_machine, frame)
+                and call_frame_machine.get("captureAliases", {}) != aliases
+            ):
                 _fail("active call frame captures")
         if called.get("functionKind") == "arrow":
             expected_receiver = _lexical_receiver(call_frame_machine, called, ["undefined"])

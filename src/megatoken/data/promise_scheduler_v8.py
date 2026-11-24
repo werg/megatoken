@@ -35,22 +35,94 @@ def selected_child(machine, identity, job):
     return "job:" + identity
 
 
-def validate_active_callback_state(machine):
-    protocol = machine.get("protocol")
+def is_scheduled_callback_frame(machine, frame):
+    """Identify the retained ordinary callback frame whose parameters we validate below."""
     active = machine.get("activeJob")
-    if protocol is None or active is None:
-        return True
-    jobs = rows(machine.get("jobs", []))
-    job = jobs.get(active)
-    root = next(iter(machine.get("frameFunctions", {})), None)
+    job = rows(machine.get("jobs", [])).get(active) if active is not None else None
+    if not job or job.get("reaction") in ("adopt", "adoption"):
+        return False
     callback = selected_callback(job)
-    if not job or job.get("status") != "running" or job.get("owner") != root or callback is None:
-        _fail("active scheduler job lacks its selected callback")
-    if job and job.get("reaction") == "adopt":
-        # The adoption owner validates its separately retained getter scope.
-        return True
-    child = selected_child(machine, active, job)
-    frame = next((row for row in protocol.get("callFrames", []) if row.get("child") == child), None)
+    return bool(
+        job.get("status") == "running"
+        and callback
+        and frame.get("child") == selected_child(machine, active, job)
+        and frame.get("callee") == ["ref", callback]
+    )
+
+
+def _callback_aliases(machine, identity, job, callback, frame):
+    """Rebuild callback captures plus source-bound formal cells from the dispatch receipt."""
+    from .protocol_v8 import _known
+
+    node = machine.get("heap", {}).get(callback)
+    definition = job.get("callbackDefinition")
+    bindings = job.get("parameterBindings")
+    if not isinstance(node, dict) or node.get("kind") != "closure":
+        _fail("scheduled callback is not its retained closure")
+    if (
+        not isinstance(definition, dict)
+        or set(definition) != {"code", "name", "start", "params"}
+        or definition.get("code") != node.get("code")
+        or not isinstance(definition.get("name"), str)
+        or not definition["name"]
+        or not isinstance(definition.get("code"), str)
+        or not definition["code"]
+        or type(definition.get("start")) not in (int, type(None))
+        or (definition.get("start") is not None and definition["start"] < 0)
+        or definition["code"]
+        not in (
+            definition["name"],
+            "function:" + str(definition["start"])
+            if definition["start"] is not None
+            else definition["name"],
+        )
+        or not isinstance(definition.get("params"), list)
+        or len(definition["params"]) > 256
+        or any(
+            value is not None and (not isinstance(value, str) or not value)
+            for value in definition["params"]
+        )
+        or not isinstance(bindings, list)
+    ):
+        _fail("scheduled callback source parameter definition")
+    expected_indices = [
+        index for index, name in enumerate(definition["params"]) if name is not None
+    ]
+    if len(bindings) != len(expected_indices):
+        _fail("scheduled callback parameter binding count")
+    aliases = {
+        row["binding"]: row["cell"] for row in node.get("captures", [])
+    }
+    for row, index in zip(bindings, expected_indices, strict=True):
+        if (
+            not isinstance(row, dict)
+            or set(row) != {"binding", "index", "cell", "initialValue"}
+            or row.get("binding") != definition["params"][index]
+            or row.get("index") != index
+            or not isinstance(row.get("cell"), str)
+            or not row["cell"]
+            or len(row["cell"]) > 256
+        ):
+            _fail("scheduled callback parameter binding receipt")
+        base = "j" + identity + "p" + str(index)
+        suffix = row["cell"][len(base) :]
+        if row["cell"] != base and (
+            not suffix.startswith("x")
+            or not suffix[1:].isdigit()
+            or suffix[1:].startswith("0")
+            or int(suffix[1:]) < 1
+        ):
+            _fail("scheduled callback parameter cell identity")
+        expected = frame["arguments"][index] if index < len(frame["arguments"]) else ["undefined"]
+        if row["initialValue"] != expected or row["cell"] not in machine.get("locals", {}):
+            _fail("scheduled callback parameter does not retain its call argument")
+        _known(machine, row["initialValue"])
+        _known(machine, machine["locals"][row["cell"]])
+        aliases[row["binding"]] = row["cell"]
+    return aliases
+
+
+def _saved_completion(machine, job):
     if "priorPending" not in job or "priorLastReturn" not in job:
         _fail("active scheduler job lost its saved caller completion")
     prior_pending = job["priorPending"]
@@ -76,6 +148,20 @@ def validate_active_callback_state(machine):
         from .protocol_v8 import _known
 
         _known(machine, prior_last_return["value"])
+
+
+def _validate_callback_frame(machine, identity, job, callback, *, continuation=None):
+    from .protocol_v8 import _known
+
+    root = next(iter(machine.get("frameFunctions", {})), None)
+    child = selected_child(machine, identity, job)
+    frame = next(
+        (row for row in machine["protocol"].get("callFrames", []) if row.get("child") == child),
+        None,
+    )
+    if not job or job.get("status") != "running" or job.get("owner") != root or callback is None:
+        _fail("active scheduler job lacks its selected callback")
+    _saved_completion(machine, job)
     if job.get("returned") is not None:
         returned = job["returned"]
         if (
@@ -85,10 +171,8 @@ def validate_active_callback_state(machine):
             or child in machine.get("stack", [])
         ):
             _fail("completed scheduler callback retains an active call frame")
-        from .protocol_v8 import _known
-
         _known(machine, returned["value"])
-        return True
+        return
     expected_arguments = (
         [job.get("originalResult")]
         if job.get("promise") and job.get("reaction") != "finally"
@@ -101,10 +185,64 @@ def validate_active_callback_state(machine):
         or frame.get("arguments") != expected_arguments
         or frame.get("priorReceiver") != job.get("priorReceiver")
         or frame.get("priorAliases") != job.get("priorAliases")
-        or child not in machine.get("stack", [])
-        or machine["stack"].index(child) != machine["stack"].index(root) + 1
     ):
         _fail("active scheduler callback differs from its retained call frame")
+    aliases = _callback_aliases(machine, identity, job, callback, frame)
+    if continuation is not None:
+        if (
+            continuation.get("state") not in ("waiting", "ready")
+            or continuation.get("invocation") != child
+            or child in machine.get("stack", [])
+            or root not in machine.get("stack", [])
+            or continuation.get("captureAliases") != [[key, value] for key, value in aliases.items()]
+            or continuation.get("receiver")
+            != machine.get("locals", {}).get(child + ":this")
+            or machine.get("captureAliases", {})
+            != dict(job.get("priorAliases", []))
+            or machine.get("receiver") != job.get("priorReceiver")
+        ):
+            _fail("suspended scheduler callback lost its retained scope")
+    else:
+        if (
+            child not in machine.get("stack", [])
+            or machine["stack"].index(child) != machine["stack"].index(root) + 1
+        ):
+            _fail("active scheduler callback differs from its retained call frame")
+        if machine["stack"][-1] == child:
+            if machine.get("captureAliases", {}) != aliases:
+                _fail("active scheduler callback parameter aliases")
+            if machine.get("receiver") != machine.get("locals", {}).get(child + ":this"):
+                _fail("active scheduler callback receiver")
+
+
+def validate_active_callback_state(machine):
+    protocol = machine.get("protocol")
+    active = machine.get("activeJob")
+    if protocol is None:
+        return True
+    jobs = rows(machine.get("jobs", []))
+    if active is not None:
+        job = jobs.get(active)
+        if not job or job.get("reaction") not in ("adopt", "adoption"):
+            _validate_callback_frame(machine, active, job, selected_callback(job))
+    for continuation in rows(machine.get("continuations", [])).values():
+        identity = continuation.get("activeJob")
+        if (
+            identity is None
+            or continuation.get("state") not in ("waiting", "ready")
+            or identity == active
+        ):
+            continue
+        job = jobs.get(identity)
+        if not job or job.get("reaction") in ("adopt", "adoption"):
+            continue
+        _validate_callback_frame(
+            machine,
+            identity,
+            job,
+            selected_callback(job),
+            continuation=continuation,
+        )
     return True
 
 
@@ -440,6 +578,26 @@ def apply_detail(machine, kind, fields, *, root, functions=()):
                     )
                     if function is None:
                         _fail("callback has no immutable source function")
+                    parameter_definitions = function.get("params", [])
+                    if (
+                        not isinstance(parameter_definitions, list)
+                        or len(parameter_definitions) > 256
+                        or any(
+                            name is not None and (not isinstance(name, str) or not name)
+                            for name in parameter_definitions
+                        )
+                        or not isinstance(function.get("name"), str)
+                        or not function["name"]
+                        or function.get("start") is not None
+                        and (type(function["start"]) is not int or function["start"] < 0)
+                    ):
+                        _fail("callback has malformed immutable parameter definitions")
+                    job["callbackDefinition"] = {
+                        "code": node["code"],
+                        "name": function["name"],
+                        "start": function.get("start"),
+                        "params": copy.deepcopy(parameter_definitions),
+                    }
                     child = "job:" + identity
                     if machine.get("protocol") is not None:
                         from .construction_v8 import _call
@@ -472,8 +630,9 @@ def apply_detail(machine, kind, fields, *, root, functions=()):
                         }
                         machine["stack"].append(child)
                         machine["frameFunctions"][child] = node["code"]
-                    for index, name in enumerate(function.get("params", [])):
-                        if not name:
+                    parameter_bindings = []
+                    for index, name in enumerate(parameter_definitions):
+                        if name is None:
                             continue
                         base, ordinal = "j" + identity + "p" + str(index), 0
                         cell = base
@@ -481,9 +640,17 @@ def apply_detail(machine, kind, fields, *, root, functions=()):
                             ordinal += 1
                             cell = base + "x" + str(ordinal)
                         machine["captureAliases"][name] = cell
-                        machine["locals"][cell] = copy.deepcopy(
-                            argument if index == 0 else ["undefined"]
+                        initial_value = copy.deepcopy(argument if index == 0 else ["undefined"])
+                        machine["locals"][cell] = initial_value
+                        parameter_bindings.append(
+                            {
+                                "binding": name,
+                                "index": index,
+                                "cell": cell,
+                                "initialValue": initial_value,
+                            }
                         )
+                    job["parameterBindings"] = parameter_bindings
                     machine["activeJob"] = identity
             elif action == "complete":
                 if job["status"] != "running":
