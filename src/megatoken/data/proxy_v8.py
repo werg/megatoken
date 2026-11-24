@@ -334,23 +334,13 @@ def assert_next(machine, record):
         )
         if lookup["phase"] == "selected":
             if lookup["child"] not in machine["frameFunctions"]:
-                property_call = (
+                _require(
                     record.get("kind") == "property.get.call"
                     and record.get("id") == lookup["id"]
                     and record.get("child") == lookup["child"]
                     and record.get("object") == lookup["handler"][1]
                     and record.get("key") == ["str", "has"]
-                    and record.get("receiver") == lookup["receiver"]
-                )
-                internal_call = (
-                    record.get("kind") == "call"
-                    and record.get("child") == lookup["child"]
-                    and record.get("callee") == lookup["getter"]
-                    and record.get("receiver") == lookup["receiver"]
-                    and record.get("arguments") == []
-                )
-                _require(
-                    property_call or internal_call,
+                    and record.get("receiver") == lookup["receiver"],
                     "GetMethod selection requires its exact handler getter call",
                 )
             elif property_call and lookup["child"] not in machine["stack"]:

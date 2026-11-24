@@ -1037,7 +1037,7 @@ def _normalize_number(value):
     return value
 
 
-def _apply(machine, record):
+def _apply(machine, record, *, _internal_property_getter=False):
     p = machine["protocol"]
     pending = p["pendingCalls"][-1] if p["pendingCalls"] else None
     if pending and pending["child"] not in machine["stack"] and record["kind"] != "property.finish":
@@ -1064,7 +1064,8 @@ def _apply(machine, record):
         assert_number_next(machine, record)
         assert_primitive_conversion_next(machine, record)
         assert_generator_next(machine, record)
-        assert_proxy_next(machine, record)
+        if not _internal_property_getter:
+            assert_proxy_next(machine, record)
         assert_proxy_reflection_next(machine, record)
         assert_promise_executor_next(machine, record)
         assert_promise_adoption_next(machine, record)
@@ -1560,7 +1561,7 @@ def _apply(machine, record):
                 "receiver": record["receiver"],
                 "arguments": [] if operation == "get" else [record["value"]],
             }
-            _apply(machine, call_record)
+            _apply(machine, call_record, _internal_property_getter=True)
             p["pendingCalls"].append(
                 {
                     "id": record["id"],

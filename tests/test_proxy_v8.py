@@ -1415,6 +1415,20 @@ class ProxyGetMethodTests(unittest.TestCase):
             with self.assertRaises(ProtocolV8Error):
                 validate_protocol_state(forged["protocol"], forged["heap"], forged)
 
+        before = copy.deepcopy(state)
+        with self.assertRaisesRegex(ProtocolV8Error, "selection requires its exact handler getter call"):
+            step(
+                state,
+                {
+                    "kind": "call",
+                    "child": selection["child"],
+                    "callee": REF(selection["getter"]),
+                    "receiver": REF("handler"),
+                    "arguments": [],
+                },
+            )
+        self.assertEqual(state, before)
+
         step(
             state,
             {
@@ -1480,6 +1494,83 @@ class ProxyGetMethodTests(unittest.TestCase):
         )
         self.assertEqual(state["protocol"]["proxyCalls"]["getMethods"], [])
         self.assertTrue(validate_protocol_state(state["protocol"], state["heap"], state))
+
+    def test_getmethod_rejects_async_and_generator_getters(self):
+        for function_record, expected in (
+            ({"kind": "async.function", "object": "getHas"}, "async callable"),
+            (
+                {
+                    "kind": "generator.function",
+                    "object": "getHas",
+                    "name": "getHas",
+                    "length": 0,
+                    "prototype": "generator-prototype",
+                },
+                "generator call",
+            ),
+        ):
+            with self.subTest(kind=function_record["kind"]):
+                state = base_state()
+                step(
+                    state,
+                    {
+                        "kind": "allocate",
+                        "name": "getHas",
+                        "objectKind": "closure",
+                        "length": None,
+                        "properties": [],
+                        "code": "getHas",
+                        "captures": [],
+                        "functionKind": "ordinary",
+                        "lexicalReceiver": None,
+                    },
+                )
+                step(state, function_record)
+                step(
+                    state,
+                    {
+                        "kind": "property.define",
+                        "object": "handler",
+                        "key": ["str", "has"],
+                        "descriptor": {
+                            "kind": "accessor",
+                            "get": REF("getHas"),
+                            "set": ["undefined"],
+                            "enumerable": True,
+                            "configurable": True,
+                        },
+                        "success": True,
+                    },
+                )
+                step(
+                    state,
+                    {
+                        "kind": "proxy.getMethod.begin",
+                        "id": "getter-boundary",
+                        "operation": "has",
+                        "object": "proxy",
+                        "target": REF("target"),
+                        "handler": REF("handler"),
+                        "receiver": REF("handler"),
+                        "key": KEY,
+                        "child": "getterCall",
+                        "getter": REF("getHas"),
+                    },
+                )
+                before = copy.deepcopy(state)
+                with self.assertRaisesRegex(ProtocolV8Error, expected):
+                    step(
+                        state,
+                        {
+                            "kind": "property.get.call",
+                            "id": "getter-boundary",
+                            "child": "getterCall",
+                            "object": "handler",
+                            "key": ["str", "has"],
+                            "receiver": REF("handler"),
+                        },
+                    )
+                self.assertEqual(state, before)
 
     def test_optional_lookup_identity_is_required_only_for_a_live_selection(self):
         state = base_state()
