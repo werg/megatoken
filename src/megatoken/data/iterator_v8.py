@@ -11,6 +11,7 @@ FIELDS = {
     "iterator.identity": {"kind", "object", "result"},
     "iterator.read": {"kind", "object", "key", "result"},
     "iterator.arrayGuard": {"kind", "iterated", "result"},
+    "iterator.spread": {"kind", "iterated", "values"},
 }
 ARRAY_KINDS = {"values", "keys", "entries"}
 COLLECTION_KINDS = {"set-values", "set-keys", "set-entries", "map-keys", "map-values", "map-entries"}
@@ -88,6 +89,13 @@ def validate_record(record):
         _validate_value(record["iterated"])
         if type(record["result"]) is not bool:
             _fail("array guard boolean")
+    elif kind == "iterator.spread":
+        _validate_value(record["iterated"])
+        values = record["values"]
+        if not isinstance(values, list) or len(values) > BOUND:
+            _fail("spread values bound")
+        for item in values:
+            _validate_value(item)
     else:
         _validate_value(record["result"])
         if kind == "iterator.next" and type(record["done"]) is not bool:
@@ -188,6 +196,40 @@ def _read_index(machine, identity, index):
     return copy.deepcopy(descriptor["value"])
 
 
+def _spread_values(machine, iterable):
+    _known(machine, iterable)
+    if iterable[0] == "str":
+        units = _utf16_units(iterable[1])
+        result = []
+        index = 0
+        while index < len(units):
+            first = int.from_bytes(units[index], "little")
+            width = (
+                2
+                if 0xD800 <= first <= 0xDBFF
+                and index + 1 < len(units)
+                and 0xDC00 <= int.from_bytes(units[index + 1], "little") <= 0xDFFF
+                else 1
+            )
+            result.append(["str", _utf16_slice(units, index, width)])
+            index += width
+        if len(result) > BOUND:
+            _fail("spread element bound")
+        return result
+    if not _standard_array(machine, iterable):
+        _fail("spread requires a bounded ordinary array or primitive string")
+    size = _array_length(machine, iterable[1])
+    array = machine["heap"].get(iterable[1])
+    result = []
+    for index in range(size):
+        descriptor = _descriptor(array, ["str", str(index)])
+        if descriptor is None or descriptor.get("kind") != "data":
+            _fail("sparse/accessor spread requires its own iterator profile")
+        _known(machine, descriptor["value"])
+        result.append(copy.deepcopy(descriptor["value"]))
+    return result
+
+
 def _utf16_units(text):
     raw = text.encode("utf-16-le", "surrogatepass")
     return [raw[i : i + 2] for i in range(0, len(raw), 2)]
@@ -227,6 +269,9 @@ def apply_record(machine, record):
     elif kind == "iterator.arrayGuard":
         if _standard_array(machine, record["iterated"]) != record["result"]:
             _fail("false array iterator guard")
+    elif kind == "iterator.spread":
+        if _spread_values(machine, record["iterated"]) != record["values"]:
+            _fail("spread snapshot differs from its live iterable")
     elif kind == "iterator.create":
         _known(machine, record["iterated"])
         if record["name"] in machine["heap"] or any(
