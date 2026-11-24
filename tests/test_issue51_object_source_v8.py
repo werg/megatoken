@@ -34,9 +34,9 @@ BY_ID = {row["id"]: row for row in ACCEPTED}
 def test_original_population_includes_all_refusals_and_one_lineage():
     assert DOCUMENT["schema"] == "issue51-object-evidence/1"
     assert DOCUMENT["producerTreeClean"] is True
-    assert len(CASES) == 48
-    assert len(ACCEPTED) == 42
-    assert len({row["id"] for row in CASES}) == 48
+    assert len(CASES) == 122
+    assert len(ACCEPTED) == 121
+    assert len({row["id"] for row in CASES}) == 122
     registry = DOCUMENT["registry"]
     verify_region_family_registry(registry)
     assert len(registry["components"]) == 1
@@ -47,12 +47,7 @@ def test_original_population_includes_all_refusals_and_one_lineage():
     dispositions = {row["id"]: row for row in DOCUMENT["dispositions"]}
     assert set(dispositions) == set(sources)
     assert {row["id"] for row in CASES if row["artifact"] is None} == {
-        "issue51-control-for-in-prototype-replacement",
-        "issue51-control-for-in-proxy",
-        "issue51-control-constructor-arrow-in-promise-reaction",
-        "issue51-control-proxy-nested-target",
-        "issue51-control-proxy-trap-getter",
-        "issue51-control-proxy-strict-false-set",
+        "issue51-control-proxy-trap-getter-noncallable",
     }
     for row in CASES:
         identity = sources[row["id"]]
