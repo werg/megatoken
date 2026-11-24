@@ -33,21 +33,36 @@ def initial_state():
 
 def _with_proxy_route(state, record):
     kind = record.get("kind", "")
-    if not kind.startswith("proxy.") or kind in ("proxy.create", "proxy.revocable", "proxy.revoke", "proxy.revoked.fault", "proxy.finish", "proxy.fault"):
+    if not kind.startswith("proxy.") or kind in (
+        "proxy.create", "proxy.revocable", "proxy.revoke", "proxy.revoked.fault",
+        "proxy.getMethod.begin", "proxy.getMethod.finish", "proxy.finish", "proxy.fault"
+    ):
         return record
     operation = kind.split(".")[1]
     trap = {"delete": "deleteProperty"}.get(operation, operation)
     heap = dict(state["heap"])
-    route, current = [], record["object"]
-    while heap.get(current, {}).get("kind") == "proxy":
-        node = heap[current]
-        handler = heap[node["handler"][1]]
-        method = dict(handler.get("properties", [])).get(trap, ["undefined"])
-        route.append({"object": current, "target": copy.deepcopy(node["target"]),
-                      "handler": copy.deepcopy(node["handler"]), "method": copy.deepcopy(method)})
-        if method[0] not in ("undefined", "null"):
-            break
-        current = node["target"][1]
+    lookup = next(
+        (
+            row for row in (state.get("protocol", {}).get("proxyCalls") or {}).get("getMethods", [])
+            if row["id"] == record.get("id")
+        ),
+        None,
+    )
+    route = []
+    if lookup:
+        route.append({"object": lookup["object"], "target": copy.deepcopy(lookup["target"]),
+                      "handler": copy.deepcopy(lookup["handler"]), "method": copy.deepcopy(lookup["method"])})
+    else:
+        current = record["object"]
+        while heap.get(current, {}).get("kind") == "proxy":
+            node = heap[current]
+            handler = heap[node["handler"][1]]
+            method = dict(handler.get("properties", [])).get(trap, ["undefined"])
+            route.append({"object": current, "target": copy.deepcopy(node["target"]),
+                          "handler": copy.deepcopy(node["handler"]), "method": copy.deepcopy(method)})
+            if method[0] not in ("undefined", "null"):
+                break
+            current = node["target"][1]
     result = {**record, "route": route}
     if kind.endswith(".call"):
         result.update(owner=route[-1]["object"], receiver=REF(record["object"]))
@@ -157,6 +172,89 @@ def base_state(traps=()):
         },
     )
     return state
+
+
+def select_has_getter(state, *, identity="lookup", call=True):
+    getter, method, child = "getHas", "hasTrap", "getterCall"
+    for name in (getter, method):
+        step(
+            state,
+            {
+                "kind": "allocate",
+                "name": name,
+                "objectKind": "closure",
+                "length": None,
+                "properties": [],
+                "code": name,
+                "captures": [],
+                "functionKind": "ordinary",
+                "lexicalReceiver": None,
+            },
+        )
+    step(
+        state,
+        {
+            "kind": "property.define",
+            "object": "handler",
+            "key": ["str", "has"],
+            "descriptor": {
+                "kind": "accessor",
+                "get": REF(getter),
+                "set": ["undefined"],
+                "enumerable": True,
+                "configurable": True,
+            },
+            "success": True,
+        },
+    )
+    step(
+        state,
+        {
+            "kind": "proxy.getMethod.begin",
+            "id": identity,
+            "operation": "has",
+            "object": "proxy",
+            "target": REF("target"),
+            "handler": REF("handler"),
+            "receiver": REF("handler"),
+            "key": KEY,
+            "child": child,
+            "getter": REF(getter),
+        },
+    )
+    if call:
+        step(
+            state,
+            {
+                "kind": "property.get.call",
+                "id": identity,
+                "child": child,
+                "object": "handler",
+                "key": ["str", "has"],
+                "receiver": REF("handler"),
+            },
+        )
+    return {"id": identity, "getter": getter, "method": method, "child": child}
+
+
+def finish_has_getter(state, selection, value):
+    step(state, {"kind": "return", "invocation": selection["child"], "value": value})
+    step(
+        state,
+        {
+            "kind": "property.finish",
+            "id": selection["id"],
+            "completion": {"kind": "normal", "value": value},
+        },
+    )
+    step(
+        state,
+        {
+            "kind": "proxy.getMethod.finish",
+            "id": selection["id"],
+            "completion": {"kind": "normal", "value": value},
+        },
+    )
 
 
 class ProxyV8Tests(unittest.TestCase):
@@ -401,7 +499,7 @@ class ProxyV8Tests(unittest.TestCase):
 
     def test_restore_checks_symbol_keys_and_creation_reserves_symbol_identity(self):
         state = base_state()
-        state["protocol"]["proxyCalls"] = {"schema": "semantic-proxy-call-state/1", "pending": []}
+        state["protocol"]["proxyCalls"] = {"schema": "semantic-proxy-call-state/1", "pending": [], "getMethods": []}
         # A symbol key must name a symbol declared by this protocol state.
         from megatoken.data.protocol_v8 import _internal_machine
         from megatoken.data.proxy_v8 import validate_state
@@ -1289,6 +1387,167 @@ class ProxyFaultTests(unittest.TestCase):
         forged["protocol"]["proxyCalls"]["pending"][-1]["strict"] = True
         with self.assertRaisesRegex(ProtocolV8Error, "strict"):
             validate_protocol_state(forged["protocol"], forged["heap"], forged)
+
+
+class ProxyGetMethodTests(unittest.TestCase):
+    def test_begin_active_and_returned_getter_checkpoints_retain_selection(self):
+        state = base_state()
+        selection = select_has_getter(state, call=False)
+        self.assertTrue(validate_protocol_state(state["protocol"], state["heap"], state))
+        forged = copy.deepcopy(state)
+        forged["protocol"]["proxyCalls"]["getMethods"][0]["rawReturn"] = ["undefined"]
+        with self.assertRaises(ProtocolV8Error):
+            validate_protocol_state(forged["protocol"], forged["heap"], forged)
+        forged = copy.deepcopy(state)
+        proxy_node = dict(forged["heap"])["proxy"]
+        proxy_node["target"] = ["null"]
+        proxy_node["handler"] = ["null"]
+        with self.assertRaisesRegex(ProtocolV8Error, "begin requires live target/handler"):
+            validate_protocol_state(forged["protocol"], forged["heap"], forged)
+        for field, value in (
+            ("target", REF("handler")),
+            ("handler", REF("target")),
+            ("receiver", REF("target")),
+            ("getter", REF("hasTrap")),
+        ):
+            forged = copy.deepcopy(state)
+            forged["protocol"]["proxyCalls"]["getMethods"][0][field] = value
+            with self.assertRaises(ProtocolV8Error):
+                validate_protocol_state(forged["protocol"], forged["heap"], forged)
+
+        step(
+            state,
+            {
+                "kind": "property.get.call",
+                "id": selection["id"],
+                "child": selection["child"],
+                "object": "handler",
+                "key": ["str", "has"],
+                "receiver": REF("handler"),
+            },
+        )
+        self.assertEqual(state["receiver"], REF("handler"))
+        self.assertEqual(state["protocol"]["callFrames"][-1]["arguments"], [])
+        validate_protocol_state(state["protocol"], state["heap"], state)
+        forged = copy.deepcopy(state)
+        forged["protocol"]["proxyCalls"]["getMethods"][0]["rawReturn"] = ["undefined"]
+        with self.assertRaises(ProtocolV8Error):
+            validate_protocol_state(forged["protocol"], forged["heap"], forged)
+
+        step(
+            state,
+            {
+                "kind": "property.define",
+                "object": "handler",
+                "key": ["str", "has"],
+                "descriptor": {
+                    "kind": "data",
+                    "value": ["null"],
+                    "writable": True,
+                    "enumerable": True,
+                    "configurable": True,
+                },
+                "success": True,
+            },
+        )
+        finish_has_getter(state, selection, REF("hasTrap"))
+        validate_protocol_state(state["protocol"], state["heap"], state)
+        forged = copy.deepcopy(state)
+        forged["protocol"]["proxyCalls"]["getMethods"][0]["method"] = REF("getHas")
+        with self.assertRaises(ProtocolV8Error):
+            validate_protocol_state(forged["protocol"], forged["heap"], forged)
+
+        step(
+            state,
+            {
+                "kind": "proxy.has.call",
+                "id": selection["id"],
+                "object": "proxy",
+                "key": KEY,
+                "child": "hasBody",
+            },
+        )
+        self.assertEqual(state["protocol"]["callFrames"][-1]["callee"], REF("hasTrap"))
+        self.assertEqual(state["receiver"], REF("handler"))
+        step(state, {"kind": "return", "invocation": "hasBody", "value": ["bool", True]})
+        step(
+            state,
+            {
+                "kind": "proxy.finish",
+                "id": selection["id"],
+                "completion": {"kind": "normal", "value": ["bool", True]},
+            },
+        )
+        self.assertEqual(state["protocol"]["proxyCalls"]["getMethods"], [])
+        self.assertTrue(validate_protocol_state(state["protocol"], state["heap"], state))
+
+    def test_optional_lookup_identity_is_required_only_for_a_live_selection(self):
+        state = base_state()
+        before = copy.deepcopy(state)
+        with self.assertRaisesRegex(ProtocolV8Error, "GetMethod identity is not retained"):
+            step(
+                state,
+                {
+                    "kind": "proxy.has",
+                    "id": "stray",
+                    "object": "proxy",
+                    "key": KEY,
+                    "result": ["bool", True],
+                },
+            )
+        self.assertEqual(state, before)
+        step(
+            state,
+            {
+                "kind": "proxy.has",
+                "object": "proxy",
+                "key": KEY,
+                "result": ["bool", True],
+            },
+        )
+        self.assertTrue(validate_protocol_state(state["protocol"], state["heap"], state))
+
+    def test_getter_throw_identity_and_nullish_direct_fallback_after_revocation(self):
+        state = base_state()
+        selection = select_has_getter(state, identity="throws")
+        marker = REF("handler")
+        step(state, {"kind": "throw", "invocation": selection["child"], "value": marker})
+        step(
+            state,
+            {
+                "kind": "property.finish",
+                "id": selection["id"],
+                "completion": {"kind": "throw", "value": marker},
+            },
+        )
+        step(
+            state,
+            {
+                "kind": "proxy.getMethod.finish",
+                "id": selection["id"],
+                "completion": {"kind": "throw", "value": marker},
+            },
+        )
+        self.assertEqual(state["lastReturn"], {"kind": "throw", "value": marker})
+        self.assertEqual(state["protocol"]["proxyCalls"]["getMethods"], [])
+        self.assertTrue(validate_protocol_state(state["protocol"], state["heap"], state))
+
+        state = base_state()
+        selection = select_has_getter(state, identity="nullish")
+        step(state, {"kind": "proxy.revoke", "object": "proxy"})
+        finish_has_getter(state, selection, ["null"])
+        step(
+            state,
+            {
+                "kind": "proxy.has",
+                "id": selection["id"],
+                "object": "proxy",
+                "key": KEY,
+                "result": ["bool", True],
+            },
+        )
+        self.assertEqual(state["protocol"]["proxyCalls"]["getMethods"], [])
+        self.assertTrue(validate_protocol_state(state["protocol"], state["heap"], state))
 
 
 if __name__ == "__main__":

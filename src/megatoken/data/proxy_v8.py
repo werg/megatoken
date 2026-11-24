@@ -31,6 +31,8 @@ FIELDS = {
     "proxy.create": {"kind", "name", "target", "handler"},
     "proxy.revocable": {"kind", "proxy", "revoke", "result", "target", "handler"},
     "proxy.revoke": {"kind", "object"},
+    "proxy.getMethod.begin": {"kind", "id", "operation", "object", "target", "handler", "receiver", "key", "child", "getter"},
+    "proxy.getMethod.finish": {"kind", "id", "completion"},
     "proxy.revoked.fault": {"kind", "object", "operation", "error"},
     "proxy.get": {"kind", "object", "key", "result", "route"},
     "proxy.set": {"kind", "object", "key", "value", "success", "route"},
@@ -83,7 +85,10 @@ def validate_record(record):
     if kind not in FIELDS:
         return False
     p = _protocol()
-    p._exact(record, FIELDS[kind], "Proxy record")
+    fields = set(FIELDS[kind])
+    if kind == "proxy.has" and "id" in record:
+        fields.add("id")
+    p._exact(record, fields, "Proxy record")
     if kind == "proxy.create":
         _id(record["name"])
         p.validate_protocol_value(record["target"])
@@ -98,6 +103,28 @@ def validate_record(record):
         p.validate_protocol_value(record["handler"])
     elif kind == "proxy.revoke":
         _id(record["object"])
+    elif kind == "proxy.getMethod.begin":
+        _id(record["id"])
+        _id(record["child"])
+        _id(record["object"])
+        for name in ("target", "handler", "receiver", "key", "getter"):
+            p.validate_protocol_value(record[name]) if name != "key" else p.validate_protocol_key(record[name])
+        if (
+            record["operation"] != "has"
+            or record["target"][0] != "ref"
+            or record["handler"][0] != "ref"
+            or record["receiver"][0] != "ref"
+            or record["getter"][0] != "ref"
+            or record["key"][0] not in ("str", "symbol")
+        ):
+            _fail("GetMethod getter selection")
+    elif kind == "proxy.getMethod.finish":
+        _id(record["id"])
+        completion = record["completion"]
+        p._exact(completion, {"kind", "value"}, "Proxy GetMethod completion")
+        if completion["kind"] not in ("normal", "throw"):
+            _fail("GetMethod completion kind")
+        p.validate_protocol_value(completion["value"])
     elif kind == "proxy.revoked.fault":
         _id(record["object"])
         _id(record["error"])
@@ -130,6 +157,8 @@ def validate_record(record):
             p.validate_protocol_value(record["value"] if kind == "proxy.set" else record["result"])
         if kind == "proxy.has" and record["result"][0] != "bool":
             _fail("has result must be Boolean")
+        if kind == "proxy.has" and "id" in record:
+            _id(record["id"])
         elif kind == "proxy.set.call":
             p.validate_protocol_value(record["value"])
         if kind in ("proxy.delete.call", "proxy.set.call") and type(record["strict"]) is not bool:
@@ -258,7 +287,7 @@ def _truthy(value):
 def _state(machine):
     state = machine["protocol"].get("proxyCalls")
     if state is None:
-        state = {"schema": SCHEMA, "pending": []}
+        state = {"schema": SCHEMA, "pending": [], "getMethods": []}
         machine["protocol"]["proxyCalls"] = state
     return state
 
@@ -296,7 +325,51 @@ def _args(row):
 
 
 def assert_next(machine, record):
-    pending = (machine.get("protocol", {}).get("proxyCalls") or {}).get("pending", [])
+    state = machine.get("protocol", {}).get("proxyCalls") or {}
+    lookup = (state.get("getMethods") or [None])[-1]
+    if lookup:
+        property_call = next(
+            (row for row in machine["protocol"].get("pendingCalls", []) if row["id"] == lookup["id"]),
+            None,
+        )
+        if lookup["phase"] == "selected":
+            if lookup["child"] not in machine["frameFunctions"]:
+                property_call = (
+                    record.get("kind") == "property.get.call"
+                    and record.get("id") == lookup["id"]
+                    and record.get("child") == lookup["child"]
+                    and record.get("object") == lookup["handler"][1]
+                    and record.get("key") == ["str", "has"]
+                    and record.get("receiver") == lookup["receiver"]
+                )
+                internal_call = (
+                    record.get("kind") == "call"
+                    and record.get("child") == lookup["child"]
+                    and record.get("callee") == lookup["getter"]
+                    and record.get("receiver") == lookup["receiver"]
+                    and record.get("arguments") == []
+                )
+                _require(
+                    property_call or internal_call,
+                    "GetMethod selection requires its exact handler getter call",
+                )
+            elif property_call and lookup["child"] not in machine["stack"]:
+                _require(
+                    record.get("kind") == "property.finish" and record.get("id") == lookup["id"],
+                    "GetMethod getter completion requires property.finish",
+                )
+            elif not property_call and lookup["child"] not in machine["stack"]:
+                _require(
+                    record.get("kind") == "proxy.getMethod.finish" and record.get("id") == lookup["id"],
+                    "GetMethod property completion requires its retained finish",
+                )
+        else:
+            expected = "proxy.has" if lookup["method"][0] == "undefined" else "proxy.has.call"
+            _require(
+                record.get("kind") == expected and record.get("id") == lookup["id"],
+                "GetMethod result requires its matching has operation",
+            )
+    pending = state.get("pending", [])
     if pending and pending[-1]["child"] not in machine["stack"]:
         _require(
             record["kind"] in ("proxy.finish", "proxy.fault")
@@ -384,6 +457,94 @@ def apply_record(machine, record):
         return False
     p = _protocol()
     kind = record["kind"]
+    if kind == "proxy.getMethod.begin":
+        proxy_state = _state(machine)
+        node = machine["heap"].get(record["object"])
+        _require(
+            len(proxy_state["getMethods"]) < BOUND
+            and all(row["id"] != record["id"] for row in proxy_state["getMethods"])
+            and all(row["id"] != record["id"] for row in proxy_state["pending"])
+            and all(row["id"] != record["id"] for row in machine["protocol"].get("pendingCalls", [])),
+            "GetMethod identity or bound",
+        )
+        _require(
+            node and node["kind"] == "proxy"
+            and _eq(node["target"], record["target"])
+            and _eq(node["handler"], record["handler"]),
+            "GetMethod requires live selected target and handler",
+        )
+        target = _ordinary(machine, record["target"], "GetMethod target")
+        handler = _ordinary(machine, record["handler"], "GetMethod handler")
+        p.validate_protocol_key(record["key"])
+        if record["key"][0] == "symbol":
+            p._symbol(machine, record["key"][1])
+        p._known(machine, record["receiver"])
+        p._known(machine, record["getter"])
+        descriptor = p._descriptor(handler, p._key(["str", "has"]))
+        _require(
+            record["receiver"] == record["handler"]
+            and descriptor is not None
+            and descriptor["kind"] == "accessor"
+            and _eq(descriptor["get"], record["getter"])
+            and record["getter"][0] == "ref"
+            and p._node(machine, record["getter"][1])["kind"] == "closure",
+            "GetMethod must retain its exact own getter and handler receiver",
+        )
+        _require(
+            record["child"] not in machine["frameFunctions"] and bool(machine["stack"]),
+            "GetMethod getter child is not fresh",
+        )
+        proxy_state["getMethods"].append({
+            "id": record["id"],
+            "phase": "selected",
+            "operation": record["operation"],
+            "parent": machine["stack"][-1],
+            "child": record["child"],
+            "object": record["object"],
+            "target": copy.deepcopy(record["target"]),
+            "handler": copy.deepcopy(record["handler"]),
+            "receiver": copy.deepcopy(record["receiver"]),
+            "key": copy.deepcopy(record["key"]),
+            "getter": copy.deepcopy(record["getter"]),
+            "rawReturn": None,
+            "method": None,
+        })
+        return True
+    if kind == "proxy.getMethod.finish":
+        proxy_state = _state(machine)
+        lookup = proxy_state["getMethods"][-1] if proxy_state["getMethods"] else None
+        returned = machine.get("lastReturn")
+        _require(
+            lookup
+            and lookup["id"] == record["id"]
+            and lookup["phase"] == "selected"
+            and machine["stack"][-1] == lookup["parent"]
+            and lookup["child"] not in machine["stack"]
+            and lookup["child"] in machine["frameFunctions"]
+            and all(row["id"] != lookup["id"] for row in machine["protocol"].get("pendingCalls", []))
+            and returned
+            and returned["kind"] in ("return", "throw"),
+            "GetMethod finish lacks its exact returned getter call",
+        )
+        expected = {"kind": "throw" if returned["kind"] == "throw" else "normal",
+                    "value": copy.deepcopy(returned["value"])}
+        _require(record["completion"] == expected, "false GetMethod completion")
+        if returned["kind"] == "throw":
+            proxy_state["getMethods"].pop()
+            return True
+        raw = returned["value"]
+        if raw[0] in ("undefined", "null"):
+            method = ["undefined"]
+        else:
+            _require(
+                raw[0] == "ref" and p._node(machine, raw[1])["kind"] == "closure",
+                "non-callable GetMethod result outside bounded profile",
+            )
+            method = copy.deepcopy(raw)
+        lookup["phase"] = "returned"
+        lookup["rawReturn"] = copy.deepcopy(raw)
+        lookup["method"] = method
+        return True
     if kind == "proxy.revoke":
         node = machine["heap"].get(record["object"])
         _require(node and node["kind"] == "proxy", "known Proxy identity required")
@@ -502,11 +663,45 @@ def apply_record(machine, record):
     _require(node and node["kind"] == "proxy", "known Proxy identity required")
     p._known(machine, ["symbol", record["key"][1]]) if record["key"][0] == "symbol" else None
     operation = kind.split(".")[1]
-    derived = _derive_route(machine, record["object"], operation)
+    proxy_state = _state(machine)
+    lookup = next(
+        (
+            row for row in proxy_state["getMethods"]
+            if operation == "has" and isinstance(record.get("id"), str) and row["id"] == record["id"]
+        ),
+        None,
+    )
+    if lookup:
+        _require(
+            lookup["phase"] == "returned"
+            and lookup["operation"] == "has"
+            and lookup["object"] == record["object"]
+            and _eq(lookup["key"], record["key"])
+            and machine.get("lastReturn", {}).get("kind") == "return"
+            and _eq(machine["lastReturn"]["value"], lookup["rawReturn"]),
+            "Proxy has differs from retained GetMethod result",
+        )
+        proxy_node = machine["heap"].get(lookup["object"])
+        _require(
+            proxy_node and proxy_node["kind"] == "proxy" and (
+                proxy_node["target"] == ["null"] and proxy_node["handler"] == ["null"]
+                or _eq(proxy_node["target"], lookup["target"])
+                and _eq(proxy_node["handler"], lookup["handler"])
+            ),
+            "GetMethod lost retained target or handler",
+        )
+        route = [{"object": lookup["object"], "target": copy.deepcopy(lookup["target"]),
+                  "handler": copy.deepcopy(lookup["handler"]), "method": copy.deepcopy(lookup["method"])}]
+        derived = {"route": route, "owner": lookup["object"], "target": copy.deepcopy(lookup["target"]),
+                   "selected": copy.deepcopy(lookup["method"]), "terminal": machine["heap"].get(lookup["target"][1])}
+    else:
+        if kind == "proxy.has" and "id" in record:
+            _require(False, "GetMethod identity is not retained")
+        derived = _derive_route(machine, record["object"], operation)
     _require(_eq(record["route"], derived["route"]), "operation route differs from live entry lookup")
     method = derived["selected"]
     target_ref = derived["target"]
-    handler_ref = derived["route"][-1]["handler"]
+    handler_ref = derived.get("handler", derived["route"][-1]["handler"])
     if kind.endswith(".call"):
         pending = _state(machine)["pending"]
         _require(
@@ -545,6 +740,8 @@ def apply_record(machine, record):
 
         _call(machine, row["child"], row["callee"], row["handler"], _args(row))
         pending.append(row)
+        if lookup:
+            proxy_state["getMethods"].pop()
         return True
     _require(method[0] in ("undefined", "null"), "trap requires its explicit call boundary")
     _ordinary(machine, target_ref, "Proxy target")
@@ -555,6 +752,8 @@ def apply_record(machine, record):
         _require(
             record["result"] == ["bool", descriptor is not None], "false Proxy existence result"
         )
+        if lookup:
+            proxy_state["getMethods"].pop()
     elif kind in ("proxy.delete", "proxy.delete.fault"):
         target = p._node(machine, target_ref[1])
         key = p._key(record["key"])
@@ -640,11 +839,13 @@ def validate_state(machine):
     if state is None:
         _require(proxies == 0, "Proxy heap lacks call state")
         return True
-    _protocol()._exact(state, {"schema", "pending"}, "Proxy call state")
+    _protocol()._exact(state, {"schema", "pending", "getMethods"}, "Proxy call state")
     _require(
         state["schema"] == SCHEMA
         and type(state["pending"]) is list
-        and len(state["pending"]) <= BOUND,
+        and len(state["pending"]) <= BOUND
+        and type(state["getMethods"]) is list
+        and len(state["getMethods"]) <= BOUND,
         "state schema or bound",
     )
     seen = set()
@@ -718,5 +919,142 @@ def validate_state(machine):
                 and machine["stack"][-1] == row["parent"]
                 and machine.get("lastReturn", {}).get("kind") in ("return", "throw"),
                 "finished callback owner",
+            )
+    for lookup in state["getMethods"]:
+        _protocol()._exact(lookup, {"id", "phase", "operation", "parent", "child", "object",
+            "target", "handler", "receiver", "key", "getter", "rawReturn", "method"}, "Proxy GetMethod call")
+        for name in ("id", "parent", "child", "object"):
+            _id(lookup[name])
+        _require(
+            lookup["id"] not in seen and lookup["operation"] == "has"
+            and lookup["phase"] in ("selected", "returned"),
+            "GetMethod identity or phase",
+        )
+        seen.add(lookup["id"])
+        proxy_node = machine["heap"].get(lookup["object"])
+        _require(
+            proxy_node and proxy_node["kind"] == "proxy" and (
+                proxy_node["target"] == ["null"] and proxy_node["handler"] == ["null"]
+                or _eq(proxy_node["target"], lookup["target"])
+                and _eq(proxy_node["handler"], lookup["handler"])
+            ),
+            "GetMethod retained Proxy target/handler",
+        )
+        _ordinary(machine, lookup["target"], "GetMethod target")
+        handler = _ordinary(machine, lookup["handler"], "GetMethod handler")
+        _protocol()._known(machine, lookup["receiver"])
+        _require(lookup["receiver"] == lookup["handler"], "GetMethod handler receiver")
+        _protocol().validate_protocol_key(lookup["key"])
+        if lookup["key"][0] == "symbol":
+            _protocol()._symbol(machine, lookup["key"][1])
+        _protocol()._known(machine, lookup["getter"])
+        _require(lookup["getter"][0] == "ref", "GetMethod getter identity")
+        getter = _protocol()._node(machine, lookup["getter"][1])
+        _require(
+            getter["kind"] == "closure" and lookup["parent"] in machine["frameFunctions"],
+            "GetMethod getter source identity",
+        )
+        property_call = next(
+            (row for row in machine["protocol"].get("pendingCalls", []) if row["id"] == lookup["id"]),
+            None,
+        )
+        child_active = lookup["child"] in machine["frameFunctions"]
+        if not child_active:
+            _require(
+                _eq(proxy_node["target"], lookup["target"])
+                and _eq(proxy_node["handler"], lookup["handler"]),
+                "GetMethod begin requires live target/handler slots",
+            )
+            _require(
+                lookup["phase"] == "selected" and property_call is None
+                and lookup["child"] not in machine["stack"]
+                and machine["stack"][-1] == lookup["parent"]
+                and lookup["rawReturn"] is None and lookup["method"] is None,
+                "GetMethod is not awaiting its exact getter call",
+            )
+            descriptor = _protocol()._descriptor(handler, _protocol()._key(["str", "has"]))
+            _require(
+                descriptor and descriptor["kind"] == "accessor"
+                and _eq(descriptor["get"], lookup["getter"]),
+                "GetMethod selected accessor differs from live handler getter",
+            )
+            continue
+
+        _require(
+            machine["frameFunctions"].get(lookup["child"]) == getter["code"],
+            "GetMethod getter invocation source differs",
+        )
+        from .construction_v8 import _lexical_receiver
+        receiver = _lexical_receiver(machine, getter, lookup["receiver"])
+        _require(
+            machine["locals"].get(lookup["child"] + ":this") == receiver,
+            "GetMethod getter activation receiver",
+        )
+        if property_call:
+            _require(
+                lookup["phase"] == "selected" and lookup["rawReturn"] is None
+                and lookup["method"] is None and property_call["operation"] == "get"
+                and property_call["child"] == lookup["child"]
+                and property_call["object"] == lookup["handler"][1]
+                and property_call["key"] == ["str", "has"]
+                and _eq(property_call["receiver"], lookup["receiver"])
+                and _eq(property_call["callee"], lookup["getter"])
+                and property_call["parent"] == lookup["parent"]
+                and property_call["value"] is None,
+                "GetMethod differs from its shared property getter call",
+            )
+            frame = next(
+                (frame for frame in machine["protocol"].get("callFrames", [])
+                 if frame["child"] == lookup["child"]),
+                None,
+            )
+            if frame:
+                _require(
+                    frame["callee"] == lookup["getter"]
+                    and frame["parent"] == lookup["parent"]
+                    and frame["arguments"] == [],
+                    "GetMethod active getter call frame differs",
+                )
+            if lookup["child"] in machine["stack"]:
+                _require(
+                    machine["stack"].index(lookup["child"]) > machine["stack"].index(lookup["parent"]),
+                    "GetMethod getter stack order",
+                )
+            else:
+                _require(
+                    machine["stack"][-1] == lookup["parent"]
+                    and machine.get("lastReturn", {}).get("kind") in ("return", "throw"),
+                    "GetMethod getter has no returned completion",
+                )
+        elif lookup["phase"] == "selected":
+            _require(
+                lookup["child"] not in machine["stack"]
+                and machine["stack"][-1] == lookup["parent"]
+                and machine.get("lastReturn", {}).get("kind") in ("return", "throw")
+                and lookup["rawReturn"] is None and lookup["method"] is None,
+                "GetMethod property completion is not retained",
+            )
+        else:
+            _require(
+                lookup["child"] not in machine["stack"]
+                and machine["stack"][-1] == lookup["parent"]
+                and machine.get("lastReturn", {}).get("kind") == "return"
+                and _eq(machine["lastReturn"]["value"], lookup["rawReturn"]),
+                "GetMethod returned value differs from retained completion",
+            )
+            expected_method = (
+                ["undefined"]
+                if lookup["rawReturn"] and lookup["rawReturn"][0] in ("undefined", "null")
+                else lookup["rawReturn"]
+            )
+            _require(
+                lookup["rawReturn"] is not None
+                and _eq(lookup["method"], expected_method)
+                and (
+                    expected_method[0] == "undefined"
+                    or expected_method[0] == "ref"
+                    and _protocol()._node(machine, expected_method[1])["kind"] == "closure"
+                ),
+                "GetMethod method identity differs from its raw return",
             )
     return True
