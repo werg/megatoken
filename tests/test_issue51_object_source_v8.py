@@ -34,9 +34,9 @@ BY_ID = {row["id"]: row for row in ACCEPTED}
 def test_original_population_includes_all_refusals_and_one_lineage():
     assert DOCUMENT["schema"] == "issue51-object-evidence/1"
     assert DOCUMENT["producerTreeClean"] is True
-    assert len(CASES) == 26
-    assert len(ACCEPTED) == 23
-    assert len({row["id"] for row in CASES}) == 26
+    assert len(CASES) == 48
+    assert len(ACCEPTED) == 42
+    assert len({row["id"] for row in CASES}) == 48
     registry = DOCUMENT["registry"]
     verify_region_family_registry(registry)
     assert len(registry["components"]) == 1
@@ -49,7 +49,10 @@ def test_original_population_includes_all_refusals_and_one_lineage():
     assert {row["id"] for row in CASES if row["artifact"] is None} == {
         "issue51-control-for-in-prototype-replacement",
         "issue51-control-for-in-proxy",
-        "issue51-control-in-invalid-rhs-before-key-coercion",
+        "issue51-control-constructor-arrow-in-promise-reaction",
+        "issue51-control-proxy-nested-target",
+        "issue51-control-proxy-trap-getter",
+        "issue51-control-proxy-strict-false-set",
     }
     for row in CASES:
         identity = sources[row["id"]]
@@ -90,6 +93,32 @@ def _operation(case_id, kind):
     raise AssertionError(f"{case_id} has no {kind} operation")
 
 
+def _property_fault_forgeries(record, machine):
+    # Reuse the known object-key as an invalid `in` RHS, then collide with a
+    # live heap identity. Both rows are well-formed, but neither is the source fault.
+    return [
+        {"target": copy.deepcopy(record["key"])},
+        {"error": next(iter(machine["heap"]))},
+    ]
+
+
+def _proxy_fault_forgeries(record, machine):
+    # A fresh call ID is syntactically valid but cannot finish the retained trap;
+    # reusing a live heap ID also cannot allocate the derived TypeError.
+    return [
+        {"id": record["id"] + "-forged"},
+        {"error": next(iter(machine["heap"]))},
+    ]
+
+
+def _proxy_delete_fault_forgeries(record, machine):
+    # Deleting a missing key cannot justify the retained strict deletion fault.
+    return [
+        {"key": ["str", "__forged_absent__"]},
+        {"error": next(iter(machine["heap"]))},
+    ]
+
+
 @pytest.mark.parametrize(
     ("case_id", "kind", "changes"),
     [
@@ -123,6 +152,37 @@ def _operation(case_id, kind):
             "enumeration.next",
             [{"object": "forged"}, {"result": ["str", "forged"]}, {"done": True}],
         ),
+        (
+            "issue51-control-in-invalid-rhs-before-key-coercion",
+            "property.fault",
+            _property_fault_forgeries,
+        ),
+        (
+            "issue51-proxy-has-protected-property-error",
+            "proxy.fault",
+            _proxy_fault_forgeries,
+        ),
+        (
+            "issue51-proxy-strict-transparent-delete-error",
+            "proxy.delete.fault",
+            _proxy_delete_fault_forgeries,
+        ),
+        (
+            "issue51-constructor-arrow-return-substitution",
+            "callable.capture",
+            [
+                {"frame": "forged-constructor-frame"},
+                {"thisCell": "forged-constructor-this-cell"},
+            ],
+        ),
+        (
+            "issue51-promise-fresh-symbol-conversion",
+            "conversion.lookup",
+            [
+                {"key": ["symbol", "well-known:iterator"]},
+                {"value": ["undefined"]},
+            ],
+        ),
     ],
 )
 def test_original_operation_restores_and_rejects_forged_records_atomically(case_id, kind, changes):
@@ -138,6 +198,7 @@ def test_original_operation_restores_and_rejects_forged_records_atomically(case_
     )
     machine = _internal_machine(restored)
     before = copy.deepcopy(machine)
+    changes = changes(record, machine) if callable(changes) else changes
     for change in changes:
         forged = decode_protocol_record(encode_protocol_record({**record, **change}))
         with pytest.raises(ProtocolV8Error):
