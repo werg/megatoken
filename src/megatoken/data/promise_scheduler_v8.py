@@ -15,6 +15,99 @@ def rows(value):
     return dict(value) if isinstance(value, list) else value
 
 
+def selected_callback(job):
+    if job and job.get("promise"):
+        if job.get("reaction") == "then" and job.get("originalStatus") == "rejected":
+            return job.get("rejectionClosure")
+        if job.get("reaction") == "catch" and job.get("originalStatus") == "fulfilled":
+            return None
+    return job.get("closure") if job else None
+
+
+def selected_child(machine, identity, job):
+    if job and job.get("reaction") == "adopt":
+        for node in machine.get("heap", {}).values():
+            row = node.get("adoption") if isinstance(node, dict) else None
+            if row and row.get("job") == identity and row.get("phase") == "reading":
+                lookup = row.get("lookup") or {}
+                if lookup.get("child"):
+                    return lookup["child"]
+    return "job:" + identity
+
+
+def validate_active_callback_state(machine):
+    protocol = machine.get("protocol")
+    active = machine.get("activeJob")
+    if protocol is None or active is None:
+        return True
+    jobs = rows(machine.get("jobs", []))
+    job = jobs.get(active)
+    root = next(iter(machine.get("frameFunctions", {})), None)
+    callback = selected_callback(job)
+    if not job or job.get("status") != "running" or job.get("owner") != root or callback is None:
+        _fail("active scheduler job lacks its selected callback")
+    if job and job.get("reaction") == "adopt":
+        # The adoption owner validates its separately retained getter scope.
+        return True
+    child = selected_child(machine, active, job)
+    frame = next((row for row in protocol.get("callFrames", []) if row.get("child") == child), None)
+    if "priorPending" not in job or "priorLastReturn" not in job:
+        _fail("active scheduler job lost its saved caller completion")
+    prior_pending = job["priorPending"]
+    if prior_pending is not None:
+        if (
+            not isinstance(prior_pending, dict)
+            or not {"kind", "value"}.issubset(prior_pending)
+            or set(prior_pending) - {"kind", "value", "handler"}
+            or prior_pending["kind"] not in ("return", "throw", "cleanup")
+        ):
+            _fail("saved scheduler caller completion shape")
+        from .protocol_v8 import _known
+
+        _known(machine, prior_pending["value"])
+    prior_last_return = job["priorLastReturn"]
+    if prior_last_return is not None:
+        if (
+            not isinstance(prior_last_return, dict)
+            or set(prior_last_return) != {"kind", "value"}
+            or prior_last_return["kind"] not in ("return", "throw")
+        ):
+            _fail("saved scheduler caller return shape")
+        from .protocol_v8 import _known
+
+        _known(machine, prior_last_return["value"])
+    if job.get("returned") is not None:
+        returned = job["returned"]
+        if (
+            set(returned) != {"kind", "value"}
+            or returned["kind"] not in ("return", "throw")
+            or frame is not None
+            or child in machine.get("stack", [])
+        ):
+            _fail("completed scheduler callback retains an active call frame")
+        from .protocol_v8 import _known
+
+        _known(machine, returned["value"])
+        return True
+    expected_arguments = (
+        [job.get("originalResult")]
+        if job.get("promise") and job.get("reaction") != "finally"
+        else []
+    )
+    if (
+        not frame
+        or frame.get("parent") != root
+        or frame.get("callee") != ["ref", callback]
+        or frame.get("arguments") != expected_arguments
+        or frame.get("priorReceiver") != job.get("priorReceiver")
+        or frame.get("priorAliases") != job.get("priorAliases")
+        or child not in machine.get("stack", [])
+        or machine["stack"].index(child) != machine["stack"].index(root) + 1
+    ):
+        _fail("active scheduler callback differs from its retained call frame")
+    return True
+
+
 def store_rows(machine, field, values):
     machine[field] = [[identity, value] for identity, value in values.items()]
 
@@ -191,8 +284,13 @@ def apply_detail(machine, kind, fields, *, root, functions=()):
             or node.get("asyncFunction")
         ):
             _fail("generator, async and resolving callbacks require their explicit call protocol")
-        if node.get("callable", {}).get("lexicalConstruction") is not None:
-            _fail("scheduled callback cannot use an unauthenticated constructor capture")
+        capture = node.get("callable", {}).get("lexicalConstruction")
+        if capture is not None:
+            if machine.get("protocol") is None:
+                _fail("constructor-captured callbacks require an authenticated protocol frame")
+            from .construction_v8 import _construction_capture
+
+            _construction_capture(machine, capture)
         if any(capture["cell"] not in machine["locals"] for capture in node.get("captures", [])):
             _fail("callback capture is not initialized")
         return node
@@ -266,8 +364,11 @@ def apply_detail(machine, kind, fields, *, root, functions=()):
         refresh_ready(machine)
     elif kind == "resume":
         continuation = continuations.get(fields["continuation"])
+        owner = continuation.get("activeJob") if continuation else None
+        root = next(iter(machine.get("frameFunctions", {})), None)
+        suspended_job_root = bool(owner) and machine["stack"] == [root]
         if (
-            machine["stack"]
+            machine["stack"] and not suspended_job_root
             or ready[:1] != [fields["continuation"]]
             or not continuation
             or continuation["state"] != "ready"
@@ -339,17 +440,38 @@ def apply_detail(machine, kind, fields, *, root, functions=()):
                     )
                     if function is None:
                         _fail("callback has no immutable source function")
-                    job["priorAliases"] = list(map(list, machine["captureAliases"].items()))
+                    child = "job:" + identity
                     if machine.get("protocol") is not None:
-                        job["priorReceiver"] = copy.deepcopy(machine["receiver"])
-                        machine["receiver"] = copy.deepcopy(
-                            node.get("lexicalReceiver")
-                            if node.get("functionKind") == "arrow"
-                            else ["undefined"]
+                        from .construction_v8 import _call
+                        job["priorPending"] = copy.deepcopy(machine.get("pending"))
+                        job["priorLastReturn"] = copy.deepcopy(machine.get("lastReturn"))
+                        machine["pending"] = None
+                        machine["lastReturn"] = None
+                        if not root:
+                            _fail("scheduled callback has no invocation owner")
+                        machine["stack"].append(root)
+                        arguments = [argument] if job.get("promise") and job.get("reaction") != "finally" else []
+                        from .construction_v8 import _lexical_receiver
+
+                        _call(
+                            machine,
+                            child,
+                            ["ref", callback],
+                            _lexical_receiver(
+                                machine, node, node.get("lexicalReceiver", ["undefined"])
+                            ),
+                            arguments,
                         )
-                    machine["captureAliases"] = {
-                        capture["binding"]: capture["cell"] for capture in node.get("captures", [])
-                    }
+                        frame = machine["protocol"]["callFrames"][-1]
+                        job["priorAliases"] = copy.deepcopy(frame["priorAliases"])
+                        job["priorReceiver"] = copy.deepcopy(frame["priorReceiver"])
+                    else:
+                        job["priorAliases"] = list(map(list, machine["captureAliases"].items()))
+                        machine["captureAliases"] = {
+                            capture["binding"]: capture["cell"] for capture in node.get("captures", [])
+                        }
+                        machine["stack"].append(child)
+                        machine["frameFunctions"][child] = node["code"]
                     for index, name in enumerate(function.get("params", [])):
                         if not name:
                             continue
@@ -363,18 +485,16 @@ def apply_detail(machine, kind, fields, *, root, functions=()):
                             argument if index == 0 else ["undefined"]
                         )
                     machine["activeJob"] = identity
-                    machine["stack"].append("job:" + identity)
-                    machine["frameFunctions"]["job:" + identity] = node["code"]
             elif action == "complete":
                 if job["status"] != "running":
                     _fail("completion requires a running job")
-                if machine["stack"] or machine.get("activeJob") not in (None, identity):
-                    _fail("callback frame has not completed")
                 if any(
                     continuation.get("activeJob") == identity and continuation["state"] != "resumed"
                     for continuation in continuations.values()
                 ):
                     _fail("callback has an unresumed continuation")
+                if machine["stack"] or machine.get("activeJob") not in (None, identity):
+                    _fail("callback frame has not completed")
                 returned = job.get("returned")
                 if (
                     job.get("target")
@@ -388,6 +508,10 @@ def apply_detail(machine, kind, fields, *, root, functions=()):
                     machine["captureAliases"] = dict(job["priorAliases"])
                     if machine.get("protocol") is not None and "priorReceiver" in job:
                         machine["receiver"] = copy.deepcopy(job["priorReceiver"])
+                    if "priorPending" in job:
+                        machine["pending"] = copy.deepcopy(job["priorPending"])
+                    if "priorLastReturn" in job:
+                        machine["lastReturn"] = copy.deepcopy(job["priorLastReturn"])
                     machine["activeJob"] = None
                 returned = job.get("returned")
                 if job.get("promise") and job.get("target"):

@@ -729,8 +729,11 @@ def validate_state(machine):
     for job in rows.values():
         for callback_id in (job.get("closure"), job.get("rejectionClosure")):
             closure = machine["heap"].get(callback_id) if callback_id is not None else None
-            if closure and closure.get("callable", {}).get("lexicalConstruction") is not None:
-                _fail("scheduled callback cannot use an unauthenticated constructor capture")
+            capture = closure.get("callable", {}).get("lexicalConstruction") if closure else None
+            if capture is not None:
+                from .construction_v8 import _construction_capture
+
+                _construction_capture(machine, capture)
     owned_jobs = set()
     for identity, node in machine["heap"].items():
         if node.get("kind") != "promise":

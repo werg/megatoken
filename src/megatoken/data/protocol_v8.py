@@ -1315,6 +1315,34 @@ def _apply(machine, record):
             machine["stack"].pop()
             machine["receiver"] = frame["priorReceiver"]
             machine["captureAliases"] = dict(frame["priorAliases"])
+            if machine.get("activeJob"):
+                from .promise_scheduler_v8 import (
+                    rows as _scheduler_rows,
+                    selected_callback,
+                    selected_child,
+                )
+
+                job = _scheduler_rows(machine.get("jobs", [])).get(machine["activeJob"])
+                root = next(iter(machine.get("frameFunctions", {})), None)
+                callback = selected_callback(job)
+                expected_child = selected_child(machine, machine["activeJob"], job)
+                if frame["child"] == expected_child:
+                    if (
+                        not job
+                        or job.get("status") != "running"
+                        or job.get("owner") != root
+                        or len(machine["stack"]) != 1
+                        or machine["stack"][0] != root
+                        or frame["parent"] != root
+                        or callback is None
+                        or frame["callee"] != ["ref", callback]
+                        or job.get("returned") is not None
+                    ):
+                        _fail("scheduled callback completion differs from its retained job")
+                    machine["stack"].pop()
+                    job["returned"] = {"kind": kind, "value": copy.deepcopy(record["value"])}
+                elif callback is not None and len(machine["stack"]) <= 1:
+                    _fail("scheduled callback must complete through its retained call frame")
             machine["lastReturn"] = {"kind": kind, "value": copy.deepcopy(record["value"])}
         else:
             if machine.get("activeJob"):
@@ -1797,10 +1825,25 @@ def validate_protocol_state(snapshot, heap_ids=(), shared_state=None):
         _identity(frame["child"])
         _identity(frame["parent"])
         stack = call_frame_machine["stack"]
+        suspended_callback = any(
+            continuation.get("invocation") == frame["child"]
+            and continuation.get("activeJob") is not None
+            and continuation.get("state") in ("waiting", "ready")
+            for continuation in dict(call_frame_machine.get("continuations", [])).values()
+        )
+        active_relationship = (
+            frame["child"] in stack
+            and frame["parent"] in stack
+            and stack.index(frame["child"]) == stack.index(frame["parent"]) + 1
+        )
+        suspended_relationship = (
+            suspended_callback
+            and frame["child"] not in stack
+            and frame["parent"] in stack
+            and frame["parent"] == next(iter(call_frame_machine.get("frameFunctions", {})), None)
+        )
         if (
-            frame["child"] not in stack
-            or frame["parent"] not in stack
-            or stack.index(frame["child"]) != stack.index(frame["parent"]) + 1
+            not (active_relationship or suspended_relationship)
             or frame_index
             and snapshot["callFrames"][frame_index - 1]["child"] != frame["parent"]
         ):
@@ -2024,6 +2067,9 @@ def validate_protocol_state(snapshot, heap_ids=(), shared_state=None):
         validate_module_scheduler_state(memory_machine)
         validate_proxy_state(memory_machine)
         validate_proxy_reflection_state(memory_machine)
+        from .promise_scheduler_v8 import validate_active_callback_state
+
+        validate_active_callback_state(memory_machine)
     return True
 
 

@@ -2160,6 +2160,39 @@ def _apply_detail(
                 _fail("Callback completion requires a running job")
             job["returned"] = {"kind": kind, "value": copy.deepcopy(value)}
             state["stack"].pop()
+        elif (
+            len(state["stack"]) == 2
+            and state.get("activeJob")
+            and state.get("protocol") is not None
+            and invocation == state["stack"][-1]
+        ):
+            from .promise_scheduler_v8 import rows as _job_rows, selected_callback, selected_child
+
+            active = state["activeJob"]
+            job = _job_rows(state.get("jobs", [])).get(active)
+            root = next(iter(dict(state.get("frameFunctions", [])).keys()), None)
+            callback = selected_callback(job)
+            frame = state["protocol"]["callFrames"][-1] if state["protocol"].get("callFrames") else None
+            if (
+                not job
+                or job.get("status") != "running"
+                or job.get("owner") != root
+                or selected_child(state, active, job) != invocation
+                or state["stack"][0] != root
+                or not frame
+                or frame.get("child") != invocation
+                or frame.get("parent") != root
+                or frame.get("callee") != ["ref", callback]
+                or callback is None
+            ):
+                _fail("Callback completion differs from its retained protocol call frame")
+            state["stack"].pop()
+            state["protocol"]["callFrames"].pop()
+            state["receiver"] = copy.deepcopy(frame["priorReceiver"])
+            state["captureAliases"] = dict(frame["priorAliases"])
+            state["stack"].pop()
+            job["returned"] = {"kind": kind, "value": copy.deepcopy(value)}
+            state["lastReturn"] = {"kind": kind, "value": copy.deepcopy(value)}
         elif len(state["stack"]) > 1:
             state["lastReturn"] = {"kind": kind, "value": copy.deepcopy(value)}
             state["stack"].pop()
