@@ -202,8 +202,9 @@ def _adoption_get(machine, record, row, job):
         or closure.get("generatorFunction")
         or closure.get("promiseResolver")
         or closure.get("callable", {}).get("classConstructor")
+        or closure.get("callable", {}).get("lexicalConstruction") is not None
     ):
-        _fail("adoption constructor requires its selected synchronous owned getter")
+        _fail("adoption getter cannot use an unauthenticated constructor capture")
     if any(capture["cell"] not in machine["locals"] for capture in closure["captures"]):
         _fail("adoption constructor getter capture is not initialized")
     protocol = machine["protocol"]
@@ -730,6 +731,11 @@ def validate_state(machine):
 
     rows = _rows(machine.get("jobs", []))
     ready = machine.get("ready", [])
+    for job in rows.values():
+        for callback_id in (job.get("closure"), job.get("rejectionClosure")):
+            closure = machine["heap"].get(callback_id) if callback_id is not None else None
+            if closure and closure.get("callable", {}).get("lexicalConstruction") is not None:
+                _fail("scheduled callback cannot use an unauthenticated constructor capture")
     owned_jobs = set()
     for identity, node in machine["heap"].items():
         if node.get("kind") != "promise":
@@ -848,8 +854,9 @@ def validate_state(machine):
                     or closure.get("asyncFunction")
                     or closure.get("generatorFunction")
                     or closure.get("promiseResolver")
+                    or closure.get("callable", {}).get("lexicalConstruction") is not None
                 ):
-                    _fail("retained adoption getter identity")
+                    _fail("retained adoption getter uses an unauthenticated constructor capture")
                 if local_owner and (
                     machine.get("frameFunctions", {}).get(child) != closure.get("code")
                     or machine.get("locals", {}).get(child + ":this") != receiver

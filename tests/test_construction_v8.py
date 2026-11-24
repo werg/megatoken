@@ -19,6 +19,57 @@ class ConstructionIdentityBoundsTests(unittest.TestCase):
             _construction_id("😀" * 129)
 
 
+class ScheduledConstructorArrowRefusalTests(unittest.TestCase):
+    def test_scheduler_selection_and_restore_refuse_constructor_captured_arrows(self):
+        from megatoken.data.promise_adoption_v8 import validate_state as validate_adoption_state
+        from megatoken.data.promise_scheduler_v8 import apply_detail
+
+        callback = {
+            "kind": "closure",
+            "functionKind": "arrow",
+            "callable": {"lexicalConstruction": {"frame": "ctor", "thisCell": "body:this"}},
+        }
+        promise = {
+            "kind": "promise",
+            "properties": {},
+            "state": "pending",
+            "result": None,
+            "adopted": None,
+            "external": None,
+            "reactions": [],
+        }
+        machine = {
+            "heap": {"callback": callback, "promise": promise},
+            "jobs": [],
+            "continuations": [],
+            "scheduler": {"registration": 0, "ready": 0},
+            "ready": [],
+        }
+        with self.assertRaisesRegex(ProtocolV8Error, "unauthenticated constructor capture"):
+            apply_detail(
+                machine,
+                "promise",
+                {
+                    "action": "react",
+                    "promise": "promise",
+                    "job": "job",
+                    "reaction": "then",
+                    "closure": "callback",
+                    "rejectionClosure": None,
+                    "target": None,
+                },
+                root="root",
+            )
+
+        retained = {
+            **machine,
+            "jobs": [["job", {"closure": "callback"}]],
+            "ready": ["job"],
+        }
+        with self.assertRaisesRegex(ProtocolV8Error, "unauthenticated constructor capture"):
+            validate_adoption_state(retained)
+
+
 class ConstructionInitializerTests(unittest.TestCase):
     def setUp(self):
         self.machine = {

@@ -191,6 +191,8 @@ def apply_detail(machine, kind, fields, *, root, functions=()):
             or node.get("asyncFunction")
         ):
             _fail("generator, async and resolving callbacks require their explicit call protocol")
+        if node.get("callable", {}).get("lexicalConstruction") is not None:
+            _fail("scheduled callback cannot use an unauthenticated constructor capture")
         if any(capture["cell"] not in machine["locals"] for capture in node.get("captures", [])):
             _fail("callback capture is not initialized")
         return node
