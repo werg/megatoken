@@ -29,15 +29,15 @@ TRAPS = (
 OPERATION_TRAPS = {"get": "get", "set": "set", "has": "has", "delete": "deleteProperty"}
 FIELDS = {
     "proxy.create": {"kind", "name", "target", "handler"},
-    "proxy.get": {"kind", "object", "key", "result"},
-    "proxy.set": {"kind", "object", "key", "value", "success"},
-    "proxy.has": {"kind", "object", "key", "result"},
-    "proxy.delete": {"kind", "object", "key", "success"},
-    "proxy.delete.fault": {"kind", "object", "key", "error"},
-    "proxy.get.call": {"kind", "id", "object", "key", "child"},
-    "proxy.set.call": {"kind", "id", "object", "key", "value", "child", "strict"},
-    "proxy.has.call": {"kind", "id", "object", "key", "child"},
-    "proxy.delete.call": {"kind", "id", "object", "key", "child", "strict"},
+    "proxy.get": {"kind", "object", "key", "result", "route"},
+    "proxy.set": {"kind", "object", "key", "value", "success", "route"},
+    "proxy.has": {"kind", "object", "key", "result", "route"},
+    "proxy.delete": {"kind", "object", "key", "success", "route"},
+    "proxy.delete.fault": {"kind", "object", "key", "error", "route"},
+    "proxy.get.call": {"kind", "id", "object", "owner", "receiver", "key", "child", "route"},
+    "proxy.set.call": {"kind", "id", "object", "owner", "receiver", "key", "value", "child", "strict", "route"},
+    "proxy.has.call": {"kind", "id", "object", "owner", "receiver", "key", "child", "route"},
+    "proxy.delete.call": {"kind", "id", "object", "owner", "receiver", "key", "child", "strict", "route"},
     "proxy.finish": {"kind", "id", "completion"},
     "proxy.fault": {"kind", "id", "error"},
 }
@@ -48,8 +48,11 @@ CALL_FIELDS = {
     "parent",
     "child",
     "object",
+    "owner",
+    "receiver",
     "target",
     "handler",
+    "route",
     "key",
     "value",
     "callee",
@@ -95,11 +98,16 @@ def validate_record(record):
     else:
         _id(record["object"])
         p.validate_protocol_key(record["key"])
+        _validate_route(record["route"])
         if kind == "proxy.delete.fault":
             _id(record["error"])
         if kind.endswith(".call"):
             _id(record["id"])
             _id(record["child"])
+            _id(record["owner"])
+            p.validate_protocol_value(record["receiver"])
+            if record["receiver"][0] != "ref":
+                _fail("operation receiver identity")
         if kind in ("proxy.get", "proxy.has", "proxy.set"):
             p.validate_protocol_value(record["value"] if kind == "proxy.set" else record["result"])
         if kind == "proxy.has" and record["result"][0] != "bool":
@@ -111,6 +119,21 @@ def validate_record(record):
         if kind in ("proxy.set", "proxy.delete") and type(record["success"]) is not bool:
             _fail("Boolean operation result")
     return True
+
+
+def _validate_route(route):
+    from . import protocol_v8 as p
+
+    if type(route) is not list or not 1 <= len(route) <= BOUND:
+        _fail("retained route bound")
+    for row in route:
+        p._exact(row, {"object", "target", "handler", "method"}, "retained route row")
+        _id(row["object"])
+        p.validate_protocol_value(row["target"])
+        p.validate_protocol_value(row["handler"])
+        p.validate_protocol_value(row["method"])
+        if row["target"][0] != "ref" or row["handler"][0] != "ref":
+            _fail("route identity references")
 
 
 def _ordinary(machine, reference, label):
@@ -125,21 +148,80 @@ def _ordinary(machine, reference, label):
 
 
 def _route(machine, node):
-    # State validation authenticates the retained identities and shapes, not
-    # the current value of a trap that guest code may already have replaced.
-    _ordinary(machine, node["target"], "Proxy target")
+    # Authenticate immutable target/handler identities. A target can itself be
+    # a Proxy; derive its internal-method dispatch separately at entry.
+    p = _protocol()
+    p._known(machine, node["target"])
+    _require(node["target"][0] == "ref", "target identity")
+    target = machine["heap"].get(node["target"][1])
+    _require(target and target["kind"] in ("object", "array", "proxy"), "target object identity")
     return _ordinary(machine, node["handler"], "Proxy handler")
 
 
-def _method(machine, handler, operation):
+def _method(machine, node, operation):
+    _route(machine, node)
     _, descriptor = _protocol()._lookup_descriptor(
-        machine, handler, OPERATION_TRAPS[operation], for_has=True
+        machine, node["handler"][1], OPERATION_TRAPS[operation], for_has=True
     )
     _require(
         descriptor is None or descriptor["kind"] == "data",
         "trap accessor requires its explicit getter boundary",
     )
     return descriptor["value"] if descriptor else ["undefined"]
+
+
+def _derive_route(machine, object_id, operation):
+    route, visited = [], set()
+    node_id = object_id
+    node = machine["heap"].get(node_id)
+    target_ref = None
+    owner = None
+    selected = ["undefined"]
+    while node and node["kind"] == "proxy":
+        _require(node_id not in visited and len(route) < BOUND, "target route cycle or bound")
+        visited.add(node_id)
+        _require(node.get("target") is not None and node.get("handler") is not None, "revoked Proxy route")
+        selected = _method(machine, node, operation)
+        entry = {
+            "object": node_id,
+            "target": copy.deepcopy(node["target"]),
+            "handler": copy.deepcopy(node["handler"]),
+            "method": copy.deepcopy(selected),
+        }
+        route.append(entry)
+        owner = node_id
+        target_ref = copy.deepcopy(node["target"])
+        if selected[0] not in ("undefined", "null"):
+            break
+        node_id = target_ref[1]
+        node = machine["heap"].get(node_id)
+    _require(node and node["kind"] in ("object", "array", "proxy"), "target internal-method boundary")
+    return {"route": route, "owner": owner, "target": target_ref, "selected": selected, "terminal": node}
+
+
+def _retained_route(machine, row, *, selected=True):
+    _validate_route(row["route"])
+    route = row["route"]
+    _require(route[0]["object"] == row["object"] and route[-1]["object"] == row["owner"], "route endpoints")
+    for index, entry in enumerate(route):
+        node = machine["heap"].get(entry["object"])
+        _require(
+            node
+            and node["kind"] == "proxy"
+            and _eq(node.get("target"), entry["target"])
+            and _eq(node.get("handler"), entry["handler"]),
+            "retained route target/handler identity",
+        )
+        _protocol()._known(machine, entry["method"])
+        if index < len(route) - 1:
+            _require(
+                entry["method"][0] in ("undefined", "null")
+                and entry["target"][1] == route[index + 1]["object"],
+                "retained transparent route edge",
+            )
+        elif selected:
+            _require(entry["method"][0] not in ("undefined", "null"), "retained route lacks selected trap")
+    return machine["heap"].get(route[-1]["target"][1])
 
 
 def _truthy(value):
@@ -186,7 +268,7 @@ def _args(row):
     if row["operation"] == "set":
         args.append(row["value"])
     if row["operation"] in ("get", "set"):
-        args.append(["ref", row["object"]])
+        args.append(row["receiver"])
     return args
 
 
@@ -315,7 +397,12 @@ def apply_record(machine, record):
         row = pending[-1]
         node = machine["heap"].get(row["object"])
         _require(node and node["kind"] == "proxy", "known Proxy identity required")
-        _route(machine, node)
+        target = _retained_route(machine, row)
+        _require(_eq(target and ["ref", row["route"][-1]["target"][1]], row["target"])
+                 and _eq(machine["heap"].get(row["owner"], {}).get("handler"), row["handler"]),
+                 "pending owner identities")
+        _protocol()._known(machine, row["receiver"])
+        _require(_eq(row["receiver"], ["ref", row["object"]]), "original receiver differs")
         fault = _invariant_fault(machine, row, returned)
         if kind == "proxy.fault":
             _require(fault is not None, "Proxy fault requires a derived target invariant violation")
@@ -345,10 +432,13 @@ def apply_record(machine, record):
         return True
     node = machine["heap"].get(record["object"])
     _require(node and node["kind"] == "proxy", "known Proxy identity required")
-    _route(machine, node)
     p._known(machine, ["symbol", record["key"][1]]) if record["key"][0] == "symbol" else None
     operation = kind.split(".")[1]
-    method = _method(machine, node["handler"][1], operation)
+    derived = _derive_route(machine, record["object"], operation)
+    _require(_eq(record["route"], derived["route"]), "operation route differs from live entry lookup")
+    method = derived["selected"]
+    target_ref = derived["target"]
+    handler_ref = derived["route"][-1]["handler"]
     if kind.endswith(".call"):
         pending = _state(machine)["pending"]
         _require(
@@ -356,9 +446,14 @@ def apply_record(machine, record):
             "pending call identity or bound",
         )
         _require(
+            record["owner"] == derived["owner"] and _eq(record["receiver"], ["ref", record["object"]]),
+            "original receiver or trap owner differs",
+        )
+        _require(
             method[0] == "ref" and p._node(machine, method[1])["kind"] == "closure",
             "call requires a live owned trap",
         )
+        _ordinary(machine, target_ref, "Proxy trap target invariant boundary")
         value = copy.deepcopy(record["value"]) if operation == "set" else None
         if value is not None:
             p._known(machine, value)
@@ -368,8 +463,11 @@ def apply_record(machine, record):
             "parent": machine["stack"][-1],
             "child": record["child"],
             "object": record["object"],
-            "target": copy.deepcopy(node["target"]),
-            "handler": copy.deepcopy(node["handler"]),
+            "owner": derived["owner"],
+            "receiver": copy.deepcopy(record["receiver"]),
+            "target": copy.deepcopy(target_ref),
+            "handler": copy.deepcopy(handler_ref),
+            "route": copy.deepcopy(derived["route"]),
             "key": copy.deepcopy(record["key"]),
             "value": value,
             "callee": copy.deepcopy(method),
@@ -381,15 +479,16 @@ def apply_record(machine, record):
         pending.append(row)
         return True
     _require(method[0] in ("undefined", "null"), "trap requires its explicit call boundary")
+    _ordinary(machine, target_ref, "Proxy target")
     if kind == "proxy.has":
         _, descriptor = p._lookup_descriptor(
-            machine, node["target"][1], p._key(record["key"]), for_has=True
+            machine, target_ref[1], p._key(record["key"]), for_has=True
         )
         _require(
             record["result"] == ["bool", descriptor is not None], "false Proxy existence result"
         )
     elif kind in ("proxy.delete", "proxy.delete.fault"):
-        target = p._node(machine, node["target"][1])
+        target = p._node(machine, target_ref[1])
         key = p._key(record["key"])
         descriptor = p._descriptor(target, key)
         success = descriptor is None or descriptor["configurable"]
@@ -407,24 +506,26 @@ def apply_record(machine, record):
             if success:
                 p._remove(target, key)
     elif kind == "proxy.get":
-        _, descriptor = p._lookup_descriptor(machine, node["target"][1], p._key(record["key"]))
+        _, descriptor = p._lookup_descriptor(machine, target_ref[1], p._key(record["key"]))
         _require(not descriptor or descriptor["kind"] == "data", "accessors require call boundary")
         expected = descriptor["value"] if descriptor else ["undefined"]
         _require(_eq(expected, record["result"]), "false Proxy data read")
     else:
         # The original receiver is the Proxy. Forwarding its own-descriptor
         # and definition requests directly is valid only when both traps are absent.
-        for trap in ("getOwnPropertyDescriptor", "defineProperty"):
-            _, selected = p._lookup_descriptor(machine, node["handler"][1], trap, for_has=True)
-            _require(
-                selected is None
-                or selected["kind"] == "data"
-                and selected["value"][0] in ("undefined", "null"),
-                "transparent set requires explicit receiver descriptor/definition traps",
-            )
-        target = p._node(machine, node["target"][1])
+        for entry in derived["route"]:
+            for trap in ("getOwnPropertyDescriptor", "defineProperty"):
+                _, selected = p._lookup_descriptor(machine, entry["handler"][1], trap, for_has=True)
+                _require(
+                    selected is None
+                    or selected["kind"] == "data"
+                    and selected["value"][0] in ("undefined", "null"),
+                    "transparent set requires explicit receiver descriptor/definition traps",
+                )
+        _require(len(derived["route"]) == 1, "nested transparent set receiver methods need their continuation")
+        target = p._node(machine, target_ref[1])
         key = p._key(record["key"])
-        _, descriptor = p._lookup_descriptor(machine, node["target"][1], key, for_set=True)
+        _, descriptor = p._lookup_descriptor(machine, target_ref[1], key, for_set=True)
         p._known(machine, record["value"])
         success = descriptor is None or descriptor["kind"] == "data" and descriptor["writable"]
         if success:
@@ -459,6 +560,15 @@ def validate_state(machine):
             "Proxy has invented own storage",
         )
         _route(machine, node)
+    for identity, node in machine["heap"].items():
+        if node.get("kind") == "proxy":
+            visited, target_id = {identity}, node["target"][1]
+            target = machine["heap"].get(target_id)
+            while target and target.get("kind") == "proxy":
+                _require(target_id not in visited, "target graph cycle")
+                visited.add(target_id)
+                target_id = target["target"][1]
+                target = machine["heap"].get(target_id)
     if state is None:
         _require(proxies == 0, "Proxy heap lacks call state")
         return True
@@ -473,7 +583,7 @@ def validate_state(machine):
     prior_depth = -1
     for row in state["pending"]:
         _protocol()._exact(row, CALL_FIELDS, "Proxy pending call")
-        for name in ("id", "parent", "child", "object"):
+        for name in ("id", "parent", "child", "object", "owner"):
             _id(row[name])
         _require(row["id"] not in seen and row["operation"] in OPERATION_TRAPS, "call identity")
         seen.add(row["id"])
@@ -482,7 +592,7 @@ def validate_state(machine):
             and (row["operation"] in ("delete", "set") or not row["strict"]),
             "retained strict deletion flag",
         )
-        node = machine["heap"].get(row["object"])
+        node = machine["heap"].get(row["owner"])
         _require(
             node
             and node["kind"] == "proxy"
@@ -490,6 +600,9 @@ def validate_state(machine):
             and node["handler"] == row["handler"],
             "target/handler identity",
         )
+        _retained_route(machine, row)
+        _require(row["route"][-1]["target"] == row["target"], "retained selected target")
+        _require(row["route"][-1]["handler"] == row["handler"], "retained selected handler")
         _protocol().validate_protocol_key(row["key"])
         if row["key"][0] == "symbol":
             _protocol()._symbol(machine, row["key"][1])

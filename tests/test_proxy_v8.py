@@ -31,7 +31,31 @@ def initial_state():
     return fixture
 
 
+def _with_proxy_route(state, record):
+    kind = record.get("kind", "")
+    if not kind.startswith("proxy.") or kind in ("proxy.create", "proxy.finish", "proxy.fault"):
+        return record
+    operation = kind.split(".")[1]
+    trap = {"delete": "deleteProperty"}.get(operation, operation)
+    heap = dict(state["heap"])
+    route, current = [], record["object"]
+    while heap.get(current, {}).get("kind") == "proxy":
+        node = heap[current]
+        handler = heap[node["handler"][1]]
+        method = dict(handler.get("properties", [])).get(trap, ["undefined"])
+        route.append({"object": current, "target": copy.deepcopy(node["target"]),
+                      "handler": copy.deepcopy(node["handler"]), "method": copy.deepcopy(method)})
+        if method[0] not in ("undefined", "null"):
+            break
+        current = node["target"][1]
+    result = {**record, "route": route}
+    if kind.endswith(".call"):
+        result.update(owner=route[-1]["object"], receiver=REF(record["object"]))
+    return result
+
+
 def step(state, record):
+    record = _with_proxy_route(state, record)
     updated = apply_protocol_to_shared_state(state, encode_protocol_record(record))
     state.clear()
     state.update(updated)
@@ -810,6 +834,125 @@ class ProxyConstructorArrowTests(unittest.TestCase):
             },
         )
         validate_protocol_state(state["protocol"], state["heap"], state)
+
+
+class ProxyNestedTargetTests(unittest.TestCase):
+    def allocate(self, state, name, kind="object"):
+        step(
+            state,
+            {
+                "kind": "allocate",
+                "name": name,
+                "objectKind": kind,
+                "length": None,
+                "properties": [],
+                "code": name if kind == "closure" else None,
+                "captures": [],
+                "functionKind": "ordinary" if kind == "closure" else None,
+                "lexicalReceiver": None,
+            },
+        )
+
+    def set_prop(self, state, object_id, key, value):
+        step(
+            state,
+            {
+                "kind": "property.set",
+                "object": object_id,
+                "key": ["str", key],
+                "receiver": REF(object_id),
+                "value": value,
+                "success": True,
+            },
+        )
+
+    def test_transparent_layers_retain_route_owner_and_outer_get_receiver(self):
+        state = base_state()
+        self.allocate(state, "innerHandler")
+        self.allocate(state, "outerHandler")
+        self.allocate(state, "getTrap", "closure")
+        self.set_prop(state, "innerHandler", "get", REF("getTrap"))
+        step(state, {"kind": "proxy.create", "name": "innerProxy", "target": REF("target"), "handler": REF("innerHandler")})
+        step(state, {"kind": "proxy.create", "name": "outerProxy", "target": REF("innerProxy"), "handler": REF("outerHandler")})
+
+        step(
+            state,
+            {
+                "kind": "proxy.get.call",
+                "id": "nested-read",
+                "object": "outerProxy",
+                "key": KEY,
+                "child": "reader",
+            },
+        )
+        pending = state["protocol"]["proxyCalls"]["pending"][-1]
+        self.assertEqual(pending["owner"], "innerProxy")
+        self.assertEqual([row["object"] for row in pending["route"]], ["outerProxy", "innerProxy"])
+        self.assertEqual(state["protocol"]["callFrames"][-1]["arguments"], [REF("target"), KEY, REF("outerProxy")])
+
+        forged = copy.deepcopy(state)
+        forged["protocol"]["proxyCalls"]["pending"][-1]["route"][0]["method"] = REF("getTrap")
+        with self.assertRaises(ProtocolV8Error):
+            validate_protocol_state(forged["protocol"], forged["heap"], forged)
+        forged = copy.deepcopy(state)
+        forged["protocol"]["proxyCalls"]["pending"][-1]["owner"] = "outerProxy"
+        with self.assertRaises(ProtocolV8Error):
+            validate_protocol_state(forged["protocol"], forged["heap"], forged)
+
+        # Replacing a skipped method after selection cannot retarget the active call.
+        self.set_prop(state, "outerHandler", "get", ["num", 0])
+        step(state, {"kind": "return", "invocation": "reader", "value": ["num", 3]})
+        step(
+            state,
+            {
+                "kind": "proxy.finish",
+                "id": "nested-read",
+                "completion": {"kind": "normal", "value": ["num", 3]},
+            },
+        )
+        self.assertEqual(state["protocol"]["proxyCalls"]["pending"], [])
+
+        # Transparent has/delete forward through both layers to terminal storage.
+        step(state, {"kind": "proxy.has", "object": "outerProxy", "key": KEY, "result": ["bool", True]})
+        step(state, {"kind": "proxy.delete", "object": "outerProxy", "key": ["str", "missing"], "success": True})
+
+    def test_nested_has_and_delete_traps_dispatch_at_inner_owner(self):
+        for operation, trap_name, returned in (
+            ("has", "has", ["bool", True]),
+            ("delete", "deleteProperty", ["bool", True]),
+        ):
+            state = base_state()
+            self.allocate(state, "innerHandler")
+            self.allocate(state, "outerHandler")
+            self.allocate(state, operation + "Trap", "closure")
+            self.set_prop(state, "innerHandler", trap_name, REF(operation + "Trap"))
+            step(state, {"kind": "proxy.create", "name": "innerProxy", "target": REF("target"), "handler": REF("innerHandler")})
+            step(state, {"kind": "proxy.create", "name": "outerProxy", "target": REF("innerProxy"), "handler": REF("outerHandler")})
+            step(
+                state,
+                {
+                    "kind": "proxy." + operation + ".call",
+                    "id": operation + "-nested",
+                    "object": "outerProxy",
+                    "key": KEY,
+                    "child": operation + "-callback",
+                    **({"strict": False} if operation == "delete" else {}),
+                },
+            )
+            pending = state["protocol"]["proxyCalls"]["pending"][-1]
+            self.assertEqual(pending["owner"], "innerProxy")
+            self.assertEqual(state["protocol"]["callFrames"][-1]["arguments"], [REF("target"), KEY])
+            step(state, {"kind": "return", "invocation": operation + "-callback", "value": returned})
+            result = ["bool", returned[1]]
+            step(
+                state,
+                {
+                    "kind": "proxy.finish",
+                    "id": operation + "-nested",
+                    "completion": {"kind": "normal", "value": result},
+                },
+            )
+            self.assertEqual(state["protocol"]["proxyCalls"]["pending"], [])
 
 
 class ProxyFaultTests(unittest.TestCase):
