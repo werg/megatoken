@@ -22,6 +22,10 @@ from .construction_v8 import apply_record as apply_construction_record
 from .construction_v8 import assert_next as assert_construction_next
 from .construction_v8 import validate_record as validate_construction_record
 from .construction_v8 import validate_state as validate_construction_record_state
+from .collection_v8 import FIELDS as COLLECTION_FIELDS
+from .collection_v8 import apply_record as apply_collection_record
+from .collection_v8 import validate_record as validate_collection_record
+from .collection_v8 import validate_state as validate_collection_state
 from .enumeration_v8 import FIELDS as ENUMERATION_FIELDS
 from .enumeration_v8 import apply_record as apply_enumeration_record
 from .enumeration_v8 import validate_record as validate_enumeration_record
@@ -159,6 +163,7 @@ class ProtocolV8Error(ValueError):
 
 
 FIELDS.update(INTRINSIC_ERROR_FIELDS)
+FIELDS.update(COLLECTION_FIELDS)
 FIELDS.update(CONSTRUCTION_FIELDS)
 FIELDS.update(MEMORY_FIELDS)
 FIELDS.update(ITERATOR_FIELDS)
@@ -291,6 +296,8 @@ def validate_protocol_record(record):
         _fail("record kind must be a string")
     if record["kind"] in INTRINSIC_ERROR_FIELDS:
         return validate_intrinsic_error_record(record)
+    if record["kind"] in COLLECTION_FIELDS:
+        return validate_collection_record(record)
     if record["kind"] in MODULE_SCHEDULER_FIELDS:
         return validate_module_scheduler_record(record)
     if record["kind"] in ASYNC_CALL_FIELDS:
@@ -526,6 +533,7 @@ def create_protocol_state():
         "promiseExecutors": None,
         "promiseObjects": None,
         "intrinsicErrors": None,
+        "collections": None,
     }
 
 
@@ -1042,6 +1050,10 @@ def _apply(machine, record):
     if kind in INTRINSIC_ERROR_FIELDS:
         if not apply_intrinsic_error_record(machine, record):
             _fail("unsupported intrinsic error transition")
+        return
+    if kind in COLLECTION_FIELDS:
+        if not apply_collection_record(machine, record):
+            _fail("unsupported Set transition")
         return
     if kind in MEMORY_FIELDS:
         if not apply_memory_record(machine, record):
@@ -1628,6 +1640,7 @@ def validate_protocol_state(snapshot, heap_ids=(), shared_state=None):
         "promiseExecutors",
         "promiseObjects",
         "intrinsicErrors",
+        "collections",
     }
     if type(snapshot) is dict and "construction" in snapshot:
         _exact(snapshot, base_fields | {"construction"}, "shared protocol state")
@@ -1965,6 +1978,7 @@ def validate_protocol_state(snapshot, heap_ids=(), shared_state=None):
             else {"heap": heap_nodes, "protocol": snapshot}
         )
         validate_memory_state(memory_machine)
+        validate_collection_state(memory_machine, snapshot.get("collections"))
         validate_iterator_state(memory_machine)
         validate_enumeration_state({**memory_machine, "protocol": snapshot})
         from .promise_join_v8 import validate_state as validate_promise_join_state
