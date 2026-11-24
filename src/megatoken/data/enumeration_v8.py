@@ -39,8 +39,32 @@ def validate_record(record):
     return True
 
 
-def _ordinary_node(machine, identity):
+def _target_identity(machine, identity):
+    from .protocol_v8 import _lookup_descriptor
+
+    seen = set()
     node = machine["heap"].get(identity)
+    while node and node.get("kind") == "proxy":
+        if identity in seen or len(seen) >= 64:
+            _fail("Proxy route cycle or bound")
+        seen.add(identity)
+        if "target" not in node or "handler" not in node:
+            _fail("ordinary source or complete Proxy identity required")
+        if node.get("target", [None])[0] != "ref" or node.get("handler", [None])[0] != "ref":
+            _fail("revoked Proxy enumeration needs abrupt boundary")
+        for name in ("ownKeys", "getOwnPropertyDescriptor", "getPrototypeOf"):
+            _, descriptor = _lookup_descriptor(machine, node["handler"][1], name, for_has=True)
+            if descriptor and (
+                descriptor["kind"] != "data" or descriptor["value"][0] not in ("undefined", "null")
+            ):
+                _fail("Proxy enumeration trap requires ordered internal-method continuation")
+        identity = node["target"][1]
+        node = machine["heap"].get(identity)
+    return identity
+
+
+def _ordinary_node(machine, identity):
+    node = machine["heap"].get(_target_identity(machine, identity))
     if type(node) is not dict or node.get("kind") not in ("object", "array"):
         _fail("ordinary source or prototype required")
     return node
@@ -224,10 +248,15 @@ def apply_record(machine, record):
         # Once exhausted, the iterator stays done even if later mutations
         # would be outside the active enumeration profile.
         if not node["done"] and node["source"][0] == "ref":
+            if any(
+                machine["heap"].get(row["id"], {}).get("kind") == "proxy" for row in node["chain"]
+            ):
+                if _snapshot(machine, node["source"])[0] != node["chain"]:
+                    _fail("Proxy descriptor/prototype mutation requires ordered continuation")
+            source = _target_identity(machine, node["source"][1])
             while (
                 index < len(keys)
-                and _lookup_descriptor(machine, node["source"][1], keys[index], for_has=True)[1]
-                is None
+                and _lookup_descriptor(machine, source, keys[index], for_has=True)[1] is None
             ):
                 index += 1
         done = node["done"] or index == len(keys)

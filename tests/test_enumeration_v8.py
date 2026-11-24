@@ -543,3 +543,52 @@ class EnumerationV8Tests(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class TransparentProxyEnumerationTests(unittest.TestCase):
+    def fixture(self):
+        state = machine()
+        for identity in ("target", "handler"):
+            allocate(state, identity)
+        define(state, "target", ["str", "a"], ["num", 1])
+        define(state, "target", ["str", "b"], ["num", 2])
+        apply_protocol_record(
+            state,
+            {
+                "kind": "proxy.create",
+                "name": "proxy",
+                "target": ["ref", "target"],
+                "handler": ["ref", "handler"],
+            },
+        )
+        return state
+
+    def test_transparent_proxy_cursor_identity_and_value_changes(self):
+        state = self.fixture()
+        create(state, ["ref", "proxy"])
+        self.assertEqual(state["heap"]["cursor"]["chain"][0]["id"], "proxy")
+        advance(state, "a")
+        define(state, "target", ["str", "b"], ["num", 9])
+        advance(state, "b", "second")
+        advance(state, None, "end")
+        self.assertTrue(validate_state(state)["valid"])
+
+    def test_transparent_proxy_shape_mutation_requires_ordered_continuation(self):
+        state = self.fixture()
+        create(state, ["ref", "proxy"])
+        advance(state, "a")
+        apply_protocol_record(
+            state,
+            {"kind": "property.delete", "object": "target", "key": ["str", "b"], "success": True},
+        )
+        before = copy.deepcopy(state)
+        with self.assertRaisesRegex(ProtocolV8Error, "ordered continuation"):
+            advance(state, None, "end")
+        self.assertEqual(state, before)
+
+    def test_transparent_proxy_trap_selection_cannot_be_skipped(self):
+        state = self.fixture()
+        allocate(state, "ownKeys", "closure")
+        define(state, "handler", ["str", "ownKeys"], ["ref", "ownKeys"])
+        with self.assertRaisesRegex(ProtocolV8Error, "internal-method continuation"):
+            create(state, ["ref", "proxy"])
