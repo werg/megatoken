@@ -1,0 +1,23 @@
+{
+  "manifestFingerprint": "e5d21b943228999bd39b9882a64c53e261e03037227b0288893d3b075bbe8664",
+  "report": {
+    "schema": "semantic-preparation/8",
+    "representation": "mixed",
+    "producerRevision": "87f92b7bb1c4bca5af5830fa9d178c609ca8e53f",
+    "consumerRevision": "ce04621455a3e06a22714347e49293a854ea77e1",
+    "contractDigest": "9e5946f6745460ad45698eed882641cbc8bb171feb58a98ee53b60984ba23658",
+    "fixtureDigest": "56f7f36d3b25b3b11a208be3de337e637b9782e6759faea1e1ec107b0a90f0ce",
+    "tokenizerIdentity": "7f52faca2fe82273a889023defd2f1a6fd6080a21096ec77e97f4798a0a370b2",
+    "tokenizerSha256": "40fb9d7d7795b8bd305aeff39ce9963f3f450915b9553f2938e009be9a1fed60",
+    "registryDigest": "342b81dd173f2b713d3f9bd38bfd16d3bbe36ef973ba3d08acde68c979b53daa",
+    "maxPositions": 8192,
+    "maxHistory": 1024,
+    "optimizerSteps": 0,
+    "learningClaim": null,
+    "counts": {
+      "attempted": 23,
+      "admitted": 23
+    },
+    "refusals": []
+  }
+}

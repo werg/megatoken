@@ -165,3 +165,36 @@ retained runtime keys and independently observe direct Reflect calls. New
 source fixtures must be rechecked and synchronized before describing their
 expanded population as ordinarily prepared. See the paired PRs for the latest
 exact revision receipts.
+
+
+## Checkpoint 5 — full expanded baseline verified
+
+The unmodified `npm run contracts:check` passed at producer
+`87f92b7bb1c4bca5af5830fa9d178c609ca8e53f` with Node v24.22.3. It independently
+rechecked all 74 canonical protocol sources, 6 region examples and 4 host
+examples. The expanded interoperability digest is
+`809f6b29878f3f8321e082463acb825e76946b2371f5d8e2f5cfc0c91df60f66`.
+
+The complete object cohort now retains 26 declared originals: 23 successful
+source exports and 3 explicit refusal controls. Its frozen registry digest is
+`342b81dd173f2b713d3f9bd38bfd16d3bbe36ef973ba3d08acde68c979b53daa`.
+Consumer `ce04621455a3e06a22714347e49293a854ea77e1` passed all 31 cohort tests,
+including independent replay/context/continuation checks and atomic rejection
+of forged Reflect conversion results, Promise receivers and restored cursors.
+
+Ordinary preparation on these exact clean revisions admitted all 23 supported
+originals with zero preparation refusals, using the pinned Ling tokenizer,
+8192 positions and 1024 history. The manifest fingerprint is
+`e5d21b943228999bd39b9882a64c53e261e03037227b0288893d3b075bbe8664`.
+The operation performs zero optimizer steps and makes no learning claim.
+The three source refusal identities remain in the declared registry.
+
+Evidence: `docs/evidence/issue51-20261124/reflect-contracts.log` and
+`docs/evidence/issue51-20261124/reflect-preparation.json`. These receipts describe
+the exact revisions above; later Proxy, error and construction work must receive
+its own regenerated contract, original-source and consumer evidence.
+
+The next implementation work is prioritized by semantic uncertainty: retained
+Proxy traps with late invariant checks, genuine intrinsic-error identity and
+partial effects, and constructor arrows retaining live `this`/`new.target`.
+The issue remains open; this checkpoint is not complete #51 language coverage.
