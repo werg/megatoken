@@ -256,6 +256,7 @@ class ProxyV8Tests(unittest.TestCase):
                     "key": KEY,
                     "value": ["num", 9],
                     "child": "writer",
+                    "strict": not accepted,
                 },
             )
             state = step(state, {"kind": "return", "invocation": "writer", "value": returned})
@@ -268,9 +269,63 @@ class ProxyV8Tests(unittest.TestCase):
                 step(state, finish)
             else:
                 before = copy.deepcopy(state)
-                with self.assertRaisesRegex(ProtocolV8Error, "abrupt completion"):
+                with self.assertRaisesRegex(ProtocolV8Error, "fault required"):
                     step(state, finish)
                 self.assertEqual(state, before)
+
+    def test_strict_false_set_is_a_derived_caller_error(self):
+        state = base_state((("setTrap", REF("setTrap")),))
+        step(
+            state,
+            {
+                "kind": "proxy.set.call",
+                "id": "write",
+                "object": "proxy",
+                "key": KEY,
+                "value": ["num", 9],
+                "child": "writer",
+                "strict": True,
+            },
+        )
+        state = step(state, {"kind": "return", "invocation": "writer", "value": ["num", 0]})
+        before = copy.deepcopy(state)
+        with self.assertRaisesRegex(ProtocolV8Error, "fault required"):
+            step(
+                state,
+                {
+                    "kind": "proxy.finish",
+                    "id": "write",
+                    "completion": {"kind": "normal", "value": ["num", 9]},
+                },
+            )
+        self.assertEqual(state, before)
+        step(state, {"kind": "proxy.fault", "id": "write", "error": "fault"})
+        message = dict(dict(state["heap"])["fault"]["properties"])["message"]
+        self.assertEqual(message, ["str", "'set' on proxy: trap returned falsish for property 'x'"])
+        self.assertEqual(state["lastReturn"], {"kind": "throw", "value": REF("fault")})
+
+        sloppy = base_state((("setTrap", REF("setTrap")),))
+        step(
+            sloppy,
+            {
+                "kind": "proxy.set.call",
+                "id": "write",
+                "object": "proxy",
+                "key": KEY,
+                "value": ["num", 9],
+                "child": "writer",
+                "strict": False,
+            },
+        )
+        sloppy = step(sloppy, {"kind": "return", "invocation": "writer", "value": ["bool", False]})
+        step(
+            sloppy,
+            {
+                "kind": "proxy.finish",
+                "id": "write",
+                "completion": {"kind": "normal", "value": ["num", 9]},
+            },
+        )
 
     def test_restore_rejects_reversed_nested_callback_order(self):
         state = base_state((("getTrap", REF("getTrap")),))
@@ -880,7 +935,7 @@ class ProxyFaultTests(unittest.TestCase):
                         "object": "proxy",
                         "key": KEY,
                         "child": "callback",
-                        **({"value": ["num", 9]} if operation == "set" else {}),
+                        **({"value": ["num", 9], "strict": False} if operation == "set" else {}),
                     },
                 )
                 step(
