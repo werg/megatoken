@@ -1,6 +1,8 @@
 import copy
 import unittest
 
+from megatoken.data.promise_object_v8 import intrinsic_id
+
 from megatoken.data.protocol_v8 import (
     ProtocolV8Error,
     _external_machine,
@@ -482,10 +484,12 @@ class PromiseExecutorV8Tests(unittest.TestCase):
         self.assertEqual(state["heap"]["self-typeerror"]["kind"], "object")
         self.assertEqual(
             state["heap"]["self-typeerror"]["properties"],
-            {
-                "name": ["str", "TypeError"],
-                "message": ["str", "Chaining cycle detected for promise"],
-            },
+            {"message": ["str", "Chaining cycle detected for promise"]},
+        )
+        self.assertNotIn("name", state["heap"]["self-typeerror"]["properties"])
+        self.assertEqual(
+            state["heap"]["self-typeerror"]["prototype"],
+            ["ref", intrinsic_id("TypeError.prototype")],
         )
         external = _external_machine(state)
         self.assertTrue(validate_protocol_state(external["protocol"], external["heap"], external))
