@@ -1,4 +1,5 @@
 """Independent verification of bounded Array/String spread snapshots."""
+
 import copy
 import unittest
 
@@ -16,8 +17,7 @@ class IteratorSpreadV8Tests(unittest.TestCase):
                 "objectKind": "array",
                 "length": len(values) if length is None else length,
                 "properties": [
-                    {"key": ["str", str(index)], "value": value}
-                    for index, value in values
+                    {"key": ["str", str(index)], "value": value} for index, value in values
                 ],
                 "code": None,
                 "captures": [],

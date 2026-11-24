@@ -291,7 +291,9 @@ def apply_record(machine, record):
             "callback completion",
         )
         _retained_route(machine, row)
-        _check_callback_scope(completion.get("proxyReflectionScope"), row, "completed callback scope")
+        _check_callback_scope(
+            completion.get("proxyReflectionScope"), row, "completed callback scope"
+        )
         fault = (
             _fault(machine, row, completion["value"]) if completion["kind"] == "return" else None
         )
@@ -396,7 +398,10 @@ def validate_state(machine):
     snapshot = machine.get("protocol", {}).get("proxyReflection")
     if snapshot is None:
         _require(
-            not any("proxyReflectionScope" in frame for frame in machine["protocol"].get("callFrames", []))
+            not any(
+                "proxyReflectionScope" in frame
+                for frame in machine["protocol"].get("callFrames", [])
+            )
             and "proxyReflectionScope" not in (machine.get("lastReturn") or {}),
             "orphaned Proxy reflection callback scope",
         )
@@ -514,8 +519,10 @@ def validate_state(machine):
     ]
     _require(
         all(
-            any(row["child"] == frame["child"] and row["operation"] == "defineProperty"
-                for row in snapshot["pending"])
+            any(
+                row["child"] == frame["child"] and row["operation"] == "defineProperty"
+                for row in snapshot["pending"]
+            )
             for frame in scoped_frames
         ),
         "orphaned active Proxy reflection scope",

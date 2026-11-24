@@ -422,7 +422,9 @@ def test_define_snapshot_is_bound_to_active_and_returned_callback_scope():
         validate_protocol_state(forged_row["protocol"], forged_row["heap"], forged_row)
 
     forged_scope = copy.deepcopy(state)
-    forged_scope["protocol"]["callFrames"][-1]["proxyReflectionScope"]["definition"]["writable"] = True
+    forged_scope["protocol"]["callFrames"][-1]["proxyReflectionScope"]["definition"]["writable"] = (
+        True
+    )
     with pytest.raises(ProtocolV8Error, match="active callback scope"):
         validate_protocol_state(forged_scope["protocol"], forged_scope["heap"], forged_scope)
 

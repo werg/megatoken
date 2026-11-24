@@ -88,9 +88,7 @@ def _callback_aliases(machine, identity, job, callback, frame):
     ]
     if len(bindings) != len(expected_indices):
         _fail("scheduled callback parameter binding count")
-    aliases = {
-        row["binding"]: row["cell"] for row in node.get("captures", [])
-    }
+    aliases = {row["binding"]: row["cell"] for row in node.get("captures", [])}
     for row, index in zip(bindings, expected_indices, strict=True):
         if (
             not isinstance(row, dict)
@@ -193,11 +191,10 @@ def _validate_callback_frame(machine, identity, job, callback, *, continuation=N
             or continuation.get("invocation") != child
             or child in machine.get("stack", [])
             or root not in machine.get("stack", [])
-            or continuation.get("captureAliases") != [[key, value] for key, value in aliases.items()]
-            or continuation.get("receiver")
-            != machine.get("locals", {}).get(child + ":this")
-            or machine.get("captureAliases", {})
-            != dict(job.get("priorAliases", []))
+            or continuation.get("captureAliases")
+            != [[key, value] for key, value in aliases.items()]
+            or continuation.get("receiver") != machine.get("locals", {}).get(child + ":this")
+            or machine.get("captureAliases", {}) != dict(job.get("priorAliases", []))
             or machine.get("receiver") != job.get("priorReceiver")
         ):
             _fail("suspended scheduler callback lost its retained scope")
@@ -505,7 +502,8 @@ def apply_detail(machine, kind, fields, *, root, functions=()):
         root = next(iter(machine.get("frameFunctions", {})), None)
         suspended_job_root = bool(owner) and machine["stack"] == [root]
         if (
-            machine["stack"] and not suspended_job_root
+            machine["stack"]
+            and not suspended_job_root
             or ready[:1] != [fields["continuation"]]
             or not continuation
             or continuation["state"] != "ready"
@@ -600,6 +598,7 @@ def apply_detail(machine, kind, fields, *, root, functions=()):
                     child = "job:" + identity
                     if machine.get("protocol") is not None:
                         from .construction_v8 import _call
+
                         job["priorPending"] = copy.deepcopy(machine.get("pending"))
                         job["priorLastReturn"] = copy.deepcopy(machine.get("lastReturn"))
                         machine["pending"] = None
@@ -607,7 +606,11 @@ def apply_detail(machine, kind, fields, *, root, functions=()):
                         if not root:
                             _fail("scheduled callback has no invocation owner")
                         machine["stack"].append(root)
-                        arguments = [argument] if job.get("promise") and job.get("reaction") != "finally" else []
+                        arguments = (
+                            [argument]
+                            if job.get("promise") and job.get("reaction") != "finally"
+                            else []
+                        )
                         from .construction_v8 import _lexical_receiver
 
                         _call(
@@ -625,7 +628,8 @@ def apply_detail(machine, kind, fields, *, root, functions=()):
                     else:
                         job["priorAliases"] = list(map(list, machine["captureAliases"].items()))
                         machine["captureAliases"] = {
-                            capture["binding"]: capture["cell"] for capture in node.get("captures", [])
+                            capture["binding"]: capture["cell"]
+                            for capture in node.get("captures", [])
                         }
                         machine["stack"].append(child)
                         machine["frameFunctions"][child] = node["code"]

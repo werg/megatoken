@@ -1,4 +1,5 @@
 """Independent replay tests for public Set/Map construction and mutations."""
+
 import copy
 import unittest
 
@@ -16,8 +17,7 @@ class CollectionV8Tests(unittest.TestCase):
                 "objectKind": "array",
                 "length": len(values) if length is None else length,
                 "properties": [
-                    {"key": ["str", str(index)], "value": value}
-                    for index, value in values
+                    {"key": ["str", str(index)], "value": value} for index, value in values
                 ],
                 "code": None,
                 "captures": [],
@@ -86,7 +86,9 @@ class CollectionV8Tests(unittest.TestCase):
         self._array(state, "items", [(0, REF("pairA")), (1, REF("pairB")), (2, REF("pairC"))])
         step(state, {"kind": "map.create", "name": "selected", "iterable": REF("items")})
         node = state["heap"][-1][1]
-        self.assertEqual(node["entries"], [[["num", 1], ["str", "updated"]], [["str", "x"], ["num", "NaN"]]])
+        self.assertEqual(
+            node["entries"], [[["num", 1], ["str", "updated"]], [["str", "x"], ["num", "NaN"]]]
+        )
         step(state, {"kind": "map.size", "object": "selected", "result": ["num", 2]})
         step(
             state,

@@ -107,7 +107,10 @@ def validate_record(record):
             _id(record[key])
     if kind in ("construct.enter", "construct.body") and record["child"] is None:
         _fail("constructor child invocation")
-    if kind in ("construct.target", "construct.this", "construct.this.fault") and record["invocation"] is None:
+    if (
+        kind in ("construct.target", "construct.this", "construct.this.fault")
+        and record["invocation"] is None
+    ):
         _fail("constructor invocation")
     if kind == "callable.define":
         if (
@@ -578,7 +581,11 @@ def _apply_continuation(machine, record):
             None,
         )
         activation = next(
-            (row for row in reversed(machine["protocol"]["callFrames"]) if row["child"] == record["invocation"]),
+            (
+                row
+                for row in reversed(machine["protocol"]["callFrames"])
+                if row["child"] == record["invocation"]
+            ),
             None,
         )
         callee = (
@@ -602,14 +609,20 @@ def _apply_continuation(machine, record):
         if record["result"] != expected:
             _fail("false receiver/newTarget read")
         if kind == "construct.target" and capture is not None:
-            machine["locals"][record["invocation"] + ":lexical-newTarget"] = copy.deepcopy(record["result"])
+            machine["locals"][record["invocation"] + ":lexical-newTarget"] = copy.deepcopy(
+                record["result"]
+            )
         return
     if kind == "construct.this.fault":
         invocation = record["invocation"]
         if machine["stack"][-1] != invocation or len(machine["stack"]) < 2:
             _fail("derived this fault invocation")
         activation = next(
-            (row for row in reversed(machine["protocol"]["callFrames"]) if row["child"] == invocation),
+            (
+                row
+                for row in reversed(machine["protocol"]["callFrames"])
+                if row["child"] == invocation
+            ),
             None,
         )
         if activation is None or activation["parent"] != machine["stack"][-2]:
@@ -620,9 +633,12 @@ def _apply_continuation(machine, record):
                 row
                 for row in reversed(state["frames"])
                 if row["phase"] == "body"
-                and row["bodyInvocation"] == (
-                    activation["parent"] if activation["callee"][0] == "ref" and
-                    _node(machine, activation["callee"][1]).get("functionKind") == "arrow" else invocation
+                and row["bodyInvocation"]
+                == (
+                    activation["parent"]
+                    if activation["callee"][0] == "ref"
+                    and _node(machine, activation["callee"][1]).get("functionKind") == "arrow"
+                    else invocation
                 )
             ),
             None,
@@ -647,7 +663,11 @@ def _apply_continuation(machine, record):
         else:
             if activation["parent"] != owner["bodyInvocation"]:
                 _fail("captured arrow was not called by its active constructor")
-            arrow = _node(machine, activation["callee"][1]) if activation["callee"][0] == "ref" else None
+            arrow = (
+                _node(machine, activation["callee"][1])
+                if activation["callee"][0] == "ref"
+                else None
+            )
             capture = arrow.get("callable", {}).get("lexicalConstruction") if arrow else None
             if arrow is None or arrow.get("functionKind") != "arrow" or capture is None:
                 _fail("derived this fault requires the exact captured arrow")

@@ -57,12 +57,16 @@ def _validate_record(record):
             _identity(record[field])
     if kind in ("set.lookup", "map.lookup"):
         key = record["key"]
-        method_names = ("add", "has", "delete", "clear") if kind == "set.lookup" else (
-            "get",
-            "set",
-            "has",
-            "delete",
-            "clear",
+        method_names = (
+            ("add", "has", "delete", "clear")
+            if kind == "set.lookup"
+            else (
+                "get",
+                "set",
+                "has",
+                "delete",
+                "clear",
+            )
         )
         prefix = "Set" if kind == "set.lookup" else "Map"
         if (
@@ -95,7 +99,10 @@ def _validate_record(record):
         _value(record["result"])
         if kind in ("set.add", "map.set") and record["result"][0] != "ref":
             _fail("collection mutator receiver identity")
-        if kind in ("set.has", "set.delete", "map.has", "map.delete") and record["result"][0] != "bool":
+        if (
+            kind in ("set.has", "set.delete", "map.has", "map.delete")
+            and record["result"][0] != "bool"
+        ):
             _fail("collection boolean result")
         if kind in ("set.clear", "map.clear") and record["result"] != ["undefined"]:
             _fail("collection clear result")
@@ -215,7 +222,10 @@ def apply_record(machine, record):
     action = record["kind"].split(".", 1)[1]
     if action == "lookup":
         _node(machine, record["object"], kind)
-        if record["method"] != ("Set" if kind == "set" else "Map") + ".prototype." + record["key"][1]:
+        if (
+            record["method"]
+            != ("Set" if kind == "set" else "Map") + ".prototype." + record["key"][1]
+        ):
             _fail("false collection method selection")
     elif action == "create":
         identity = record["name"]
@@ -223,7 +233,11 @@ def apply_record(machine, record):
             row["id"] == identity for row in machine["protocol"]["symbols"]
         ):
             _fail("collection identity collision")
-        entries = _set_entries(machine, record["iterable"]) if kind == "set" else _map_entries(machine, record["iterable"])
+        entries = (
+            _set_entries(machine, record["iterable"])
+            if kind == "set"
+            else _map_entries(machine, record["iterable"])
+        )
         machine["heap"][identity] = {"kind": kind, "entries": entries, "properties": {}}
         rows = _registry(machine)
         if len(rows) >= 4096 or any(row.get("id") == identity for row in rows):

@@ -155,9 +155,7 @@ class PromiseSchedulerTests(unittest.TestCase):
         continuation = dict(forged_alias["continuations"])["inner"]
         continuation["captureAliases"][0][1] = "forged-cell"
         with self.assertRaisesRegex(ProtocolV8Error, "suspended scheduler callback"):
-            validate_protocol_state(
-                forged_alias["protocol"], forged_alias["heap"], forged_alias
-            )
+            validate_protocol_state(forged_alias["protocol"], forged_alias["heap"], forged_alias)
         forged_binding = copy.deepcopy(state)
         dict(forged_binding["jobs"])["reaction"]["parameterBindings"][0]["index"] = 4
         with self.assertRaisesRegex(ProtocolV8Error, "parameter binding receipt"):

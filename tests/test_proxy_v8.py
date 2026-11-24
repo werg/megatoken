@@ -34,8 +34,14 @@ def initial_state():
 def _with_proxy_route(state, record):
     kind = record.get("kind", "")
     if not kind.startswith("proxy.") or kind in (
-        "proxy.create", "proxy.revocable", "proxy.revoke", "proxy.revoked.fault",
-        "proxy.getMethod.begin", "proxy.getMethod.finish", "proxy.finish", "proxy.fault"
+        "proxy.create",
+        "proxy.revocable",
+        "proxy.revoke",
+        "proxy.revoked.fault",
+        "proxy.getMethod.begin",
+        "proxy.getMethod.finish",
+        "proxy.finish",
+        "proxy.fault",
     ):
         return record
     operation = kind.split(".")[1]
@@ -43,23 +49,36 @@ def _with_proxy_route(state, record):
     heap = dict(state["heap"])
     lookup = next(
         (
-            row for row in (state.get("protocol", {}).get("proxyCalls") or {}).get("getMethods", [])
+            row
+            for row in (state.get("protocol", {}).get("proxyCalls") or {}).get("getMethods", [])
             if row["id"] == record.get("id")
         ),
         None,
     )
     route = []
     if lookup:
-        route.append({"object": lookup["object"], "target": copy.deepcopy(lookup["target"]),
-                      "handler": copy.deepcopy(lookup["handler"]), "method": copy.deepcopy(lookup["method"])})
+        route.append(
+            {
+                "object": lookup["object"],
+                "target": copy.deepcopy(lookup["target"]),
+                "handler": copy.deepcopy(lookup["handler"]),
+                "method": copy.deepcopy(lookup["method"]),
+            }
+        )
     else:
         current = record["object"]
         while heap.get(current, {}).get("kind") == "proxy":
             node = heap[current]
             handler = heap[node["handler"][1]]
             method = dict(handler.get("properties", [])).get(trap, ["undefined"])
-            route.append({"object": current, "target": copy.deepcopy(node["target"]),
-                          "handler": copy.deepcopy(node["handler"]), "method": copy.deepcopy(method)})
+            route.append(
+                {
+                    "object": current,
+                    "target": copy.deepcopy(node["target"]),
+                    "handler": copy.deepcopy(node["handler"]),
+                    "method": copy.deepcopy(method),
+                }
+            )
             if method[0] not in ("undefined", "null"):
                 break
             current = node["target"][1]
@@ -79,8 +98,17 @@ def step(state, record):
 
 def test_proxy_revocable_allocates_a_retained_callable_identity():
     state = base_state()
-    step(state, {"kind": "proxy.revocable", "proxy": "revocable", "revoke": "revoker",
-                 "result": "pair", "target": REF("target"), "handler": REF("handler")})
+    step(
+        state,
+        {
+            "kind": "proxy.revocable",
+            "proxy": "revocable",
+            "revoke": "revoker",
+            "result": "pair",
+            "target": REF("target"),
+            "handler": REF("handler"),
+        },
+    )
     heap = dict(state["heap"])
     pair = heap["pair"]
     revoker = heap["revoker"]
@@ -88,12 +116,15 @@ def test_proxy_revocable_allocates_a_retained_callable_identity():
     assert revoker["kind"] == "closure"
     assert revoker["code"] == "Proxy.revoke:revocable"
     assert dict(revoker["properties"]) == {"length": ["num", 0], "name": ["str", ""]}
-    assert dict(revoker["descriptors"])["length"] == {"kind": "data", "writable": False,
-                                                                 "enumerable": False, "configurable": True}
+    assert dict(revoker["descriptors"])["length"] == {
+        "kind": "data",
+        "writable": False,
+        "enumerable": False,
+        "configurable": True,
+    }
     step(state, {"kind": "proxy.revoke", "object": "revocable"})
     assert dict(state["heap"])["revocable"]["target"] == ["null"]
     assert dict(state["heap"])["revocable"]["handler"] == ["null"]
-
 
 
 def base_state(traps=()):
@@ -499,7 +530,11 @@ class ProxyV8Tests(unittest.TestCase):
 
     def test_restore_checks_symbol_keys_and_creation_reserves_symbol_identity(self):
         state = base_state()
-        state["protocol"]["proxyCalls"] = {"schema": "semantic-proxy-call-state/1", "pending": [], "getMethods": []}
+        state["protocol"]["proxyCalls"] = {
+            "schema": "semantic-proxy-call-state/1",
+            "pending": [],
+            "getMethods": [],
+        }
         # A symbol key must name a symbol declared by this protocol state.
         from megatoken.data.protocol_v8 import _internal_machine
         from megatoken.data.proxy_v8 import validate_state
@@ -989,8 +1024,24 @@ class ProxyNestedTargetTests(unittest.TestCase):
         self.allocate(state, "outerHandler")
         self.allocate(state, "getTrap", "closure")
         self.set_prop(state, "innerHandler", "get", REF("getTrap"))
-        step(state, {"kind": "proxy.create", "name": "innerProxy", "target": REF("target"), "handler": REF("innerHandler")})
-        step(state, {"kind": "proxy.create", "name": "outerProxy", "target": REF("innerProxy"), "handler": REF("outerHandler")})
+        step(
+            state,
+            {
+                "kind": "proxy.create",
+                "name": "innerProxy",
+                "target": REF("target"),
+                "handler": REF("innerHandler"),
+            },
+        )
+        step(
+            state,
+            {
+                "kind": "proxy.create",
+                "name": "outerProxy",
+                "target": REF("innerProxy"),
+                "handler": REF("outerHandler"),
+            },
+        )
 
         step(
             state,
@@ -1005,7 +1056,10 @@ class ProxyNestedTargetTests(unittest.TestCase):
         pending = state["protocol"]["proxyCalls"]["pending"][-1]
         self.assertEqual(pending["owner"], "innerProxy")
         self.assertEqual([row["object"] for row in pending["route"]], ["outerProxy", "innerProxy"])
-        self.assertEqual(state["protocol"]["callFrames"][-1]["arguments"], [REF("target"), KEY, REF("outerProxy")])
+        self.assertEqual(
+            state["protocol"]["callFrames"][-1]["arguments"],
+            [REF("target"), KEY, REF("outerProxy")],
+        )
 
         forged = copy.deepcopy(state)
         forged["protocol"]["proxyCalls"]["pending"][-1]["route"][0]["method"] = REF("getTrap")
@@ -1030,8 +1084,19 @@ class ProxyNestedTargetTests(unittest.TestCase):
         self.assertEqual(state["protocol"]["proxyCalls"]["pending"], [])
 
         # Transparent has/delete forward through both layers to terminal storage.
-        step(state, {"kind": "proxy.has", "object": "outerProxy", "key": KEY, "result": ["bool", True]})
-        step(state, {"kind": "proxy.delete", "object": "outerProxy", "key": ["str", "missing"], "success": True})
+        step(
+            state,
+            {"kind": "proxy.has", "object": "outerProxy", "key": KEY, "result": ["bool", True]},
+        )
+        step(
+            state,
+            {
+                "kind": "proxy.delete",
+                "object": "outerProxy",
+                "key": ["str", "missing"],
+                "success": True,
+            },
+        )
 
     def test_nested_has_and_delete_traps_dispatch_at_inner_owner(self):
         for operation, trap_name, returned in (
@@ -1043,8 +1108,24 @@ class ProxyNestedTargetTests(unittest.TestCase):
             self.allocate(state, "outerHandler")
             self.allocate(state, operation + "Trap", "closure")
             self.set_prop(state, "innerHandler", trap_name, REF(operation + "Trap"))
-            step(state, {"kind": "proxy.create", "name": "innerProxy", "target": REF("target"), "handler": REF("innerHandler")})
-            step(state, {"kind": "proxy.create", "name": "outerProxy", "target": REF("innerProxy"), "handler": REF("outerHandler")})
+            step(
+                state,
+                {
+                    "kind": "proxy.create",
+                    "name": "innerProxy",
+                    "target": REF("target"),
+                    "handler": REF("innerHandler"),
+                },
+            )
+            step(
+                state,
+                {
+                    "kind": "proxy.create",
+                    "name": "outerProxy",
+                    "target": REF("innerProxy"),
+                    "handler": REF("outerHandler"),
+                },
+            )
             step(
                 state,
                 {
@@ -1059,7 +1140,9 @@ class ProxyNestedTargetTests(unittest.TestCase):
             pending = state["protocol"]["proxyCalls"]["pending"][-1]
             self.assertEqual(pending["owner"], "innerProxy")
             self.assertEqual(state["protocol"]["callFrames"][-1]["arguments"], [REF("target"), KEY])
-            step(state, {"kind": "return", "invocation": operation + "-callback", "value": returned})
+            step(
+                state, {"kind": "return", "invocation": operation + "-callback", "value": returned}
+            )
             result = ["bool", returned[1]]
             step(
                 state,
@@ -1075,10 +1158,19 @@ class ProxyNestedTargetTests(unittest.TestCase):
 class ProxyRevocationTests(unittest.TestCase):
     allocate = ProxyNestedTargetTests.allocate
     set_prop = ProxyNestedTargetTests.set_prop
+
     def test_revocation_clears_both_slots_is_idempotent_and_fault_is_native_derived(self):
         for operation in ("get", "set", "has", "deleteProperty"):
             state = base_state()
-            step(state, {"kind": "proxy.create", "name": "revocable", "target": REF("target"), "handler": REF("handler")})
+            step(
+                state,
+                {
+                    "kind": "proxy.create",
+                    "name": "revocable",
+                    "target": REF("target"),
+                    "handler": REF("handler"),
+                },
+            )
             step(state, {"kind": "proxy.revoke", "object": "revocable"})
             before = copy.deepcopy(state["heap"])
             step(state, {"kind": "proxy.revoke", "object": "revocable"})
@@ -1089,25 +1181,62 @@ class ProxyRevocationTests(unittest.TestCase):
             # A later operation must produce its own TypeError and cannot silently
             # route through target storage after the internal slots were cleared.
             before_fault = copy.deepcopy(state)
-            step(state, {"kind": "proxy.revoked.fault", "object": "revocable", "operation": operation, "error": "revokedError"})
+            step(
+                state,
+                {
+                    "kind": "proxy.revoked.fault",
+                    "object": "revocable",
+                    "operation": operation,
+                    "error": "revokedError",
+                },
+            )
             self.assertNotEqual(state, before_fault)
             error = dict(state["heap"])["revokedError"]
             self.assertEqual(error["declaredError"], "TypeError")
             self.assertEqual(state["lastReturn"], {"kind": "throw", "value": REF("revokedError")})
-            self.assertEqual(dict(error["properties"])["message"], ["str", f"Cannot perform '{operation}' on a proxy that has been revoked"])
+            self.assertEqual(
+                dict(error["properties"])["message"],
+                ["str", f"Cannot perform '{operation}' on a proxy that has been revoked"],
+            )
             validate_protocol_state(state["protocol"], state["heap"], state)
 
     def test_revoke_inside_callback_preserves_selected_target_and_callee(self):
         state = base_state()
         self.allocate(state, "trap", "closure")
         self.set_prop(state, "handler", "has", REF("trap"))
-        step(state, {"kind": "proxy.create", "name": "revocable", "target": REF("target"), "handler": REF("handler")})
-        step(state, {"kind": "proxy.has.call", "id": "has", "object": "revocable", "key": KEY, "child": "reader"})
+        step(
+            state,
+            {
+                "kind": "proxy.create",
+                "name": "revocable",
+                "target": REF("target"),
+                "handler": REF("handler"),
+            },
+        )
+        step(
+            state,
+            {
+                "kind": "proxy.has.call",
+                "id": "has",
+                "object": "revocable",
+                "key": KEY,
+                "child": "reader",
+            },
+        )
         pending = copy.deepcopy(state["protocol"]["proxyCalls"]["pending"][-1])
         step(state, {"kind": "proxy.revoke", "object": "revocable"})
-        self.assertEqual(state["protocol"]["proxyCalls"]["pending"][-1]["target"], pending["target"])
+        self.assertEqual(
+            state["protocol"]["proxyCalls"]["pending"][-1]["target"], pending["target"]
+        )
         step(state, {"kind": "return", "invocation": "reader", "value": ["bool", True]})
-        step(state, {"kind": "proxy.finish", "id": "has", "completion": {"kind": "normal", "value": ["bool", True]}})
+        step(
+            state,
+            {
+                "kind": "proxy.finish",
+                "id": "has",
+                "completion": {"kind": "normal", "value": ["bool", True]},
+            },
+        )
         self.assertEqual(state["protocol"]["proxyCalls"]["pending"], [])
 
 
@@ -1416,7 +1545,9 @@ class ProxyGetMethodTests(unittest.TestCase):
                 validate_protocol_state(forged["protocol"], forged["heap"], forged)
 
         before = copy.deepcopy(state)
-        with self.assertRaisesRegex(ProtocolV8Error, "selection requires its exact handler getter call"):
+        with self.assertRaisesRegex(
+            ProtocolV8Error, "selection requires its exact handler getter call"
+        ):
             step(
                 state,
                 {

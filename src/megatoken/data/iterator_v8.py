@@ -14,7 +14,14 @@ FIELDS = {
     "iterator.spread": {"kind", "iterated", "values"},
 }
 ARRAY_KINDS = {"values", "keys", "entries"}
-COLLECTION_KINDS = {"set-values", "set-keys", "set-entries", "map-keys", "map-values", "map-entries"}
+COLLECTION_KINDS = {
+    "set-values",
+    "set-keys",
+    "set-entries",
+    "map-keys",
+    "map-values",
+    "map-entries",
+}
 KINDS = ARRAY_KINDS | COLLECTION_KINDS | {"string"}
 METHODS = {
     "Array.prototype.values",
@@ -320,9 +327,13 @@ def apply_record(machine, record):
                 iterator_kind = node["iterationKind"]
                 expected = [
                     "str",
-                    "String Iterator" if iterator_kind == "string" else
-                    "Set Iterator" if iterator_kind.startswith("set-") else
-                    "Map Iterator" if iterator_kind.startswith("map-") else "Array Iterator",
+                    "String Iterator"
+                    if iterator_kind == "string"
+                    else "Set Iterator"
+                    if iterator_kind.startswith("set-")
+                    else "Map Iterator"
+                    if iterator_kind.startswith("map-")
+                    else "Array Iterator",
                 ]
             elif (
                 record["key"][0] == "str"
@@ -401,7 +412,11 @@ def apply_record(machine, record):
                         elif node["iterationKind"] == "map-values":
                             value = copy.deepcopy(raw[1])
                         else:
-                            pair_values = [copy.deepcopy(raw), copy.deepcopy(raw)] if node["iterationKind"] == "set-entries" else [copy.deepcopy(raw[0]), copy.deepcopy(raw[1])]
+                            pair_values = (
+                                [copy.deepcopy(raw), copy.deepcopy(raw)]
+                                if node["iterationKind"] == "set-entries"
+                                else [copy.deepcopy(raw[0]), copy.deepcopy(raw[1])]
+                            )
                             if record["entry"] is None:
                                 _fail("collection entries iterator requires pair allocation")
                             _allocate(

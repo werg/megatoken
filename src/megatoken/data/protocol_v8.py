@@ -1350,12 +1350,16 @@ def _apply(machine, record, *, _internal_property_getter=False):
                         or not machine["stack"]
                         or machine["stack"][0] != expected_child
                     ):
-                        _fail("adoption getter nested call must return to its retained getter frame")
+                        _fail(
+                            "adoption getter nested call must return to its retained getter frame"
+                        )
                 elif callback is not None and len(machine["stack"]) <= 1:
                     _fail("scheduled callback must complete through its retained call frame")
             machine["lastReturn"] = {"kind": kind, "value": copy.deepcopy(record["value"])}
             if "proxyReflectionScope" in frame:
-                machine["lastReturn"]["proxyReflectionScope"] = copy.deepcopy(frame["proxyReflectionScope"])
+                machine["lastReturn"]["proxyReflectionScope"] = copy.deepcopy(
+                    frame["proxyReflectionScope"]
+                )
         else:
             if machine.get("activeJob"):
                 _fail("job completion requires its scheduler profile")
@@ -1829,7 +1833,14 @@ def validate_protocol_state(snapshot, heap_ids=(), shared_state=None):
         if pending["operation"] == "set":
             validate_protocol_value(pending["value"])
     for frame_index, frame in enumerate(snapshot["callFrames"]):
-        call_frame_fields = {"child", "parent", "callee", "priorReceiver", "priorAliases", "arguments"}
+        call_frame_fields = {
+            "child",
+            "parent",
+            "callee",
+            "priorReceiver",
+            "priorAliases",
+            "arguments",
+        }
         if "proxyReflectionScope" in frame:
             call_frame_fields.add("proxyReflectionScope")
         _exact(frame, call_frame_fields, "protocol call frame")

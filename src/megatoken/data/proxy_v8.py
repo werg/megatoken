@@ -31,7 +31,18 @@ FIELDS = {
     "proxy.create": {"kind", "name", "target", "handler"},
     "proxy.revocable": {"kind", "proxy", "revoke", "result", "target", "handler"},
     "proxy.revoke": {"kind", "object"},
-    "proxy.getMethod.begin": {"kind", "id", "operation", "object", "target", "handler", "receiver", "key", "child", "getter"},
+    "proxy.getMethod.begin": {
+        "kind",
+        "id",
+        "operation",
+        "object",
+        "target",
+        "handler",
+        "receiver",
+        "key",
+        "child",
+        "getter",
+    },
     "proxy.getMethod.finish": {"kind", "id", "completion"},
     "proxy.revoked.fault": {"kind", "object", "operation", "error"},
     "proxy.get": {"kind", "object", "key", "result", "route"},
@@ -40,9 +51,30 @@ FIELDS = {
     "proxy.delete": {"kind", "object", "key", "success", "route"},
     "proxy.delete.fault": {"kind", "object", "key", "error", "route"},
     "proxy.get.call": {"kind", "id", "object", "owner", "receiver", "key", "child", "route"},
-    "proxy.set.call": {"kind", "id", "object", "owner", "receiver", "key", "value", "child", "strict", "route"},
+    "proxy.set.call": {
+        "kind",
+        "id",
+        "object",
+        "owner",
+        "receiver",
+        "key",
+        "value",
+        "child",
+        "strict",
+        "route",
+    },
     "proxy.has.call": {"kind", "id", "object", "owner", "receiver", "key", "child", "route"},
-    "proxy.delete.call": {"kind", "id", "object", "owner", "receiver", "key", "child", "strict", "route"},
+    "proxy.delete.call": {
+        "kind",
+        "id",
+        "object",
+        "owner",
+        "receiver",
+        "key",
+        "child",
+        "strict",
+        "route",
+    },
     "proxy.finish": {"kind", "id", "completion"},
     "proxy.fault": {"kind", "id", "error"},
 }
@@ -108,7 +140,9 @@ def validate_record(record):
         _id(record["child"])
         _id(record["object"])
         for name in ("target", "handler", "receiver", "key", "getter"):
-            p.validate_protocol_value(record[name]) if name != "key" else p.validate_protocol_key(record[name])
+            p.validate_protocol_value(record[name]) if name != "key" else p.validate_protocol_key(
+                record[name]
+            )
         if (
             record["operation"] != "has"
             or record["target"][0] != "ref"
@@ -200,7 +234,9 @@ def _route(machine, node):
     p = _protocol()
     p._known(machine, node["target"])
     if node["target"] == ["null"] or node["handler"] == ["null"]:
-        _require(node["target"] == ["null"] and node["handler"] == ["null"], "partial Proxy revocation")
+        _require(
+            node["target"] == ["null"] and node["handler"] == ["null"], "partial Proxy revocation"
+        )
         return None
     _require(node["target"][0] == "ref", "target identity")
     target = machine["heap"].get(node["target"][1])
@@ -230,8 +266,14 @@ def _derive_route(machine, object_id, operation):
     while node and node["kind"] == "proxy":
         _require(node_id not in visited and len(route) < BOUND, "target route cycle or bound")
         visited.add(node_id)
-        _require(node.get("target") is not None and node.get("handler") is not None, "revoked Proxy route")
-        _require(node["target"] != ["null"] and node["handler"] != ["null"], "revoked Proxy route requires its abrupt record")
+        _require(
+            node.get("target") is not None and node.get("handler") is not None,
+            "revoked Proxy route",
+        )
+        _require(
+            node["target"] != ["null"] and node["handler"] != ["null"],
+            "revoked Proxy route requires its abrupt record",
+        )
         selected = _method(machine, node, operation)
         entry = {
             "object": node_id,
@@ -246,22 +288,35 @@ def _derive_route(machine, object_id, operation):
             break
         node_id = target_ref[1]
         node = machine["heap"].get(node_id)
-    _require(node and node["kind"] in ("object", "array", "proxy"), "target internal-method boundary")
-    return {"route": route, "owner": owner, "target": target_ref, "selected": selected, "terminal": node}
+    _require(
+        node and node["kind"] in ("object", "array", "proxy"), "target internal-method boundary"
+    )
+    return {
+        "route": route,
+        "owner": owner,
+        "target": target_ref,
+        "selected": selected,
+        "terminal": node,
+    }
 
 
 def _retained_route(machine, row, *, selected=True):
     _validate_route(row["route"])
     route = row["route"]
-    _require(route[0]["object"] == row["object"] and route[-1]["object"] == row["owner"], "route endpoints")
+    _require(
+        route[0]["object"] == row["object"] and route[-1]["object"] == row["owner"],
+        "route endpoints",
+    )
     for index, entry in enumerate(route):
         node = machine["heap"].get(entry["object"])
         _require(
             node
             and node["kind"] == "proxy"
-            and ((node.get("target") == ["null"] and node.get("handler") == ["null"])
-                 or _eq(node.get("target"), entry["target"])
-                 and _eq(node.get("handler"), entry["handler"])),
+            and (
+                (node.get("target") == ["null"] and node.get("handler") == ["null"])
+                or _eq(node.get("target"), entry["target"])
+                and _eq(node.get("handler"), entry["handler"])
+            ),
             "retained route target/handler identity",
         )
         _protocol()._known(machine, entry["method"])
@@ -272,7 +327,10 @@ def _retained_route(machine, row, *, selected=True):
                 "retained transparent route edge",
             )
         elif selected:
-            _require(entry["method"][0] not in ("undefined", "null"), "retained route lacks selected trap")
+            _require(
+                entry["method"][0] not in ("undefined", "null"),
+                "retained route lacks selected trap",
+            )
     return machine["heap"].get(route[-1]["target"][1])
 
 
@@ -329,7 +387,11 @@ def assert_next(machine, record):
     lookup = (state.get("getMethods") or [None])[-1]
     if lookup:
         property_call = next(
-            (row for row in machine["protocol"].get("pendingCalls", []) if row["id"] == lookup["id"]),
+            (
+                row
+                for row in machine["protocol"].get("pendingCalls", [])
+                if row["id"] == lookup["id"]
+            ),
             None,
         )
         if lookup["phase"] == "selected":
@@ -350,7 +412,8 @@ def assert_next(machine, record):
                 )
             elif not property_call and lookup["child"] not in machine["stack"]:
                 _require(
-                    record.get("kind") == "proxy.getMethod.finish" and record.get("id") == lookup["id"],
+                    record.get("kind") == "proxy.getMethod.finish"
+                    and record.get("id") == lookup["id"],
                     "GetMethod property completion requires its retained finish",
                 )
         else:
@@ -395,7 +458,9 @@ def _invariant_fault(machine, row, returned):
     if operation in ("delete", "set") and row["strict"] and not truth:
         trap_name = "deleteProperty" if operation == "delete" else "set"
         return (
-            "'" + trap_name + "' on proxy: trap returned falsish for property '"
+            "'"
+            + trap_name
+            + "' on proxy: trap returned falsish for property '"
             + _key_display(machine, row["key"])
             + "'"
         )
@@ -454,11 +519,14 @@ def apply_record(machine, record):
             len(proxy_state["getMethods"]) < BOUND
             and all(row["id"] != record["id"] for row in proxy_state["getMethods"])
             and all(row["id"] != record["id"] for row in proxy_state["pending"])
-            and all(row["id"] != record["id"] for row in machine["protocol"].get("pendingCalls", [])),
+            and all(
+                row["id"] != record["id"] for row in machine["protocol"].get("pendingCalls", [])
+            ),
             "GetMethod identity or bound",
         )
         _require(
-            node and node["kind"] == "proxy"
+            node
+            and node["kind"] == "proxy"
             and _eq(node["target"], record["target"])
             and _eq(node["handler"], record["handler"]),
             "GetMethod requires live selected target and handler",
@@ -484,21 +552,23 @@ def apply_record(machine, record):
             record["child"] not in machine["frameFunctions"] and bool(machine["stack"]),
             "GetMethod getter child is not fresh",
         )
-        proxy_state["getMethods"].append({
-            "id": record["id"],
-            "phase": "selected",
-            "operation": record["operation"],
-            "parent": machine["stack"][-1],
-            "child": record["child"],
-            "object": record["object"],
-            "target": copy.deepcopy(record["target"]),
-            "handler": copy.deepcopy(record["handler"]),
-            "receiver": copy.deepcopy(record["receiver"]),
-            "key": copy.deepcopy(record["key"]),
-            "getter": copy.deepcopy(record["getter"]),
-            "rawReturn": None,
-            "method": None,
-        })
+        proxy_state["getMethods"].append(
+            {
+                "id": record["id"],
+                "phase": "selected",
+                "operation": record["operation"],
+                "parent": machine["stack"][-1],
+                "child": record["child"],
+                "object": record["object"],
+                "target": copy.deepcopy(record["target"]),
+                "handler": copy.deepcopy(record["handler"]),
+                "receiver": copy.deepcopy(record["receiver"]),
+                "key": copy.deepcopy(record["key"]),
+                "getter": copy.deepcopy(record["getter"]),
+                "rawReturn": None,
+                "method": None,
+            }
+        )
         return True
     if kind == "proxy.getMethod.finish":
         proxy_state = _state(machine)
@@ -511,13 +581,17 @@ def apply_record(machine, record):
             and machine["stack"][-1] == lookup["parent"]
             and lookup["child"] not in machine["stack"]
             and lookup["child"] in machine["frameFunctions"]
-            and all(row["id"] != lookup["id"] for row in machine["protocol"].get("pendingCalls", []))
+            and all(
+                row["id"] != lookup["id"] for row in machine["protocol"].get("pendingCalls", [])
+            )
             and returned
             and returned["kind"] in ("return", "throw"),
             "GetMethod finish lacks its exact returned getter call",
         )
-        expected = {"kind": "throw" if returned["kind"] == "throw" else "normal",
-                    "value": copy.deepcopy(returned["value"])}
+        expected = {
+            "kind": "throw" if returned["kind"] == "throw" else "normal",
+            "value": copy.deepcopy(returned["value"]),
+        }
         _require(record["completion"] == expected, "false GetMethod completion")
         if returned["kind"] == "throw":
             proxy_state["getMethods"].pop()
@@ -544,8 +618,13 @@ def apply_record(machine, record):
         return True
     if kind == "proxy.revoked.fault":
         node = machine["heap"].get(record["object"])
-        _require(node and node["kind"] == "proxy" and node["target"] == ["null"]
-                 and node["handler"] == ["null"], "revoked Proxy fault requires cleared internal slots")
+        _require(
+            node
+            and node["kind"] == "proxy"
+            and node["target"] == ["null"]
+            and node["handler"] == ["null"],
+            "revoked Proxy fault requires cleared internal slots",
+        )
         from .intrinsic_error_v8 import allocate_intrinsic_error_v8
 
         message = "Cannot perform '" + record["operation"] + "' on a proxy that has been revoked"
@@ -555,24 +634,59 @@ def apply_record(machine, record):
     if kind == "proxy.revocable":
         reserved = {row["id"] for row in machine["protocol"].get("symbols", [])}
         identities = (record["proxy"], record["revoke"], record["result"])
-        _require(all(identity not in machine["heap"] and identity not in reserved for identity in identities)
-                 and len(set(identities)) == 3, "fresh revocable Proxy identities")
+        _require(
+            all(
+                identity not in machine["heap"] and identity not in reserved
+                for identity in identities
+            )
+            and len(set(identities)) == 3,
+            "fresh revocable Proxy identities",
+        )
         _ordinary(machine, record["handler"], "Proxy handler")
-        _require(record["target"][0] == "ref" and machine["heap"].get(record["target"][1], {}).get("kind")
-                 in ("object", "array", "proxy"), "Proxy target object identity")
-        proxy_node = {"kind": "proxy", "target": copy.deepcopy(record["target"]),
-                      "handler": copy.deepcopy(record["handler"]), "properties": {}}
+        _require(
+            record["target"][0] == "ref"
+            and machine["heap"].get(record["target"][1], {}).get("kind")
+            in ("object", "array", "proxy"),
+            "Proxy target object identity",
+        )
+        proxy_node = {
+            "kind": "proxy",
+            "target": copy.deepcopy(record["target"]),
+            "handler": copy.deepcopy(record["handler"]),
+            "properties": {},
+        }
         _route(machine, proxy_node)
-        revoke_node = {"kind": "closure", "code": "Proxy.revoke:" + record["proxy"], "captures": [],
-                       "functionKind": "ordinary", "lexicalReceiver": None, "prototype": "ordinary",
-                       "properties": {"length": ["num", 0], "name": ["str", ""]},
-                       "descriptors": {"length": {"kind": "data", "writable": False,
-                           "enumerable": False, "configurable": True},
-                           "name": {"kind": "data", "writable": False,
-                           "enumerable": False, "configurable": True}},
-                       "keyOrder": ["length", "name"]}
-        result_node = {"kind": "object", "code": None, "captures": [], "prototype": "ordinary",
-                       "properties": {"proxy": ["ref", record["proxy"]], "revoke": ["ref", record["revoke"]]}}
+        revoke_node = {
+            "kind": "closure",
+            "code": "Proxy.revoke:" + record["proxy"],
+            "captures": [],
+            "functionKind": "ordinary",
+            "lexicalReceiver": None,
+            "prototype": "ordinary",
+            "properties": {"length": ["num", 0], "name": ["str", ""]},
+            "descriptors": {
+                "length": {
+                    "kind": "data",
+                    "writable": False,
+                    "enumerable": False,
+                    "configurable": True,
+                },
+                "name": {
+                    "kind": "data",
+                    "writable": False,
+                    "enumerable": False,
+                    "configurable": True,
+                },
+            },
+            "keyOrder": ["length", "name"],
+        }
+        result_node = {
+            "kind": "object",
+            "code": None,
+            "captures": [],
+            "prototype": "ordinary",
+            "properties": {"proxy": ["ref", record["proxy"]], "revoke": ["ref", record["revoke"]]},
+        }
         machine["heap"][record["proxy"]] = proxy_node
         machine["heap"][record["revoke"]] = revoke_node
         machine["heap"][record["result"]] = result_node
@@ -616,10 +730,14 @@ def apply_record(machine, record):
         _require(node and node["kind"] == "proxy", "known Proxy identity required")
         target = _retained_route(machine, row)
         owner_node = machine["heap"].get(row["owner"], {})
-        owner_revoked = owner_node.get("target") == ["null"] and owner_node.get("handler") == ["null"]
-        _require(_eq(target and ["ref", row["route"][-1]["target"][1]], row["target"])
-                 and (owner_revoked or _eq(owner_node.get("handler"), row["handler"])),
-                 "pending owner identities")
+        owner_revoked = owner_node.get("target") == ["null"] and owner_node.get("handler") == [
+            "null"
+        ]
+        _require(
+            _eq(target and ["ref", row["route"][-1]["target"][1]], row["target"])
+            and (owner_revoked or _eq(owner_node.get("handler"), row["handler"])),
+            "pending owner identities",
+        )
         _protocol()._known(machine, row["receiver"])
         _require(_eq(row["receiver"], ["ref", row["object"]]), "original receiver differs")
         fault = _invariant_fault(machine, row, returned)
@@ -637,7 +755,10 @@ def apply_record(machine, record):
             operation = row["operation"]
             truthy = _truthy(returned["value"])
             if operation == "set":
-                _require(truthy or not row["strict"], "strict false Proxy set trap needs its caller fault")
+                _require(
+                    truthy or not row["strict"],
+                    "strict false Proxy set trap needs its caller fault",
+                )
             result = (
                 ["bool", truthy]
                 if operation in ("has", "delete")
@@ -656,8 +777,11 @@ def apply_record(machine, record):
     proxy_state = _state(machine)
     lookup = next(
         (
-            row for row in proxy_state["getMethods"]
-            if operation == "has" and isinstance(record.get("id"), str) and row["id"] == record["id"]
+            row
+            for row in proxy_state["getMethods"]
+            if operation == "has"
+            and isinstance(record.get("id"), str)
+            and row["id"] == record["id"]
         ),
         None,
     )
@@ -673,22 +797,38 @@ def apply_record(machine, record):
         )
         proxy_node = machine["heap"].get(lookup["object"])
         _require(
-            proxy_node and proxy_node["kind"] == "proxy" and (
-                proxy_node["target"] == ["null"] and proxy_node["handler"] == ["null"]
+            proxy_node
+            and proxy_node["kind"] == "proxy"
+            and (
+                proxy_node["target"] == ["null"]
+                and proxy_node["handler"] == ["null"]
                 or _eq(proxy_node["target"], lookup["target"])
                 and _eq(proxy_node["handler"], lookup["handler"])
             ),
             "GetMethod lost retained target or handler",
         )
-        route = [{"object": lookup["object"], "target": copy.deepcopy(lookup["target"]),
-                  "handler": copy.deepcopy(lookup["handler"]), "method": copy.deepcopy(lookup["method"])}]
-        derived = {"route": route, "owner": lookup["object"], "target": copy.deepcopy(lookup["target"]),
-                   "selected": copy.deepcopy(lookup["method"]), "terminal": machine["heap"].get(lookup["target"][1])}
+        route = [
+            {
+                "object": lookup["object"],
+                "target": copy.deepcopy(lookup["target"]),
+                "handler": copy.deepcopy(lookup["handler"]),
+                "method": copy.deepcopy(lookup["method"]),
+            }
+        ]
+        derived = {
+            "route": route,
+            "owner": lookup["object"],
+            "target": copy.deepcopy(lookup["target"]),
+            "selected": copy.deepcopy(lookup["method"]),
+            "terminal": machine["heap"].get(lookup["target"][1]),
+        }
     else:
         if kind == "proxy.has" and "id" in record:
             _require(False, "GetMethod identity is not retained")
         derived = _derive_route(machine, record["object"], operation)
-    _require(_eq(record["route"], derived["route"]), "operation route differs from live entry lookup")
+    _require(
+        _eq(record["route"], derived["route"]), "operation route differs from live entry lookup"
+    )
     method = derived["selected"]
     target_ref = derived["target"]
     handler_ref = derived.get("handler", derived["route"][-1]["handler"])
@@ -699,7 +839,8 @@ def apply_record(machine, record):
             "pending call identity or bound",
         )
         _require(
-            record["owner"] == derived["owner"] and _eq(record["receiver"], ["ref", record["object"]]),
+            record["owner"] == derived["owner"]
+            and _eq(record["receiver"], ["ref", record["object"]]),
             "original receiver or trap owner differs",
         )
         _require(
@@ -779,7 +920,10 @@ def apply_record(machine, record):
                     and selected["value"][0] in ("undefined", "null"),
                     "transparent set requires explicit receiver descriptor/definition traps",
                 )
-        _require(len(derived["route"]) == 1, "nested transparent set receiver methods need their continuation")
+        _require(
+            len(derived["route"]) == 1,
+            "nested transparent set receiver methods need their continuation",
+        )
         target = p._node(machine, target_ref[1])
         key = p._key(record["key"])
         _, descriptor = p._lookup_descriptor(machine, target_ref[1], key, for_set=True)
@@ -855,8 +999,11 @@ def validate_state(machine):
         _require(
             node
             and node["kind"] == "proxy"
-            and ((node["target"] == ["null"] and node["handler"] == ["null"])
-                 or node["target"] == row["target"] and node["handler"] == row["handler"]),
+            and (
+                (node["target"] == ["null"] and node["handler"] == ["null"])
+                or node["target"] == row["target"]
+                and node["handler"] == row["handler"]
+            ),
             "target/handler identity",
         )
         _retained_route(machine, row)
@@ -911,20 +1058,41 @@ def validate_state(machine):
                 "finished callback owner",
             )
     for lookup in state["getMethods"]:
-        _protocol()._exact(lookup, {"id", "phase", "operation", "parent", "child", "object",
-            "target", "handler", "receiver", "key", "getter", "rawReturn", "method"}, "Proxy GetMethod call")
+        _protocol()._exact(
+            lookup,
+            {
+                "id",
+                "phase",
+                "operation",
+                "parent",
+                "child",
+                "object",
+                "target",
+                "handler",
+                "receiver",
+                "key",
+                "getter",
+                "rawReturn",
+                "method",
+            },
+            "Proxy GetMethod call",
+        )
         for name in ("id", "parent", "child", "object"):
             _id(lookup[name])
         _require(
-            lookup["id"] not in seen and lookup["operation"] == "has"
+            lookup["id"] not in seen
+            and lookup["operation"] == "has"
             and lookup["phase"] in ("selected", "returned"),
             "GetMethod identity or phase",
         )
         seen.add(lookup["id"])
         proxy_node = machine["heap"].get(lookup["object"])
         _require(
-            proxy_node and proxy_node["kind"] == "proxy" and (
-                proxy_node["target"] == ["null"] and proxy_node["handler"] == ["null"]
+            proxy_node
+            and proxy_node["kind"] == "proxy"
+            and (
+                proxy_node["target"] == ["null"]
+                and proxy_node["handler"] == ["null"]
                 or _eq(proxy_node["target"], lookup["target"])
                 and _eq(proxy_node["handler"], lookup["handler"])
             ),
@@ -945,7 +1113,11 @@ def validate_state(machine):
             "GetMethod getter source identity",
         )
         property_call = next(
-            (row for row in machine["protocol"].get("pendingCalls", []) if row["id"] == lookup["id"]),
+            (
+                row
+                for row in machine["protocol"].get("pendingCalls", [])
+                if row["id"] == lookup["id"]
+            ),
             None,
         )
         child_active = lookup["child"] in machine["frameFunctions"]
@@ -956,15 +1128,18 @@ def validate_state(machine):
                 "GetMethod begin requires live target/handler slots",
             )
             _require(
-                lookup["phase"] == "selected" and property_call is None
+                lookup["phase"] == "selected"
+                and property_call is None
                 and lookup["child"] not in machine["stack"]
                 and machine["stack"][-1] == lookup["parent"]
-                and lookup["rawReturn"] is None and lookup["method"] is None,
+                and lookup["rawReturn"] is None
+                and lookup["method"] is None,
                 "GetMethod is not awaiting its exact getter call",
             )
             descriptor = _protocol()._descriptor(handler, _protocol()._key(["str", "has"]))
             _require(
-                descriptor and descriptor["kind"] == "accessor"
+                descriptor
+                and descriptor["kind"] == "accessor"
                 and _eq(descriptor["get"], lookup["getter"]),
                 "GetMethod selected accessor differs from live handler getter",
             )
@@ -975,6 +1150,7 @@ def validate_state(machine):
             "GetMethod getter invocation source differs",
         )
         from .construction_v8 import _lexical_receiver
+
         receiver = _lexical_receiver(machine, getter, lookup["receiver"])
         _require(
             machine["locals"].get(lookup["child"] + ":this") == receiver,
@@ -982,8 +1158,10 @@ def validate_state(machine):
         )
         if property_call:
             _require(
-                lookup["phase"] == "selected" and lookup["rawReturn"] is None
-                and lookup["method"] is None and property_call["operation"] == "get"
+                lookup["phase"] == "selected"
+                and lookup["rawReturn"] is None
+                and lookup["method"] is None
+                and property_call["operation"] == "get"
                 and property_call["child"] == lookup["child"]
                 and property_call["object"] == lookup["handler"][1]
                 and property_call["key"] == ["str", "has"]
@@ -994,8 +1172,11 @@ def validate_state(machine):
                 "GetMethod differs from its shared property getter call",
             )
             frame = next(
-                (frame for frame in machine["protocol"].get("callFrames", [])
-                 if frame["child"] == lookup["child"]),
+                (
+                    frame
+                    for frame in machine["protocol"].get("callFrames", [])
+                    if frame["child"] == lookup["child"]
+                ),
                 None,
             )
             if frame:
@@ -1007,7 +1188,8 @@ def validate_state(machine):
                 )
             if lookup["child"] in machine["stack"]:
                 _require(
-                    machine["stack"].index(lookup["child"]) > machine["stack"].index(lookup["parent"]),
+                    machine["stack"].index(lookup["child"])
+                    > machine["stack"].index(lookup["parent"]),
                     "GetMethod getter stack order",
                 )
             else:
@@ -1021,7 +1203,8 @@ def validate_state(machine):
                 lookup["child"] not in machine["stack"]
                 and machine["stack"][-1] == lookup["parent"]
                 and machine.get("lastReturn", {}).get("kind") in ("return", "throw")
-                and lookup["rawReturn"] is None and lookup["method"] is None,
+                and lookup["rawReturn"] is None
+                and lookup["method"] is None,
                 "GetMethod property completion is not retained",
             )
         else:

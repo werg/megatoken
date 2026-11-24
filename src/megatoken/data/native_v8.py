@@ -2173,7 +2173,9 @@ def _apply_detail(
             job = _job_rows(state.get("jobs", [])).get(active)
             root = next(iter(dict(state.get("frameFunctions", [])).keys()), None)
             callback = selected_callback(job)
-            frame = state["protocol"]["callFrames"][-1] if state["protocol"].get("callFrames") else None
+            frame = (
+                state["protocol"]["callFrames"][-1] if state["protocol"].get("callFrames") else None
+            )
             if (
                 not job
                 or job.get("status") != "running"
