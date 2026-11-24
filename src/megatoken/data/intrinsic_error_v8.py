@@ -4,6 +4,8 @@ from __future__ import annotations
 
 import copy
 
+from .semantic_json import _js_string_length
+
 ERROR_TYPES = frozenset(
     ("Error", "EvalError", "RangeError", "ReferenceError", "SyntaxError", "TypeError", "URIError")
 )
@@ -20,9 +22,14 @@ def _protocol():
 def allocate_intrinsic_error_v8(machine, identity, error_type, message):
     """Private allocator; callers must derive their operation's failure first."""
     p = _protocol()
-    if not isinstance(identity, str) or not identity or len(identity) > 256:
+    if not isinstance(identity, str) or not identity or _js_string_length(identity) > 256:
         p._fail("intrinsic error identity")
-    if error_type not in ERROR_TYPES or not isinstance(message, str) or len(message) > 4096:
+    if (
+        not isinstance(error_type, str)
+        or error_type not in ERROR_TYPES
+        or not isinstance(message, str)
+        or _js_string_length(message) > 4096
+    ):
         p._fail("intrinsic error type or message")
     record = {
         "kind": "allocate",
@@ -61,7 +68,11 @@ def validate_record(record):
         p._fail("unsupported property fault operation")
     for name in ("target", "key"):
         p.validate_protocol_value(record[name])
-    if not isinstance(record["error"], str) or not record["error"] or len(record["error"]) > 256:
+    if (
+        not isinstance(record["error"], str)
+        or not record["error"]
+        or _js_string_length(record["error"]) > 256
+    ):
         p._fail("property fault identity")
     return True
 
@@ -83,6 +94,8 @@ def apply_record(machine, record):
 
 def validate_error_node(node):
     if "declaredError" in node and (
-        node.get("kind") != "object" or node["declaredError"] not in ERROR_TYPES
+        node.get("kind") != "object"
+        or not isinstance(node["declaredError"], str)
+        or node["declaredError"] not in ERROR_TYPES
     ):
         _protocol()._fail("intrinsic error brand")

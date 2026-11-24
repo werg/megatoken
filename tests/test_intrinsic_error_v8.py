@@ -104,10 +104,36 @@ class IntrinsicErrorTests(unittest.TestCase):
         )
         self.assertEqual(dict(state["heap"])["fault"]["declaredError"], "TypeError")
         validate_protocol_state(state["protocol"], state["heap"], state)
-        forged = copy.deepcopy(state)
-        dict(forged["heap"])["fault"]["declaredError"] = "InventedError"
-        with self.assertRaises(ProtocolV8Error):
-            validate_protocol_state(forged["protocol"], forged["heap"], forged)
+        for brand in ("InventedError", {}, [], None, False):
+            forged = copy.deepcopy(state)
+            dict(forged["heap"])["fault"]["declaredError"] = brand
+            with self.assertRaises(ProtocolV8Error):
+                validate_protocol_state(forged["protocol"], forged["heap"], forged)
+
+    def test_error_identity_and_message_bounds_match_javascript_utf16_units(self):
+        from megatoken.data.intrinsic_error_v8 import allocate_intrinsic_error_v8
+        from megatoken.data.protocol_v8 import _internal_machine
+
+        state = base_state()
+        record = {
+            "kind": "property.fault",
+            "operation": "has",
+            "target": ["null"],
+            "key": ["str", "x"],
+            "error": "🚀" * 128,
+        }
+        step(state, record)
+        before = copy.deepcopy(state)
+        with self.assertRaisesRegex(ProtocolV8Error, "identity"):
+            step(state, {**record, "error": "🚀" * 129})
+        self.assertEqual(state, before)
+        machine = _internal_machine(state)
+        before = copy.deepcopy(machine)
+        with self.assertRaisesRegex(ProtocolV8Error, "message"):
+            allocate_intrinsic_error_v8(machine, "error", "TypeError", "🚀" * 2049)
+        self.assertEqual(machine, before)
+        allocate_intrinsic_error_v8(machine, "error", "TypeError", "🚀" * 2048)
+        self.assertEqual(machine["heap"]["error"]["declaredError"], "TypeError")
 
 
 class ConversionErrorMutationTests(unittest.TestCase):
