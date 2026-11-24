@@ -12,7 +12,9 @@ FIELDS = {
     "iterator.read": {"kind", "object", "key", "result"},
     "iterator.arrayGuard": {"kind", "iterated", "result"},
 }
-KINDS = {"values", "keys", "entries", "string"}
+ARRAY_KINDS = {"values", "keys", "entries"}
+COLLECTION_KINDS = {"set-values", "set-keys", "set-entries", "map-keys", "map-values", "map-entries"}
+KINDS = ARRAY_KINDS | COLLECTION_KINDS | {"string"}
 METHODS = {
     "Array.prototype.values",
     "Array.prototype.keys",
@@ -20,8 +22,14 @@ METHODS = {
     "String.prototype.iterator",
     "Iterator.next",
     "Iterator.identity",
+    "Set.prototype.values",
+    "Set.prototype.keys",
+    "Set.prototype.entries",
+    "Map.prototype.keys",
+    "Map.prototype.values",
+    "Map.prototype.entries",
 }
-BOUND = 4096
+BOUND = 10000
 
 
 def _fail(message):
@@ -133,6 +141,16 @@ def _selected_method(machine, receiver, key):
             return "Array.prototype." + key[1]
         _fail("unsupported array iterator lookup")
     node = machine["heap"].get(receiver[1])
+    if node and node.get("kind") in ("set", "map"):
+        kind = node["kind"]
+        allowed = ("values", "keys", "entries") if kind == "set" else ("keys", "values", "entries")
+        if key == ["symbol", "well-known:iterator"]:
+            return "Set.prototype.values" if kind == "set" else "Map.prototype.entries"
+        if key[0] == "str" and key[1] in allowed:
+            if kind == "set" and key[1] == "keys":
+                return "Set.prototype.values"
+            return ("Set" if kind == "set" else "Map") + ".prototype." + key[1]
+        _fail(kind + " iterator lookup key")
     if node and node.get("kind") == "iterator":
         if key == ["str", "next"]:
             return "Iterator.next"
@@ -218,10 +236,23 @@ def apply_record(machine, record):
         if record["iterationKind"] == "string":
             if record["iterated"][0] != "str" or len(_utf16_units(record["iterated"][1])) > BOUND:
                 _fail("bounded primitive string iterator")
-        else:
+        elif record["iterationKind"] in ARRAY_KINDS:
             if record["iterated"][0] != "ref":
                 _fail("array iterator source")
             _array_length(machine, record["iterated"][1])
+        else:
+            if record["iterated"][0] != "ref":
+                _fail("collection iterator source")
+            collection = machine["heap"].get(record["iterated"][1])
+            expected_kind = record["iterationKind"].split("-", 1)[0]
+            if (
+                expected_kind not in ("set", "map")
+                or not collection
+                or collection.get("kind") != expected_kind
+                or not isinstance(collection.get("entries"), list)
+                or len(collection["entries"]) > BOUND
+            ):
+                _fail("collection iterator kind/registry")
         machine["heap"][record["name"]] = {
             "kind": "iterator",
             "iterated": copy.deepcopy(record["iterated"]),
@@ -241,9 +272,12 @@ def apply_record(machine, record):
             _key(record["key"])
             expected = ["undefined"]
             if record["key"] == ["symbol", "well-known:toStringTag"]:
+                iterator_kind = node["iterationKind"]
                 expected = [
                     "str",
-                    "String Iterator" if node["iterationKind"] == "string" else "Array Iterator",
+                    "String Iterator" if iterator_kind == "string" else
+                    "Set Iterator" if iterator_kind.startswith("set-") else
+                    "Map Iterator" if iterator_kind.startswith("map-") else "Array Iterator",
                 ]
             elif (
                 record["key"][0] == "str"
@@ -274,7 +308,7 @@ def apply_record(machine, record):
                         )
                         value = ["str", _utf16_slice(units, index, width)]
                         node["nextIndex"] += width
-                else:
+                elif node["iterationKind"] in ARRAY_KINDS:
                     length = _array_length(machine, node["iterated"][1])
                     if index >= length:
                         node["done"] = True
@@ -301,7 +335,46 @@ def apply_record(machine, record):
                                 },
                             )
                             value = ["ref", record["entry"]]
-            if record["entry"] is not None and (node["iterationKind"] != "entries" or node["done"]):
+                else:
+                    collection = machine["heap"].get(node["iterated"][1])
+                    entries = collection.get("entries") if collection else None
+                    if not isinstance(entries, list):
+                        _fail("collection iterator source")
+                    position = index
+                    while position < len(entries) and entries[position] is None:
+                        position += 1
+                    if position >= len(entries):
+                        node["nextIndex"] = position
+                        node["done"] = True
+                    else:
+                        raw = entries[position]
+                        node["nextIndex"] = position + 1
+                        if node["iterationKind"] in ("set-values", "set-keys"):
+                            value = copy.deepcopy(raw)
+                        elif node["iterationKind"] == "map-keys":
+                            value = copy.deepcopy(raw[0])
+                        elif node["iterationKind"] == "map-values":
+                            value = copy.deepcopy(raw[1])
+                        else:
+                            pair_values = [copy.deepcopy(raw), copy.deepcopy(raw)] if node["iterationKind"] == "set-entries" else [copy.deepcopy(raw[0]), copy.deepcopy(raw[1])]
+                            if record["entry"] is None:
+                                _fail("collection entries iterator requires pair allocation")
+                            _allocate(
+                                machine,
+                                {
+                                    "name": record["entry"],
+                                    "objectKind": "array",
+                                    "length": 2,
+                                    "properties": [
+                                        {"key": ["str", "0"], "value": pair_values[0]},
+                                        {"key": ["str", "1"], "value": pair_values[1]},
+                                    ],
+                                },
+                            )
+                            value = ["ref", record["entry"]]
+            if record["entry"] is not None and (
+                node["done"] or node["iterationKind"] not in COLLECTION_KINDS | {"entries"}
+            ):
                 _fail("unexpected iterator entry identity")
             if record["done"] != node["done"] or record["result"] != value:
                 _fail("false iterator next result")
@@ -354,8 +427,23 @@ def validate_state(machine):
                 _fail("surrogate-splitting iterator cursor")
             if node["done"] and index != len(units):
                 _fail("completed string cursor")
-        elif node["iterated"][0] != "ref" or node["iterated"][1] == identity:
-            _fail("array iterator source identity")
+        elif node["iterationKind"] in ARRAY_KINDS:
+            if node["iterated"][0] != "ref" or node["iterated"][1] == identity:
+                _fail("array iterator source identity")
+            size = _array_length(machine, node["iterated"][1])
+            if node["nextIndex"] > size:
+                _fail("array iterator cursor")
         else:
-            _array_length(machine, node["iterated"][1])
+            if node["iterated"][0] != "ref" or node["iterated"][1] == identity:
+                _fail("collection iterator source identity")
+            collection = machine["heap"].get(node["iterated"][1])
+            expected_kind = node["iterationKind"].split("-", 1)[0]
+            if (
+                expected_kind not in ("set", "map")
+                or not collection
+                or collection.get("kind") != expected_kind
+                or not isinstance(collection.get("entries"), list)
+                or node["nextIndex"] > len(collection["entries"])
+            ):
+                _fail("collection iterator cursor")
     return {"valid": True, "iterators": count}
