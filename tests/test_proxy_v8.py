@@ -570,5 +570,48 @@ class ProxyPresenceDeletionTests(unittest.TestCase):
                 self.assertEqual(candidate, before)
 
 
+class ProxyFaultTests(unittest.TestCase):
+    begin = ProxyPresenceDeletionTests.begin
+
+    def test_fault_is_derived_and_allocates_exact_fresh_identity(self):
+        for operation, returned in (("has", ["bool", False]), ("delete", ["bool", True])):
+            state = self.begin(operation)
+            step(state, {"kind": "property.preventExtensions", "object": "target"})
+            step(state, {"kind": "return", "invocation": "callback", "value": returned})
+            before = copy.deepcopy(state)
+            for error, identity in (
+                ("target", "operation"),
+                ("fault", "forged"),
+                ("well-known:iterator", "operation"),
+            ):
+                with self.assertRaises(ProtocolV8Error):
+                    step(state, {"kind": "proxy.fault", "id": identity, "error": error})
+                self.assertEqual(state, before)
+            step(state, {"kind": "proxy.fault", "id": "operation", "error": "fault"})
+            self.assertEqual(state["lastReturn"], {"kind": "throw", "value": REF("fault")})
+            self.assertEqual(state["protocol"]["proxyCalls"]["pending"], [])
+            self.assertFalse(dict(state["heap"])["target"]["extensible"])
+            error = dict(state["heap"])["fault"]
+            self.assertEqual(error["declaredError"], "TypeError")
+            self.assertEqual(dict(error["properties"])["name"], ["str", "TypeError"])
+            validate_protocol_state(state["protocol"], state["heap"], state)
+
+    def test_no_fault_can_replace_success_or_a_guest_thrown_identity(self):
+        for returned, thrown in ((["bool", True], False), (REF("target"), True)):
+            state = self.begin("has")
+            step(
+                state,
+                {
+                    "kind": "throw" if thrown else "return",
+                    "invocation": "callback",
+                    "value": returned,
+                },
+            )
+            before = copy.deepcopy(state)
+            with self.assertRaisesRegex(ProtocolV8Error, "derived"):
+                step(state, {"kind": "proxy.fault", "id": "operation", "error": "invented"})
+            self.assertEqual(state, before)
+
+
 if __name__ == "__main__":
     unittest.main()

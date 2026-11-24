@@ -37,6 +37,7 @@ FIELDS = {
     "proxy.has.call": {"kind", "id", "object", "key", "child"},
     "proxy.delete.call": {"kind", "id", "object", "key", "child"},
     "proxy.finish": {"kind", "id", "completion"},
+    "proxy.fault": {"kind", "id", "error"},
 }
 HEAP_FIELDS = {"kind", "target", "handler", "properties"}
 CALL_FIELDS = {
@@ -78,6 +79,9 @@ def validate_record(record):
         _id(record["name"])
         p.validate_protocol_value(record["target"])
         p.validate_protocol_value(record["handler"])
+    elif kind == "proxy.fault":
+        _id(record["id"])
+        _id(record["error"])
     elif kind == "proxy.finish":
         _id(record["id"])
         completion = record["completion"]
@@ -183,7 +187,8 @@ def assert_next(machine, record):
     pending = (machine.get("protocol", {}).get("proxyCalls") or {}).get("pending", [])
     if pending and pending[-1]["child"] not in machine["stack"]:
         _require(
-            record["kind"] == "proxy.finish" and record.get("id") == pending[-1]["id"],
+            record["kind"] in ("proxy.finish", "proxy.fault")
+            and record.get("id") == pending[-1]["id"],
             "pending callback requires its finish",
         )
     return True
@@ -192,6 +197,39 @@ def assert_next(machine, record):
 def _require(condition, message):
     if not condition:
         _fail(message)
+
+
+def _invariant_fault(machine, row, returned):
+    if returned["kind"] != "return":
+        return None
+    p = _protocol()
+    target = p._node(machine, row["target"][1])
+    descriptor = p._descriptor(target, p._key(row["key"]))
+    if not descriptor:
+        return None
+    operation, value = row["operation"], returned["value"]
+    truth = _truthy(value)
+    restricted = not descriptor["configurable"] or not target.get("extensible", True)
+    if operation == "has" and not truth and restricted:
+        return "Proxy has trap contradicted target property existence"
+    if operation == "delete" and truth and restricted:
+        return "Proxy deleteProperty trap contradicted target property invariants"
+    if operation in ("get", "set") and not descriptor["configurable"]:
+        if operation == "set" and not truth:
+            return None  # Caller strictness is a separate operation.
+        if descriptor["kind"] == "data" and not descriptor["writable"]:
+            if not _eq(descriptor["value"], value if operation == "get" else row["value"]):
+                return (
+                    "Proxy "
+                    + operation
+                    + " trap contradicted a non-configurable, non-writable target property"
+                )
+        elif descriptor["kind"] == "accessor" and descriptor[operation] == ["undefined"]:
+            if operation == "set" or value != ["undefined"]:
+                return (
+                    "Proxy " + operation + " trap contradicted a non-configurable target accessor"
+                )
+    return None
 
 
 def apply_record(machine, record):
@@ -220,7 +258,7 @@ def apply_record(machine, record):
         machine["heap"][record["name"]] = node
         _state(machine)
         return True
-    if kind == "proxy.finish":
+    if kind in ("proxy.finish", "proxy.fault"):
         pending = _state(machine)["pending"]
         returned = machine.get("lastReturn")
         _require(
@@ -236,42 +274,29 @@ def apply_record(machine, record):
         node = machine["heap"].get(row["object"])
         _require(node and node["kind"] == "proxy", "known Proxy identity required")
         _route(machine, node)
+        fault = _invariant_fault(machine, row, returned)
+        if kind == "proxy.fault":
+            _require(fault is not None, "Proxy fault requires a derived target invariant violation")
+            from .intrinsic_error_v8 import allocate_intrinsic_error_v8
+
+            value = allocate_intrinsic_error_v8(machine, record["error"], "TypeError", fault)
+            pending.pop()
+            machine["lastReturn"] = {"kind": "throw", "value": copy.deepcopy(value)}
+            return True
+        _require(fault is None, "Proxy trap violates target invariant; fault required")
         expected = {"kind": "throw", "value": copy.deepcopy(returned["value"])}
         if returned["kind"] == "return":
             operation = row["operation"]
             truthy = _truthy(returned["value"])
             if operation == "set":
                 _require(truthy, "false Proxy set trap needs abrupt completion")
-            target = p._node(machine, row["target"][1])
-            descriptor = p._descriptor(target, p._key(row["key"]))
-            if operation in ("has", "delete"):
-                checks_target = not truthy if operation == "has" else truthy
-                if checks_target and descriptor:
-                    _require(
-                        descriptor["configurable"] and target.get("extensible", True),
-                        "Proxy " + operation + " trap violates target invariant",
-                    )
-                result = ["bool", truthy]
-            else:
-                if descriptor and not descriptor["configurable"]:
-                    if descriptor["kind"] == "data" and not descriptor["writable"]:
-                        trapped = returned["value"] if operation == "get" else row["value"]
-                        _require(
-                            _eq(descriptor["value"], trapped),
-                            "Proxy trap violates frozen target data invariant",
-                        )
-                    elif descriptor["kind"] == "accessor":
-                        _require(
-                            operation == "get"
-                            and (
-                                descriptor["get"] != ["undefined"]
-                                or returned["value"] == ["undefined"]
-                            )
-                            or operation == "set"
-                            and descriptor["set"] != ["undefined"],
-                            "Proxy trap violates target accessor invariant",
-                        )
-                result = returned["value"] if operation == "get" else row["value"]
+            result = (
+                ["bool", truthy]
+                if operation in ("has", "delete")
+                else returned["value"]
+                if operation == "get"
+                else row["value"]
+            )
             expected = {"kind": "normal", "value": copy.deepcopy(result)}
         _require(record["completion"] == expected, "false Proxy callback completion")
         pending.pop()

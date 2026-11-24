@@ -30,6 +30,10 @@ from .generator_v8 import apply_record as apply_generator_record
 from .generator_v8 import assert_next as assert_generator_next
 from .generator_v8 import validate_record as validate_generator_record
 from .generator_v8 import validate_state as validate_generator_state
+from .intrinsic_error_v8 import FIELDS as INTRINSIC_ERROR_FIELDS
+from .intrinsic_error_v8 import apply_record as apply_intrinsic_error_record
+from .intrinsic_error_v8 import validate_error_node
+from .intrinsic_error_v8 import validate_record as validate_intrinsic_error_record
 from .iterator_v8 import FIELDS as ITERATOR_FIELDS
 from .iterator_v8 import apply_record as apply_iterator_record
 from .iterator_v8 import validate_record as validate_iterator_record
@@ -153,6 +157,7 @@ class ProtocolV8Error(ValueError):
     pass
 
 
+FIELDS.update(INTRINSIC_ERROR_FIELDS)
 FIELDS.update(CONSTRUCTION_FIELDS)
 FIELDS.update(MEMORY_FIELDS)
 FIELDS.update(ITERATOR_FIELDS)
@@ -283,6 +288,8 @@ def _expression(term, depth=0, budget=None):
 def validate_protocol_record(record):
     if type(record) is not dict or not isinstance(record.get("kind"), str):
         _fail("record kind must be a string")
+    if record["kind"] in INTRINSIC_ERROR_FIELDS:
+        return validate_intrinsic_error_record(record)
     if record["kind"] in MODULE_SCHEDULER_FIELDS:
         return validate_module_scheduler_record(record)
     if record["kind"] in ASYNC_CALL_FIELDS:
@@ -1030,6 +1037,10 @@ def _apply(machine, record):
         assert_promise_join_next(machine, record)
     if p.get("construction") is not None:
         assert_construction_next(machine, record)
+    if kind in INTRINSIC_ERROR_FIELDS:
+        if not apply_intrinsic_error_record(machine, record):
+            _fail("unsupported intrinsic error transition")
+        return
     if kind in MEMORY_FIELDS:
         if not apply_memory_record(machine, record):
             _fail("unsupported binary-memory transition")
@@ -1815,6 +1826,7 @@ def validate_protocol_state(snapshot, heap_ids=(), shared_state=None):
         for identity, node in heap_nodes.items():
             if not isinstance(node, dict):
                 continue
+            validate_error_node(node)
             if len(set(node.get("properties", {})) | set(node.get("descriptors", {}))) > 4096:
                 _fail("own property bound")
             if "keyOrder" in node:
