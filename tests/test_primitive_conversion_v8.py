@@ -5,6 +5,7 @@ import subprocess
 import unittest
 
 from megatoken.data import primitive_conversion_v8 as conversion
+from megatoken.data.promise_object_v8 import intrinsic_id
 from megatoken.data.protocol_v8 import (
     ProtocolV8Error,
     _external_machine,
@@ -547,9 +548,21 @@ class PrimitiveConversionTests(unittest.TestCase):
             with self.assertRaises(ProtocolV8Error):
                 conversion.validate_state(malformed)
             apply(state, {"kind": "conversion.fault", "id": "convert", "error": "error"})
+            error = state["heap"]["error"]
             self.assertEqual(
-                state["heap"]["error"]["properties"],
-                {"name": ["str", "TypeError"], "message": ["str", conversion.FAULTS[cause]]},
+                error["properties"],
+                {"message": ["str", conversion.FAULTS[cause]]},
+            )
+            self.assertEqual(error["prototype"], ["ref", intrinsic_id("TypeError.prototype")])
+            apply(
+                state,
+                {
+                    "kind": "property.get",
+                    "object": "error",
+                    "key": ["str", "name"],
+                    "receiver": ["ref", "error"],
+                    "result": ["str", "TypeError"],
+                },
             )
             apply(state, define("error", ["str", "message"], ["str", "changed by catch"]))
             self.assertTrue(conversion.validate_state(state))
