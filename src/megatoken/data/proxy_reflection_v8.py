@@ -4,10 +4,18 @@ from __future__ import annotations
 
 import copy
 
+from .proxy_reflection_descriptors_v8 import describe_result, materialize_result
 from .proxy_v8 import _derive_route, _eq, _id, _retained_route, _truthy
 
 SCHEMA = "semantic-proxy-reflection/1"
-OPERATIONS = ("getPrototypeOf", "setPrototypeOf", "isExtensible", "preventExtensions")
+OPERATIONS = (
+    "getPrototypeOf",
+    "setPrototypeOf",
+    "isExtensible",
+    "preventExtensions",
+    "getOwnPropertyDescriptor",
+    "ownKeys",
+)
 FIELDS = {
     "proxy.reflect.call": {
         "kind",
@@ -77,12 +85,18 @@ def validate_record(record):
     operation = record["operation"]
     _require(
         operation in OPERATIONS
-        and record["caller"] in ("Object." + operation, "Reflect." + operation),
+        and record["caller"]
+        in (
+            ("Reflect.ownKeys",)
+            if operation == "ownKeys"
+            else ("Object." + operation, "Reflect." + operation)
+        ),
         "operation/caller",
     )
     _require(
         type(record["arguments"]) is list
-        and len(record["arguments"]) == (1 if operation == "setPrototypeOf" else 0),
+        and len(record["arguments"])
+        == (1 if operation in ("setPrototypeOf", "getOwnPropertyDescriptor") else 0),
         "argument count",
     )
     for value in record["arguments"]:
@@ -127,11 +141,15 @@ def _prototype(machine, node):
 def _arguments(machine, row):
     for value in row["arguments"]:
         _p()._known(machine, value)
+    if row["operation"] == "getOwnPropertyDescriptor":
+        _p().validate_protocol_key(row["arguments"][0])
     if row["operation"] == "setPrototypeOf":
         _require(row["arguments"][0][0] in ("ref", "null"), "prototype must be object or null")
 
 
 def _fault(machine, row, value):
+    if row["operation"] in ("getOwnPropertyDescriptor", "ownKeys"):
+        return describe_result(machine, row, value).get("fault")
     target = _ordinary(machine, row["target"])
     extensible, truth = target.get("extensible", True), _truthy(value)
     operation = row["operation"]
@@ -170,6 +188,8 @@ def _normal(row, value):
 
 
 def _direct(machine, row, target):
+    if row["operation"] in ("getOwnPropertyDescriptor", "ownKeys"):
+        return materialize_result(machine, row, None, row["result"], True)
     operation = row["operation"]
     if operation == "getPrototypeOf":
         return _prototype(machine, target)
@@ -246,6 +266,10 @@ def apply_record(machine, record):
                 "kind": "throw" if completion["kind"] == "throw" else "normal",
                 "value": completion["value"]
                 if completion["kind"] == "throw"
+                else materialize_result(
+                    machine, row, completion["value"], record["completion"]["value"]
+                )
+                if row["operation"] in ("getOwnPropertyDescriptor", "ownKeys")
                 else _normal(row, completion["value"]),
             }
             _require(_eq(record["completion"], expected), "false completion")

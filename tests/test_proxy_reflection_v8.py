@@ -207,3 +207,111 @@ def test_thrown_identity_suppresses_normal_invariant():
     call(state, "getPrototypeOf")
     returned(state, ref("other"), "throw")
     finish(state, ref("other"), "throw")
+
+
+def allocate_data(state, name, fields, array=False):
+    step(
+        state,
+        {
+            "kind": "allocate",
+            "name": name,
+            "objectKind": "array" if array else "object",
+            "length": len(fields) if array else None,
+            "properties": [{"key": ["str", str(key)], "value": value} for key, value in fields],
+            "code": None,
+            "captures": [],
+            "functionKind": None,
+            "lexicalReceiver": None,
+        },
+    )
+
+
+def test_descriptor_result_is_fresh_and_completed_with_defaults():
+    state = base("getOwnPropertyDescriptor")
+    call(state, "getOwnPropertyDescriptor", arguments=[["str", "x"]])
+    allocate_data(state, "raw", [("value", ["num", 7]), ("configurable", ["bool", True])])
+    returned(state, ref("raw"))
+    before = copy.deepcopy(state)
+    with pytest.raises(ProtocolV8Error):
+        finish(state, ref("raw"))
+    assert state == before
+    finish(state, ref("output"))
+    properties = dict(dict(state["heap"])["output"]["properties"])
+    assert properties == {
+        "value": ["num", 7],
+        "writable": ["bool", False],
+        "enumerable": ["bool", False],
+        "configurable": ["bool", True],
+    }
+
+
+def test_ownkeys_preserves_trap_order_and_requires_fixed_keys():
+    state = base("ownKeys")
+    step(
+        state,
+        {
+            "kind": "property.define",
+            "object": "target",
+            "key": ["str", "x"],
+            "descriptor": {
+                "kind": "data",
+                "value": ["num", 1],
+                "writable": False,
+                "enumerable": False,
+                "configurable": False,
+            },
+            "success": True,
+        },
+    )
+    call(state, "ownKeys")
+    allocate_data(state, "raw", [(0, ["str", "extra"]), (1, ["str", "x"])], array=True)
+    returned(state, ref("raw"))
+    finish(state, ref("output"))
+    assert dict(dict(state["heap"])["output"]["properties"]) == {
+        "length": ["num", 2],
+        "0": ["str", "extra"],
+        "1": ["str", "x"],
+    }
+
+
+@pytest.mark.parametrize(
+    "fields,message",
+    [
+        (
+            [(0, ["str", "x"]), (1, ["str", "x"])],
+            "'ownKeys' on proxy: trap returned duplicate entries",
+        ),
+        ([(0, ["num", 7])], "7 is not a valid property name"),
+    ],
+)
+def test_ownkeys_derived_list_faults(fields, message):
+    state = base("ownKeys")
+    call(state, "ownKeys")
+    allocate_data(state, "raw", fields, array=True)
+    returned(state, ref("raw"))
+    step(state, {"kind": "proxy.reflect.fault", "id": "reflection", "error": "error"})
+    assert dict(dict(state["heap"])["error"]["properties"])["message"] == ["str", message]
+
+
+def test_descriptor_cannot_hide_nonconfigurable_target():
+    state = base("getOwnPropertyDescriptor")
+    step(
+        state,
+        {
+            "kind": "property.define",
+            "object": "target",
+            "key": ["str", "x"],
+            "descriptor": {
+                "kind": "data",
+                "value": ["num", 1],
+                "writable": False,
+                "enumerable": False,
+                "configurable": False,
+            },
+            "success": True,
+        },
+    )
+    call(state, "getOwnPropertyDescriptor", arguments=[["str", "x"]])
+    returned(state, ["undefined"])
+    step(state, {"kind": "proxy.reflect.fault", "id": "reflection", "error": "error"})
+    assert "non-configurable" in dict(dict(state["heap"])["error"]["properties"])["message"][1]
