@@ -121,7 +121,9 @@ def _route(machine, node):
 
 
 def _method(machine, handler, operation):
-    descriptor = _protocol()._descriptor(handler, OPERATION_TRAPS[operation])
+    _, descriptor = _protocol()._lookup_descriptor(
+        machine, handler, OPERATION_TRAPS[operation], for_has=True
+    )
     _require(
         descriptor is None or descriptor["kind"] == "data",
         "trap accessor requires its explicit getter boundary",
@@ -276,10 +278,10 @@ def apply_record(machine, record):
         return True
     node = machine["heap"].get(record["object"])
     _require(node and node["kind"] == "proxy", "known Proxy identity required")
-    handler = _route(machine, node)
+    _route(machine, node)
     p._known(machine, ["symbol", record["key"][1]]) if record["key"][0] == "symbol" else None
     operation = kind.split(".")[1]
-    method = _method(machine, handler, operation)
+    method = _method(machine, node["handler"][1], operation)
     if kind.endswith(".call"):
         pending = _state(machine)["pending"]
         _require(
@@ -335,7 +337,7 @@ def apply_record(machine, record):
         # The original receiver is the Proxy. Forwarding its own-descriptor
         # and definition requests directly is valid only when both traps are absent.
         for trap in ("getOwnPropertyDescriptor", "defineProperty"):
-            selected = p._descriptor(handler, trap)
+            _, selected = p._lookup_descriptor(machine, node["handler"][1], trap, for_has=True)
             _require(
                 selected is None
                 or selected["kind"] == "data"
