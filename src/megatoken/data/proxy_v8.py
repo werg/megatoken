@@ -29,6 +29,8 @@ TRAPS = (
 OPERATION_TRAPS = {"get": "get", "set": "set", "has": "has", "delete": "deleteProperty"}
 FIELDS = {
     "proxy.create": {"kind", "name", "target", "handler"},
+    "proxy.revoke": {"kind", "object"},
+    "proxy.revoked.fault": {"kind", "object", "operation", "error"},
     "proxy.get": {"kind", "object", "key", "result", "route"},
     "proxy.set": {"kind", "object", "key", "value", "success", "route"},
     "proxy.has": {"kind", "object", "key", "result", "route"},
@@ -85,6 +87,13 @@ def validate_record(record):
         _id(record["name"])
         p.validate_protocol_value(record["target"])
         p.validate_protocol_value(record["handler"])
+    elif kind == "proxy.revoke":
+        _id(record["object"])
+    elif kind == "proxy.revoked.fault":
+        _id(record["object"])
+        _id(record["error"])
+        if record["operation"] not in ("get", "set", "has", "deleteProperty"):
+            _fail("revoked operation name")
     elif kind == "proxy.fault":
         _id(record["id"])
         _id(record["error"])
@@ -152,6 +161,9 @@ def _route(machine, node):
     # a Proxy; derive its internal-method dispatch separately at entry.
     p = _protocol()
     p._known(machine, node["target"])
+    if node["target"] == ["null"] or node["handler"] == ["null"]:
+        _require(node["target"] == ["null"] and node["handler"] == ["null"], "partial Proxy revocation")
+        return None
     _require(node["target"][0] == "ref", "target identity")
     target = machine["heap"].get(node["target"][1])
     _require(target and target["kind"] in ("object", "array", "proxy"), "target object identity")
@@ -181,6 +193,7 @@ def _derive_route(machine, object_id, operation):
         _require(node_id not in visited and len(route) < BOUND, "target route cycle or bound")
         visited.add(node_id)
         _require(node.get("target") is not None and node.get("handler") is not None, "revoked Proxy route")
+        _require(node["target"] != ["null"] and node["handler"] != ["null"], "revoked Proxy route requires its abrupt record")
         selected = _method(machine, node, operation)
         entry = {
             "object": node_id,
@@ -208,8 +221,9 @@ def _retained_route(machine, row, *, selected=True):
         _require(
             node
             and node["kind"] == "proxy"
-            and _eq(node.get("target"), entry["target"])
-            and _eq(node.get("handler"), entry["handler"]),
+            and ((node.get("target") == ["null"] and node.get("handler") == ["null"])
+                 or _eq(node.get("target"), entry["target"])
+                 and _eq(node.get("handler"), entry["handler"])),
             "retained route target/handler identity",
         )
         _protocol()._known(machine, entry["method"])
@@ -361,6 +375,23 @@ def apply_record(machine, record):
         return False
     p = _protocol()
     kind = record["kind"]
+    if kind == "proxy.revoke":
+        node = machine["heap"].get(record["object"])
+        _require(node and node["kind"] == "proxy", "known Proxy identity required")
+        node["target"] = ["null"]
+        node["handler"] = ["null"]
+        _state(machine)
+        return True
+    if kind == "proxy.revoked.fault":
+        node = machine["heap"].get(record["object"])
+        _require(node and node["kind"] == "proxy" and node["target"] == ["null"]
+                 and node["handler"] == ["null"], "revoked Proxy fault requires cleared internal slots")
+        from .intrinsic_error_v8 import allocate_intrinsic_error_v8
+
+        message = "Cannot perform '" + record["operation"] + "' on a proxy that has been revoked"
+        value = allocate_intrinsic_error_v8(machine, record["error"], "TypeError", message)
+        machine["lastReturn"] = {"kind": "throw", "value": copy.deepcopy(value)}
+        return True
     if kind == "proxy.create":
         _id(record["name"])
         reserved = {row["id"] for row in machine["protocol"].get("symbols", [])}
@@ -398,8 +429,10 @@ def apply_record(machine, record):
         node = machine["heap"].get(row["object"])
         _require(node and node["kind"] == "proxy", "known Proxy identity required")
         target = _retained_route(machine, row)
+        owner_node = machine["heap"].get(row["owner"], {})
+        owner_revoked = owner_node.get("target") == ["null"] and owner_node.get("handler") == ["null"]
         _require(_eq(target and ["ref", row["route"][-1]["target"][1]], row["target"])
-                 and _eq(machine["heap"].get(row["owner"], {}).get("handler"), row["handler"]),
+                 and (owner_revoked or _eq(owner_node.get("handler"), row["handler"])),
                  "pending owner identities")
         _protocol()._known(machine, row["receiver"])
         _require(_eq(row["receiver"], ["ref", row["object"]]), "original receiver differs")
@@ -561,10 +594,10 @@ def validate_state(machine):
         )
         _route(machine, node)
     for identity, node in machine["heap"].items():
-        if node.get("kind") == "proxy":
+        if node.get("kind") == "proxy" and node["target"] != ["null"]:
             visited, target_id = {identity}, node["target"][1]
             target = machine["heap"].get(target_id)
-            while target and target.get("kind") == "proxy":
+            while target and target.get("kind") == "proxy" and target["target"] != ["null"]:
                 _require(target_id not in visited, "target graph cycle")
                 visited.add(target_id)
                 target_id = target["target"][1]
@@ -596,8 +629,8 @@ def validate_state(machine):
         _require(
             node
             and node["kind"] == "proxy"
-            and node["target"] == row["target"]
-            and node["handler"] == row["handler"],
+            and ((node["target"] == ["null"] and node["handler"] == ["null"])
+                 or node["target"] == row["target"] and node["handler"] == row["handler"]),
             "target/handler identity",
         )
         _retained_route(machine, row)

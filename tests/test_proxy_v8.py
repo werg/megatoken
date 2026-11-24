@@ -33,7 +33,7 @@ def initial_state():
 
 def _with_proxy_route(state, record):
     kind = record.get("kind", "")
-    if not kind.startswith("proxy.") or kind in ("proxy.create", "proxy.finish", "proxy.fault"):
+    if not kind.startswith("proxy.") or kind in ("proxy.create", "proxy.revoke", "proxy.revoked.fault", "proxy.finish", "proxy.fault"):
         return record
     operation = kind.split(".")[1]
     trap = {"delete": "deleteProperty"}.get(operation, operation)
@@ -953,6 +953,44 @@ class ProxyNestedTargetTests(unittest.TestCase):
                 },
             )
             self.assertEqual(state["protocol"]["proxyCalls"]["pending"], [])
+
+
+class ProxyRevocationTests(unittest.TestCase):
+    allocate = ProxyNestedTargetTests.allocate
+    set_prop = ProxyNestedTargetTests.set_prop
+    def test_revocation_clears_both_slots_is_idempotent_and_fault_is_native_derived(self):
+        for operation in ("get", "set", "has", "deleteProperty"):
+            state = base_state()
+            step(state, {"kind": "proxy.create", "name": "revocable", "target": REF("target"), "handler": REF("handler")})
+            step(state, {"kind": "proxy.revoke", "object": "revocable"})
+            before = copy.deepcopy(state)
+            step(state, {"kind": "proxy.revoke", "object": "revocable"})
+            self.assertEqual(dict(state["heap"])["revocable"]["target"], ["null"])
+            self.assertEqual(dict(state["heap"])["revocable"]["handler"], ["null"])
+            self.assertEqual(state["protocol"]["proxyCalls"]["pending"], [])
+            # A later operation must produce its own TypeError and cannot silently
+            # route through target storage after the internal slots were cleared.
+            before_fault = copy.deepcopy(state)
+            step(state, {"kind": "proxy.revoked.fault", "object": "revocable", "operation": operation, "error": "revokedError"})
+            self.assertNotEqual(state, before_fault)
+            error = dict(state["heap"])["revokedError"]
+            self.assertEqual(error["declaredError"], "TypeError")
+            self.assertEqual(state["lastReturn"], {"kind": "throw", "value": REF("revokedError")})
+            self.assertEqual(dict(error["properties"])["message"], ["str", f"Cannot perform '{operation}' on a proxy that has been revoked"])
+            validate_protocol_state(state["protocol"], state["heap"], state)
+
+    def test_revoke_inside_callback_preserves_selected_target_and_callee(self):
+        state = base_state()
+        self.allocate(state, "trap", "closure")
+        self.set_prop(state, "handler", "has", REF("trap"))
+        step(state, {"kind": "proxy.create", "name": "revocable", "target": REF("target"), "handler": REF("handler")})
+        step(state, {"kind": "proxy.has.call", "id": "has", "object": "revocable", "key": KEY, "child": "reader"})
+        pending = copy.deepcopy(state["protocol"]["proxyCalls"]["pending"][-1])
+        step(state, {"kind": "proxy.revoke", "object": "revocable"})
+        self.assertEqual(state["protocol"]["proxyCalls"]["pending"][-1]["target"], pending["target"])
+        step(state, {"kind": "return", "invocation": "reader", "value": ["bool", True]})
+        step(state, {"kind": "proxy.finish", "id": "has", "completion": {"kind": "normal", "value": ["bool", True]}})
+        self.assertEqual(state["protocol"]["proxyCalls"]["pending"], [])
 
 
 class ProxyFaultTests(unittest.TestCase):
