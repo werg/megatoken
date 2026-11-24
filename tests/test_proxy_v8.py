@@ -84,7 +84,19 @@ def base_state(traps=()):
             {
                 "kind": "property.set",
                 "object": "handler",
-                "key": ["str", "get" if name.startswith("get") else "set"],
+                "key": [
+                    "str",
+                    next(
+                        trap
+                        for prefix, trap in (
+                            ("get", "get"),
+                            ("set", "set"),
+                            ("has", "has"),
+                            ("delete", "deleteProperty"),
+                        )
+                        if name.startswith(prefix)
+                    ),
+                ],
                 "receiver": REF("handler"),
                 "value": value,
                 "success": True,
@@ -338,6 +350,224 @@ class ProxyV8Tests(unittest.TestCase):
                     "handler": REF("handler"),
                 },
             )
+
+
+class ProxyPresenceDeletionTests(unittest.TestCase):
+    def begin(self, operation, key=KEY):
+        name = operation + "Trap"
+        state = base_state(((name, REF(name)),))
+        step(
+            state,
+            {
+                "kind": "proxy." + operation + ".call",
+                "id": "operation",
+                "object": "proxy",
+                "key": key,
+                "child": "callback",
+            },
+        )
+        self.assertEqual(state["receiver"], REF("handler"))
+        self.assertEqual(state["protocol"]["callFrames"][-1]["arguments"], [REF("target"), key])
+        validate_protocol_state(state["protocol"], state["heap"], state)
+        return state
+
+    def finish(self, state, returned, result, *, thrown=False):
+        step(
+            state,
+            {"kind": "throw" if thrown else "return", "invocation": "callback", "value": returned},
+        )
+        record = {
+            "kind": "proxy.finish",
+            "id": "operation",
+            "completion": {"kind": "throw" if thrown else "normal", "value": result},
+        }
+        return step(state, record)
+
+    def test_transparent_presence_and_deletion_keep_identity_and_own_order(self):
+        state = base_state()
+        step(
+            state,
+            {
+                "kind": "proxy.has",
+                "object": "proxy",
+                "key": ["str", "toString"],
+                "result": ["bool", True],
+            },
+        )
+        step(state, {"kind": "proxy.delete", "object": "proxy", "key": KEY, "success": True})
+        step(state, {"kind": "proxy.has", "object": "proxy", "key": KEY, "result": ["bool", False]})
+        step(
+            state,
+            {
+                "kind": "proxy.delete",
+                "object": "proxy",
+                "key": ["str", "toString"],
+                "success": True,
+            },
+        )
+        step(
+            state,
+            {
+                "kind": "proxy.has",
+                "object": "proxy",
+                "key": ["str", "toString"],
+                "result": ["bool", True],
+            },
+        )
+        self.assertEqual(dict(state["heap"])["proxy"]["properties"], [])
+        validate_protocol_state(state["protocol"], state["heap"], state)
+
+    def test_accessors_are_present_and_deleted_without_getter_calls(self):
+        state = base_state()
+        step(
+            state,
+            {
+                "kind": "property.define",
+                "object": "target",
+                "key": KEY,
+                "descriptor": {
+                    "kind": "accessor",
+                    "get": ["undefined"],
+                    "set": ["undefined"],
+                    "enumerable": True,
+                    "configurable": True,
+                },
+                "success": True,
+            },
+        )
+        step(state, {"kind": "proxy.has", "object": "proxy", "key": KEY, "result": ["bool", True]})
+        step(state, {"kind": "proxy.delete", "object": "proxy", "key": KEY, "success": True})
+        self.assertEqual(state["protocol"]["callFrames"], [])
+
+    def test_traps_coerce_boolean_once_and_keep_target_unmodified(self):
+        for operation in ("has", "delete"):
+            for value, truthy in (
+                (["undefined"], False),
+                (["num", 0], False),
+                (["str", "yes"], True),
+                (["bigint", "0"], False),
+                (["bigint", "9" * 5000], True),
+                (["symbol", "well-known:iterator"], True),
+                (REF("target"), True),
+            ):
+                with self.subTest(operation=operation, value=value[0], truthy=truthy):
+                    state = self.begin(operation)
+                    self.finish(state, value, ["bool", truthy])
+                    self.assertEqual(
+                        dict(dict(state["heap"])["target"]["properties"])["x"], ["num", 2]
+                    )
+                    self.assertEqual(state["protocol"]["proxyCalls"]["pending"], [])
+
+    def test_selected_trap_survives_noncallable_replacement_and_throw_identity(self):
+        for operation, trap in (("has", "has"), ("delete", "deleteProperty")):
+            state = self.begin(operation)
+            step(
+                state,
+                {
+                    "kind": "property.set",
+                    "object": "handler",
+                    "key": ["str", trap],
+                    "receiver": REF("handler"),
+                    "value": ["num", 42],
+                    "success": True,
+                },
+            )
+            validate_protocol_state(state["protocol"], state["heap"], state)
+            self.finish(state, REF("target"), REF("target"), thrown=True)
+            validate_protocol_state(state["protocol"], state["heap"], state)
+            before = copy.deepcopy(state)
+            with self.assertRaises(ProtocolV8Error):
+                step(
+                    state,
+                    {
+                        "kind": "proxy." + operation + ".call",
+                        "id": "again",
+                        "object": "proxy",
+                        "key": KEY,
+                        "child": "second",
+                    },
+                )
+            self.assertEqual(state, before)
+
+    def test_invariants_observe_descriptor_after_callback_mutation(self):
+        for operation, returned in (("has", ["bool", False]), ("delete", ["bool", True])):
+            state = self.begin(operation)
+            step(
+                state, {"kind": "property.delete", "object": "target", "key": KEY, "success": True}
+            )
+            step(state, {"kind": "property.preventExtensions", "object": "target"})
+            self.finish(state, returned, returned)
+            self.assertNotIn("x", dict(dict(state["heap"])["target"]["properties"]))
+
+            for frozen in (True, False):
+                state = self.begin(operation)
+                if frozen:
+                    step(
+                        state,
+                        {
+                            "kind": "property.define",
+                            "object": "target",
+                            "key": KEY,
+                            "descriptor": {
+                                "kind": "data",
+                                "value": ["num", 2],
+                                "writable": True,
+                                "enumerable": True,
+                                "configurable": False,
+                            },
+                            "success": True,
+                        },
+                    )
+                else:
+                    step(state, {"kind": "property.preventExtensions", "object": "target"})
+                step(state, {"kind": "return", "invocation": "callback", "value": returned})
+                before = copy.deepcopy(state)
+                with self.assertRaisesRegex(ProtocolV8Error, "target invariant"):
+                    step(
+                        state,
+                        {
+                            "kind": "proxy.finish",
+                            "id": "operation",
+                            "completion": {"kind": "normal", "value": returned},
+                        },
+                    )
+                self.assertEqual(state, before)
+
+    def test_restore_authenticates_operation_key_and_argument_count(self):
+        for operation in ("has", "delete"):
+            state = self.begin(operation)
+            for mutate in (
+                lambda s: s["protocol"]["proxyCalls"]["pending"][-1].__setitem__(
+                    "operation", "get"
+                ),
+                lambda s: s["protocol"]["proxyCalls"]["pending"][-1].__setitem__(
+                    "key", ["str", "wrong"]
+                ),
+                lambda s: s["protocol"]["callFrames"][-1]["arguments"].append(REF("proxy")),
+                lambda s: s["protocol"]["proxyCalls"]["pending"][-1].__setitem__(
+                    "value", ["undefined"]
+                ),
+            ):
+                forged = copy.deepcopy(state)
+                mutate(forged)
+                with self.assertRaises(ProtocolV8Error):
+                    validate_protocol_state(forged["protocol"], forged["heap"], forged)
+            for result in (["bool", False], ["num", 1]):
+                candidate = copy.deepcopy(state)
+                step(
+                    candidate, {"kind": "return", "invocation": "callback", "value": ["str", "yes"]}
+                )
+                before = copy.deepcopy(candidate)
+                with self.assertRaises(ProtocolV8Error):
+                    step(
+                        candidate,
+                        {
+                            "kind": "proxy.finish",
+                            "id": "operation",
+                            "completion": {"kind": "normal", "value": result},
+                        },
+                    )
+                self.assertEqual(candidate, before)
 
 
 if __name__ == "__main__":

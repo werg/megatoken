@@ -1,4 +1,4 @@
-"""Independent bounded replay for ordinary synchronous Proxy get/set calls."""
+"""Independent replay for retained ordinary Proxy property operations."""
 
 from __future__ import annotations
 
@@ -25,12 +25,17 @@ TRAPS = (
     "apply",
     "construct",
 )
+OPERATION_TRAPS = {"get": "get", "set": "set", "has": "has", "delete": "deleteProperty"}
 FIELDS = {
     "proxy.create": {"kind", "name", "target", "handler"},
     "proxy.get": {"kind", "object", "key", "result"},
     "proxy.set": {"kind", "object", "key", "value", "success"},
+    "proxy.has": {"kind", "object", "key", "result"},
+    "proxy.delete": {"kind", "object", "key", "success"},
     "proxy.get.call": {"kind", "id", "object", "key", "child"},
     "proxy.set.call": {"kind", "id", "object", "key", "value", "child"},
+    "proxy.has.call": {"kind", "id", "object", "key", "child"},
+    "proxy.delete.call": {"kind", "id", "object", "key", "child"},
     "proxy.finish": {"kind", "id", "completion"},
 }
 HEAP_FIELDS = {"kind", "target", "handler", "properties"}
@@ -86,12 +91,14 @@ def validate_record(record):
         if kind.endswith(".call"):
             _id(record["id"])
             _id(record["child"])
-        if kind in ("proxy.get", "proxy.set"):
-            p.validate_protocol_value(record["result"] if kind == "proxy.get" else record["value"])
+        if kind in ("proxy.get", "proxy.has", "proxy.set"):
+            p.validate_protocol_value(record["value"] if kind == "proxy.set" else record["result"])
+        if kind == "proxy.has" and record["result"][0] != "bool":
+            _fail("has result must be Boolean")
         elif kind == "proxy.set.call":
             p.validate_protocol_value(record["value"])
-        if kind == "proxy.set" and type(record["success"]) is not bool:
-            _fail("set result")
+        if kind in ("proxy.set", "proxy.delete") and type(record["success"]) is not bool:
+            _fail("Boolean operation result")
     return True
 
 
@@ -103,30 +110,31 @@ def _ordinary(machine, reference, label):
     node = p._node(machine, reference[1])
     if node["kind"] != "object" or node.get("prototype", "ordinary") not in (None, "ordinary"):
         _fail(label + " must have an ordinary object prototype")
-    for key in set(node.get("properties", {})) | set(node.get("descriptors", {})):
-        descriptor = p._descriptor(node, key)
-        if descriptor and descriptor["kind"] != "data":
-            _fail(label + " accessors require their own protocol")
     return node
 
 
 def _route(machine, node):
+    # State validation authenticates the retained identities and shapes, not
+    # the current value of a trap that guest code may already have replaced.
     _ordinary(machine, node["target"], "Proxy target")
-    handler = _ordinary(machine, node["handler"], "Proxy handler")
-    p = _protocol()
-    for trap in TRAPS:
-        descriptor = p._descriptor(handler, trap)
-        if descriptor and descriptor["kind"] != "data":
-            _fail("Proxy trap accessors require their own protocol")
-        if descriptor and descriptor["value"][0] not in ("undefined", "null"):
-            value = descriptor["value"]
-            if (
-                trap not in ("get", "set")
-                or value[0] != "ref"
-                or p._node(machine, value[1])["kind"] != "closure"
-            ):
-                _fail("Proxy trap " + trap + " requires its explicit call boundary")
-    return handler
+    return _ordinary(machine, node["handler"], "Proxy handler")
+
+
+def _method(machine, handler, operation):
+    descriptor = _protocol()._descriptor(handler, OPERATION_TRAPS[operation])
+    _require(
+        descriptor is None or descriptor["kind"] == "data",
+        "trap accessor requires its explicit getter boundary",
+    )
+    return descriptor["value"] if descriptor else ["undefined"]
+
+
+def _truthy(value):
+    if value[0] == "symbol":
+        return True
+    if value[0] == "bigint":
+        return value[1] != "0"
+    return scalar._truthy(value)
 
 
 def _state(machine):
@@ -164,7 +172,8 @@ def _args(row):
     args = [row["target"], row["key"]]
     if row["operation"] == "set":
         args.append(row["value"])
-    args.append(["ref", row["object"]])
+    if row["operation"] in ("get", "set"):
+        args.append(["ref", row["object"]])
     return args
 
 
@@ -227,30 +236,41 @@ def apply_record(machine, record):
         _route(machine, node)
         expected = {"kind": "throw", "value": copy.deepcopy(returned["value"])}
         if returned["kind"] == "return":
-            if row["operation"] == "set":
-                value = returned["value"]
-                truthy = (
-                    value[0] == "symbol"
-                    or value[0] == "bigint"
-                    and value[1] != "0"
-                    or value[0] != "bigint"
-                    and scalar._truthy(value)
-                )
+            operation = row["operation"]
+            truthy = _truthy(returned["value"])
+            if operation == "set":
                 _require(truthy, "false Proxy set trap needs abrupt completion")
-            target = p._node(machine, node["target"][1])
+            target = p._node(machine, row["target"][1])
             descriptor = p._descriptor(target, p._key(row["key"]))
-            if descriptor and not descriptor["configurable"] and not descriptor["writable"]:
-                trapped = returned["value"] if row["operation"] == "get" else row["value"]
-                _require(
-                    _eq(descriptor["value"], trapped),
-                    "Proxy trap violates frozen target data invariant",
-                )
-            expected = {
-                "kind": "normal",
-                "value": copy.deepcopy(
-                    returned["value"] if row["operation"] == "get" else row["value"]
-                ),
-            }
+            if operation in ("has", "delete"):
+                checks_target = not truthy if operation == "has" else truthy
+                if checks_target and descriptor:
+                    _require(
+                        descriptor["configurable"] and target.get("extensible", True),
+                        "Proxy " + operation + " trap violates target invariant",
+                    )
+                result = ["bool", truthy]
+            else:
+                if descriptor and not descriptor["configurable"]:
+                    if descriptor["kind"] == "data" and not descriptor["writable"]:
+                        trapped = returned["value"] if operation == "get" else row["value"]
+                        _require(
+                            _eq(descriptor["value"], trapped),
+                            "Proxy trap violates frozen target data invariant",
+                        )
+                    elif descriptor["kind"] == "accessor":
+                        _require(
+                            operation == "get"
+                            and (
+                                descriptor["get"] != ["undefined"]
+                                or returned["value"] == ["undefined"]
+                            )
+                            or operation == "set"
+                            and descriptor["set"] != ["undefined"],
+                            "Proxy trap violates target accessor invariant",
+                        )
+                result = returned["value"] if operation == "get" else row["value"]
+            expected = {"kind": "normal", "value": copy.deepcopy(result)}
         _require(record["completion"] == expected, "false Proxy callback completion")
         pending.pop()
         return True
@@ -258,8 +278,8 @@ def apply_record(machine, record):
     _require(node and node["kind"] == "proxy", "known Proxy identity required")
     handler = _route(machine, node)
     p._known(machine, ["symbol", record["key"][1]]) if record["key"][0] == "symbol" else None
-    operation = "get" if kind.startswith("proxy.get") else "set"
-    method = (p._descriptor(handler, operation) or {}).get("value", ["undefined"])
+    operation = kind.split(".")[1]
+    method = _method(machine, handler, operation)
     if kind.endswith(".call"):
         pending = _state(machine)["pending"]
         _require(
@@ -291,13 +311,37 @@ def apply_record(machine, record):
         pending.append(row)
         return True
     _require(method[0] in ("undefined", "null"), "trap requires its explicit call boundary")
-    if kind == "proxy.get":
+    if kind == "proxy.has":
+        _, descriptor = p._lookup_descriptor(
+            machine, node["target"][1], p._key(record["key"]), for_has=True
+        )
+        _require(
+            record["result"] == ["bool", descriptor is not None], "false Proxy existence result"
+        )
+    elif kind == "proxy.delete":
+        target = p._node(machine, node["target"][1])
+        key = p._key(record["key"])
+        descriptor = p._descriptor(target, key)
+        success = descriptor is None or descriptor["configurable"]
+        _require(record["success"] == success, "false Proxy deletion result")
+        if success:
+            p._remove(target, key)
+    elif kind == "proxy.get":
         _, descriptor = p._lookup_descriptor(machine, node["target"][1], p._key(record["key"]))
         _require(not descriptor or descriptor["kind"] == "data", "accessors require call boundary")
         expected = descriptor["value"] if descriptor else ["undefined"]
         _require(_eq(expected, record["result"]), "false Proxy data read")
     else:
-        # Ordinary target [[Set]] forwards to the target as the receiver.
+        # The original receiver is the Proxy. Forwarding its own-descriptor
+        # and definition requests directly is valid only when both traps are absent.
+        for trap in ("getOwnPropertyDescriptor", "defineProperty"):
+            selected = p._descriptor(handler, trap)
+            _require(
+                selected is None
+                or selected["kind"] == "data"
+                and selected["value"][0] in ("undefined", "null"),
+                "transparent set requires explicit receiver descriptor/definition traps",
+            )
         target = p._node(machine, node["target"][1])
         key = p._key(record["key"])
         _, descriptor = p._lookup_descriptor(machine, node["target"][1], key, for_set=True)
@@ -351,7 +395,7 @@ def validate_state(machine):
         _protocol()._exact(row, CALL_FIELDS, "Proxy pending call")
         for name in ("id", "parent", "child", "object"):
             _id(row[name])
-        _require(row["id"] not in seen and row["operation"] in ("get", "set"), "call identity")
+        _require(row["id"] not in seen and row["operation"] in OPERATION_TRAPS, "call identity")
         seen.add(row["id"])
         node = machine["heap"].get(row["object"])
         _require(
@@ -373,8 +417,8 @@ def validate_state(machine):
             and row["parent"] in machine["frameFunctions"],
             "callback source identity",
         )
-        if row["operation"] == "get":
-            _require(row["value"] is None, "get has no assignment value")
+        if row["operation"] != "set":
+            _require(row["value"] is None, "non-set operation has no assignment value")
         else:
             _protocol()._known(machine, row["value"])
         receiver = (
