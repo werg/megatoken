@@ -1,5 +1,8 @@
 # Issue 51: object existence and mutation-sensitive enumeration
 
+Current completed scope and receipts are in **Checkpoint 6** below. Earlier
+checkpoint descriptions apply only to their recorded revisions.
+
 This is an implementation checkpoint for
 [tracing-js-self #51](https://github.com/werg/tracing-js-self/issues/51), coordinated
 with the producer in the sibling `tracing-js-self` checkout. The issue remains an
@@ -198,3 +201,120 @@ The next implementation work is prioritized by semantic uncertainty: retained
 Proxy traps with late invariant checks, genuine intrinsic-error identity and
 partial effects, and constructor arrows retaining live `this`/`new.target`.
 The issue remains open; this checkpoint is not complete #51 language coverage.
+
+
+## Checkpoint 6 — Proxy faults, constructor captures and shared object state
+
+The completed paired implementation is producer `6b0d8f5bd18de39c85046babed02b4afba0578fd` and
+consumer `13ce89795a4625c0e124171f61a0e8bbd45d88e1`. The full unmodified `npm run contracts:check`
+passed after regenerating all affected fixtures. It independently rechecked
+**93 canonical protocol sources, 6 region examples and 4 host sources**. All
+74 prior canonical source inputs retain their exact source, entry, arguments,
+family and ancestry. Their generated operation counts are unchanged.
+
+### Behavior established
+
+- Source-qualified `in` and `delete` expressions use Proxy `has` and
+  `deleteProperty` traps while retaining the selected synchronous function, its
+  arguments and effective receiver even if the handler changes during the call.
+  Results use Boolean normalization. Target descriptors and extensibility are
+  checked after the trap returns, including traps that freeze a property,
+  prevent extensions or delete the property first. Strict false deletion and
+  invariant failures create distinct operation-derived TypeErrors. The source
+  adapter authenticates the caller's strictness, the retained return token,
+  fresh allocation, source origin and derived message. A guest throw retains
+  its own identity. Frozen `get`/`set` invariants also agree between the public
+  JS and independent Python machines; this is not a broader source-qualified
+  frozen-get/set diagnostic claim.
+- Derived-constructor arrows captured before `super()` retain the live receiver
+  cell and actual `new.target` when invoked after initialization. Private access
+  continues to operate on that initialized original instance. They keep this
+  receiver when the constructor returns a substitute object. This also works when the arrow later serves as a Proxy
+  `has` trap or a primitive-conversion callback.
+- Invalid `in` derives a TypeError before attempting property-key conversion,
+  preserving earlier operand effects and caught error identity/name. The former
+  refusal control is now accepted without changing its source or identity.
+  Intrinsic Error brands are paired with retained allocation records; ordinary
+  writes to own `name` and `message` remain possible. Restoration verifies the
+  allocation registry and active call's callee, receiver and captured aliases.
+- Promise property operations retain fresh Symbol identities, registered Symbol
+  aliases and Symbols returned by captured helper functions. Matching Symbol
+  descriptions do not merge distinct identities.
+
+### Evidence and preparation
+
+The complete frozen issue cohort contains **48 declared originals: 42 supported
+and 6 explicit refusals**, with zero unexpected export failures. All 26 original
+cohort inputs retain their source, entry, arguments, family and ancestry. The
+registry includes every supported and refused member under
+`issue51-original-objects`.
+
+| Verification | Result |
+| --- | --- |
+| Producer integration tests | 120 passed |
+| Independent Python regression and recovery tests | 323 passed |
+| Whole-cohort replay, context, continuation and forgery tests | 55 passed |
+| Actual pinned-tokenizer preparation | 42 attempted, 42 admitted, 0 refusals |
+
+The generator-close, enumeration and controlled host-recovery archives were
+also regenerated from the clean producer. The first two have source checks;
+the controlled host-recovery scenario proves one dispatch and recovery without
+redispatch, and is not promoted to source-qualified evidence.
+
+Ordinary preparation ran on the exact clean revisions above with the pinned
+Ling tokenizer, 8192 positions and 1024 history. It performs **zero optimizer
+steps** and makes no learning claim. The six refused source identities remain
+in the registry but have no artifact in the preparation input stream.
+
+- Core contract: `39a27911db67db3d1848a503a4d743f3c1cc9b699b6d2404d363dc37ce8d0a9d`.
+- Fixture: `56f7f36d3b25b3b11a208be3de337e637b9782e6759faea1e1ec107b0a90f0ce`.
+- Interoperability: `62e5f6862fc1498a3b56b823b5d7f5a6573a09bb0831075786d0ea92226a22f7`.
+- Frozen registry: `04f60979f58d56b3949fca79f0b9ebd7f4da6f5b7a10f241d84b08ecba814e3e`.
+- Preparation manifest: `3b6bd2bae822c1b417f6ca3f0de8c8dbeabc42e7fca3fa362f3b9953177987ef`.
+- Tokenizer SHA256: `40fb9d7d7795b8bd305aeff39ce9963f3f450915b9553f2938e009be9a1fed60`.
+
+The durable receipt is
+`docs/evidence/issue51-20261124/objects-verification.json`, with the full standard
+contract, producer, native and cohort test outputs alongside it. The separate
+`objects-preparation.json` records the exact clean-revision preparation result.
+These receipts supersede Checkpoint 5 for current scope; older receipts remain
+historical evidence for their own revisions.
+
+### Reproduction
+
+```sh
+# Producer at 6b0d8f5bd18de39c85046babed02b4afba0578fd, Node v24.22.3.
+npm run contracts:check
+node tools/export-issue51-evidence.mjs --out /tmp/issue51-objects.json
+# Consumer at 13ce89795a4625c0e124171f61a0e8bbd45d88e1; extract non-null artifacts as JSONL.
+python - /tmp/issue51-objects.json /tmp/issue51-artifacts.jsonl <<'PY'
+import json, sys
+with open(sys.argv[2], "w") as output:
+    for row in json.load(open(sys.argv[1]))["cases"]:
+        if row["artifact"] is not None:
+            print(json.dumps(row["artifact"]), file=output)
+PY
+PYTHONPATH=src python -m pytest -q tests/test_issue51_object_source_v8.py
+PYTHONPATH=src python scripts/prepare_semantic_v8.py \
+  --input /tmp/issue51-artifacts.jsonl --output /tmp/issue51-prepared \
+  --producer-root /path/to/tracing-js-self \
+  --producer-revision 6b0d8f5bd18de39c85046babed02b4afba0578fd \
+  --consumer-revision 13ce89795a4625c0e124171f61a0e8bbd45d88e1 \
+  --tokenizer-json /path/to/pinned/tokenizer.json \
+  --source-recheck-timeout-seconds 90
+```
+
+### Explicit remaining boundaries
+
+Reading the initial invalid-`in` error `message`, Error descriptor/prototype/
+`instanceof` operations, and invocation of a derived arrow while `this` is
+uninitialized are not source-qualified here. The invalid-`in` thrown outcome,
+TypeError identity and name are admitted. Constructor arrows in scheduled
+jobs or unauthenticated adoption continuations are refused. Proxy revocation,
+nested targets or handlers, trap getters, callable targets, strict false-set
+caller errors, Proxy enumeration and other trap families remain outside this
+bounded profile. Captured prototype replacement and enumerability mutation,
+broader collections, destructuring and abrupt iterator cleanup remain issue51
+work. The standard contract gate and paired native evidence are complete for
+this checkpoint; this is not a claim that the separate full combined CI gate
+or the entire issue51 language scope is complete. Neither paired draft is merged.
