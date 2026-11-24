@@ -573,6 +573,188 @@ class ProxyPresenceDeletionTests(unittest.TestCase):
                 self.assertEqual(candidate, before)
 
 
+class ProxyConstructorArrowTests(unittest.TestCase):
+    def test_pre_super_arrow_trap_reads_live_receiver_after_constructor_substitution(self):
+        state = base_state()
+
+        def allocate(name, kind="object", arrow=False):
+            step(
+                state,
+                {
+                    "kind": "allocate",
+                    "name": name,
+                    "objectKind": kind,
+                    "length": None,
+                    "properties": [],
+                    "code": name if kind == "closure" else None,
+                    "captures": [],
+                    "functionKind": "arrow" if arrow else "ordinary" if kind == "closure" else None,
+                    "lexicalReceiver": ["undefined"] if arrow else None,
+                },
+            )
+
+        for name, parent in (("Base", None), ("Derived", "Base")):
+            allocate(name, "closure")
+            allocate(name + "-prototype")
+            step(
+                state,
+                {
+                    "kind": "callable.define",
+                    "object": name,
+                    "constructorKind": "derived" if parent else "base",
+                    "classConstructor": True,
+                },
+            )
+            step(
+                state,
+                {
+                    "kind": "class.link",
+                    "object": name,
+                    "prototype": REF(name + "-prototype"),
+                    "heritage": REF(parent) if parent else ["undefined"],
+                },
+            )
+        step(
+            state,
+            {
+                "kind": "construct.enter",
+                "id": "derived-construction",
+                "child": "derived-body",
+                "callee": REF("Derived"),
+                "newTarget": REF("Derived"),
+                "arguments": [],
+                "receiver": ["undefined"],
+                "mode": "ordinary",
+                "owner": None,
+            },
+        )
+        allocate("captured-trap", "closure", arrow=True)
+        step(
+            state,
+            {
+                "kind": "callable.define",
+                "object": "captured-trap",
+                "constructorKind": None,
+                "classConstructor": False,
+            },
+        )
+        step(
+            state,
+            {
+                "kind": "callable.capture",
+                "object": "captured-trap",
+                "frame": "derived-construction",
+                "thisCell": "derived-body:this",
+            },
+        )
+        step(
+            state, {"kind": "super.select", "owner": "derived-construction", "callee": REF("Base")}
+        )
+        step(
+            state,
+            {
+                "kind": "construct.enter",
+                "id": "base-construction",
+                "child": "base-body",
+                "callee": REF("Base"),
+                "newTarget": REF("Derived"),
+                "arguments": [],
+                "receiver": REF("instance"),
+                "mode": "super",
+                "owner": "derived-construction",
+            },
+        )
+        step(state, {"kind": "return", "invocation": "base-body", "value": ["undefined"]})
+        step(
+            state,
+            {
+                "kind": "construct.finish",
+                "id": "base-construction",
+                "completion": {"kind": "normal", "value": REF("instance")},
+            },
+        )
+        step(
+            state,
+            {
+                "kind": "super.bind",
+                "owner": "derived-construction",
+                "receiver": REF("instance"),
+                "child": None,
+            },
+        )
+        step(state, {"kind": "return", "invocation": "derived-body", "value": REF("target")})
+        step(
+            state,
+            {
+                "kind": "construct.finish",
+                "id": "derived-construction",
+                "completion": {"kind": "normal", "value": REF("target")},
+            },
+        )
+        step(
+            state,
+            {
+                "kind": "property.set",
+                "object": "handler",
+                "key": ["str", "has"],
+                "receiver": REF("handler"),
+                "value": REF("captured-trap"),
+                "success": True,
+            },
+        )
+        step(
+            state,
+            {
+                "kind": "proxy.has.call",
+                "id": "presence",
+                "object": "proxy",
+                "key": KEY,
+                "child": "captured-callback",
+            },
+        )
+        self.assertEqual(state["receiver"], REF("instance"))
+        self.assertEqual(state["protocol"]["callFrames"][-1]["callee"], REF("captured-trap"))
+        self.assertEqual(dict(state["heap"])["captured-trap"]["lexicalReceiver"], ["undefined"])
+        step(
+            state,
+            {
+                "kind": "construct.this",
+                "invocation": "captured-callback",
+                "result": REF("instance"),
+            },
+        )
+        step(
+            state,
+            {
+                "kind": "construct.target",
+                "invocation": "captured-callback",
+                "result": REF("Derived"),
+            },
+        )
+        validate_protocol_state(state["protocol"], state["heap"], state)
+        for mutate in (
+            lambda snapshot: snapshot.__setitem__("receiver", REF("target")),
+            lambda snapshot: snapshot.__setitem__(
+                "captureAliases", [["forged", "derived-body:this"]]
+            ),
+            lambda snapshot: snapshot["protocol"]["callFrames"][-1].__setitem__("parent", "absent"),
+        ):
+            forged = copy.deepcopy(state)
+            mutate(forged)
+            with self.assertRaises(ProtocolV8Error):
+                validate_protocol_state(forged["protocol"], forged["heap"], forged)
+        step(state, {"kind": "return", "invocation": "captured-callback", "value": ["bool", True]})
+        step(
+            state,
+            {
+                "kind": "proxy.finish",
+                "id": "presence",
+                "completion": {"kind": "normal", "value": ["bool", True]},
+            },
+        )
+        validate_protocol_state(state["protocol"], state["heap"], state)
+
+
 class ProxyFaultTests(unittest.TestCase):
     begin = ProxyPresenceDeletionTests.begin
 

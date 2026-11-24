@@ -17,8 +17,8 @@ from .async_call_v8 import assert_next as assert_async_call_next
 from .async_call_v8 import validate_record as validate_async_call_record
 from .async_call_v8 import validate_state as validate_async_call_state
 from .construction_v8 import FIELDS as CONSTRUCTION_FIELDS
-from .construction_v8 import apply_record as apply_construction_record
 from .construction_v8 import _lexical_receiver
+from .construction_v8 import apply_record as apply_construction_record
 from .construction_v8 import assert_next as assert_construction_next
 from .construction_v8 import validate_record as validate_construction_record
 from .construction_v8 import validate_state as validate_construction_record_state
@@ -1744,7 +1744,7 @@ def validate_protocol_state(snapshot, heap_ids=(), shared_state=None):
             _fail("getter pending value")
         if pending["operation"] == "set":
             validate_protocol_value(pending["value"])
-    for frame in snapshot["callFrames"]:
+    for frame_index, frame in enumerate(snapshot["callFrames"]):
         _exact(
             frame,
             {"child", "parent", "callee", "priorReceiver", "priorAliases", "arguments"},
@@ -1752,6 +1752,15 @@ def validate_protocol_state(snapshot, heap_ids=(), shared_state=None):
         )
         _identity(frame["child"])
         _identity(frame["parent"])
+        stack = call_frame_machine["stack"]
+        if (
+            frame["child"] not in stack
+            or frame["parent"] not in stack
+            or stack.index(frame["child"]) != stack.index(frame["parent"]) + 1
+            or frame_index
+            and snapshot["callFrames"][frame_index - 1]["child"] != frame["parent"]
+        ):
+            _fail("call frame stack relationship")
         _known(call_frame_machine, frame["callee"])
         if (
             frame["callee"][0] != "ref"
@@ -1761,16 +1770,34 @@ def validate_protocol_state(snapshot, heap_ids=(), shared_state=None):
         ):
             _fail("call frame callee identity")
         called = _node(call_frame_machine, frame["callee"][1])
+        if stack[-1] == frame["child"]:
+            cell = frame["child"] + ":this"
+            if (
+                cell not in call_frame_machine["locals"]
+                or call_frame_machine.get("receiver") != call_frame_machine["locals"][cell]
+            ):
+                _fail("active call frame receiver")
+            aliases = {row["binding"]: row["cell"] for row in called.get("captures", [])}
+            if call_frame_machine.get("captureAliases", {}) != aliases:
+                _fail("active call frame captures")
         if called.get("functionKind") == "arrow":
             expected_receiver = _lexical_receiver(call_frame_machine, called, ["undefined"])
-            if call_frame_machine.get("locals", {}).get(frame["child"] + ":this") != expected_receiver:
+            if (
+                call_frame_machine.get("locals", {}).get(frame["child"] + ":this")
+                != expected_receiver
+            ):
                 _fail("call frame arrow receiver/callee identity")
             capture = called.get("callable", {}).get("lexicalConstruction")
-            observed_target = call_frame_machine.get("locals", {}).get(frame["child"] + ":lexical-newTarget")
+            observed_target = call_frame_machine.get("locals", {}).get(
+                frame["child"] + ":lexical-newTarget"
+            )
             if capture is not None and observed_target is not None:
                 owner = next(
-                    (row for row in (snapshot.get("construction") or {}).get("frames", [])
-                     if row["id"] == capture["frame"]),
+                    (
+                        row
+                        for row in (snapshot.get("construction") or {}).get("frames", [])
+                        if row["id"] == capture["frame"]
+                    ),
                     None,
                 )
                 if owner is None or observed_target != owner["newTarget"]:

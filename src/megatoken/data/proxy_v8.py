@@ -6,6 +6,7 @@ import copy
 import math
 
 from . import semantic_primitives as scalar
+from .semantic_json import _js_string_length
 
 PROFILE = "ordinary-data-proxy/1"
 SCHEMA = "semantic-proxy-call-state/1"
@@ -67,7 +68,7 @@ def _fail(message):
 
 
 def _id(value):
-    if not isinstance(value, str) or not value or len(value) > 256:
+    if not isinstance(value, str) or not value or _js_string_length(value) > 256:
         _fail("identity")
 
 
@@ -487,11 +488,9 @@ def validate_state(machine):
             _require(row["value"] is None, "non-set operation has no assignment value")
         else:
             _protocol()._known(machine, row["value"])
-        receiver = (
-            callee.get("lexicalReceiver")
-            if callee.get("functionKind") == "arrow"
-            else row["handler"]
-        )
+        from .construction_v8 import _lexical_receiver
+
+        receiver = _lexical_receiver(machine, callee, row["handler"])
         _require(machine["locals"].get(row["child"] + ":this") == receiver, "callback receiver")
         if row["child"] in machine["stack"]:
             depth = machine["stack"].index(row["child"])
@@ -509,7 +508,9 @@ def validate_state(machine):
                 None,
             )
             _require(
-                frame is not None and frame["arguments"] == _args(row),
+                frame is not None
+                and frame["callee"] == row["callee"]
+                and frame["arguments"] == _args(row),
                 "callback retained arguments",
             )
         else:
