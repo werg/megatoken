@@ -35,7 +35,7 @@ FIELDS = {
     "proxy.get.call": {"kind", "id", "object", "key", "child"},
     "proxy.set.call": {"kind", "id", "object", "key", "value", "child"},
     "proxy.has.call": {"kind", "id", "object", "key", "child"},
-    "proxy.delete.call": {"kind", "id", "object", "key", "child"},
+    "proxy.delete.call": {"kind", "id", "object", "key", "child", "strict"},
     "proxy.finish": {"kind", "id", "completion"},
     "proxy.fault": {"kind", "id", "error"},
 }
@@ -51,6 +51,7 @@ CALL_FIELDS = {
     "key",
     "value",
     "callee",
+    "strict",
 }
 
 
@@ -101,6 +102,8 @@ def validate_record(record):
             _fail("has result must be Boolean")
         elif kind == "proxy.set.call":
             p.validate_protocol_value(record["value"])
+        if kind == "proxy.delete.call" and type(record["strict"]) is not bool:
+            _fail("strict deletion flag")
         if kind in ("proxy.set", "proxy.delete") and type(record["success"]) is not bool:
             _fail("Boolean operation result")
     return True
@@ -203,12 +206,24 @@ def _invariant_fault(machine, row, returned):
     if returned["kind"] != "return":
         return None
     p = _protocol()
+    operation, value = row["operation"], returned["value"]
+    truth = _truthy(value)
+    if operation == "delete" and row["strict"] and not truth:
+        if row["key"][0] == "str":
+            display = row["key"][1]
+        else:
+            symbol = p._symbol(machine, row["key"][1])
+            description = (
+                ["str", "Symbol." + symbol["name"]]
+                if symbol["kind"] == "well-known"
+                else symbol["description"]
+            )
+            display = "Symbol(" + (description[1] if description[0] == "str" else "") + ")"
+        return "'deleteProperty' on proxy: trap returned falsish for property '" + display + "'"
     target = p._node(machine, row["target"][1])
     descriptor = p._descriptor(target, p._key(row["key"]))
     if not descriptor:
         return None
-    operation, value = row["operation"], returned["value"]
-    truth = _truthy(value)
     restricted = not descriptor["configurable"] or not target.get("extensible", True)
     if operation == "has" and not truth and restricted:
         return "Proxy has trap contradicted target property existence"
@@ -331,6 +346,7 @@ def apply_record(machine, record):
             "key": copy.deepcopy(record["key"]),
             "value": value,
             "callee": copy.deepcopy(method),
+            "strict": record["strict"] if operation == "delete" else False,
         }
         from .construction_v8 import _call
 
@@ -424,6 +440,10 @@ def validate_state(machine):
             _id(row[name])
         _require(row["id"] not in seen and row["operation"] in OPERATION_TRAPS, "call identity")
         seen.add(row["id"])
+        _require(
+            type(row["strict"]) is bool and (row["operation"] == "delete" or not row["strict"]),
+            "retained strict deletion flag",
+        )
         node = machine["heap"].get(row["object"])
         _require(
             node

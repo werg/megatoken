@@ -844,8 +844,9 @@ def validate_state(machine):
                 _require(
                     row["result"] is not None
                     and row["result"][0] == "ref"
-                    and p._node(machine, row["result"][1])["kind"] == "object",
-                    "conversion fault error identity",
+                    and p._node(machine, row["result"][1])["kind"] == "object"
+                    and p._node(machine, row["result"][1]).get("declaredError") == "TypeError",
+                    "conversion fault error identity/brand",
                 )
         if not _terminal(row):
             _require(row["result"] is None, "unfinished conversion has a result")

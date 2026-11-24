@@ -319,6 +319,7 @@ class ProxyV8Tests(unittest.TestCase):
                 "key": ["symbol", "missing"],
                 "value": None,
                 "callee": REF("getTrap"),
+                "strict": False,
             }
         ]
         with self.assertRaises(ProtocolV8Error):
@@ -353,7 +354,7 @@ class ProxyV8Tests(unittest.TestCase):
 
 
 class ProxyPresenceDeletionTests(unittest.TestCase):
-    def begin(self, operation, key=KEY):
+    def begin(self, operation, key=KEY, *, strict=False):
         name = operation + "Trap"
         state = base_state(((name, REF(name)),))
         step(
@@ -361,6 +362,7 @@ class ProxyPresenceDeletionTests(unittest.TestCase):
             {
                 "kind": "proxy." + operation + ".call",
                 "id": "operation",
+                **({"strict": strict} if operation == "delete" else {}),
                 "object": "proxy",
                 "key": key,
                 "child": "callback",
@@ -482,6 +484,7 @@ class ProxyPresenceDeletionTests(unittest.TestCase):
                     {
                         "kind": "proxy." + operation + ".call",
                         "id": "again",
+                        **({"strict": False} if operation == "delete" else {}),
                         "object": "proxy",
                         "key": KEY,
                         "child": "second",
@@ -611,6 +614,45 @@ class ProxyFaultTests(unittest.TestCase):
             with self.assertRaisesRegex(ProtocolV8Error, "derived"):
                 step(state, {"kind": "proxy.fault", "id": "operation", "error": "invented"})
             self.assertEqual(state, before)
+
+    def test_false_strict_delete_is_a_caller_error_even_when_property_is_absent(self):
+        for key, display in (
+            (["str", "absent"], "absent"),
+            (["str", "\0symbol:test"], "\0symbol:test"),
+            (["symbol", "well-known:iterator"], "Symbol(Symbol.iterator)"),
+        ):
+            state = self.begin("delete", key, strict=True)
+            step(state, {"kind": "return", "invocation": "callback", "value": ["num", 0]})
+            before = copy.deepcopy(state)
+            with self.assertRaisesRegex(ProtocolV8Error, "fault required"):
+                step(
+                    state,
+                    {
+                        "kind": "proxy.finish",
+                        "id": "operation",
+                        "completion": {"kind": "normal", "value": ["bool", False]},
+                    },
+                )
+            self.assertEqual(state, before)
+            step(state, {"kind": "proxy.fault", "id": "operation", "error": "fault"})
+            message = dict(dict(state["heap"])["fault"]["properties"])["message"]
+            self.assertEqual(
+                message,
+                [
+                    "str",
+                    "'deleteProperty' on proxy: trap returned falsish for property '"
+                    + display
+                    + "'",
+                ],
+            )
+            self.assertEqual(state["lastReturn"], {"kind": "throw", "value": REF("fault")})
+
+    def test_non_delete_operations_cannot_retain_strict_delete_context(self):
+        state = self.begin("has")
+        forged = copy.deepcopy(state)
+        forged["protocol"]["proxyCalls"]["pending"][-1]["strict"] = True
+        with self.assertRaisesRegex(ProtocolV8Error, "strict"):
+            validate_protocol_state(forged["protocol"], forged["heap"], forged)
 
 
 if __name__ == "__main__":

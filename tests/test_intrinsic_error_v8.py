@@ -110,5 +110,36 @@ class IntrinsicErrorTests(unittest.TestCase):
             validate_protocol_state(forged["protocol"], forged["heap"], forged)
 
 
+class ConversionErrorMutationTests(unittest.TestCase):
+    def test_error_brand_is_stable_but_name_and_message_remain_guest_writable(self):
+        from megatoken.data import primitive_conversion_v8 as conversion
+        from tests.test_primitive_conversion_v8 import allocate, apply, begin, machine
+
+        state = machine()
+        apply(
+            state,
+            begin("conversion", "Number", ["symbol", "well-known:iterator"]),
+            {"kind": "conversion.fault", "id": "conversion", "error": "error"},
+        )
+        for key in ("name", "message"):
+            apply(
+                state,
+                {
+                    "kind": "property.set",
+                    "object": "error",
+                    "key": ["str", key],
+                    "receiver": REF("error"),
+                    "value": ["str", "changed"],
+                    "success": True,
+                },
+            )
+        self.assertEqual(state["heap"]["error"]["declaredError"], "TypeError")
+        apply(state, allocate("ordinary", ((["str", "name"], ["str", "TypeError"]),)))
+        forged = copy.deepcopy(state)
+        forged["protocol"]["primitiveConversions"]["operations"][-1]["result"] = REF("ordinary")
+        with self.assertRaisesRegex(ProtocolV8Error, "identity/brand"):
+            conversion.validate_state(forged)
+
+
 if __name__ == "__main__":
     unittest.main()
