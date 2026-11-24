@@ -29,6 +29,7 @@ TRAPS = (
 OPERATION_TRAPS = {"get": "get", "set": "set", "has": "has", "delete": "deleteProperty"}
 FIELDS = {
     "proxy.create": {"kind", "name", "target", "handler"},
+    "proxy.revocable": {"kind", "proxy", "revoke", "result", "target", "handler"},
     "proxy.revoke": {"kind", "object"},
     "proxy.revoked.fault": {"kind", "object", "operation", "error"},
     "proxy.get": {"kind", "object", "key", "result", "route"},
@@ -85,6 +86,14 @@ def validate_record(record):
     p._exact(record, FIELDS[kind], "Proxy record")
     if kind == "proxy.create":
         _id(record["name"])
+        p.validate_protocol_value(record["target"])
+        p.validate_protocol_value(record["handler"])
+    elif kind == "proxy.revocable":
+        _id(record["proxy"])
+        _id(record["revoke"])
+        _id(record["result"])
+        if len({record["proxy"], record["revoke"], record["result"]}) != 3:
+            _fail("revocable Proxy identities")
         p.validate_protocol_value(record["target"])
         p.validate_protocol_value(record["handler"])
     elif kind == "proxy.revoke":
@@ -391,6 +400,32 @@ def apply_record(machine, record):
         message = "Cannot perform '" + record["operation"] + "' on a proxy that has been revoked"
         value = allocate_intrinsic_error_v8(machine, record["error"], "TypeError", message)
         machine["lastReturn"] = {"kind": "throw", "value": copy.deepcopy(value)}
+        return True
+    if kind == "proxy.revocable":
+        reserved = {row["id"] for row in machine["protocol"].get("symbols", [])}
+        identities = (record["proxy"], record["revoke"], record["result"])
+        _require(all(identity not in machine["heap"] and identity not in reserved for identity in identities)
+                 and len(set(identities)) == 3, "fresh revocable Proxy identities")
+        _ordinary(machine, record["handler"], "Proxy handler")
+        _require(record["target"][0] == "ref" and machine["heap"].get(record["target"][1], {}).get("kind")
+                 in ("object", "array", "proxy"), "Proxy target object identity")
+        proxy_node = {"kind": "proxy", "target": copy.deepcopy(record["target"]),
+                      "handler": copy.deepcopy(record["handler"]), "properties": {}}
+        _route(machine, proxy_node)
+        revoke_node = {"kind": "closure", "code": "Proxy.revoke:" + record["proxy"], "captures": [],
+                       "functionKind": "ordinary", "lexicalReceiver": None, "prototype": "ordinary",
+                       "properties": {"length": ["num", 0], "name": ["str", ""]},
+                       "descriptors": {"length": {"kind": "data", "writable": False,
+                           "enumerable": False, "configurable": True},
+                           "name": {"kind": "data", "writable": False,
+                           "enumerable": False, "configurable": True}},
+                       "keyOrder": ["length", "name"]}
+        result_node = {"kind": "object", "code": None, "captures": [], "prototype": "ordinary",
+                       "properties": {"proxy": ["ref", record["proxy"]], "revoke": ["ref", record["revoke"]]}}
+        machine["heap"][record["proxy"]] = proxy_node
+        machine["heap"][record["revoke"]] = revoke_node
+        machine["heap"][record["result"]] = result_node
+        _state(machine)
         return True
     if kind == "proxy.create":
         _id(record["name"])

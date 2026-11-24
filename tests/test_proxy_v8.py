@@ -33,7 +33,7 @@ def initial_state():
 
 def _with_proxy_route(state, record):
     kind = record.get("kind", "")
-    if not kind.startswith("proxy.") or kind in ("proxy.create", "proxy.revoke", "proxy.revoked.fault", "proxy.finish", "proxy.fault"):
+    if not kind.startswith("proxy.") or kind in ("proxy.create", "proxy.revocable", "proxy.revoke", "proxy.revoked.fault", "proxy.finish", "proxy.fault"):
         return record
     operation = kind.split(".")[1]
     trap = {"delete": "deleteProperty"}.get(operation, operation)
@@ -60,6 +60,25 @@ def step(state, record):
     state.clear()
     state.update(updated)
     return state
+
+
+def test_proxy_revocable_allocates_a_retained_callable_identity():
+    state = base_state()
+    step(state, {"kind": "proxy.revocable", "proxy": "revocable", "revoke": "revoker",
+                 "result": "pair", "target": REF("target"), "handler": REF("handler")})
+    heap = dict(state["heap"])
+    pair = heap["pair"]
+    revoker = heap["revoker"]
+    assert dict(pair["properties"]) == {"proxy": REF("revocable"), "revoke": REF("revoker")}
+    assert revoker["kind"] == "closure"
+    assert revoker["code"] == "Proxy.revoke:revocable"
+    assert dict(revoker["properties"]) == {"length": ["num", 0], "name": ["str", ""]}
+    assert dict(revoker["descriptors"])["length"] == {"kind": "data", "writable": False,
+                                                                 "enumerable": False, "configurable": True}
+    step(state, {"kind": "proxy.revoke", "object": "revocable"})
+    assert dict(state["heap"])["revocable"]["target"] == ["null"]
+    assert dict(state["heap"])["revocable"]["handler"] == ["null"]
+
 
 
 def base_state(traps=()):
