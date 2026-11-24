@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import copy
 
+from .intrinsic_error_v8 import allocate_intrinsic_error_v8
 from .semantic_json import _js_string_length
 
 STATE_SCHEMA = "semantic-construction-state/1"
@@ -46,6 +47,7 @@ FIELDS = {
     "construct.finish": {"kind", "id", "completion"},
     "construct.target": {"kind", "invocation", "result"},
     "construct.this": {"kind", "invocation", "result"},
+    "construct.this.fault": {"kind", "invocation", "error"},
     "super.select": {"kind", "owner", "callee"},
     "super.bind": {"kind", "owner", "receiver", "child"},
     "super.finish": {"kind", "owner", "completion"},
@@ -100,12 +102,12 @@ def validate_record(record):
     if fields is None:
         return False
     _exact(record, fields, "record")
-    for key in ("object", "id", "owner", "privateId", "child", "invocation"):
+    for key in ("object", "id", "owner", "privateId", "child", "invocation", "error"):
         if key in record and record[key] is not None:
             _id(record[key])
     if kind in ("construct.enter", "construct.body") and record["child"] is None:
         _fail("constructor child invocation")
-    if kind in ("construct.target", "construct.this") and record["invocation"] is None:
+    if kind in ("construct.target", "construct.this", "construct.this.fault") and record["invocation"] is None:
         _fail("constructor invocation")
     if kind == "callable.define":
         if (
@@ -163,6 +165,8 @@ def validate_record(record):
         if completion["kind"] not in ("normal", "throw"):
             _fail("constructor completion kind")
         validate_protocol_value(completion["value"])
+    elif kind == "construct.this.fault":
+        _id(record["error"])
     elif kind == "super.select":
         validate_protocol_value(record["callee"])
     elif kind == "super.bind":
@@ -600,6 +604,69 @@ def _apply_continuation(machine, record):
         if kind == "construct.target" and capture is not None:
             machine["locals"][record["invocation"] + ":lexical-newTarget"] = copy.deepcopy(record["result"])
         return
+    if kind == "construct.this.fault":
+        invocation = record["invocation"]
+        if machine["stack"][-1] != invocation or len(machine["stack"]) < 2:
+            _fail("derived this fault invocation")
+        activation = next(
+            (row for row in reversed(machine["protocol"]["callFrames"]) if row["child"] == invocation),
+            None,
+        )
+        if activation is None or activation["parent"] != machine["stack"][-2]:
+            _fail("derived this fault lacks its active call frame")
+        state = _construct_state(machine)
+        owner = next(
+            (
+                row
+                for row in reversed(state["frames"])
+                if row["phase"] == "body"
+                and row["bodyInvocation"] == (
+                    activation["parent"] if activation["callee"][0] == "ref" and
+                    _node(machine, activation["callee"][1]).get("functionKind") == "arrow" else invocation
+                )
+            ),
+            None,
+        )
+        if owner is None:
+            _fail("derived this fault has no active constructor body")
+        constructor = _node(machine, owner["callee"][1])
+        if (
+            _metadata(machine, owner["callee"][1])["constructorKind"] != "derived"
+            or owner["phase"] != "body"
+            or owner["activeChild"] != owner["bodyInvocation"]
+            or owner["initialized"]
+            or owner["bodyInvocation"] + ":this" not in machine["locals"]
+            or machine["locals"][owner["bodyInvocation"] + ":this"] != ["undefined"]
+            or machine.get("receiver", ["undefined"]) != ["undefined"]
+        ):
+            _fail("derived this fault is not an uninitialized derived receiver")
+        direct = invocation == owner["bodyInvocation"]
+        if direct:
+            if activation["parent"] != owner["parent"] or activation["callee"] != owner["callee"]:
+                _fail("derived constructor call frame differs")
+        else:
+            if activation["parent"] != owner["bodyInvocation"]:
+                _fail("captured arrow was not called by its active constructor")
+            arrow = _node(machine, activation["callee"][1]) if activation["callee"][0] == "ref" else None
+            capture = arrow.get("callable", {}).get("lexicalConstruction") if arrow else None
+            if arrow is None or arrow.get("functionKind") != "arrow" or capture is None:
+                _fail("derived this fault requires the exact captured arrow")
+            captured = _construction_capture(machine, capture)
+            if (
+                captured is not owner
+                or owner["bodyInvocation"] + ":this" != capture["thisCell"]
+                or arrow.get("lexicalReceiver") != ["undefined"]
+            ):
+                _fail("captured arrow does not retain this constructor receiver")
+        if constructor.get("callable", {}).get("constructorKind") != "derived":
+            _fail("derived constructor brand differs")
+        error = allocate_intrinsic_error_v8(
+            machine,
+            record["error"],
+            "ReferenceError",
+            "Must call super constructor in derived class before accessing 'this' or returning from derived constructor",
+        )
+        machine["lastReturn"] = {"kind": "throw", "value": copy.deepcopy(error)}
     if kind == "super.select":
         owner = _frame(machine, record["owner"])
         if (

@@ -70,6 +70,96 @@ class ScheduledConstructorArrowRefusalTests(unittest.TestCase):
             validate_adoption_state(retained)
 
 
+class ConstructionThisFaultTests(unittest.TestCase):
+    MESSAGE = "Must call super constructor in derived class before accessing 'this' or returning from derived constructor"
+
+    def setUp(self):
+        from tests.test_number_v8 import machine
+
+        self.machine = machine()
+
+    def send(self, record):
+        return apply_protocol_record(self.machine, record)
+
+    def allocate(self, identity, function_kind=None, lexical_receiver=None):
+        return self.send(
+            {
+                "kind": "allocate",
+                "name": identity,
+                "objectKind": "closure" if function_kind else "object",
+                "length": None,
+                "properties": [],
+                "code": identity if function_kind else None,
+                "captures": [],
+                "functionKind": function_kind,
+                "lexicalReceiver": lexical_receiver,
+            }
+        )
+
+    def enter_derived(self):
+        self.allocate("Base", "ordinary", None)
+        self.allocate("Base-prototype")
+        self.send({"kind": "callable.define", "object": "Base", "constructorKind": "base", "classConstructor": True})
+        self.send({"kind": "class.link", "object": "Base", "prototype": ["ref", "Base-prototype"], "heritage": ["undefined"]})
+        self.allocate("Derived", "ordinary", None)
+        self.allocate("Derived-prototype")
+        self.send({"kind": "callable.define", "object": "Derived", "constructorKind": "derived", "classConstructor": True})
+        self.send({"kind": "class.link", "object": "Derived", "prototype": ["ref", "Derived-prototype"], "heritage": ["ref", "Base"]})
+        self.send({
+            "kind": "construct.enter",
+            "id": "derived-construction",
+            "child": "derived-body",
+            "callee": ["ref", "Derived"],
+            "newTarget": ["ref", "Derived"],
+            "arguments": [],
+            "receiver": ["undefined"],
+            "mode": "ordinary",
+            "owner": None,
+        })
+
+    def test_direct_derived_this_fault_allocates_a_branded_reference_error(self):
+        self.enter_derived()
+        self.send({"kind": "construct.this.fault", "invocation": "derived-body", "error": "reference-error"})
+        error = self.machine["heap"]["reference-error"]
+        self.assertEqual(error["declaredError"], "ReferenceError")
+        self.assertEqual(error["properties"]["message"], ["str", self.MESSAGE])
+        self.assertEqual(self.machine["lastReturn"], {"kind": "throw", "value": ["ref", "reference-error"]})
+        external = _external_machine(self.machine)
+        self.assertTrue(validate_protocol_state(external["protocol"], external["heap"], external))
+
+    def test_captured_arrow_fault_requires_exact_live_constructor_cell_and_call_frame(self):
+        self.enter_derived()
+        self.allocate("reader", "arrow", ["undefined"])
+        self.send({"kind": "callable.define", "object": "reader", "constructorKind": None, "classConstructor": False})
+        self.send({"kind": "callable.capture", "object": "reader", "frame": "derived-construction", "thisCell": "derived-body:this"})
+        self.send({"kind": "call", "child": "arrow-body", "callee": ["ref", "reader"], "receiver": ["undefined"], "arguments": []})
+        before = copy.deepcopy(self.machine)
+        self.send({"kind": "construct.this.fault", "invocation": "arrow-body", "error": "reference-error"})
+        self.assertEqual(self.machine["heap"]["reference-error"]["declaredError"], "ReferenceError")
+        self.assertEqual(self.machine["lastReturn"], {"kind": "throw", "value": ["ref", "reference-error"]})
+
+        self.machine = copy.deepcopy(before)
+        self.machine["protocol"]["callFrames"][-1]["callee"] = ["ref", "Derived"]
+        with self.assertRaisesRegex(ProtocolV8Error, "active constructor body|captured arrow|constructor activation"):
+            self.send({"kind": "construct.this.fault", "invocation": "arrow-body", "error": "forged-error"})
+
+        # The public frame can only fault while its retained this cell remains uninitialized.
+        self.machine = copy.deepcopy(before)
+        self.machine["locals"]["derived-body:this"] = ["ref", "Derived-prototype"]
+        with self.assertRaisesRegex(ProtocolV8Error, "uninitialized derived receiver"):
+            self.send({"kind": "construct.this.fault", "invocation": "arrow-body", "error": "forged-error"})
+
+    def test_this_fault_rejects_wrong_invocation_and_nonfresh_error_id(self):
+        self.enter_derived()
+        before = copy.deepcopy(self.machine)
+        with self.assertRaisesRegex(ProtocolV8Error, "invocation"):
+            self.send({"kind": "construct.this.fault", "invocation": "root", "error": "reference-error"})
+        self.assertEqual(self.machine, before)
+        with self.assertRaisesRegex(ProtocolV8Error, "identity|fresh"):
+            self.send({"kind": "construct.this.fault", "invocation": "derived-body", "error": "Derived"})
+        self.assertEqual(self.machine, before)
+
+
 class ConstructionInitializerTests(unittest.TestCase):
     def setUp(self):
         self.machine = {
