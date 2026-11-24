@@ -16,16 +16,16 @@ from .async_call_v8 import apply_record as apply_async_call_record
 from .async_call_v8 import assert_next as assert_async_call_next
 from .async_call_v8 import validate_record as validate_async_call_record
 from .async_call_v8 import validate_state as validate_async_call_state
+from .collection_v8 import FIELDS as COLLECTION_FIELDS
+from .collection_v8 import apply_record as apply_collection_record
+from .collection_v8 import validate_record as validate_collection_record
+from .collection_v8 import validate_state as validate_collection_state
 from .construction_v8 import FIELDS as CONSTRUCTION_FIELDS
 from .construction_v8 import _lexical_receiver
 from .construction_v8 import apply_record as apply_construction_record
 from .construction_v8 import assert_next as assert_construction_next
 from .construction_v8 import validate_record as validate_construction_record
 from .construction_v8 import validate_state as validate_construction_record_state
-from .collection_v8 import FIELDS as COLLECTION_FIELDS
-from .collection_v8 import apply_record as apply_collection_record
-from .collection_v8 import validate_record as validate_collection_record
-from .collection_v8 import validate_state as validate_collection_state
 from .enumeration_v8 import FIELDS as ENUMERATION_FIELDS
 from .enumeration_v8 import apply_record as apply_enumeration_record
 from .enumeration_v8 import validate_record as validate_enumeration_record
@@ -695,6 +695,20 @@ def _lookup_descriptor(machine, identity, key, *, for_set=False, for_has=False):
         prototype = node.get("prototype", "ordinary")
         if prototype == "ordinary":
             promise_objects = (machine.get("protocol") or {}).get("promiseObjects")
+            if (
+                node["kind"] == "closure"
+                and key == ("symbol", "well-known:hasInstance")
+                and promise_objects is not None
+            ):
+                from .promise_object_v8 import intrinsic_id
+
+                return None, {
+                    "kind": "data",
+                    "value": ["ref", intrinsic_id("Function.prototype.hasInstance")],
+                    "writable": False,
+                    "enumerable": False,
+                    "configurable": False,
+                }
             if for_has and node["kind"] == "promise" and promise_objects is None:
                 _fail("Promise existence lookup requires its initialized intrinsic prototype")
             from .promise_object_v8 import intrinsic_id

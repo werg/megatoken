@@ -9,6 +9,7 @@ FIELDS = {
     "promise.intrinsic.get": {"kind", "base", "key", "result"},
     "property.getPrototypeOf": {"kind", "object", "result"},
     "property.isExtensible": {"kind", "object", "result"},
+    "object.hasInstance": {"kind", "constructor", "value", "result"},
     "property.descriptor": {"kind", "object", "key", "descriptor", "name"},
 }
 STATE_SCHEMA = "semantic-promise-object-state/1"
@@ -49,6 +50,7 @@ NAMES = (
     *ERROR_TYPES,
     *ERROR_PROTOTYPES,
     "Error.prototype.toString",
+    "Function.prototype.hasInstance",
 )
 
 
@@ -232,17 +234,23 @@ def validate_record(record):
         return True
     if kind == "promise.intrinsic.get":
         validate_protocol_key(record["key"])
+        has_instance = record["key"] == ["symbol", "well-known:hasInstance"]
         if (
             record["base"] not in ("Promise", "Object", *ERROR_TYPES)
-            or record["key"][0] != "str"
-            or record["key"][1] not in ("prototype", "name", "length")
-            or record["base"] not in ERROR_TYPES
-            and record["key"][1] != "prototype"
+            or not has_instance
+            and (
+                record["key"][0] != "str"
+                or record["key"][1] not in ("prototype", "name", "length")
+                or record["base"] not in ERROR_TYPES
+                and record["key"][1] != "prototype"
+            )
         ):
             _fail("intrinsic member read shape")
         validate_protocol_value(record["result"])
         expected = (
-            ["ref", intrinsic_id(record["base"] + ".prototype")]
+            ["ref", intrinsic_id("Function.prototype.hasInstance")]
+            if has_instance
+            else ["ref", intrinsic_id(record["base"] + ".prototype")]
             if record["key"][1] == "prototype"
             else ["str", record["base"]]
             if record["key"][1] == "name"
@@ -250,6 +258,11 @@ def validate_record(record):
         )
         if record["result"] != expected:
             _fail("intrinsic member read result")
+    elif kind == "object.hasInstance":
+        for field in ("constructor", "value", "result"):
+            validate_protocol_value(record[field])
+        if record["result"][0] != "bool":
+            _fail("hasInstance result must be boolean")
     elif kind == "property.getPrototypeOf":
         _identity(record["object"])
         result = record["result"]
@@ -295,6 +308,63 @@ def apply_record(machine, record):
             or intrinsic_id(expected_name) != record["result"][1]
         ):
             _fail("intrinsic prototype identity is unavailable")
+        return True
+    if kind == "object.hasInstance":
+        from .protocol_v8 import _known, _lookup_descriptor
+
+        _known(machine, record["constructor"])
+        _known(machine, record["value"])
+        constructor = (
+            machine["heap"].get(record["constructor"][1])
+            if record["constructor"][0] == "ref"
+            else None
+        )
+        answer = False
+        if (
+            constructor is not None
+            and constructor.get("kind") in ("closure", "intrinsic")
+            and record["value"][0] == "ref"
+        ):
+            if constructor["kind"] == "intrinsic":
+                name = constructor["intrinsicName"]
+                if name not in ("Object", "Promise", *ERROR_TYPES):
+                    _fail("hasInstance intrinsic constructor")
+                sought = ["ref", intrinsic_id(name + ".prototype")]
+            else:
+                _, descriptor = _lookup_descriptor(machine, record["constructor"][1], "prototype")
+                if (
+                    descriptor is None
+                    or descriptor.get("kind") != "data"
+                    or descriptor["value"][0] != "ref"
+                ):
+                    _fail("hasInstance requires its ordinary object prototype")
+                sought = descriptor["value"]
+            seen = set()
+            current = record["value"]
+            while isinstance(current, list) and current[0] == "ref":
+                if current[1] in seen:
+                    _fail("hasInstance cyclic prototype chain")
+                seen.add(current[1])
+                node = machine["heap"].get(current[1])
+                if (
+                    node is None
+                    or "proxy" in node
+                    or node.get("kind") not in ("object", "array", "closure", "promise")
+                ):
+                    _fail("hasInstance prototype requires its internal-method continuation")
+                prototype = node.get("prototype", "ordinary")
+                if prototype == "ordinary":
+                    prototype = ["ref", intrinsic_id("Object.prototype")]
+                if prototype is None:
+                    break
+                if not isinstance(prototype, list) or prototype[0] != "ref":
+                    _fail("hasInstance prototype value")
+                if prototype == sought:
+                    answer = True
+                    break
+                current = prototype
+        if record["result"] != ["bool", answer]:
+            _fail("hasInstance result differs from live prototype chain")
         return True
     node = _node(machine, record["object"])
     if kind == "property.getPrototypeOf":

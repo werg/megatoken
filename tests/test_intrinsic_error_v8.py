@@ -8,6 +8,54 @@ from tests.test_proxy_v8 import REF, base_state, step
 
 
 class IntrinsicErrorTests(unittest.TestCase):
+    def test_instanceof_follows_mutated_prototypes_not_the_retained_error_brand(self):
+        from megatoken.data.promise_object_v8 import intrinsic_id
+
+        state = base_state()
+        step(
+            state,
+            {
+                "kind": "property.fault",
+                "operation": "has",
+                "target": ["null"],
+                "key": ["str", "x"],
+                "error": "fault",
+            },
+        )
+
+        def record(name, result):
+            return {
+                "kind": "object.hasInstance",
+                "constructor": REF(intrinsic_id(name)),
+                "value": REF("fault"),
+                "result": ["bool", result],
+            }
+
+        for name, result in (
+            ("TypeError", True),
+            ("Error", True),
+            ("Object", True),
+            ("RangeError", False),
+        ):
+            step(state, record(name, result))
+        before = copy.deepcopy(state)
+        with self.assertRaisesRegex(ProtocolV8Error, "live prototype chain"):
+            step(state, record("RangeError", True))
+        self.assertEqual(state, before)
+        step(
+            state,
+            {
+                "kind": "property.prototype",
+                "object": "fault",
+                "prototype": REF(intrinsic_id("RangeError.prototype")),
+                "success": True,
+            },
+        )
+        for name, result in (("TypeError", False), ("RangeError", True), ("Error", True)):
+            step(state, record(name, result))
+        self.assertEqual(dict(state["heap"])["fault"]["declaredError"], "TypeError")
+        validate_protocol_state(state["protocol"], state["heap"], state)
+
     def test_error_standard_descriptors_and_live_prototypes_survive_restore(self):
         from megatoken.data.promise_object_v8 import intrinsic_id
 
