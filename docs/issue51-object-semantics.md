@@ -111,3 +111,57 @@ implicit intrinsic prototype enumeration when enumerable intrinsic properties
 are not represented in the captured chain (explicitly refused at creation).
 Continue those as concrete semantic
 work rather than interpreting unsupported cases as successful guest exceptions.
+
+## Checkpoint — clean original-source admission and ordinary preparation
+
+The producer at `c3e1a55f19eb04fc17957dd8fdea01031ca35ecd` passed the full
+`npm run contracts:check` on Node v24.22.3. Its byte-identical current contract
+was synchronized in consumer `c3df6a32436233f714b365c3a7b2f3e5ce967b5c`; all
+68 focused property/Proxy/construction/enumeration tests passed.
+
+The clean exporter produced 23 originals: 20 supported and 3 explicit refusal
+controls, with no unexpected failures. Consumer commit
+`4c8ee3143171407dd670d44abcb86fb143344c34` retains that complete compressed
+evidence and independent native tests. The 25 tests in
+`tests/test_issue51_object_source_v8.py` passed: native replay, every context,
+continuation, forged operation refusal and rehashed cursor refusal. The single
+frozen registry includes *all* 23 source identities and the same ancestor.
+
+The ordinary preparation command completed against the clean producer and
+consumer implementation revisions above:
+
+```sh
+# Producer checkout at c3e1a55, consumer checkout at c3df6a3.
+node tools/export-issue51-evidence.mjs --out /tmp/issue51-cohort.json
+# In the consumer checkout, extract only the supported originals.
+python -c 'import json; d=json.load(open("/tmp/issue51-cohort.json")); print("\\n".join(json.dumps(x["artifact"]) for x in d["cases"] if x["artifact"] is not None))' > /tmp/issue51-artifacts.jsonl
+PYTHONPATH=src python scripts/prepare_semantic_v8.py \\
+  --input /tmp/issue51-artifacts.jsonl --output /tmp/issue51-prepared \\
+  --producer-root /path/to/tracing-js-self \\
+  --producer-revision c3e1a55f19eb04fc17957dd8fdea01031ca35ecd \\
+  --consumer-revision c3df6a32436233f714b365c3a7b2f3e5ce967b5c \\
+  --tokenizer-json /path/to/pinned/tokenizer.json --source-recheck-timeout-seconds 90
+```
+
+Receipt (original clean revisions; not a claim about subsequent commits):
+
+- 20 attempted / 20 admitted, 0 preparation refusals.
+- Contract digest `9e5946f6745460ad45698eed882641cbc8bb171feb58a98ee53b60984ba23658`.
+- Fixture digest `56f7f36d3b25b3b11a208be3de337e637b9782e6759faea1e1ec107b0a90f0ce`.
+- Interoperability digest `813034bfdedd09a779cc6f45109099fe8231621baac8b770f23379329fbd9218`.
+- Registry digest `e24d9baecb211cf77479b5d81daab0a775936dd6dc6a05c365bc41d8570b22f6`.
+- Manifest fingerprint `5d279e992f64ecd1ab2b3e1089d7356670614c0b7af2afe5c06ee0769d1fc5ec`.
+- Actual inclusionAI/Ling-3.0-tiny tokenizer SHA256
+  `40fb9d7d7795b8bd305aeff39ce9963f3f450915b9553f2938e009be9a1fed60`,
+  codec identity `7f52faca2fe82273a889023defd2f1a6fd6080a21096ec77e97f4798a0a370b2`.
+- 8192 maximum positions, 1024 maximum history; zero optimizer steps,
+  no learning claim. The three deliberately refused controls are not included
+  in the input artifact stream; they remain in the frozen registry.
+
+The native checker already understands the existing conversion and property
+records; no parallel builtin-specific native evaluator is needed for Reflect
+object-key conversion. Producer commits `5fea23aa` and `152b8f50` implement
+retained runtime keys and independently observe direct Reflect calls. New
+source fixtures must be rechecked and synchronized before describing their
+expanded population as ordinarily prepared. See the paired PRs for the latest
+exact revision receipts.
