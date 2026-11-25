@@ -100,11 +100,14 @@
           "callFrames": [],
           "sequence": 0,
           "promiseObjects": null,
+          "intrinsicErrors": null,
           "construction": null,
           "primitiveConversions": null,
           "numberConversions": null,
+          "proxyReflection": null,
           "proxyCalls": null,
-          "promiseExecutors": null
+          "promiseExecutors": null,
+          "collections": null
         }
       },
       "lines": [
@@ -454,11 +457,14 @@
           "callFrames": [],
           "sequence": 14,
           "promiseObjects": null,
+          "intrinsicErrors": null,
           "construction": null,
           "primitiveConversions": null,
           "numberConversions": null,
+          "proxyReflection": null,
           "proxyCalls": null,
-          "promiseExecutors": null
+          "promiseExecutors": null,
+          "collections": null
         }
       }
     },
@@ -560,11 +566,14 @@
           "callFrames": [],
           "sequence": 0,
           "promiseObjects": null,
+          "intrinsicErrors": null,
           "construction": null,
           "primitiveConversions": null,
           "numberConversions": null,
+          "proxyReflection": null,
           "proxyCalls": null,
-          "promiseExecutors": null
+          "promiseExecutors": null,
+          "collections": null
         }
       },
       "lines": [
@@ -842,11 +851,14 @@
           "callFrames": [],
           "sequence": 7,
           "promiseObjects": null,
+          "intrinsicErrors": null,
           "construction": null,
           "primitiveConversions": null,
           "numberConversions": null,
+          "proxyReflection": null,
           "proxyCalls": null,
-          "promiseExecutors": null
+          "promiseExecutors": null,
+          "collections": null
         }
       }
     },
@@ -948,11 +960,14 @@
           "callFrames": [],
           "sequence": 0,
           "promiseObjects": null,
+          "intrinsicErrors": null,
           "construction": null,
           "primitiveConversions": null,
           "numberConversions": null,
+          "proxyReflection": null,
           "proxyCalls": null,
-          "promiseExecutors": null
+          "promiseExecutors": null,
+          "collections": null
         }
       },
       "lines": [
@@ -1260,11 +1275,14 @@
           "callFrames": [],
           "sequence": 12,
           "promiseObjects": null,
+          "intrinsicErrors": null,
           "construction": null,
           "primitiveConversions": null,
           "numberConversions": null,
+          "proxyReflection": null,
           "proxyCalls": null,
-          "promiseExecutors": null
+          "promiseExecutors": null,
+          "collections": null
         }
       }
     },
@@ -1366,11 +1384,14 @@
           "callFrames": [],
           "sequence": 0,
           "promiseObjects": null,
+          "intrinsicErrors": null,
           "construction": null,
           "primitiveConversions": null,
           "numberConversions": null,
+          "proxyReflection": null,
           "proxyCalls": null,
-          "promiseExecutors": null
+          "promiseExecutors": null,
+          "collections": null
         }
       },
       "lines": [
@@ -1710,11 +1731,14 @@
           "callFrames": [],
           "sequence": 17,
           "promiseObjects": null,
+          "intrinsicErrors": null,
           "construction": null,
           "primitiveConversions": null,
           "numberConversions": null,
+          "proxyReflection": null,
           "proxyCalls": null,
-          "promiseExecutors": null
+          "promiseExecutors": null,
+          "collections": null
         }
       }
     },
@@ -1816,11 +1840,14 @@
           "callFrames": [],
           "sequence": 0,
           "promiseObjects": null,
+          "intrinsicErrors": null,
           "construction": null,
           "primitiveConversions": null,
           "numberConversions": null,
+          "proxyReflection": null,
           "proxyCalls": null,
-          "promiseExecutors": null
+          "promiseExecutors": null,
+          "collections": null
         }
       },
       "lines": [
@@ -2200,11 +2227,14 @@
           "callFrames": [],
           "sequence": 20,
           "promiseObjects": null,
+          "intrinsicErrors": null,
           "construction": null,
           "primitiveConversions": null,
           "numberConversions": null,
+          "proxyReflection": null,
           "proxyCalls": null,
-          "promiseExecutors": null
+          "promiseExecutors": null,
+          "collections": null
         }
       }
     },
@@ -2306,11 +2336,14 @@
           "callFrames": [],
           "sequence": 0,
           "promiseObjects": null,
+          "intrinsicErrors": null,
           "construction": null,
           "primitiveConversions": null,
           "numberConversions": null,
+          "proxyReflection": null,
           "proxyCalls": null,
-          "promiseExecutors": null
+          "promiseExecutors": null,
+          "collections": null
         }
       },
       "lines": [
@@ -2782,11 +2815,14 @@
           "callFrames": [],
           "sequence": 26,
           "promiseObjects": null,
+          "intrinsicErrors": null,
           "construction": null,
           "primitiveConversions": null,
           "numberConversions": null,
+          "proxyReflection": null,
           "proxyCalls": null,
-          "promiseExecutors": null
+          "promiseExecutors": null,
+          "collections": null
         }
       }
     }

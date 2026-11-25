@@ -1,0 +1,99 @@
+{
+  "producerRevision": "5553de1a10761626c5604a57453291039d73683d",
+  "steps": [
+    {
+      "command": [
+        "node",
+        "tools/generate-semantic-region-contract.mjs",
+        "--definition-only"
+      ],
+      "log": "/tmp/issue51-resume.Ws1foQ/finish-canonical-00.log",
+      "exitCode": 0,
+      "seconds": 0.325
+    },
+    {
+      "command": [
+        "node",
+        "tools/generate-protocol-machine-fixtures.mjs"
+      ],
+      "log": "/tmp/issue51-resume.Ws1foQ/finish-canonical-01.log",
+      "exitCode": 0,
+      "seconds": 0.088
+    },
+    {
+      "command": [
+        "node",
+        "tools/generate-protocol-iterator-fixtures.mjs"
+      ],
+      "log": "/tmp/issue51-resume.Ws1foQ/finish-canonical-02.log",
+      "exitCode": 0,
+      "seconds": 0.086
+    },
+    {
+      "command": [
+        "node",
+        "tools/generate-protocol-generator-fixtures.mjs"
+      ],
+      "log": "/tmp/issue51-resume.Ws1foQ/finish-canonical-03.log",
+      "exitCode": 0,
+      "seconds": 0.089
+    },
+    {
+      "command": [
+        "node",
+        "tools/generate-protocol-iterator-source-fixtures.mjs"
+      ],
+      "log": "/tmp/issue51-resume.Ws1foQ/finish-canonical-04.log",
+      "exitCode": 0,
+      "seconds": 1.628
+    },
+    {
+      "command": [
+        "node",
+        "tools/generate-protocol-host-fixtures.mjs"
+      ],
+      "log": "/tmp/issue51-resume.Ws1foQ/finish-canonical-05.log",
+      "exitCode": 0,
+      "seconds": 10.155
+    },
+    {
+      "command": [
+        "node",
+        "tools/generate-primitive-conversion-fixtures.mjs"
+      ],
+      "log": "/tmp/issue51-resume.Ws1foQ/finish-canonical-06.log",
+      "exitCode": 0,
+      "seconds": 16.932
+    },
+    {
+      "command": [
+        "node",
+        "tools/generate-protocol-source-fixtures.mjs"
+      ],
+      "log": "/tmp/issue51-resume.Ws1foQ/finish-canonical-07.log",
+      "exitCode": 0,
+      "seconds": 269.937
+    },
+    {
+      "command": [
+        "node",
+        "tools/generate-semantic-region-contract.mjs"
+      ],
+      "log": "/tmp/issue51-resume.Ws1foQ/finish-canonical-08.log",
+      "exitCode": 0,
+      "seconds": 170.708
+    },
+    {
+      "command": [
+        "npm",
+        "run",
+        "contracts:check"
+      ],
+      "log": "/tmp/issue51-resume.Ws1foQ/finish-canonical-09.log",
+      "exitCode": 0,
+      "seconds": 205.143
+    }
+  ],
+  "current": null,
+  "implementationRevision": "76fd24a91ad7e535aac33af542b481e1337838df"
+}

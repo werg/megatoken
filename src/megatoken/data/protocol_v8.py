@@ -16,7 +16,12 @@ from .async_call_v8 import apply_record as apply_async_call_record
 from .async_call_v8 import assert_next as assert_async_call_next
 from .async_call_v8 import validate_record as validate_async_call_record
 from .async_call_v8 import validate_state as validate_async_call_state
+from .collection_v8 import FIELDS as COLLECTION_FIELDS
+from .collection_v8 import apply_record as apply_collection_record
+from .collection_v8 import validate_record as validate_collection_record
+from .collection_v8 import validate_state as validate_collection_state
 from .construction_v8 import FIELDS as CONSTRUCTION_FIELDS
+from .construction_v8 import _lexical_receiver
 from .construction_v8 import apply_record as apply_construction_record
 from .construction_v8 import assert_next as assert_construction_next
 from .construction_v8 import validate_record as validate_construction_record
@@ -30,6 +35,10 @@ from .generator_v8 import apply_record as apply_generator_record
 from .generator_v8 import assert_next as assert_generator_next
 from .generator_v8 import validate_record as validate_generator_record
 from .generator_v8 import validate_state as validate_generator_state
+from .intrinsic_error_v8 import FIELDS as INTRINSIC_ERROR_FIELDS
+from .intrinsic_error_v8 import apply_record as apply_intrinsic_error_record
+from .intrinsic_error_v8 import validate_record as validate_intrinsic_error_record
+from .intrinsic_error_v8 import validate_state as validate_intrinsic_error_state
 from .iterator_v8 import FIELDS as ITERATOR_FIELDS
 from .iterator_v8 import apply_record as apply_iterator_record
 from .iterator_v8 import validate_record as validate_iterator_record
@@ -73,6 +82,11 @@ from .promise_object_v8 import FIELDS as PROMISE_OBJECT_FIELDS
 from .promise_object_v8 import apply_record as apply_promise_object_record
 from .promise_object_v8 import validate_record as validate_promise_object_record
 from .promise_object_v8 import validate_state as validate_promise_object_state
+from .proxy_reflection_v8 import FIELDS as PROXY_REFLECTION_FIELDS
+from .proxy_reflection_v8 import apply_record as apply_proxy_reflection_record
+from .proxy_reflection_v8 import assert_next as assert_proxy_reflection_next
+from .proxy_reflection_v8 import validate_record as validate_proxy_reflection_record
+from .proxy_reflection_v8 import validate_state as validate_proxy_reflection_state
 from .proxy_v8 import FIELDS as PROXY_FIELDS
 from .proxy_v8 import apply_record as apply_proxy_record
 from .proxy_v8 import assert_next as assert_proxy_next
@@ -137,6 +151,7 @@ FIELDS = {
     "property.define": {"kind", "object", "key", "descriptor", "success"},
     "property.get": {"kind", "object", "key", "receiver", "result"},
     "property.hasOwn": {"kind", "object", "key", "result"},
+    "property.has": {"kind", "object", "key", "result"},
     "property.set": {"kind", "object", "key", "receiver", "value", "success"},
     "property.delete": {"kind", "object", "key", "success"},
     "property.keys": {"kind", "object", "mode", "name", "keys"},
@@ -152,6 +167,8 @@ class ProtocolV8Error(ValueError):
     pass
 
 
+FIELDS.update(INTRINSIC_ERROR_FIELDS)
+FIELDS.update(COLLECTION_FIELDS)
 FIELDS.update(CONSTRUCTION_FIELDS)
 FIELDS.update(MEMORY_FIELDS)
 FIELDS.update(ITERATOR_FIELDS)
@@ -164,6 +181,7 @@ FIELDS.update(NUMBER_FIELDS)
 FIELDS.update(PRIMITIVE_CONVERSION_FIELDS)
 FIELDS.update(GENERATOR_FIELDS)
 FIELDS.update(PROXY_FIELDS)
+FIELDS.update(PROXY_REFLECTION_FIELDS)
 
 
 def _fail(message):
@@ -282,6 +300,10 @@ def _expression(term, depth=0, budget=None):
 def validate_protocol_record(record):
     if type(record) is not dict or not isinstance(record.get("kind"), str):
         _fail("record kind must be a string")
+    if record["kind"] in INTRINSIC_ERROR_FIELDS:
+        return validate_intrinsic_error_record(record)
+    if record["kind"] in COLLECTION_FIELDS:
+        return validate_collection_record(record)
     if record["kind"] in MODULE_SCHEDULER_FIELDS:
         return validate_module_scheduler_record(record)
     if record["kind"] in ASYNC_CALL_FIELDS:
@@ -294,6 +316,8 @@ def validate_protocol_record(record):
         return validate_promise_adoption_record(record)
     if record["kind"] in PROMISE_OBJECT_FIELDS:
         return validate_promise_object_record(record)
+    if type(record) is dict and record.get("kind") in PROXY_REFLECTION_FIELDS:
+        return validate_proxy_reflection_record(record)
     if type(record) is dict and record.get("kind") in PROXY_FIELDS:
         return validate_proxy_record(record)
     if type(record) is dict and record.get("kind") in NUMBER_FIELDS:
@@ -450,8 +474,8 @@ def validate_protocol_record(record):
         _fail("choice path")
     elif kind == "property.define":
         _validate_descriptor(record["descriptor"])
-    elif kind == "property.hasOwn" and record["result"][0] != "bool":
-        _fail("own property result boolean")
+    elif kind in ("property.hasOwn", "property.has") and record["result"][0] != "bool":
+        _fail("property existence result boolean")
     elif kind == "property.keys":
         if record["mode"] not in (
             "own",
@@ -514,8 +538,11 @@ def create_protocol_state():
         "numberConversions": None,
         "primitiveConversions": None,
         "proxyCalls": None,
+        "proxyReflection": None,
         "promiseExecutors": None,
         "promiseObjects": None,
+        "intrinsicErrors": None,
+        "collections": None,
     }
 
 
@@ -657,7 +684,13 @@ def _missing_intrinsic(node, key):
     )
 
 
-def _lookup_descriptor(machine, identity, key, *, for_set=False):
+def _known_intrinsic_presence(node, key):
+    # A closure's `prototype` depends on its construction kind; the generic
+    # callable profile deliberately does not infer that own property.
+    return _missing_intrinsic(node, key) and not (node["kind"] == "closure" and key == "prototype")
+
+
+def _lookup_descriptor(machine, identity, key, *, for_set=False, for_has=False):
     """Find an own or inherited descriptor and its owning object."""
     seen = set()
     while identity is not None:
@@ -671,6 +704,22 @@ def _lookup_descriptor(machine, identity, key, *, for_set=False):
         prototype = node.get("prototype", "ordinary")
         if prototype == "ordinary":
             promise_objects = (machine.get("protocol") or {}).get("promiseObjects")
+            if (
+                node["kind"] == "closure"
+                and key == ("symbol", "well-known:hasInstance")
+                and promise_objects is not None
+            ):
+                from .promise_object_v8 import intrinsic_id
+
+                return None, {
+                    "kind": "data",
+                    "value": ["ref", intrinsic_id("Function.prototype.hasInstance")],
+                    "writable": False,
+                    "enumerable": False,
+                    "configurable": False,
+                }
+            if for_has and node["kind"] == "promise" and promise_objects is None:
+                _fail("Promise existence lookup requires its initialized intrinsic prototype")
             from .promise_object_v8 import intrinsic_id
 
             object_prototype = intrinsic_id("Object.prototype")
@@ -704,6 +753,8 @@ def _lookup_descriptor(machine, identity, key, *, for_set=False):
                         )
                     )
                 ):
+                    if for_has and _known_intrinsic_presence(node, key):
+                        return None, {"kind": "data"}
                     _fail("inherited intrinsic property requires its callable protocol")
                 if object_prototype not in machine["heap"]:
                     _fail("initialized Object.prototype is missing")
@@ -718,6 +769,8 @@ def _lookup_descriptor(machine, identity, key, *, for_set=False):
             ):
                 return None, {"kind": "data", "writable": True}
             if _missing_intrinsic(node, key):
+                if for_has and _known_intrinsic_presence(node, key):
+                    return None, {"kind": "data"}
                 _fail("inherited intrinsic property requires its callable protocol")
             return None, None
         from .generator_v8 import INTRINSICS as GENERATOR_INTRINSICS
@@ -984,39 +1037,81 @@ def _normalize_number(value):
     return value
 
 
-def _apply(machine, record):
+def _apply(
+    machine,
+    record,
+    *,
+    _internal_property_getter=False,
+    _internal_intrinsic_error_allocate=False,
+):
     p = machine["protocol"]
     pending = p["pendingCalls"][-1] if p["pendingCalls"] else None
     if pending and pending["child"] not in machine["stack"] and record["kind"] != "property.finish":
         _fail("property finish must consume child completion")
     if machine.get("completion") is not None:
         _fail("record after completion")
-    if not machine["stack"] and record["kind"] not in (
-        "end",
-        "promise.join.step",
-        "async.resume",
-        "promise.reaction.complete",
-        "promise.adopt.enqueue",
-        "promise.adopt.self",
-        "promise.adopt.enter",
-        "promise.adopt.get",
-        "promise.adopt.forward",
-        "promise.intrinsics",
-        "promise.intrinsic.get",
+    kind = record["kind"]
+    if _internal_intrinsic_error_allocate:
+        properties = record.get("properties")
+        if (
+            kind != "allocate"
+            or record.get("objectKind") != "object"
+            or record.get("length") is not None
+            or record.get("code") is not None
+            or record.get("captures") != []
+            or record.get("functionKind") is not None
+            or record.get("lexicalReceiver") is not None
+            or type(properties) is not list
+            or len(properties) != 1
+            or type(properties[0]) is not dict
+            or set(properties[0]) != {"key", "value"}
+            or properties[0]["key"] != ["str", "message"]
+            or type(properties[0]["value"]) is not list
+            or len(properties[0]["value"]) != 2
+            or properties[0]["value"][0] != "str"
+            or not isinstance(properties[0]["value"][1], str)
+        ):
+            _fail("internal intrinsic error allocation")
+    if (
+        not machine["stack"]
+        and kind
+        not in (
+            "end",
+            "promise.join.step",
+            "async.resume",
+            "promise.reaction.complete",
+            "promise.adopt.enqueue",
+            "promise.adopt.self",
+            "promise.adopt.enter",
+            "promise.adopt.get",
+            "promise.adopt.forward",
+            "promise.intrinsics",
+            "promise.intrinsic.get",
+        )
+        and not _internal_intrinsic_error_allocate
     ):
         _fail("active invocation required")
-    kind = record["kind"]
     if not machine.get("_internalProtocolTransition"):
         assert_async_call_next(machine, record)
         assert_number_next(machine, record)
         assert_primitive_conversion_next(machine, record)
         assert_generator_next(machine, record)
-        assert_proxy_next(machine, record)
+        if not _internal_property_getter:
+            assert_proxy_next(machine, record)
+        assert_proxy_reflection_next(machine, record)
         assert_promise_executor_next(machine, record)
         assert_promise_adoption_next(machine, record)
         assert_promise_join_next(machine, record)
     if p.get("construction") is not None:
         assert_construction_next(machine, record)
+    if kind in INTRINSIC_ERROR_FIELDS:
+        if not apply_intrinsic_error_record(machine, record):
+            _fail("unsupported intrinsic error transition")
+        return
+    if kind in COLLECTION_FIELDS:
+        if not apply_collection_record(machine, record):
+            _fail("unsupported Set transition")
+        return
     if kind in MEMORY_FIELDS:
         if not apply_memory_record(machine, record):
             _fail("unsupported binary-memory transition")
@@ -1060,6 +1155,10 @@ def _apply(machine, record):
     if kind in GENERATOR_FIELDS:
         if not apply_generator_record(machine, record):
             _fail("unsupported generator transition")
+        return
+    if kind in PROXY_REFLECTION_FIELDS:
+        if not apply_proxy_reflection_record(machine, record):
+            _fail("unhandled Proxy reflection")
         return
     if kind in PROXY_FIELDS:
         if not apply_proxy_record(machine, record):
@@ -1222,6 +1321,7 @@ def _apply(machine, record):
             {
                 "child": record["child"],
                 "parent": machine["stack"][-1],
+                "callee": copy.deepcopy(record["callee"]),
                 "priorReceiver": copy.deepcopy(machine.get("receiver", ["undefined"])),
                 "priorAliases": [
                     [key, value] for key, value in machine.get("captureAliases", {}).items()
@@ -1229,11 +1329,7 @@ def _apply(machine, record):
                 "arguments": copy.deepcopy(record["arguments"]),
             }
         )
-        machine["receiver"] = copy.deepcopy(
-            node.get("lexicalReceiver")
-            if node.get("functionKind") == "arrow"
-            else record["receiver"]
-        )
+        machine["receiver"] = _lexical_receiver(machine, node, record["receiver"])
         machine["captureAliases"] = {row["binding"]: row["cell"] for row in node["captures"]}
         machine["locals"][record["child"] + ":this"] = copy.deepcopy(machine["receiver"])
         for index, value in enumerate(record["arguments"]):
@@ -1252,7 +1348,50 @@ def _apply(machine, record):
             machine["stack"].pop()
             machine["receiver"] = frame["priorReceiver"]
             machine["captureAliases"] = dict(frame["priorAliases"])
+            if machine.get("activeJob"):
+                from .promise_scheduler_v8 import (
+                    rows as _scheduler_rows,
+                )
+                from .promise_scheduler_v8 import (
+                    selected_callback,
+                    selected_child,
+                )
+
+                job = _scheduler_rows(machine.get("jobs", [])).get(machine["activeJob"])
+                root = next(iter(machine.get("frameFunctions", {})), None)
+                callback = selected_callback(job)
+                expected_child = selected_child(machine, machine["activeJob"], job)
+                if frame["child"] == expected_child:
+                    if (
+                        not job
+                        or job.get("status") != "running"
+                        or job.get("owner") != root
+                        or len(machine["stack"]) != 1
+                        or machine["stack"][0] != root
+                        or frame["parent"] != root
+                        or callback is None
+                        or frame["callee"] != ["ref", callback]
+                        or job.get("returned") is not None
+                    ):
+                        _fail("scheduled callback completion differs from its retained job")
+                    machine["stack"].pop()
+                    job["returned"] = {"kind": kind, "value": copy.deepcopy(record["value"])}
+                elif job and job.get("reaction") in ("adopt", "adoption"):
+                    if (
+                        job.get("status") != "running"
+                        or not machine["stack"]
+                        or machine["stack"][0] != expected_child
+                    ):
+                        _fail(
+                            "adoption getter nested call must return to its retained getter frame"
+                        )
+                elif callback is not None and len(machine["stack"]) <= 1:
+                    _fail("scheduled callback must complete through its retained call frame")
             machine["lastReturn"] = {"kind": kind, "value": copy.deepcopy(record["value"])}
+            if "proxyReflectionScope" in frame:
+                machine["lastReturn"]["proxyReflectionScope"] = copy.deepcopy(
+                    frame["proxyReflectionScope"]
+                )
         else:
             if machine.get("activeJob"):
                 _fail("job completion requires its scheduler profile")
@@ -1310,6 +1449,11 @@ def _apply(machine, record):
             expected = ["bool", _descriptor(node, key) is not None]
             if expected != record["result"]:
                 _fail("false own property result")
+        elif kind == "property.has":
+            _, descriptor = _lookup_descriptor(machine, record["object"], key, for_has=True)
+            expected = ["bool", descriptor is not None]
+            if expected != record["result"]:
+                _fail("false inherited property result")
         elif kind == "property.get":
             _, descriptor = _lookup_descriptor(machine, record["object"], key)
             if (
@@ -1457,7 +1601,7 @@ def _apply(machine, record):
                 "receiver": record["receiver"],
                 "arguments": [] if operation == "get" else [record["value"]],
             }
-            _apply(machine, call_record)
+            _apply(machine, call_record, _internal_property_getter=True)
             p["pendingCalls"].append(
                 {
                     "id": record["id"],
@@ -1597,8 +1741,11 @@ def validate_protocol_state(snapshot, heap_ids=(), shared_state=None):
         "numberConversions",
         "primitiveConversions",
         "proxyCalls",
+        "proxyReflection",
         "promiseExecutors",
         "promiseObjects",
+        "intrinsicErrors",
+        "collections",
     }
     if type(snapshot) is dict and "construction" in snapshot:
         _exact(snapshot, base_fields | {"construction"}, "shared protocol state")
@@ -1688,6 +1835,13 @@ def validate_protocol_state(snapshot, heap_ids=(), shared_state=None):
         or len(snapshot["callFrames"]) > 64
     ):
         _fail("pending calls/frame bound")
+    if snapshot["callFrames"]:
+        if shared_state is None:
+            _fail("call frame validation requires complete shared state")
+        call_frame_machine = _internal_machine(shared_state)
+        call_frame_machine["protocol"] = snapshot
+    else:
+        call_frame_machine = {"heap": heap_nodes or {}, "protocol": snapshot}
     pending_ids = set()
     for pending in snapshot["pendingCalls"]:
         _exact(
@@ -1710,14 +1864,95 @@ def validate_protocol_state(snapshot, heap_ids=(), shared_state=None):
             _fail("getter pending value")
         if pending["operation"] == "set":
             validate_protocol_value(pending["value"])
-    for frame in snapshot["callFrames"]:
-        _exact(
-            frame,
-            {"child", "parent", "priorReceiver", "priorAliases", "arguments"},
-            "protocol call frame",
-        )
+    for frame_index, frame in enumerate(snapshot["callFrames"]):
+        call_frame_fields = {
+            "child",
+            "parent",
+            "callee",
+            "priorReceiver",
+            "priorAliases",
+            "arguments",
+        }
+        if "proxyReflectionScope" in frame:
+            call_frame_fields.add("proxyReflectionScope")
+        _exact(frame, call_frame_fields, "protocol call frame")
+        if "proxyReflectionScope" in frame:
+            scope = frame["proxyReflectionScope"]
+            _exact(scope, {"kind", "definition"}, "Proxy reflection call scope")
+            if scope["kind"] != "proxy.defineProperty" or type(scope["definition"]) is not dict:
+                _fail("Proxy reflection call scope kind/definition")
         _identity(frame["child"])
         _identity(frame["parent"])
+        stack = call_frame_machine["stack"]
+        suspended_callback = any(
+            continuation.get("invocation") == frame["child"]
+            and continuation.get("activeJob") is not None
+            and continuation.get("state") in ("waiting", "ready")
+            for continuation in dict(call_frame_machine.get("continuations", [])).values()
+        )
+        active_relationship = (
+            frame["child"] in stack
+            and frame["parent"] in stack
+            and stack.index(frame["child"]) == stack.index(frame["parent"]) + 1
+        )
+        suspended_relationship = (
+            suspended_callback
+            and frame["child"] not in stack
+            and frame["parent"] in stack
+            and frame["parent"] == next(iter(call_frame_machine.get("frameFunctions", {})), None)
+        )
+        if (
+            not (active_relationship or suspended_relationship)
+            or frame_index
+            and snapshot["callFrames"][frame_index - 1]["child"] != frame["parent"]
+        ):
+            _fail("call frame stack relationship")
+        _known(call_frame_machine, frame["callee"])
+        if (
+            frame["callee"][0] != "ref"
+            or _node(call_frame_machine, frame["callee"][1]).get("kind") != "closure"
+            or call_frame_machine["frameFunctions"].get(frame["child"])
+            != _node(call_frame_machine, frame["callee"][1]).get("code")
+        ):
+            _fail("call frame callee identity")
+        called = _node(call_frame_machine, frame["callee"][1])
+        if stack[-1] == frame["child"]:
+            cell = frame["child"] + ":this"
+            if (
+                cell not in call_frame_machine["locals"]
+                or call_frame_machine.get("receiver") != call_frame_machine["locals"][cell]
+            ):
+                _fail("active call frame receiver")
+            aliases = {row["binding"]: row["cell"] for row in called.get("captures", [])}
+            from .promise_scheduler_v8 import is_scheduled_callback_frame
+
+            if (
+                not is_scheduled_callback_frame(call_frame_machine, frame)
+                and call_frame_machine.get("captureAliases", {}) != aliases
+            ):
+                _fail("active call frame captures")
+        if called.get("functionKind") == "arrow":
+            expected_receiver = _lexical_receiver(call_frame_machine, called, ["undefined"])
+            if (
+                call_frame_machine.get("locals", {}).get(frame["child"] + ":this")
+                != expected_receiver
+            ):
+                _fail("call frame arrow receiver/callee identity")
+            capture = called.get("callable", {}).get("lexicalConstruction")
+            observed_target = call_frame_machine.get("locals", {}).get(
+                frame["child"] + ":lexical-newTarget"
+            )
+            if capture is not None and observed_target is not None:
+                owner = next(
+                    (
+                        row
+                        for row in (snapshot.get("construction") or {}).get("frames", [])
+                        if row["id"] == capture["frame"]
+                    ),
+                    None,
+                )
+                if owner is None or observed_target != owner["newTarget"]:
+                    _fail("call frame lexical newTarget/callee identity")
         validate_protocol_value(frame["priorReceiver"])
         if not isinstance(frame["priorAliases"], list) or not isinstance(frame["arguments"], list):
             _fail("call frame arrays")
@@ -1760,17 +1995,15 @@ def validate_protocol_state(snapshot, heap_ids=(), shared_state=None):
                 or active_machine.get("frameFunctions", {}).get(child) != closure.get("code")
             ):
                 _fail("pending accessor call is not bound to its active callable")
-            expected_receiver = (
-                closure.get("lexicalReceiver")
-                if closure.get("functionKind") == "arrow"
-                else pending["receiver"]
-            )
+            expected_receiver = _lexical_receiver(active_machine, closure, pending["receiver"])
             if active_machine.get("locals", {}).get(child + ":this") != expected_receiver:
                 _fail("pending accessor receiver differs from retained invocation")
             frame = next((row for row in snapshot["callFrames"] if row["child"] == child), None)
             expected_arguments = [] if pending["operation"] == "get" else [pending["value"]]
             if frame is not None and (
-                frame["parent"] != pending["parent"] or frame["arguments"] != expected_arguments
+                frame["callee"] != pending["callee"]
+                or frame["parent"] != pending["parent"]
+                or frame["arguments"] != expected_arguments
             ):
                 _fail("pending accessor call differs from its retained call frame")
             if active_machine.get("stack") and active_machine["stack"][-1] == child:
@@ -1792,8 +2025,11 @@ def validate_protocol_state(snapshot, heap_ids=(), shared_state=None):
             ):
                 _fail("active closure capture is not initialized")
             _known(active_machine, active_machine["locals"][cell])
+    if heap_nodes is None and snapshot["intrinsicErrors"] is not None:
+        _fail("intrinsic error validation requires the full shared heap")
     if heap_nodes is not None:
         known_machine = {"heap": heap_nodes, "protocol": snapshot}
+        validate_intrinsic_error_state(known_machine)
         for identity, node in heap_nodes.items():
             if not isinstance(node, dict):
                 continue
@@ -1878,6 +2114,7 @@ def validate_protocol_state(snapshot, heap_ids=(), shared_state=None):
             else {"heap": heap_nodes, "protocol": snapshot}
         )
         validate_memory_state(memory_machine)
+        validate_collection_state(memory_machine, snapshot.get("collections"))
         validate_iterator_state(memory_machine)
         validate_enumeration_state({**memory_machine, "protocol": snapshot})
         from .promise_join_v8 import validate_state as validate_promise_join_state
@@ -1893,6 +2130,10 @@ def validate_protocol_state(snapshot, heap_ids=(), shared_state=None):
         validate_async_call_state(memory_machine)
         validate_module_scheduler_state(memory_machine)
         validate_proxy_state(memory_machine)
+        validate_proxy_reflection_state(memory_machine)
+        from .promise_scheduler_v8 import validate_active_callback_state
+
+        validate_active_callback_state(memory_machine)
     return True
 
 
@@ -1983,6 +2224,7 @@ def apply_protocol_to_shared_state(
     assert_generator_next(machine, record)
     assert_async_call_next(machine, record)
     assert_proxy_next(machine, record)
+    assert_proxy_reflection_next(machine, record)
     assert_promise_executor_next(machine, record)
     assert_promise_adoption_next(machine, record)
     assert_promise_join_next(machine, record)
@@ -2188,6 +2430,7 @@ def assert_detailed_record_compatible(shared_state, kind, fields, *, namespace_p
     assert_generator_next(machine, record)
     assert_async_call_next(machine, record)
     assert_proxy_next(machine, record)
+    assert_proxy_reflection_next(machine, record)
     assert_promise_executor_next(machine, record)
     assert_promise_adoption_next(machine, record)
     assert_promise_join_next(machine, record)

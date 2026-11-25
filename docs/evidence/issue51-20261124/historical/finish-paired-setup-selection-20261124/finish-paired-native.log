@@ -1,0 +1,190 @@
+✖ native independently checks adoption constructor jobs, retained scopes and selected completions (3.822826ms)
+✖ actual native independently replays every eligible mutation-boundary control (2.464057ms)
+✖ native independently replays every eligible Promise object control (2.451681ms)
+✖ native independently checks every Promise review source and retained continuation (2.616712ms)
+✖ native independently replays retained invocations and captured adoption selection (4.223874ms)
+✖ independent native checker replays every new source and retained shared state (4.025954ms)
+✖ independent native transitions reproduce all Promise object cases and reject altered records (3.284997ms)
+✖ actual native adoption consumer independently replays every source context and restored cut (2.650614ms)
+✖ actual native shared replay checks every generated context and continuation (2.187782ms)
+ℹ tests 9
+ℹ suites 0
+ℹ pass 0
+ℹ fail 9
+ℹ cancelled 0
+ℹ skipped 0
+ℹ todo 0
+ℹ duration_ms 3032.480531
+
+✖ failing tests:
+
+test at test/semantic-promise-adoption-getter-source-v8.test.js:33:1
+✖ native independently checks adoption constructor jobs, retained scopes and selected completions (3.822826ms)
+  AssertionError [ERR_ASSERTION]: Expected values to be strictly equal:
+  
+  0 !== 7
+  
+      at TestContext.<anonymous> (file:///tmp/issue51-resume.Ws1foQ/producer-dev/test/semantic-promise-adoption-getter-source-v8.test.js:35:12)
+      at Test.runInAsyncScope (node:async_hooks:227:14)
+      at Test.run (node:internal/test_runner/test:1402:25)
+      at Test.start (node:internal/test_runner/test:1262:17)
+      at startSubtestAfterBootstrap (node:internal/test_runner/harness:387:17) {
+    generatedMessage: true,
+    code: 'ERR_ASSERTION',
+    actual: 0,
+    expected: 7,
+    operator: 'strictEqual',
+    diff: 'simple'
+  }
+
+test at test/semantic-promise-mutation-profile-source-v8.test.js:272:1
+✖ actual native independently replays every eligible mutation-boundary control (2.464057ms)
+  AssertionError [ERR_ASSERTION]: Expected values to be strictly equal:
+  
+  0 !== 7
+  
+      at TestContext.<anonymous> (file:///tmp/issue51-resume.Ws1foQ/producer-dev/test/semantic-promise-mutation-profile-source-v8.test.js:274:10)
+      at Test.runInAsyncScope (node:async_hooks:227:14)
+      at Test.run (node:internal/test_runner/test:1402:25)
+      at Test.start (node:internal/test_runner/test:1262:17)
+      at startSubtestAfterBootstrap (node:internal/test_runner/harness:387:17) {
+    generatedMessage: true,
+    code: 'ERR_ASSERTION',
+    actual: 0,
+    expected: 7,
+    operator: 'strictEqual',
+    diff: 'simple'
+  }
+
+test at test/semantic-promise-object-profile-source-v8.test.js:71:1
+✖ native independently replays every eligible Promise object control (2.451681ms)
+  AssertionError [ERR_ASSERTION]: Expected values to be strictly equal:
+  
+  0 !== 22
+  
+      at TestContext.<anonymous> (file:///tmp/issue51-resume.Ws1foQ/producer-dev/test/semantic-promise-object-profile-source-v8.test.js:72:10)
+      at Test.runInAsyncScope (node:async_hooks:227:14)
+      at Test.run (node:internal/test_runner/test:1402:25)
+      at Test.start (node:internal/test_runner/test:1262:17)
+      at startSubtestAfterBootstrap (node:internal/test_runner/harness:387:17) {
+    generatedMessage: true,
+    code: 'ERR_ASSERTION',
+    actual: 0,
+    expected: 22,
+    operator: 'strictEqual',
+    diff: 'simple'
+  }
+
+test at test/semantic-promise-object-review-source-v8.test.js:122:1
+✖ native independently checks every Promise review source and retained continuation (2.616712ms)
+  AssertionError [ERR_ASSERTION]: Expected values to be strictly equal:
+  
+  0 !== 8
+  
+      at TestContext.<anonymous> (file:///tmp/issue51-resume.Ws1foQ/producer-dev/test/semantic-promise-object-review-source-v8.test.js:124:12)
+      at Test.runInAsyncScope (node:async_hooks:227:14)
+      at Test.run (node:internal/test_runner/test:1402:25)
+      at Test.start (node:internal/test_runner/test:1262:17)
+      at startSubtestAfterBootstrap (node:internal/test_runner/harness:387:17) {
+    generatedMessage: true,
+    code: 'ERR_ASSERTION',
+    actual: 0,
+    expected: 8,
+    operator: 'strictEqual',
+    diff: 'simple'
+  }
+
+test at test/semantic-promise-object-review-v8.test.js:108:1
+✖ native independently replays retained invocations and captured adoption selection (4.223874ms)
+  AssertionError [ERR_ASSERTION]: Expected values to be strictly equal:
+  
+  0 !== 2
+  
+      at TestContext.<anonymous> (file:///tmp/issue51-resume.Ws1foQ/producer-dev/test/semantic-promise-object-review-v8.test.js:110:12)
+      at Test.runInAsyncScope (node:async_hooks:227:14)
+      at Test.run (node:internal/test_runner/test:1402:25)
+      at Test.start (node:internal/test_runner/test:1262:17)
+      at startSubtestAfterBootstrap (node:internal/test_runner/harness:387:17) {
+    generatedMessage: true,
+    code: 'ERR_ASSERTION',
+    actual: 0,
+    expected: 2,
+    operator: 'strictEqual',
+    diff: 'simple'
+  }
+
+test at test/semantic-promise-object-source-v8.test.js:30:1
+✖ independent native checker replays every new source and retained shared state (4.025954ms)
+  AssertionError [ERR_ASSERTION]: Expected values to be strictly equal:
+  
+  0 !== 15
+  
+      at TestContext.<anonymous> (file:///tmp/issue51-resume.Ws1foQ/producer-dev/test/semantic-promise-object-source-v8.test.js:31:10)
+      at Test.runInAsyncScope (node:async_hooks:227:14)
+      at Test.run (node:internal/test_runner/test:1402:25)
+      at Test.start (node:internal/test_runner/test:1262:17)
+      at startSubtestAfterBootstrap (node:internal/test_runner/harness:387:17) {
+    generatedMessage: true,
+    code: 'ERR_ASSERTION',
+    actual: 0,
+    expected: 15,
+    operator: 'strictEqual',
+    diff: 'simple'
+  }
+
+test at test/semantic-promise-object-v8.test.js:167:1
+✖ independent native transitions reproduce all Promise object cases and reject altered records (3.284997ms)
+  AssertionError [ERR_ASSERTION]: Expected values to be strictly equal:
+  
+  0 !== 5
+  
+      at TestContext.<anonymous> (file:///tmp/issue51-resume.Ws1foQ/producer-dev/test/semantic-promise-object-v8.test.js:169:12)
+      at Test.runInAsyncScope (node:async_hooks:227:14)
+      at Test.run (node:internal/test_runner/test:1402:25)
+      at Test.start (node:internal/test_runner/test:1262:17)
+      at startSubtestAfterBootstrap (node:internal/test_runner/harness:387:17) {
+    generatedMessage: true,
+    code: 'ERR_ASSERTION',
+    actual: 0,
+    expected: 5,
+    operator: 'strictEqual',
+    diff: 'simple'
+  }
+
+test at test/semantic-protocol-promise-adoption-source-v8.test.js:122:1
+✖ actual native adoption consumer independently replays every source context and restored cut (2.650614ms)
+  AssertionError [ERR_ASSERTION]: Expected values to be strictly equal:
+  
+  0 !== 15
+  
+      at TestContext.<anonymous> (file:///tmp/issue51-resume.Ws1foQ/producer-dev/test/semantic-protocol-promise-adoption-source-v8.test.js:124:10)
+      at Test.runInAsyncScope (node:async_hooks:227:14)
+      at Test.run (node:internal/test_runner/test:1402:25)
+      at Test.start (node:internal/test_runner/test:1262:17)
+      at startSubtestAfterBootstrap (node:internal/test_runner/harness:387:17) {
+    generatedMessage: true,
+    code: 'ERR_ASSERTION',
+    actual: 0,
+    expected: 15,
+    operator: 'strictEqual',
+    diff: 'simple'
+  }
+
+test at test/semantic-shared-generator-source-v8.test.js:137:1
+✖ actual native shared replay checks every generated context and continuation (2.187782ms)
+  AssertionError [ERR_ASSERTION]: Expected values to be strictly equal:
+  
+  0 !== 6
+  
+      at TestContext.<anonymous> (file:///tmp/issue51-resume.Ws1foQ/producer-dev/test/semantic-shared-generator-source-v8.test.js:139:10)
+      at Test.runInAsyncScope (node:async_hooks:227:14)
+      at Test.run (node:internal/test_runner/test:1402:25)
+      at Test.start (node:internal/test_runner/test:1262:17)
+      at startSubtestAfterBootstrap (node:internal/test_runner/harness:387:17) {
+    generatedMessage: true,
+    code: 'ERR_ASSERTION',
+    actual: 0,
+    expected: 6,
+    operator: 'strictEqual',
+    diff: 'simple'
+  }

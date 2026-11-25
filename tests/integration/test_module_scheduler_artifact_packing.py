@@ -65,7 +65,7 @@ def test_original_module_scheduler_artifact_is_rechecked_and_physically_packed(t
     )
     artifact = json.loads(artifact_path.read_text())
     generated = [row for row in artifact["public"]["timeline"] if row["mode"] == "generated"]
-    assert len(generated) == len(artifact["contexts"]) == 712
+    assert len(generated) == len(artifact["contexts"]) == 724
     source = artifact["sidecar"]["sourceArtifact"]["sidecar"]
     assert source["compiler"]["moduleSchedulerOwnership"]["ownedEventCount"] == 10
     assert source["moduleSchedulerPlan"]["schema"] == "semantic-bound-module-scheduler-plan/1"

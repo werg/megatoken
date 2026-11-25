@@ -1,0 +1,2839 @@
+{
+  "schema": "issue51-object-verification/1",
+  "historicalPreCorrection": {
+    "classification": "pre-correction historical evidence; the producer suite was interrupted and these files are not a final verification result",
+    "files": {
+      "finish-producer-all.log": "ce1fc0b7e1a02561b41940089079bb2bc95340eae575d4af1471ac4b0fd7630d",
+      "finish-producer-status.json": "b10ec8429d054d093bcc674b068eccd34c80c3cf03dd7ef82beb3ad3a6855947",
+      "manifest.json": "76e24941b971029bf6a4f6f0dc5e957149b7bcc9518534369aa9830bd94933e7",
+      "finish-canonical-status.json": "e197481e088fc279f33ffbd89ec3eaf03c528b2a5025e5cfb048f9480c89cffc",
+      "finish-canonical-generation-prefix.json": "5073305626eb3f2df018cad9b291ac9575f8ad8063c3c39a10f120c7940f8494",
+      "finish-canonical-00.log": "9631c178ce6d28c7f6c602939a2390a60b182c963a133c1fa7fab6c3eb878741",
+      "finish-canonical-01.log": "52a172b1d83e7e5b3eff5732b3edafc48d07f65e3ca01ebfcb53b45dfc442ac5",
+      "finish-canonical-02.log": "750ac476bb66a68d6757dc930210b6165df50bbc1e7e6c8a146d820b3614009a",
+      "finish-canonical-03.log": "1536e81379de3ee8d7df347a1af35d4785cfcba6a312b70d87e96c7687e25923",
+      "finish-canonical-04.log": "536e7717070ec908dd4d5c1abd02835f0ac1a4bb86318beccdc0c5a628aad280",
+      "finish-canonical-05.log": "1d10c201b16550fad60c7f81893cfc021034c69248fbc6b472cc5e370aaa71c1",
+      "finish-canonical-06.log": "2a8389c0ab8f66c1a59cd28640f2d098f1bc1921ca9abb5011e1ed16b967a87f",
+      "finish-canonical-07.log": "44f0ce305252a0ddcea4b8c2c7bd8b9c819497329d6fae24a9154e013d607eb7",
+      "finish-canonical-08.log": "4b30407ea3e0a20734b8853639e2d66c965ea10ead15b3c26d5c5389d808e4f6",
+      "finish-canonical-09.log": "01cc2f52ab73cbadfbd54c49c4aeaa8ac41dd9d4c8841491fe52336a598d8efd"
+    }
+  },
+  "historicalCorrectionRun": {
+    "classification": "Historical failed and interrupted verification before additional corrections; not final passing evidence.",
+    "producerRevision": "5553de1a10761626c5604a57453291039d73683d",
+    "consumerRevision": "6bb4574931c4fdf19588a86aef96577b22ff6541",
+    "producer": {
+      "tests": 3558,
+      "pass": 3429,
+      "fail": 31,
+      "cancelled": 0,
+      "skipped": 98,
+      "complete": true,
+      "referenceFixtureRun": false
+    },
+    "nativeConsumer": {
+      "collected": 546,
+      "completed": 481,
+      "pass": 465,
+      "fail": 16,
+      "complete": false,
+      "exitCode": 2,
+      "interruption": "SIGINT after identified failures"
+    },
+    "cohortConsumer": {
+      "tests": 134,
+      "pass": 125,
+      "fail": 9,
+      "complete": true
+    },
+    "preparation": {
+      "exitCode": 0,
+      "counts": {
+        "admitted": 111,
+        "attempted": 121,
+        "refused": 10
+      },
+      "refusals": [
+        {
+          "candidate": 6,
+          "reason": "Public continuation differs from independently replayed shared state at 34 fields ['lastReturn']"
+        },
+        {
+          "candidate": 7,
+          "reason": "Public continuation differs from independently replayed shared state at 39 fields ['lastReturn']"
+        },
+        {
+          "candidate": 12,
+          "reason": "'utf-8' codec can't encode character '\\ud800' in position 24759: surrogates not allowed"
+        },
+        {
+          "candidate": 40,
+          "reason": "Public continuation differs from independently replayed shared state at 7 fields ['heap']"
+        },
+        {
+          "candidate": 41,
+          "reason": "Public continuation differs from independently replayed shared state at 7 fields ['heap']"
+        },
+        {
+          "candidate": 42,
+          "reason": "Public continuation differs from independently replayed shared state at 7 fields ['heap']"
+        },
+        {
+          "candidate": 43,
+          "reason": "Public continuation differs from independently replayed shared state at 7 fields ['heap']"
+        },
+        {
+          "candidate": 46,
+          "reason": "Public continuation differs from independently replayed shared state at 12 fields ['heap']"
+        },
+        {
+          "candidate": 47,
+          "reason": "Public continuation differs from independently replayed shared state at 12 fields ['heap']"
+        },
+        {
+          "candidate": 49,
+          "reason": "Public continuation differs from independently replayed shared state at 7 fields ['heap']"
+        }
+      ],
+      "successfulAdmission": false
+    },
+    "canonicalGeneration": {
+      "implementationRevision": "76fd24a91ad7e535aac33af542b481e1337838df",
+      "artifactRevision": "5553de1a10761626c5604a57453291039d73683d",
+      "completedSteps": 10,
+      "allExitCodesZero": true
+    },
+    "manifestSha256": "c5ee86cb203c78f5c7e065468e25847fb63f2c5fd1890dd8a43738d58ac0ae45",
+    "files": {
+      "finish-producer-all.log": {
+        "sha256": "5fe8fdaf51a30ebce3c1fa0c40e65165c06ee57316dec0e978c22fef65e08f3b",
+        "bytes": 396215
+      },
+      "finish-producer-status.json": {
+        "sha256": "a1151f806034b28289ea78317d79f7aa5e10b1477c5d6f0a1bc063b152fbb3b9",
+        "bytes": 24061
+      },
+      "finish-native-final.log": {
+        "sha256": "b75a4c8b84a3bd94e0936b9cb1eca42b8f62947f6f774cf93fd594311e555631",
+        "bytes": 101399
+      },
+      "finish-native-status.json": {
+        "sha256": "484afc338ecd7a919f59dfe79745b94fb1a303317cbba4dce16fc1d4cb9738ee",
+        "bytes": 1258
+      },
+      "finish-native-interruption.json": {
+        "sha256": "29937873db808057da5d232946b773c9b61a2ae535ec9c8f3e161b970cf1548f",
+        "bytes": 4052
+      },
+      "native-final-collect.txt": {
+        "sha256": "c3fdee6f9b636c0db26dfa3e89229c5751d6cf2e0a28466ae52e40757598d152",
+        "bytes": 77679
+      },
+      "finish-cohort-tests.log": {
+        "sha256": "db1358b56f1991bff04eb15908c374c565bac82cb68f9bf35cc68581a6da1bab",
+        "bytes": 15166
+      },
+      "finish-cohort-status.json": {
+        "sha256": "9f5134af38dc01ec50ff5051815426246c6f129f49a7c3d644b21f4c79eea9b4",
+        "bytes": 324
+      },
+      "finish-preparation.log": {
+        "sha256": "b163c724d4f1dfdf9929e8a06c99d526cc43a1ad786f1a94df11ce21db046c1d",
+        "bytes": 2047
+      },
+      "finish-preparation-status.json": {
+        "sha256": "7db9a6d4eb9240e8c4f62a48fd0fee16caf1bd88eab6a43fb17939c17192d5c1",
+        "bytes": 832
+      },
+      "finish-python-style.log": {
+        "sha256": "9207e628258b09b051683f67f8e045655bbdae8e30835632f2dac31e7f5aa296",
+        "bytes": 46
+      },
+      "finish-python-style-status.json": {
+        "sha256": "888c0424bc7311bb50bce4450d64f042b26f939e242c2793e457cef5e20f2d78",
+        "bytes": 4344
+      },
+      "finish-canonical-sync.json": {
+        "sha256": "716f5780009158077beaefdb319ed8b4e1e286dbd89c32b2c09c4ae5eae1065c",
+        "bytes": 679
+      },
+      "finish-support-status.json": {
+        "sha256": "70c16ea357e510e99bc411825757ff1b34312951f92ddbe9a1d8ced5ee3f783c",
+        "bytes": 1847
+      },
+      "finish-support-fixtures.log": {
+        "sha256": "8ae8b6869f2bb8bb08e5b5bbca963f08e36c0aa76cc08cdf40dd407fe4434c8a",
+        "bytes": 284
+      },
+      "finish-cohort-sync.json": {
+        "sha256": "3e59b339974eb17b6efd99ba1ece26ca2739f614bee229a780d7173434ac9906",
+        "bytes": 6380
+      },
+      "finish-cohort-export-status.json": {
+        "sha256": "65976bef65152606e1a54cff62df9944902b11b9cab1431c8d22f51e4381390c",
+        "bytes": 424
+      },
+      "finish-cohort-export.log": {
+        "sha256": "bee08195dab6380724f131f4bd6ac2593d11dc184c85ba61221611fa5162321d",
+        "bytes": 199
+      },
+      "finish-canonical-status.json": {
+        "sha256": "636bed2979fe1bc56594eccf9e9efbece65ba9a66751aa9148a036e868b887ce",
+        "bytes": 2438
+      },
+      "finish-canonical-recheck-status.json": {
+        "sha256": "a3938d00bdc7bc467ce7e5afa60b5cc35daf32dcaf7d887e2676c550a9d55d0f",
+        "bytes": 1388
+      },
+      "finish-pipeline-status.json": {
+        "sha256": "84ea4fceef2abcd481f33e5864405369bb520878cdb38c22c4deb430d7d67c25",
+        "bytes": 5227
+      },
+      "finish-pipeline-interruption-status.json": {
+        "sha256": "2f4d1c50e8d0e23c7033e180a8263a61c913ee760f2b210ebd3f263c756eceed",
+        "bytes": 1766
+      },
+      "finish-pipeline-pack-interruption-status.json": {
+        "sha256": "1211fe19d980b718456a4b2c9f8ef966d85cbc8b02a1bad2a04a1b2fe1d01952",
+        "bytes": 2264
+      },
+      "finish-pipeline-driver.log": {
+        "sha256": "ce3c3b06947a1cd5bbc30d97223dc101422a10db629725bb8aa913b78bf61f11",
+        "bytes": 4191
+      },
+      "run-finish-pipeline-first.py": {
+        "sha256": "96d55f2d4c19583215e06e23a2722d227dadc937c345f05421965e45e79f8017",
+        "bytes": 7101
+      },
+      "run-finish-pipeline-second.py": {
+        "sha256": "8da5cacb9cb241e216def03ae5dad3e16647deff3095e1f4fb4e5f628d8398fa",
+        "bytes": 9939
+      },
+      "sync-finish-cohort-first.py": {
+        "sha256": "dc3ec10cb1b715f99556c59441d63d6e1a88f4d86932f8681a98a39423de0d01",
+        "bytes": 4054
+      },
+      "finish-consumer-publish-retry.log": {
+        "sha256": "5aaac84c8ecfa48cae65e5396cb188614e19bda2a03dc828f8e563e199c0fe85",
+        "bytes": 101
+      },
+      "finish-preparation-report.json": {
+        "sha256": "35f13df585761b38db24879fa7fb0b019ae90c2f613e02b765aa163f578c4765",
+        "bytes": 2292
+      },
+      "finish-canonical-00.log": {
+        "sha256": "9631c178ce6d28c7f6c602939a2390a60b182c963a133c1fa7fab6c3eb878741",
+        "bytes": 72
+      },
+      "finish-canonical-01.log": {
+        "sha256": "52a172b1d83e7e5b3eff5732b3edafc48d07f65e3ca01ebfcb53b45dfc442ac5",
+        "bytes": 44
+      },
+      "finish-canonical-02.log": {
+        "sha256": "750ac476bb66a68d6757dc930210b6165df50bbc1e7e6c8a146d820b3614009a",
+        "bytes": 48
+      },
+      "finish-canonical-03.log": {
+        "sha256": "1536e81379de3ee8d7df347a1af35d4785cfcba6a312b70d87e96c7687e25923",
+        "bytes": 44
+      },
+      "finish-canonical-04.log": {
+        "sha256": "536e7717070ec908dd4d5c1abd02835f0ac1a4bb86318beccdc0c5a628aad280",
+        "bytes": 449
+      },
+      "finish-canonical-05.log": {
+        "sha256": "1d10c201b16550fad60c7f81893cfc021034c69248fbc6b472cc5e370aaa71c1",
+        "bytes": 826
+      },
+      "finish-canonical-06.log": {
+        "sha256": "2a8389c0ab8f66c1a59cd28640f2d098f1bc1921ca9abb5011e1ed16b967a87f",
+        "bytes": 5083
+      },
+      "finish-canonical-07.log": {
+        "sha256": "e66a06feee5428eb8ea68d267ee5f7374d43f973b8fceb87c219f88e9e564ab1",
+        "bytes": 37392
+      },
+      "finish-canonical-08.log": {
+        "sha256": "39040f551589b78a08f187e4d0ecec6b80f2d05c9e842d4b7f726340618c6f7e",
+        "bytes": 9103
+      },
+      "finish-canonical-09.log": {
+        "sha256": "bbe903778426e18594f1eb27c9cd2e5465d7ee580da23518fc18bf976caaf404",
+        "bytes": 10209
+      },
+      "finish-canonical-generation-prefix.json": {
+        "sha256": "5073305626eb3f2df018cad9b291ac9575f8ad8063c3c39a10f120c7940f8494",
+        "bytes": 2156
+      }
+    },
+    "largeArtifactsRetainedOutsideRepositoryEvidence": {
+      "cohort-finish.json": {
+        "sha256": "862300311c2205d0f29a2e0323c250a1b0d6933ca76e013025c69badbaaeff4f",
+        "bytes": 273364317,
+        "copyIntoRepositoryEvidence": false
+      },
+      "artifacts-finish.jsonl": {
+        "sha256": "8e6b981bb2fc3d0b45589dae72a748ef3a05bd01159201e66d4dda740eeb8918",
+        "bytes": 103000642,
+        "copyIntoRepositoryEvidence": false
+      }
+    },
+    "preparedOutputDirectory": "prepared-finish"
+  },
+  "historicalPairedSetupSelectionRun": {
+    "classification": "Historical test-runner selection failure: filtering to native aggregate titles excluded earlier tests that generate their example arrays; no semantic pass is claimed. The producer full run and successful export remain independent.",
+    "producerRevision": "a72267e26ab7b7fc5f22134abee315fd7ed6e64b",
+    "consumerRevision": "80280e425b0402bb4ee5f18e42e27087fa91dea5",
+    "exitCode": 1,
+    "testCounts": {
+      "cancel": 0,
+      "fail": 18,
+      "pass": 0,
+      "skip": 0
+    },
+    "tapSummary": {
+      "cancelled": 0,
+      "fail": 9,
+      "pass": 0,
+      "skipped": 0,
+      "tests": 9
+    },
+    "rawFailureDetailCount": 18,
+    "distinctFailedTests": 9,
+    "countInterpretation": "testCounts.fail includes repeated failure-detail records; tapSummary.fail is the authoritative distinct TAP test count.",
+    "manifestSha256": "56962d11dcc7e9cdc5bf24ed4dc6728ecd4243ed0fa298ccbe2d7fa928a5de5b",
+    "files": {
+      "run-finish-paired-native.py": {
+        "bytes": 7599,
+        "sha256": "8df6078f4faa430a62f5597b23d26952d6c1282b76c3d407bd7d354cbda59f8d"
+      },
+      "finish-paired-native.log": {
+        "bytes": 8146,
+        "sha256": "1da5a12fbd4a6b353be7209d6785318ae0fdf7f7553df18b999f3002047b3439"
+      },
+      "finish-paired-native-status.json": {
+        "bytes": 4724,
+        "sha256": "87dec93202cc302c26d7f11e44879ed07ae6f493dcb5fb1639351194090f0764"
+      },
+      "finish-corrected-paired-native-driver.log": {
+        "bytes": 4724,
+        "sha256": "87dec93202cc302c26d7f11e44879ed07ae6f493dcb5fb1639351194090f0764"
+      },
+      "run-finish-corrected-pipeline.py": {
+        "bytes": 24369,
+        "sha256": "bd9e2a9043f8425744a99d04218cce7a892f8b0e2cf1299d2244982355c9b394"
+      },
+      "finish-corrected-pipeline-status.json": {
+        "bytes": 11048,
+        "sha256": "c1962d88331ee7622132a6a3e803f497e675355d215d72d5ebf21eca558d1027"
+      },
+      "finish-corrected-root-driver.log": {
+        "bytes": 1815,
+        "sha256": "efcd339f9c127fb2d0ee7b58d257506ba60b6ad18b80b601607cca7088ac9018"
+      }
+    }
+  },
+  "historicalPairedConsumerCorrectionRun": {
+    "classification": "Historical complete paired-file run before the Promise self-resolution consumer correction. One selected native adoption check failed while allocating the required intrinsic error without an active ordinary invocation; this run is not a final pass.",
+    "producerRevision": "a72267e26ab7b7fc5f22134abee315fd7ed6e64b",
+    "consumerRevision": "80280e425b0402bb4ee5f18e42e27087fa91dea5",
+    "exitCode": 1,
+    "selectedTestCounts": {
+      "cancel": 0,
+      "fail": 1,
+      "pass": 8,
+      "skip": 0
+    },
+    "fileTestCounts": {
+      "cancel": 0,
+      "fail": 1,
+      "pass": 129,
+      "skip": 0
+    },
+    "tapSummary": {
+      "cancelled": 0,
+      "fail": 1,
+      "pass": 129,
+      "skipped": 0,
+      "tests": 130
+    },
+    "failure": {
+      "testTitle": "actual native adoption consumer independently replays every source context and restored cut",
+      "cause": "Promise self-resolution reached intrinsic Error allocation without an active ordinary invocation; native consumer rejected it with active invocation required."
+    },
+    "manifestSha256": "123b50de9de62fefe617da860a10b3ed3820c2a730f64d187b8118bb39fafc58",
+    "files": {
+      "run-finish-paired-native.py": {
+        "bytes": 8176,
+        "sha256": "090da74073709c9016e76400f36b5a18f95f07b5759cc93f1a7ee35c43e1a074"
+      },
+      "finish-paired-native.log": {
+        "bytes": 32506,
+        "sha256": "1a9c319da3d5a0c493187e9abda07fc87fc1a4aedaadb7d51402c2211945952c"
+      },
+      "finish-paired-native-status.json": {
+        "bytes": 3930,
+        "sha256": "df12ae2c127fb269be63c6b3c89c885340691a9311c64dd0a25bc09703e679a8"
+      },
+      "finish-paired-full-files-driver.log": {
+        "bytes": 3930,
+        "sha256": "df12ae2c127fb269be63c6b3c89c885340691a9311c64dd0a25bc09703e679a8"
+      },
+      "finish-paired-full-files-launch.json": {
+        "bytes": 326,
+        "sha256": "72ca74d8c8e7f9440c99abb19037d7b4507936a4268efe0896c2e8d612aa76c0"
+      }
+    }
+  },
+  "date": "2026-11-25",
+  "producerRevision": "a72267e26ab7b7fc5f22134abee315fd7ed6e64b",
+  "consumerRevision": "053e9c78cad1dbb5313012421ab2987526fe6dab",
+  "producerTree": "7c6c22bffa434ac63ed9a00b5a8d31f2c9f762e8",
+  "consumerTree": "b50aaf9d36806f6285e0f659b79d868b083a4710",
+  "generationImplementationRevision": "76fd24a91ad7e535aac33af542b481e1337838df",
+  "generatedArtifactRevision": "5553de1a10761626c5604a57453291039d73683d",
+  "nodeVersion": "v24.22.3",
+  "pythonVersion": "Python 3.12.7",
+  "contractDigest": "ef501aa5c4e5a41b77a7c7c58e0f38dc2ee6d0ae3ef1aa6b6c91e304ddbf6c2f",
+  "fixtureDigest": "56f7f36d3b25b3b11a208be3de337e637b9782e6759faea1e1ec107b0a90f0ce",
+  "interoperabilityDigest": "aa3c9077e4627e90d81ea7534635ffc3b168051db1c02463c3b5fe9e989f1677",
+  "canonical": {
+    "protocolSources": 174,
+    "regions": 6,
+    "hostSources": 4,
+    "preservedSourceInputs": 93,
+    "synchronization": {
+      "producerRevision": "a72267e26ab7b7fc5f22134abee315fd7ed6e64b",
+      "producerTreeClean": true,
+      "sourceCases": 174,
+      "preservedSources": 93,
+      "preservedCurrentSources": 174,
+      "preservationBaselineRevision": "78a284daf30b3dba8152659cfb43a8a8429ee5d7",
+      "preservationBaselineArchiveSha256": "5e1d002f7b44515c0904d39b51bde5a01831e8eeeb875091d5ef28bf022c6b4f",
+      "newSources": [],
+      "changedCounts": {},
+      "contractDigest": "ef501aa5c4e5a41b77a7c7c58e0f38dc2ee6d0ae3ef1aa6b6c91e304ddbf6c2f",
+      "fixtureDigest": "56f7f36d3b25b3b11a208be3de337e637b9782e6759faea1e1ec107b0a90f0ce",
+      "interoperabilityDigest": "aa3c9077e4627e90d81ea7534635ffc3b168051db1c02463c3b5fe9e989f1677"
+    }
+  },
+  "supportFixtureRun": {
+    "schema": "issue51-support-fixture-run/1",
+    "producerRevision": "a72267e26ab7b7fc5f22134abee315fd7ed6e64b",
+    "producerRevisionAfter": "a72267e26ab7b7fc5f22134abee315fd7ed6e64b",
+    "producerTreeClean": true,
+    "consumerRevision": "b5364734da232e7ac21dda8ebeeac8121f084667",
+    "consumerRevisionAfter": "b5364734da232e7ac21dda8ebeeac8121f084667",
+    "runnerScriptSha256": "cc9efee11deeb11a7ee7010be2019f5022a007108d7e6fcd76fb9bf3d24ee15a",
+    "generatorScriptSha256": "de2d8e2a3249bf33464b99d404de522721799ceda7d76b59833b4a9376707340",
+    "command": [
+      "node",
+      "scripts/generate_protocol_support_v8.mjs",
+      "../producer-dev"
+    ],
+    "log": "finish-support-fixtures.log",
+    "logSha256": "925cbf2decf0566ade2b8cd952bdb689528bd1cecf064c0a4af26ca6295f5910",
+    "generatorExitCode": 0,
+    "exitCode": 0,
+    "seconds": 9.945,
+    "allowedGeneratedFiles": [
+      "semantic-generator-close-v8.json.gz.b64",
+      "semantic-enumeration-v8.json.gz.b64",
+      "semantic-host-recovery-v8.json.gz.b64"
+    ],
+    "changedFiles": [
+      "tests/fixtures/semantic-generator-close-v8.json.gz.b64",
+      "tests/fixtures/semantic-host-recovery-v8.json.gz.b64"
+    ],
+    "changedTrackedFiles": [
+      "tests/fixtures/semantic-generator-close-v8.json.gz.b64",
+      "tests/fixtures/semantic-host-recovery-v8.json.gz.b64"
+    ],
+    "changedUntrackedFiles": [],
+    "unexpectedChanges": [],
+    "unexpectedUntrackedPathChanges": [],
+    "untrackedBefore": [],
+    "untrackedAfter": [],
+    "generatedSupportFileSha256": {
+      "semantic-generator-close-v8.json.gz.b64": "fbe1de5f8cb3a64fc2279d3f1c278df1229faa0e21474efc7f02dee7d0d4de6d",
+      "semantic-enumeration-v8.json.gz.b64": "a8857c2b3933b4136db755b671b8e529928ee6136961eb31327771c88a48e0f1",
+      "semantic-host-recovery-v8.json.gz.b64": "1c50dd6d23c37e6c8e7aa93c9c95e1190439111f9c9b7a6ba7f0c52e324cbaa7"
+    },
+    "verificationPassed": true
+  },
+  "pythonStyleRun": {
+    "consumerRevision": "053e9c78cad1dbb5313012421ab2987526fe6dab",
+    "files": [
+      "scripts/prepare_semantic_v8.py",
+      "src/megatoken/controls.py",
+      "src/megatoken/data/collection_v8.py",
+      "src/megatoken/data/construction_v8.py",
+      "src/megatoken/data/enumeration_v8.py",
+      "src/megatoken/data/generator_v8.py",
+      "src/megatoken/data/intrinsic_error_v8.py",
+      "src/megatoken/data/iterator_v8.py",
+      "src/megatoken/data/native_v8.py",
+      "src/megatoken/data/primitive_conversion_v8.py",
+      "src/megatoken/data/promise_adoption_v8.py",
+      "src/megatoken/data/promise_object_v8.py",
+      "src/megatoken/data/promise_scheduler_v8.py",
+      "src/megatoken/data/protocol_v8.py",
+      "src/megatoken/data/proxy_reflection_descriptors_v8.py",
+      "src/megatoken/data/proxy_reflection_v8.py",
+      "src/megatoken/data/proxy_v8.py",
+      "tests/test_collection_v8.py",
+      "tests/test_construction_v8.py",
+      "tests/test_enumeration_v8.py",
+      "tests/test_intrinsic_error_v8.py",
+      "tests/test_issue51_object_source_v8.py",
+      "tests/test_iterator_collections_v8.py",
+      "tests/test_iterator_spread_v8.py",
+      "tests/test_prepare_semantic_v8.py",
+      "tests/test_primitive_conversion_v8.py",
+      "tests/test_promise_executor_boundaries_v8.py",
+      "tests/test_promise_executor_v8.py",
+      "tests/test_promise_scheduler_v8.py",
+      "tests/test_property_presence_v8.py",
+      "tests/test_protocol_v8.py",
+      "tests/test_proxy_reflection_v8.py",
+      "tests/test_proxy_v8.py",
+      "tests/test_semantic_observation_unicode.py"
+    ],
+    "steps": [
+      {
+        "command": [
+          "/tmp/issue51-resume.Ws1foQ/.venv/bin/ruff",
+          "check",
+          "scripts/prepare_semantic_v8.py",
+          "src/megatoken/controls.py",
+          "src/megatoken/data/collection_v8.py",
+          "src/megatoken/data/construction_v8.py",
+          "src/megatoken/data/enumeration_v8.py",
+          "src/megatoken/data/generator_v8.py",
+          "src/megatoken/data/intrinsic_error_v8.py",
+          "src/megatoken/data/iterator_v8.py",
+          "src/megatoken/data/native_v8.py",
+          "src/megatoken/data/primitive_conversion_v8.py",
+          "src/megatoken/data/promise_adoption_v8.py",
+          "src/megatoken/data/promise_object_v8.py",
+          "src/megatoken/data/promise_scheduler_v8.py",
+          "src/megatoken/data/protocol_v8.py",
+          "src/megatoken/data/proxy_reflection_descriptors_v8.py",
+          "src/megatoken/data/proxy_reflection_v8.py",
+          "src/megatoken/data/proxy_v8.py",
+          "tests/test_collection_v8.py",
+          "tests/test_construction_v8.py",
+          "tests/test_enumeration_v8.py",
+          "tests/test_intrinsic_error_v8.py",
+          "tests/test_issue51_object_source_v8.py",
+          "tests/test_iterator_collections_v8.py",
+          "tests/test_iterator_spread_v8.py",
+          "tests/test_prepare_semantic_v8.py",
+          "tests/test_primitive_conversion_v8.py",
+          "tests/test_promise_executor_boundaries_v8.py",
+          "tests/test_promise_executor_v8.py",
+          "tests/test_promise_scheduler_v8.py",
+          "tests/test_property_presence_v8.py",
+          "tests/test_protocol_v8.py",
+          "tests/test_proxy_reflection_v8.py",
+          "tests/test_proxy_v8.py",
+          "tests/test_semantic_observation_unicode.py"
+        ],
+        "exitCode": 0
+      },
+      {
+        "command": [
+          "/tmp/issue51-resume.Ws1foQ/.venv/bin/ruff",
+          "format",
+          "--check",
+          "scripts/prepare_semantic_v8.py",
+          "src/megatoken/controls.py",
+          "src/megatoken/data/collection_v8.py",
+          "src/megatoken/data/construction_v8.py",
+          "src/megatoken/data/enumeration_v8.py",
+          "src/megatoken/data/generator_v8.py",
+          "src/megatoken/data/intrinsic_error_v8.py",
+          "src/megatoken/data/iterator_v8.py",
+          "src/megatoken/data/native_v8.py",
+          "src/megatoken/data/primitive_conversion_v8.py",
+          "src/megatoken/data/promise_adoption_v8.py",
+          "src/megatoken/data/promise_object_v8.py",
+          "src/megatoken/data/promise_scheduler_v8.py",
+          "src/megatoken/data/protocol_v8.py",
+          "src/megatoken/data/proxy_reflection_descriptors_v8.py",
+          "src/megatoken/data/proxy_reflection_v8.py",
+          "src/megatoken/data/proxy_v8.py",
+          "tests/test_collection_v8.py",
+          "tests/test_construction_v8.py",
+          "tests/test_enumeration_v8.py",
+          "tests/test_intrinsic_error_v8.py",
+          "tests/test_issue51_object_source_v8.py",
+          "tests/test_iterator_collections_v8.py",
+          "tests/test_iterator_spread_v8.py",
+          "tests/test_prepare_semantic_v8.py",
+          "tests/test_primitive_conversion_v8.py",
+          "tests/test_promise_executor_boundaries_v8.py",
+          "tests/test_promise_executor_v8.py",
+          "tests/test_promise_scheduler_v8.py",
+          "tests/test_property_presence_v8.py",
+          "tests/test_protocol_v8.py",
+          "tests/test_proxy_reflection_v8.py",
+          "tests/test_proxy_v8.py",
+          "tests/test_semantic_observation_unicode.py"
+        ],
+        "exitCode": 0
+      }
+    ]
+  },
+  "historicalCombinedGate": {
+    "path": "tools/combined-v8-gate.json",
+    "baselineCommit": "f7696e63258913e7bb8a450c67a708b70c3232ee",
+    "run": false,
+    "matchesHistoricalBaseline": true,
+    "baselineSha256": "9e1dc5e6ff12ec2618e38df26ac6a971725de1c976330f0ae33f7e70b23ab0d9",
+    "currentSha256": "9e1dc5e6ff12ec2618e38df26ac6a971725de1c976330f0ae33f7e70b23ab0d9",
+    "historicalDefinition": {
+      "schema": "semantic-v8-combined-gate/1",
+      "contractDigest": "38a5d7b90ad1da9cf3b56f29c4e730ac5bcec54427e2fe86e6a6afec3335f862",
+      "fixtureDigest": "56f7f36d3b25b3b11a208be3de337e637b9782e6759faea1e1ec107b0a90f0ce",
+      "interoperabilityDigest": "84fe03aa5857dadf23a6025fe5de84758f9567d41920a703fe32110ec13816b3",
+      "sourceExamples": 51,
+      "payloads": [
+        {
+          "source": "contracts/semantic-execution-v8.json",
+          "native": "src/megatoken/data/contracts/semantic-execution-v8.json",
+          "encoding": "copy",
+          "nativeSha256": "c14e1cbee54710fb7f9b36ed6a57a7057d80cb7c2141815202f649b67177c490"
+        },
+        {
+          "source": "test/fixtures/semantic-regions-v8.json",
+          "native": "tests/fixtures/semantic-regions-v8.json.gz.b64",
+          "encoding": "gzip-base64",
+          "nativeSha256": "595eb044df8538e48286120a3b2b61fece61787d589ca2f0cf9f587504281f68"
+        },
+        {
+          "source": "test/fixtures/semantic-protocol-v8.json",
+          "native": "tests/fixtures/semantic-protocol-v8.json",
+          "encoding": "copy",
+          "nativeSha256": "fbc42b70185a6b70aa0b2d9d39509afe8962da80c1c3f09f9faa8a4bcb109f0f"
+        },
+        {
+          "source": "test/fixtures/semantic-iterator-v8.json",
+          "native": "tests/fixtures/semantic-iterator-v8.json",
+          "encoding": "copy",
+          "nativeSha256": "31e4cb329edc1f2a996f58fb167c770571afe69d9d6fd5b8dffb4db31b747c1c"
+        },
+        {
+          "source": "test/fixtures/semantic-protocol-source-v8.json",
+          "native": "tests/fixtures/semantic-protocol-source-v8.json",
+          "encoding": "copy",
+          "nativeSha256": "5498999309e26efd2f9a35cdd397ee99aef7ecb4a47246ff4ca28a2d8eb8b81f"
+        },
+        {
+          "source": "test/fixtures/semantic-protocol-region-v8.json.gz.b64",
+          "native": "tests/fixtures/semantic-protocol-region-v8.json.gz.b64",
+          "encoding": "gzip-base64",
+          "nativeSha256": "49cad29b1da6c2416f786062860077b8c59201c36ab999a35c619aebea6ebb07",
+          "sourceEncoding": "gzip-base64"
+        },
+        {
+          "source": "test/fixtures/semantic-host-protocol-v8.json.gz.b64",
+          "native": "tests/fixtures/semantic-host-protocol-v8.json.gz.b64",
+          "encoding": "copy",
+          "nativeSha256": "3dc73ea3a665db8c1a6abaa9eb8bbacd5448a532f3d860cb409a004e1743a740"
+        }
+      ],
+      "lanes": {
+        "structural": {
+          "producer": {
+            "test/native-request-journal-v8.test.js": 8,
+            "test/selected-orchestration-clock.test.js": 5,
+            "test/semantic-known-bootstrap-builder-v8.test.js": 26,
+            "test/semantic-known-commit-builder-v8.test.js": 6,
+            "test/semantic-selected-history-automatic-v8.test.js": 21,
+            "test/semantic-selected-history-tail-v8.test.js": 13,
+            "test/semantic-selected-history-v8.test.js": 20,
+            "test/semantic-selected-orchestration-checkpoint-v8.test.js": 20,
+            "test/semantic-selected-orchestration-v8.test.js": 4
+          },
+          "native": {
+            "tests/test_semantic_commit_recovery_v8.py": 42,
+            "tests/test_semantic_bootstrap_recovery_v8.py": 30,
+            "tests/test_semantic_close_recovery_v8.py": 9,
+            "tests/test_semantic_request_journal_v8.py": 13,
+            "tests/test_semantic_launch_v8.py": 16,
+            "tests/test_semantic_v8_position_receipts.py": 55,
+            "tests/test_semantic_model_v8.py": 17
+          }
+        },
+        "transport": {
+          "producer": {
+            "test/semantic-native-durable-bootstrap-v8.test.js": 9,
+            "test/semantic-native-durable-close-v8.test.js": 7,
+            "test/semantic-native-durable-commit-v8.test.js": 11,
+            "test/semantic-native-orchestration-recovery-v8.test.js": 6
+          },
+          "native": {}
+        },
+        "commit-history": {
+          "producer": {
+            "test/semantic-known-commit-history-v8.test.js": 9
+          },
+          "native": {}
+        },
+        "bootstrap-history": {
+          "producer": {
+            "test/semantic-known-bootstrap-history-v8.test.js": 12
+          },
+          "native": {}
+        },
+        "terminal-history": {
+          "producer": {
+            "test/semantic-known-close-builder-v8.test.js": 5,
+            "test/semantic-known-close-history-v8.test.js": 9,
+            "test/semantic-known-service-close-history-v8.test.js": 2
+          },
+          "native": {}
+        },
+        "promise": {
+          "producer": {
+            "test/owned-promise-object-state.test.js": 17,
+            "test/owned-promise-reflection-review.test.js": 11,
+            "test/owned-promise-review-boundaries.test.js": 8,
+            "test/semantic-async-call-source-v8.test.js": 18,
+            "test/semantic-async-return-adoption-composition-source-v8.test.js": 4,
+            "test/semantic-native-promise-slots-v8.test.js": 8,
+            "test/semantic-native-source-reader-v8.test.js": 6,
+            "test/semantic-promise-adoption-getter-source-v8.test.js": 7,
+            "test/semantic-promise-mutation-profile-source-v8.test.js": 25,
+            "test/semantic-promise-object-observations-v8.test.js": 19,
+            "test/semantic-promise-object-profile-source-v8.test.js": 23,
+            "test/semantic-promise-object-review-source-v8.test.js": 13,
+            "test/semantic-promise-object-review-v8.test.js": 4,
+            "test/semantic-promise-object-source-v8.test.js": 17,
+            "test/semantic-promise-object-v8.test.js": 7,
+            "test/semantic-protocol-iterator-v8.test.js": 9,
+            "test/semantic-protocol-promise-adoption-getter-v8.test.js": 5,
+            "test/semantic-protocol-promise-adoption-source-v8.test.js": 21,
+            "test/semantic-protocol-promise-adoption-v8.test.js": 20,
+            "test/semantic-protocol-promise-executor-source-v8.test.js": 10,
+            "test/semantic-protocol-promise-executor-v8.test.js": 11,
+            "test/semantic-protocol-promise-join-source-v8.test.js": 5,
+            "test/semantic-protocol-promise-join-v8.test.js": 10,
+            "test/semantic-protocol-v8.test.js": 14,
+            "test/semantic-qualification-population-v8.test.js": 4,
+            "test/semantic-shared-intrinsic-boundaries-v8.test.js": 11,
+            "test/semantic-shared-protocol-source-v8.test.js": 8,
+            "test/training-promise-job-projection.test.js": 3
+          },
+          "native": {
+            "tests/test_async_call_v8.py": 18,
+            "tests/test_native_detail_regressions_v8.py": 12,
+            "tests/test_number_v8.py": 15,
+            "tests/test_primitive_conversion_v8.py": 19,
+            "tests/test_promise_executor_boundaries_v8.py": 13,
+            "tests/test_promise_executor_v8.py": 12,
+            "tests/test_promise_join_v8.py": 12,
+            "tests/test_promise_scheduler_v8.py": 10,
+            "tests/test_protocol_host_composition_v8.py": 15,
+            "tests/test_protocol_host_v8.py": 13,
+            "tests/test_protocol_properties.py": 31,
+            "tests/test_protocol_v8.py": 22
+          }
+        }
+      }
+    }
+  },
+  "cohort": {
+    "declared": 122,
+    "supported": 121,
+    "refused": 1,
+    "preservedOriginalInputs": 122,
+    "registryDigest": "14348b06d4d128fc94ce7056fb20f52e87b237b5e6da17b00479ee940b64eb2f",
+    "operationCoverage": {
+      "allocate": 428,
+      "bind": 10,
+      "call": 16,
+      "callable.capture": 7,
+      "callable.define": 90,
+      "callable.home": 4,
+      "choose": 19,
+      "class.initializer": 4,
+      "class.link": 15,
+      "compute": 13,
+      "construct.enter": 14,
+      "construct.finish": 14,
+      "construct.target": 6,
+      "construct.this": 19,
+      "construct.this.fault": 2,
+      "conversion.begin": 13,
+      "conversion.call": 13,
+      "conversion.finish": 13,
+      "conversion.getter.call": 4,
+      "conversion.getter.return": 4,
+      "conversion.lookup": 14,
+      "conversion.return": 13,
+      "end": 106,
+      "enumeration.create": 15,
+      "enumeration.next": 47,
+      "iterator.arrayGuard": 5,
+      "iterator.create": 2,
+      "iterator.lookup": 8,
+      "iterator.next": 6,
+      "iterator.spread": 4,
+      "map.clear": 1,
+      "map.create": 2,
+      "map.delete": 2,
+      "map.get": 2,
+      "map.has": 1,
+      "map.lookup": 8,
+      "map.set": 2,
+      "map.size": 3,
+      "object.hasInstance": 13,
+      "private.declare": 4,
+      "private.define": 4,
+      "private.get": 4,
+      "promise.intrinsic.get": 22,
+      "promise.intrinsics": 67,
+      "property.define": 249,
+      "property.delete": 27,
+      "property.descriptor": 1,
+      "property.fault": 19,
+      "property.finish": 6,
+      "property.get": 286,
+      "property.get.call": 6,
+      "property.getPrototypeOf": 9,
+      "property.has": 44,
+      "property.hasOwn": 2,
+      "property.isExtensible": 3,
+      "property.keys": 5,
+      "property.preventExtensions": 9,
+      "property.prototype": 26,
+      "property.set": 397,
+      "proxy.create": 51,
+      "proxy.delete.call": 5,
+      "proxy.delete.fault": 1,
+      "proxy.fault": 8,
+      "proxy.finish": 8,
+      "proxy.get": 1,
+      "proxy.getMethod.begin": 5,
+      "proxy.getMethod.finish": 5,
+      "proxy.has": 1,
+      "proxy.has.call": 9,
+      "proxy.reflect.call": 27,
+      "proxy.reflect.direct": 10,
+      "proxy.reflect.fault": 13,
+      "proxy.reflect.finish": 14,
+      "proxy.revocable": 7,
+      "proxy.revoke": 8,
+      "proxy.revoked.fault": 5,
+      "proxy.set.call": 2,
+      "return": 97,
+      "set.add": 2,
+      "set.create": 1,
+      "set.delete": 1,
+      "set.lookup": 3,
+      "set.size": 1,
+      "super.bind": 5,
+      "super.finish": 4,
+      "super.select": 5,
+      "symbol.create": 8,
+      "symbol.for": 2,
+      "symbol.read": 1,
+      "throw": 6
+    },
+    "methodCoverage": {
+      "allocate": 428,
+      "bind": 10,
+      "call": 16,
+      "callable.capture": 7,
+      "callable.define": 90,
+      "callable.home": 4,
+      "choose": 19,
+      "class.initializer": 4,
+      "class.link": 15,
+      "compute": 13,
+      "construct.enter": 14,
+      "construct.finish": 14,
+      "construct.target": 6,
+      "construct.this": 19,
+      "construct.this.fault": 2,
+      "conversion.begin": 13,
+      "conversion.call": 13,
+      "conversion.finish": 13,
+      "conversion.getter.call": 4,
+      "conversion.getter.return": 4,
+      "conversion.lookup": 14,
+      "conversion.return": 13,
+      "end": 106,
+      "enumeration.create": 15,
+      "enumeration.next": 47,
+      "iterator.arrayGuard": 5,
+      "iterator.create": 2,
+      "iterator.lookup": 8,
+      "iterator.next": 6,
+      "iterator.spread": 4,
+      "map.clear": 1,
+      "map.create": 2,
+      "map.delete": 2,
+      "map.get": 2,
+      "map.has": 1,
+      "map.lookup": 8,
+      "map.set": 2,
+      "map.size": 3,
+      "object.hasInstance": 13,
+      "private.declare": 4,
+      "private.define": 4,
+      "private.get": 4,
+      "promise.intrinsic.get": 22,
+      "promise.intrinsics": 67,
+      "property.define": 249,
+      "property.delete": 27,
+      "property.descriptor": 1,
+      "property.fault/has": 19,
+      "property.finish": 6,
+      "property.get": 286,
+      "property.get.call": 6,
+      "property.getPrototypeOf": 9,
+      "property.has": 44,
+      "property.hasOwn": 2,
+      "property.isExtensible": 3,
+      "property.keys": 5,
+      "property.preventExtensions": 9,
+      "property.prototype": 26,
+      "property.set": 397,
+      "proxy.create": 51,
+      "proxy.delete.call": 5,
+      "proxy.delete.fault": 1,
+      "proxy.fault": 8,
+      "proxy.finish": 8,
+      "proxy.get": 1,
+      "proxy.getMethod.begin/has": 5,
+      "proxy.getMethod.finish": 5,
+      "proxy.has": 1,
+      "proxy.has.call": 9,
+      "proxy.reflect.call/defineProperty/Object.defineProperty": 2,
+      "proxy.reflect.call/defineProperty/Reflect.defineProperty": 3,
+      "proxy.reflect.call/getOwnPropertyDescriptor/Object.getOwnPropertyDescriptor": 5,
+      "proxy.reflect.call/getPrototypeOf/Object.getPrototypeOf": 3,
+      "proxy.reflect.call/isExtensible/Object.isExtensible": 3,
+      "proxy.reflect.call/ownKeys/Reflect.ownKeys": 5,
+      "proxy.reflect.call/preventExtensions/Object.preventExtensions": 2,
+      "proxy.reflect.call/preventExtensions/Reflect.preventExtensions": 1,
+      "proxy.reflect.call/setPrototypeOf/Object.setPrototypeOf": 2,
+      "proxy.reflect.call/setPrototypeOf/Reflect.setPrototypeOf": 1,
+      "proxy.reflect.direct/defineProperty/Object.defineProperty": 1,
+      "proxy.reflect.direct/defineProperty/Reflect.defineProperty": 1,
+      "proxy.reflect.direct/getOwnPropertyDescriptor/Object.getOwnPropertyDescriptor": 2,
+      "proxy.reflect.direct/getPrototypeOf/Object.getPrototypeOf": 1,
+      "proxy.reflect.direct/isExtensible/Object.isExtensible": 2,
+      "proxy.reflect.direct/ownKeys/Reflect.ownKeys": 1,
+      "proxy.reflect.direct/preventExtensions/Object.preventExtensions": 1,
+      "proxy.reflect.direct/setPrototypeOf/Object.setPrototypeOf": 1,
+      "proxy.reflect.fault": 13,
+      "proxy.reflect.finish": 14,
+      "proxy.revocable": 7,
+      "proxy.revoke": 8,
+      "proxy.revoked.fault/deleteProperty": 1,
+      "proxy.revoked.fault/get": 2,
+      "proxy.revoked.fault/has": 1,
+      "proxy.revoked.fault/set": 1,
+      "proxy.set.call": 2,
+      "return": 97,
+      "set.add": 2,
+      "set.create": 1,
+      "set.delete": 1,
+      "set.lookup": 3,
+      "set.size": 1,
+      "super.bind": 5,
+      "super.finish": 4,
+      "super.select": 5,
+      "symbol.create": 8,
+      "symbol.for": 2,
+      "symbol.read/keyFor": 1,
+      "throw": 6
+    },
+    "dispositions": [
+      {
+        "id": "issue51-control-for-in-proxy",
+        "expected": "supported",
+        "status": "passed",
+        "reason": null
+      },
+      {
+        "id": "issue51-constructor-arrow-after-super-and-return",
+        "expected": "supported",
+        "status": "passed",
+        "reason": null
+      },
+      {
+        "id": "issue51-constructor-arrow-return-substitution",
+        "expected": "supported",
+        "status": "passed",
+        "reason": null
+      },
+      {
+        "id": "issue51-constructor-arrow-conversion-callback",
+        "expected": "supported",
+        "status": "passed",
+        "reason": null
+      },
+      {
+        "id": "issue51-control-constructor-arrow-in-promise-reaction",
+        "expected": "supported",
+        "status": "passed",
+        "reason": null
+      },
+      {
+        "id": "issue51-derived-constructor-arrow-in-promise-reaction",
+        "expected": "supported",
+        "status": "passed",
+        "reason": null
+      },
+      {
+        "id": "issue51-derived-this-before-super-reference-error",
+        "expected": "supported",
+        "status": "passed",
+        "reason": null
+      },
+      {
+        "id": "issue51-derived-this-captured-arrow-before-super-reference-error",
+        "expected": "supported",
+        "status": "passed",
+        "reason": null
+      },
+      {
+        "id": "issue51-set-live-iterator-delete-readd",
+        "expected": "supported",
+        "status": "passed",
+        "reason": null
+      },
+      {
+        "id": "issue51-map-live-entries-overwrite-delete-append",
+        "expected": "supported",
+        "status": "passed",
+        "reason": null
+      },
+      {
+        "id": "issue51-map-same-value-zero-size-clear",
+        "expected": "supported",
+        "status": "passed",
+        "reason": null
+      },
+      {
+        "id": "issue51-array-spread-snapshot-and-mutation",
+        "expected": "supported",
+        "status": "passed",
+        "reason": null
+      },
+      {
+        "id": "issue51-string-spread-code-points-and-holes",
+        "expected": "supported",
+        "status": "passed",
+        "reason": null
+      },
+      {
+        "id": "issue51-nested-array-default-and-rest-order",
+        "expected": "supported",
+        "status": "passed",
+        "reason": null
+      },
+      {
+        "id": "issue51-nested-array-default-abrupt-closes-outer-iterator",
+        "expected": "supported",
+        "status": "passed",
+        "reason": null
+      },
+      {
+        "id": "issue51-invalid-in-message-object-no-conversion",
+        "expected": "supported",
+        "status": "passed",
+        "reason": null
+      },
+      {
+        "id": "issue51-invalid-in-message-symbol",
+        "expected": "supported",
+        "status": "passed",
+        "reason": null
+      },
+      {
+        "id": "issue51-invalid-in-message-negative-zero",
+        "expected": "supported",
+        "status": "passed",
+        "reason": null
+      },
+      {
+        "id": "issue51-invalid-in-message-null-prototype",
+        "expected": "supported",
+        "status": "passed",
+        "reason": null
+      },
+      {
+        "id": "issue51-error-own-message-descriptor",
+        "expected": "supported",
+        "status": "passed",
+        "reason": null
+      },
+      {
+        "id": "issue51-error-prototype-identities",
+        "expected": "supported",
+        "status": "passed",
+        "reason": null
+      },
+      {
+        "id": "issue51-error-instance-prototype-mutation",
+        "expected": "supported",
+        "status": "passed",
+        "reason": null
+      },
+      {
+        "id": "issue51-error-inherited-prototype-mutation",
+        "expected": "supported",
+        "status": "passed",
+        "reason": null
+      },
+      {
+        "id": "issue51-error-accessor-receiver",
+        "expected": "supported",
+        "status": "passed",
+        "reason": null
+      },
+      {
+        "id": "issue51-error-instanceof-live-chain",
+        "expected": "supported",
+        "status": "passed",
+        "reason": null
+      },
+      {
+        "id": "issue51-error-instanceof-prototype-replacement",
+        "expected": "supported",
+        "status": "passed",
+        "reason": null
+      },
+      {
+        "id": "issue51-error-instanceof-custom-hasinstance",
+        "expected": "supported",
+        "status": "passed",
+        "reason": null
+      },
+      {
+        "id": "issue51-class-instanceof-shared-prototype-chain",
+        "expected": "supported",
+        "status": "passed",
+        "reason": null
+      },
+      {
+        "id": "issue51-async-caught-error-standard-properties",
+        "expected": "supported",
+        "status": "passed",
+        "reason": null
+      },
+      {
+        "id": "issue51-async-caught-error-instanceof",
+        "expected": "supported",
+        "status": "passed",
+        "reason": null
+      },
+      {
+        "id": "issue51-shared-promise-caught-error-properties",
+        "expected": "supported",
+        "status": "passed",
+        "reason": null
+      },
+      {
+        "id": "issue51-async-unhandled-derived-typeerror",
+        "expected": "supported",
+        "status": "passed",
+        "reason": null
+      },
+      {
+        "id": "issue51-promise-reaction-caught-error-properties",
+        "expected": "supported",
+        "status": "passed",
+        "reason": null
+      },
+      {
+        "id": "issue51-for-in-replaced-prototype-live-existence",
+        "expected": "supported",
+        "status": "passed",
+        "reason": null
+      },
+      {
+        "id": "issue51-for-in-removed-prototype-skips-candidate",
+        "expected": "supported",
+        "status": "passed",
+        "reason": null
+      },
+      {
+        "id": "issue51-for-in-flags-retain-original-candidates",
+        "expected": "supported",
+        "status": "passed",
+        "reason": null
+      },
+      {
+        "id": "issue51-for-in-initial-nonenumerable-shadow-survives",
+        "expected": "supported",
+        "status": "passed",
+        "reason": null
+      },
+      {
+        "id": "issue51-for-in-transparent-proxy-value-writes",
+        "expected": "supported",
+        "status": "passed",
+        "reason": null
+      },
+      {
+        "id": "issue51-for-in-nested-transparent-proxy",
+        "expected": "supported",
+        "status": "passed",
+        "reason": null
+      },
+      {
+        "id": "issue51-control-for-in-prototype-replacement",
+        "expected": "supported",
+        "status": "passed",
+        "reason": null
+      },
+      {
+        "id": "issue51-proxy-revoked-get",
+        "expected": "supported",
+        "status": "passed",
+        "reason": null
+      },
+      {
+        "id": "issue51-proxy-revoked-set",
+        "expected": "supported",
+        "status": "passed",
+        "reason": null
+      },
+      {
+        "id": "issue51-proxy-revoked-has",
+        "expected": "supported",
+        "status": "passed",
+        "reason": null
+      },
+      {
+        "id": "issue51-proxy-revoked-deleteProperty",
+        "expected": "supported",
+        "status": "passed",
+        "reason": null
+      },
+      {
+        "id": "issue51-control-proxy-trap-getter",
+        "expected": "supported",
+        "status": "passed",
+        "reason": null
+      },
+      {
+        "id": "issue51-proxy-getmethod-handler-mutation",
+        "expected": "supported",
+        "status": "passed",
+        "reason": null
+      },
+      {
+        "id": "issue51-proxy-getmethod-revocation",
+        "expected": "supported",
+        "status": "passed",
+        "reason": null
+      },
+      {
+        "id": "issue51-proxy-getmethod-nullish-after-revocation",
+        "expected": "supported",
+        "status": "passed",
+        "reason": null
+      },
+      {
+        "id": "issue51-proxy-getmethod-throw-identity",
+        "expected": "supported",
+        "status": "passed",
+        "reason": null
+      },
+      {
+        "id": "issue51-proxy-revocable-revoke-idempotent",
+        "expected": "supported",
+        "status": "passed",
+        "reason": null
+      },
+      {
+        "id": "issue51-control-proxy-nested-target",
+        "expected": "supported",
+        "status": "passed",
+        "reason": null
+      },
+      {
+        "id": "issue51-proxy-key-order-and-trap-replacement",
+        "expected": "supported",
+        "status": "passed",
+        "reason": null
+      },
+      {
+        "id": "issue51-proxy-constructor-arrow-retains-private-receiver",
+        "expected": "supported",
+        "status": "passed",
+        "reason": null
+      },
+      {
+        "id": "issue51-proxy-strict-false-delete-error",
+        "expected": "supported",
+        "status": "passed",
+        "reason": null
+      },
+      {
+        "id": "issue51-proxy-strict-false-set-error",
+        "expected": "supported",
+        "status": "passed",
+        "reason": null
+      },
+      {
+        "id": "issue51-control-proxy-strict-false-set",
+        "expected": "supported",
+        "status": "passed",
+        "reason": null
+      },
+      {
+        "id": "issue51-proxy-strict-transparent-delete-error",
+        "expected": "supported",
+        "status": "passed",
+        "reason": null
+      },
+      {
+        "id": "issue51-proxy-has-protected-property-error",
+        "expected": "supported",
+        "status": "passed",
+        "reason": null
+      },
+      {
+        "id": "issue51-proxy-has-nonextensible-error",
+        "expected": "supported",
+        "status": "passed",
+        "reason": null
+      },
+      {
+        "id": "issue51-proxy-delete-nonextensible-error",
+        "expected": "supported",
+        "status": "passed",
+        "reason": null
+      },
+      {
+        "id": "issue51-proxy-trap-throw-retains-identity",
+        "expected": "supported",
+        "status": "passed",
+        "reason": null
+      },
+      {
+        "id": "issue51-proxy-has-checks-late-protection",
+        "expected": "supported",
+        "status": "passed",
+        "reason": null
+      },
+      {
+        "id": "issue51-proxy-delete-checks-late-extensibility",
+        "expected": "supported",
+        "status": "passed",
+        "reason": null
+      },
+      {
+        "id": "issue51-proxy-delete-uses-live-absence",
+        "expected": "supported",
+        "status": "passed",
+        "reason": null
+      },
+      {
+        "id": "issue51-proxy-get-prototype-alias",
+        "expected": "supported",
+        "status": "passed",
+        "reason": null
+      },
+      {
+        "id": "issue51-proxy-extensible-live-target",
+        "expected": "supported",
+        "status": "passed",
+        "reason": null
+      },
+      {
+        "id": "issue51-proxy-prevent-extensions-mutation",
+        "expected": "supported",
+        "status": "passed",
+        "reason": null
+      },
+      {
+        "id": "issue51-proxy-set-prototype-mutation",
+        "expected": "supported",
+        "status": "passed",
+        "reason": null
+      },
+      {
+        "id": "issue51-proxy-transparent-prototype-extensibility",
+        "expected": "supported",
+        "status": "passed",
+        "reason": null
+      },
+      {
+        "id": "issue51-proxy-isextensible-invariant-fault",
+        "expected": "supported",
+        "status": "passed",
+        "reason": null
+      },
+      {
+        "id": "issue51-proxy-reflect-false-mutators",
+        "expected": "supported",
+        "status": "passed",
+        "reason": null
+      },
+      {
+        "id": "issue51-proxy-get-prototype-invalid-result",
+        "expected": "supported",
+        "status": "passed",
+        "reason": null
+      },
+      {
+        "id": "issue51-proxy-get-prototype-frozen-mutation",
+        "expected": "supported",
+        "status": "passed",
+        "reason": null
+      },
+      {
+        "id": "issue51-proxy-prevent-extensions-invariant-fault",
+        "expected": "supported",
+        "status": "passed",
+        "reason": null
+      },
+      {
+        "id": "issue51-proxy-set-prototype-object-false",
+        "expected": "supported",
+        "status": "passed",
+        "reason": null
+      },
+      {
+        "id": "issue51-proxy-reflection-trap-retained-selection",
+        "expected": "supported",
+        "status": "passed",
+        "reason": null
+      },
+      {
+        "id": "issue51-proxy-descriptor-result",
+        "expected": "supported",
+        "status": "passed",
+        "reason": null
+      },
+      {
+        "id": "issue51-proxy-ownkeys-symbol-order",
+        "expected": "supported",
+        "status": "passed",
+        "reason": null
+      },
+      {
+        "id": "issue51-proxy-descriptor-live-invariant",
+        "expected": "supported",
+        "status": "passed",
+        "reason": null
+      },
+      {
+        "id": "issue51-proxy-descriptor-hide-fixed",
+        "expected": "supported",
+        "status": "passed",
+        "reason": null
+      },
+      {
+        "id": "issue51-proxy-ownkeys-missing-fixed",
+        "expected": "supported",
+        "status": "passed",
+        "reason": null
+      },
+      {
+        "id": "issue51-proxy-descriptor-ownkeys-forward",
+        "expected": "supported",
+        "status": "passed",
+        "reason": null
+      },
+      {
+        "id": "issue51-proxy-ownkeys-arraylike",
+        "expected": "supported",
+        "status": "passed",
+        "reason": null
+      },
+      {
+        "id": "issue51-proxy-ownkeys-duplicate",
+        "expected": "supported",
+        "status": "passed",
+        "reason": null
+      },
+      {
+        "id": "issue51-proxy-ownkeys-nonextensible-extra",
+        "expected": "supported",
+        "status": "passed",
+        "reason": null
+      },
+      {
+        "id": "issue51-proxy-descriptor-invented-fixed",
+        "expected": "supported",
+        "status": "passed",
+        "reason": null
+      },
+      {
+        "id": "issue51-proxy-descriptor-accessor-result",
+        "expected": "supported",
+        "status": "passed",
+        "reason": null
+      },
+      {
+        "id": "issue51-proxy-definition-from-descriptor",
+        "expected": "supported",
+        "status": "passed",
+        "reason": null
+      },
+      {
+        "id": "issue51-proxy-definition-reflect-false",
+        "expected": "supported",
+        "status": "passed",
+        "reason": null
+      },
+      {
+        "id": "issue51-proxy-definition-object-false",
+        "expected": "supported",
+        "status": "passed",
+        "reason": null
+      },
+      {
+        "id": "issue51-proxy-definition-nonextensible-fault",
+        "expected": "supported",
+        "status": "passed",
+        "reason": null
+      },
+      {
+        "id": "issue51-proxy-definition-copy-mutation",
+        "expected": "supported",
+        "status": "passed",
+        "reason": null
+      },
+      {
+        "id": "issue51-proxy-definition-forward-omitted-fields",
+        "expected": "supported",
+        "status": "passed",
+        "reason": null
+      },
+      {
+        "id": "issue51-has-in-reflect-symbol-accessor",
+        "expected": "supported",
+        "status": "passed",
+        "reason": null
+      },
+      {
+        "id": "issue51-delete-own-and-inherited",
+        "expected": "supported",
+        "status": "passed",
+        "reason": null
+      },
+      {
+        "id": "issue51-reflect-delete-property",
+        "expected": "supported",
+        "status": "passed",
+        "reason": null
+      },
+      {
+        "id": "issue51-for-in-delete-fallback-addition",
+        "expected": "supported",
+        "status": "passed",
+        "reason": null
+      },
+      {
+        "id": "issue51-for-in-delete-prototype-candidate",
+        "expected": "supported",
+        "status": "passed",
+        "reason": null
+      },
+      {
+        "id": "issue51-for-in-sparse-array",
+        "expected": "supported",
+        "status": "passed",
+        "reason": null
+      },
+      {
+        "id": "issue51-accessor-existence-enumeration-no-read",
+        "expected": "supported",
+        "status": "passed",
+        "reason": null
+      },
+      {
+        "id": "issue51-sparse-array-delete-preserves-length-and-holes",
+        "expected": "supported",
+        "status": "passed",
+        "reason": null
+      },
+      {
+        "id": "issue51-reflect-delete-nonconfigurable-returns-false",
+        "expected": "supported",
+        "status": "passed",
+        "reason": null
+      },
+      {
+        "id": "issue51-delete-and-readd-changes-key-order",
+        "expected": "supported",
+        "status": "passed",
+        "reason": null
+      },
+      {
+        "id": "issue51-existence-distinguishes-missing-undefined-accessor",
+        "expected": "supported",
+        "status": "passed",
+        "reason": null
+      },
+      {
+        "id": "issue51-delete-symbol-key",
+        "expected": "supported",
+        "status": "passed",
+        "reason": null
+      },
+      {
+        "id": "issue51-delete-own-tostring-reveals-intrinsic",
+        "expected": "supported",
+        "status": "passed",
+        "reason": null
+      },
+      {
+        "id": "issue51-delete-inherited-for-in-candidate",
+        "expected": "supported",
+        "status": "passed",
+        "reason": null
+      },
+      {
+        "id": "issue51-delete-accessor-without-getter-call",
+        "expected": "supported",
+        "status": "passed",
+        "reason": null
+      },
+      {
+        "id": "issue51-in-object-key-to-primitive-order",
+        "expected": "supported",
+        "status": "passed",
+        "reason": null
+      },
+      {
+        "id": "issue51-control-in-invalid-rhs-before-key-coercion",
+        "expected": "supported",
+        "status": "passed",
+        "reason": null
+      },
+      {
+        "id": "issue51-invalid-in-rhs-caught-error-identity-partial-effects",
+        "expected": "supported",
+        "status": "passed",
+        "reason": null
+      },
+      {
+        "id": "issue51-promise-property-composition",
+        "expected": "supported",
+        "status": "passed",
+        "reason": null
+      },
+      {
+        "id": "issue51-promise-enumeration-mutation-composition",
+        "expected": "supported",
+        "status": "passed",
+        "reason": null
+      },
+      {
+        "id": "issue51-promise-object-key-conversion-composition",
+        "expected": "supported",
+        "status": "passed",
+        "reason": null
+      },
+      {
+        "id": "issue51-reflect-object-key-getter-and-argument-order",
+        "expected": "supported",
+        "status": "passed",
+        "reason": null
+      },
+      {
+        "id": "issue51-reflect-object-key-symbol",
+        "expected": "supported",
+        "status": "passed",
+        "reason": null
+      },
+      {
+        "id": "issue51-promise-reflect-object-key",
+        "expected": "supported",
+        "status": "passed",
+        "reason": null
+      },
+      {
+        "id": "issue51-promise-fresh-symbol-conversion",
+        "expected": "supported",
+        "status": "passed",
+        "reason": null
+      },
+      {
+        "id": "issue51-promise-registered-symbol-alias",
+        "expected": "supported",
+        "status": "passed",
+        "reason": null
+      },
+      {
+        "id": "issue51-promise-captured-symbol",
+        "expected": "supported",
+        "status": "passed",
+        "reason": null
+      },
+      {
+        "id": "issue51-promise-symbol-and-escaped-string-keys",
+        "expected": "supported",
+        "status": "passed",
+        "reason": null
+      },
+      {
+        "id": "issue51-control-proxy-trap-getter-noncallable",
+        "expected": "refused",
+        "status": "refused",
+        "reason": "Proxy has getter result must be a synchronous guest function"
+      }
+    ],
+    "exportBinding": {
+      "exportJsonSha256": "d5a4c403515f377294dcc2b33b76b8924c5e39cafaf11601fdfe039e99b30db3",
+      "consumerArchiveSha256": "4388470eeffb6b2e0cc084309ad6882b665f810c7f7f7bbaafc3f931ca0e7373",
+      "artifactsJsonlSha256": "8e6b981bb2fc3d0b45589dae72a748ef3a05bd01159201e66d4dda740eeb8918",
+      "supportedSourceIds": [
+        "issue51-control-for-in-proxy",
+        "issue51-constructor-arrow-after-super-and-return",
+        "issue51-constructor-arrow-return-substitution",
+        "issue51-constructor-arrow-conversion-callback",
+        "issue51-control-constructor-arrow-in-promise-reaction",
+        "issue51-derived-constructor-arrow-in-promise-reaction",
+        "issue51-derived-this-before-super-reference-error",
+        "issue51-derived-this-captured-arrow-before-super-reference-error",
+        "issue51-set-live-iterator-delete-readd",
+        "issue51-map-live-entries-overwrite-delete-append",
+        "issue51-map-same-value-zero-size-clear",
+        "issue51-array-spread-snapshot-and-mutation",
+        "issue51-string-spread-code-points-and-holes",
+        "issue51-nested-array-default-and-rest-order",
+        "issue51-nested-array-default-abrupt-closes-outer-iterator",
+        "issue51-invalid-in-message-object-no-conversion",
+        "issue51-invalid-in-message-symbol",
+        "issue51-invalid-in-message-negative-zero",
+        "issue51-invalid-in-message-null-prototype",
+        "issue51-error-own-message-descriptor",
+        "issue51-error-prototype-identities",
+        "issue51-error-instance-prototype-mutation",
+        "issue51-error-inherited-prototype-mutation",
+        "issue51-error-accessor-receiver",
+        "issue51-error-instanceof-live-chain",
+        "issue51-error-instanceof-prototype-replacement",
+        "issue51-error-instanceof-custom-hasinstance",
+        "issue51-class-instanceof-shared-prototype-chain",
+        "issue51-async-caught-error-standard-properties",
+        "issue51-async-caught-error-instanceof",
+        "issue51-shared-promise-caught-error-properties",
+        "issue51-async-unhandled-derived-typeerror",
+        "issue51-promise-reaction-caught-error-properties",
+        "issue51-for-in-replaced-prototype-live-existence",
+        "issue51-for-in-removed-prototype-skips-candidate",
+        "issue51-for-in-flags-retain-original-candidates",
+        "issue51-for-in-initial-nonenumerable-shadow-survives",
+        "issue51-for-in-transparent-proxy-value-writes",
+        "issue51-for-in-nested-transparent-proxy",
+        "issue51-control-for-in-prototype-replacement",
+        "issue51-proxy-revoked-get",
+        "issue51-proxy-revoked-set",
+        "issue51-proxy-revoked-has",
+        "issue51-proxy-revoked-deleteProperty",
+        "issue51-control-proxy-trap-getter",
+        "issue51-proxy-getmethod-handler-mutation",
+        "issue51-proxy-getmethod-revocation",
+        "issue51-proxy-getmethod-nullish-after-revocation",
+        "issue51-proxy-getmethod-throw-identity",
+        "issue51-proxy-revocable-revoke-idempotent",
+        "issue51-control-proxy-nested-target",
+        "issue51-proxy-key-order-and-trap-replacement",
+        "issue51-proxy-constructor-arrow-retains-private-receiver",
+        "issue51-proxy-strict-false-delete-error",
+        "issue51-proxy-strict-false-set-error",
+        "issue51-control-proxy-strict-false-set",
+        "issue51-proxy-strict-transparent-delete-error",
+        "issue51-proxy-has-protected-property-error",
+        "issue51-proxy-has-nonextensible-error",
+        "issue51-proxy-delete-nonextensible-error",
+        "issue51-proxy-trap-throw-retains-identity",
+        "issue51-proxy-has-checks-late-protection",
+        "issue51-proxy-delete-checks-late-extensibility",
+        "issue51-proxy-delete-uses-live-absence",
+        "issue51-proxy-get-prototype-alias",
+        "issue51-proxy-extensible-live-target",
+        "issue51-proxy-prevent-extensions-mutation",
+        "issue51-proxy-set-prototype-mutation",
+        "issue51-proxy-transparent-prototype-extensibility",
+        "issue51-proxy-isextensible-invariant-fault",
+        "issue51-proxy-reflect-false-mutators",
+        "issue51-proxy-get-prototype-invalid-result",
+        "issue51-proxy-get-prototype-frozen-mutation",
+        "issue51-proxy-prevent-extensions-invariant-fault",
+        "issue51-proxy-set-prototype-object-false",
+        "issue51-proxy-reflection-trap-retained-selection",
+        "issue51-proxy-descriptor-result",
+        "issue51-proxy-ownkeys-symbol-order",
+        "issue51-proxy-descriptor-live-invariant",
+        "issue51-proxy-descriptor-hide-fixed",
+        "issue51-proxy-ownkeys-missing-fixed",
+        "issue51-proxy-descriptor-ownkeys-forward",
+        "issue51-proxy-ownkeys-arraylike",
+        "issue51-proxy-ownkeys-duplicate",
+        "issue51-proxy-ownkeys-nonextensible-extra",
+        "issue51-proxy-descriptor-invented-fixed",
+        "issue51-proxy-descriptor-accessor-result",
+        "issue51-proxy-definition-from-descriptor",
+        "issue51-proxy-definition-reflect-false",
+        "issue51-proxy-definition-object-false",
+        "issue51-proxy-definition-nonextensible-fault",
+        "issue51-proxy-definition-copy-mutation",
+        "issue51-proxy-definition-forward-omitted-fields",
+        "issue51-has-in-reflect-symbol-accessor",
+        "issue51-delete-own-and-inherited",
+        "issue51-reflect-delete-property",
+        "issue51-for-in-delete-fallback-addition",
+        "issue51-for-in-delete-prototype-candidate",
+        "issue51-for-in-sparse-array",
+        "issue51-accessor-existence-enumeration-no-read",
+        "issue51-sparse-array-delete-preserves-length-and-holes",
+        "issue51-reflect-delete-nonconfigurable-returns-false",
+        "issue51-delete-and-readd-changes-key-order",
+        "issue51-existence-distinguishes-missing-undefined-accessor",
+        "issue51-delete-symbol-key",
+        "issue51-delete-own-tostring-reveals-intrinsic",
+        "issue51-delete-inherited-for-in-candidate",
+        "issue51-delete-accessor-without-getter-call",
+        "issue51-in-object-key-to-primitive-order",
+        "issue51-control-in-invalid-rhs-before-key-coercion",
+        "issue51-invalid-in-rhs-caught-error-identity-partial-effects",
+        "issue51-promise-property-composition",
+        "issue51-promise-enumeration-mutation-composition",
+        "issue51-promise-object-key-conversion-composition",
+        "issue51-reflect-object-key-getter-and-argument-order",
+        "issue51-reflect-object-key-symbol",
+        "issue51-promise-reflect-object-key",
+        "issue51-promise-fresh-symbol-conversion",
+        "issue51-promise-registered-symbol-alias",
+        "issue51-promise-captured-symbol",
+        "issue51-promise-symbol-and-escaped-string-keys"
+      ]
+    }
+  },
+  "preparationInputBinding": {
+    "path": "/tmp/issue51-resume.Ws1foQ/artifacts-finish.jsonl",
+    "sha256": "8e6b981bb2fc3d0b45589dae72a748ef3a05bd01159201e66d4dda740eeb8918",
+    "attempted": 121,
+    "admitted": 121,
+    "refusals": [],
+    "supportedSourceIds": [
+      "issue51-control-for-in-proxy",
+      "issue51-constructor-arrow-after-super-and-return",
+      "issue51-constructor-arrow-return-substitution",
+      "issue51-constructor-arrow-conversion-callback",
+      "issue51-control-constructor-arrow-in-promise-reaction",
+      "issue51-derived-constructor-arrow-in-promise-reaction",
+      "issue51-derived-this-before-super-reference-error",
+      "issue51-derived-this-captured-arrow-before-super-reference-error",
+      "issue51-set-live-iterator-delete-readd",
+      "issue51-map-live-entries-overwrite-delete-append",
+      "issue51-map-same-value-zero-size-clear",
+      "issue51-array-spread-snapshot-and-mutation",
+      "issue51-string-spread-code-points-and-holes",
+      "issue51-nested-array-default-and-rest-order",
+      "issue51-nested-array-default-abrupt-closes-outer-iterator",
+      "issue51-invalid-in-message-object-no-conversion",
+      "issue51-invalid-in-message-symbol",
+      "issue51-invalid-in-message-negative-zero",
+      "issue51-invalid-in-message-null-prototype",
+      "issue51-error-own-message-descriptor",
+      "issue51-error-prototype-identities",
+      "issue51-error-instance-prototype-mutation",
+      "issue51-error-inherited-prototype-mutation",
+      "issue51-error-accessor-receiver",
+      "issue51-error-instanceof-live-chain",
+      "issue51-error-instanceof-prototype-replacement",
+      "issue51-error-instanceof-custom-hasinstance",
+      "issue51-class-instanceof-shared-prototype-chain",
+      "issue51-async-caught-error-standard-properties",
+      "issue51-async-caught-error-instanceof",
+      "issue51-shared-promise-caught-error-properties",
+      "issue51-async-unhandled-derived-typeerror",
+      "issue51-promise-reaction-caught-error-properties",
+      "issue51-for-in-replaced-prototype-live-existence",
+      "issue51-for-in-removed-prototype-skips-candidate",
+      "issue51-for-in-flags-retain-original-candidates",
+      "issue51-for-in-initial-nonenumerable-shadow-survives",
+      "issue51-for-in-transparent-proxy-value-writes",
+      "issue51-for-in-nested-transparent-proxy",
+      "issue51-control-for-in-prototype-replacement",
+      "issue51-proxy-revoked-get",
+      "issue51-proxy-revoked-set",
+      "issue51-proxy-revoked-has",
+      "issue51-proxy-revoked-deleteProperty",
+      "issue51-control-proxy-trap-getter",
+      "issue51-proxy-getmethod-handler-mutation",
+      "issue51-proxy-getmethod-revocation",
+      "issue51-proxy-getmethod-nullish-after-revocation",
+      "issue51-proxy-getmethod-throw-identity",
+      "issue51-proxy-revocable-revoke-idempotent",
+      "issue51-control-proxy-nested-target",
+      "issue51-proxy-key-order-and-trap-replacement",
+      "issue51-proxy-constructor-arrow-retains-private-receiver",
+      "issue51-proxy-strict-false-delete-error",
+      "issue51-proxy-strict-false-set-error",
+      "issue51-control-proxy-strict-false-set",
+      "issue51-proxy-strict-transparent-delete-error",
+      "issue51-proxy-has-protected-property-error",
+      "issue51-proxy-has-nonextensible-error",
+      "issue51-proxy-delete-nonextensible-error",
+      "issue51-proxy-trap-throw-retains-identity",
+      "issue51-proxy-has-checks-late-protection",
+      "issue51-proxy-delete-checks-late-extensibility",
+      "issue51-proxy-delete-uses-live-absence",
+      "issue51-proxy-get-prototype-alias",
+      "issue51-proxy-extensible-live-target",
+      "issue51-proxy-prevent-extensions-mutation",
+      "issue51-proxy-set-prototype-mutation",
+      "issue51-proxy-transparent-prototype-extensibility",
+      "issue51-proxy-isextensible-invariant-fault",
+      "issue51-proxy-reflect-false-mutators",
+      "issue51-proxy-get-prototype-invalid-result",
+      "issue51-proxy-get-prototype-frozen-mutation",
+      "issue51-proxy-prevent-extensions-invariant-fault",
+      "issue51-proxy-set-prototype-object-false",
+      "issue51-proxy-reflection-trap-retained-selection",
+      "issue51-proxy-descriptor-result",
+      "issue51-proxy-ownkeys-symbol-order",
+      "issue51-proxy-descriptor-live-invariant",
+      "issue51-proxy-descriptor-hide-fixed",
+      "issue51-proxy-ownkeys-missing-fixed",
+      "issue51-proxy-descriptor-ownkeys-forward",
+      "issue51-proxy-ownkeys-arraylike",
+      "issue51-proxy-ownkeys-duplicate",
+      "issue51-proxy-ownkeys-nonextensible-extra",
+      "issue51-proxy-descriptor-invented-fixed",
+      "issue51-proxy-descriptor-accessor-result",
+      "issue51-proxy-definition-from-descriptor",
+      "issue51-proxy-definition-reflect-false",
+      "issue51-proxy-definition-object-false",
+      "issue51-proxy-definition-nonextensible-fault",
+      "issue51-proxy-definition-copy-mutation",
+      "issue51-proxy-definition-forward-omitted-fields",
+      "issue51-has-in-reflect-symbol-accessor",
+      "issue51-delete-own-and-inherited",
+      "issue51-reflect-delete-property",
+      "issue51-for-in-delete-fallback-addition",
+      "issue51-for-in-delete-prototype-candidate",
+      "issue51-for-in-sparse-array",
+      "issue51-accessor-existence-enumeration-no-read",
+      "issue51-sparse-array-delete-preserves-length-and-holes",
+      "issue51-reflect-delete-nonconfigurable-returns-false",
+      "issue51-delete-and-readd-changes-key-order",
+      "issue51-existence-distinguishes-missing-undefined-accessor",
+      "issue51-delete-symbol-key",
+      "issue51-delete-own-tostring-reveals-intrinsic",
+      "issue51-delete-inherited-for-in-candidate",
+      "issue51-delete-accessor-without-getter-call",
+      "issue51-in-object-key-to-primitive-order",
+      "issue51-control-in-invalid-rhs-before-key-coercion",
+      "issue51-invalid-in-rhs-caught-error-identity-partial-effects",
+      "issue51-promise-property-composition",
+      "issue51-promise-enumeration-mutation-composition",
+      "issue51-promise-object-key-conversion-composition",
+      "issue51-reflect-object-key-getter-and-argument-order",
+      "issue51-reflect-object-key-symbol",
+      "issue51-promise-reflect-object-key",
+      "issue51-promise-fresh-symbol-conversion",
+      "issue51-promise-registered-symbol-alias",
+      "issue51-promise-captured-symbol",
+      "issue51-promise-symbol-and-escaped-string-keys"
+    ]
+  },
+  "tests": {
+    "producer": {
+      "tests": 3560,
+      "pass": 3462,
+      "fail": 0,
+      "skipped": 98
+    },
+    "producerRun": {
+      "producerRevision": "a72267e26ab7b7fc5f22134abee315fd7ed6e64b",
+      "testFiles": 458,
+      "testConcurrency": 4,
+      "steps": [
+        {
+          "command": [
+            "node",
+            "--experimental-vm-modules",
+            "--test",
+            "--test-concurrency=4",
+            "test/affected-assignment-audit.test.js",
+            "test/agent-model.test.js",
+            "test/aggregate-runner.test.js",
+            "test/ajv-owned.test.js",
+            "test/ajv-reference.test.js",
+            "test/baseline-identity.test.js",
+            "test/benchmark-cohort-metadata.test.js",
+            "test/browser-options.test.js",
+            "test/browser-runtime-entry.test.js",
+            "test/campaign-identity.test.js",
+            "test/campaign-selection.test.js",
+            "test/campaign-store.test.js",
+            "test/canonical-input-precision.test.js",
+            "test/capability-ledger.test.js",
+            "test/completion-control.test.js",
+            "test/completion-differential.test.js",
+            "test/corpus-const-enum-lowering.test.js",
+            "test/corpus-exhaustive-audits.test.js",
+            "test/corpus-owned-episodes.test.js",
+            "test/corpus.test.js",
+            "test/coverage-selection.test.js",
+            "test/dependency-lock.test.js",
+            "test/durable-retained-session.test.js",
+            "test/durable-storage.test.js",
+            "test/effect-javascript.test.js",
+            "test/engine-inventory.test.js",
+            "test/evaluated-module-bindings.test.js",
+            "test/evaluated-module-declarations.test.js",
+            "test/evaluated-module-facade.test.js",
+            "test/evaluated-module-import-meta.test.js",
+            "test/evaluated-module-names.test.js",
+            "test/evaluated-module-namespace-exotics.test.js",
+            "test/evaluated-module-namespace-typeof.test.js",
+            "test/evaluated-module-namespace.test.js",
+            "test/evaluated-module-scheduler.test.js",
+            "test/evaluated-module-session.test.js",
+            "test/evaluated-module-sync.test.js",
+            "test/evaluated-modules.test.js",
+            "test/execution-difficulty.test.js",
+            "test/external-callback-bridge.test.js",
+            "test/external-corpus.test.js",
+            "test/external-snapshots.test.js",
+            "test/full-corpus-disposition.test.js",
+            "test/generated-programs.test.js",
+            "test/generation-case-selection.test.js",
+            "test/generation-dispositions.test.js",
+            "test/generation-process.test.js",
+            "test/generation-shards.test.js",
+            "test/generation-v8-worker-imports.test.js",
+            "test/host-boundary.test.js",
+            "test/host-graph-codec.test.js",
+            "test/host-materialize.test.js",
+            "test/host-token-integrity.test.js",
+            "test/journal-integrity.test.js",
+            "test/language-expansion-benchmark.test.js",
+            "test/language-expansion-comprehension.test.js",
+            "test/module-region-reference-worker.test.js",
+            "test/native-ci-release-selection.test.js",
+            "test/native-consumer-resolution.test.js",
+            "test/native-driver.test.js",
+            "test/native-generation-pins.test.js",
+            "test/native-microtask-boundaries.test.js",
+            "test/native-prepared-coverage.test.js",
+            "test/native-reference-shards.test.js",
+            "test/native-request-journal-v8.test.js",
+            "test/native-result-graph.test.js",
+            "test/native-return-callback.test.js",
+            "test/native-subscription-lifetime.test.js",
+            "test/native-worker-agents.test.js",
+            "test/natlang-bridge.test.js",
+            "test/natlang-commonjs-integration.test.js",
+            "test/natlang-commonjs.test.js",
+            "test/natlang-native-services.test.js",
+            "test/natlang-reference-differential.test.js",
+            "test/natlang-retained-async.test.js",
+            "test/natlang-run-integrity.test.js",
+            "test/natlang-selected-executor.test.js",
+            "test/natlang-source-map.test.js",
+            "test/observational-delete.test.js",
+            "test/observational.test.js",
+            "test/owned-arithmetic.test.js",
+            "test/owned-array-mutation-extensions.test.js",
+            "test/owned-async-promise-executors.test.js",
+            "test/owned-call-adapters.test.js",
+            "test/owned-corpus-fixtures.test.js",
+            "test/owned-data-descriptors.test.js",
+            "test/owned-enumeration-indexing.test.js",
+            "test/owned-exercism.test.js",
+            "test/owned-exotics.test.js",
+            "test/owned-growable-shared-memory.test.js",
+            "test/owned-host-clock.test.js",
+            "test/owned-host-console.test.js",
+            "test/owned-issue51-runtime.test.js",
+            "test/owned-literal-regexp.test.js",
+            "test/owned-microtask-scheduling.test.js",
+            "test/owned-object-assign.test.js",
+            "test/owned-object-coercion.test.js",
+            "test/owned-primitive-conversion.test.js",
+            "test/owned-promise-executors.test.js",
+            "test/owned-promise-object-state.test.js",
+            "test/owned-promise-reflection-review.test.js",
+            "test/owned-promise-resolution-jobs.test.js",
+            "test/owned-promise-review-boundaries.test.js",
+            "test/owned-promise-then-getters.test.js",
+            "test/owned-promise-thenables-combinators.test.js",
+            "test/owned-promise-with-resolvers.test.js",
+            "test/owned-property-key-conversion.test.js",
+            "test/owned-property-metadata.test.js",
+            "test/owned-prototypes.test.js",
+            "test/owned-proxy-has-delete.test.js",
+            "test/owned-proxy-null-traps.test.js",
+            "test/owned-proxy-traps.test.js",
+            "test/owned-samevalue-builtins.test.js",
+            "test/owned-script-host.test.js",
+            "test/owned-script-profile.test.js",
+            "test/owned-shared-dataview-helpers.test.js",
+            "test/owned-shared-dataview-runtime.test.js",
+            "test/owned-shared-int32.test.js",
+            "test/owned-shared-memory.test.js",
+            "test/owned-thenable-assimilation.test.js",
+            "test/owned-virtual-host-and-combinators.test.js",
+            "test/production-owned.test.js",
+            "test/promise-reactions.test.js",
+            "test/protocol-array-mutation-source.test.js",
+            "test/protocol-construction-component.test.js",
+            "test/protocol-construction-observations.test.js",
+            "test/protocol-construction-source-inventory.test.js",
+            "test/protocol-construction-source.test.js",
+            "test/protocol-literal-definition.test.js",
+            "test/protocol-memory-observation.test.js",
+            "test/protocol-number-component.test.js",
+            "test/protocol-property-update-source.test.js",
+            "test/protocol-source-capture-and-descriptor.test.js",
+            "test/public-api.test.js",
+            "test/qualification-costs-v8.test.js",
+            "test/qualification-progress.test.js",
+            "test/qualify-support-lifecycle.test.js",
+            "test/real-corpus-quality.test.js",
+            "test/reference-isolation.test.js",
+            "test/reference-shrinker.test.js",
+            "test/rejection-propagation.test.js",
+            "test/release-campaign.test.js",
+            "test/release-training-selection.test.js",
+            "test/replay.test.js",
+            "test/restore-release-campaign.test.js",
+            "test/retained-serving-costs.test.js",
+            "test/retained-session-integrity.test.js",
+            "test/runtime.test.js",
+            "test/selected-browser-capabilities.test.js",
+            "test/selected-capability-lifecycle.test.js",
+            "test/selected-node-capabilities.test.js",
+            "test/selected-orchestration-clock.test.js",
+            "test/selected-orchestration-execution-lock.test.js",
+            "test/selected-test262.test.js",
+            "test/semantic-algorithm-codec.test.js",
+            "test/semantic-algorithm-compiler.test.js",
+            "test/semantic-algorithm-comprehension.test.js",
+            "test/semantic-algorithm-core.test.js",
+            "test/semantic-algorithm-evaluation.test.js",
+            "test/semantic-algorithm-execution.test.js",
+            "test/semantic-algorithm-lowering.test.js",
+            "test/semantic-algorithm-reduce.test.js",
+            "test/semantic-algorithm-tokenizer.test.js",
+            "test/semantic-algorithm-v8-core.test.js",
+            "test/semantic-algorithm-v8-lowering.test.js",
+            "test/semantic-algorithm-v8-render.test.js",
+            "test/semantic-array-map-live-source-v8.test.js",
+            "test/semantic-async-call-source-v8.test.js",
+            "test/semantic-async-iteration-bindings-v8.test.js",
+            "test/semantic-async-iteration-source-v8.test.js",
+            "test/semantic-async-return-adoption-composition-source-v8.test.js",
+            "test/semantic-binding-order.test.js",
+            "test/semantic-bound-module-scheduler-v8.test.js",
+            "test/semantic-call-adapters-source-v8.test.js",
+            "test/semantic-callback-boundaries-v8.test.js",
+            "test/semantic-callback-entry-identity-v8.test.js",
+            "test/semantic-causal-lm-v8.test.js",
+            "test/semantic-checkpoint-authority-v8.test.js",
+            "test/semantic-checkpoint-canonical-v8.test.js",
+            "test/semantic-detail-v8.test.js",
+            "test/semantic-diagnostics.test.js",
+            "test/semantic-durable-action-recovery-v8.test.js",
+            "test/semantic-durable-ingress-v8.test.js",
+            "test/semantic-durable-return-callback-v8.test.js",
+            "test/semantic-durable-service-v8.test.js",
+            "test/semantic-effectful-teacher-v8.test.js",
+            "test/semantic-enumeration-source-v8.test.js",
+            "test/semantic-error-object-source-v8.test.js",
+            "test/semantic-event-authority-v8.test.js",
+            "test/semantic-execution-core.test.js",
+            "test/semantic-execution-study-v8.test.js",
+            "test/semantic-host-ingress-journal-v8.test.js",
+            "test/semantic-host-recovery-v8.test.js",
+            "test/semantic-installed-qualification-v8.test.js",
+            "test/semantic-intrinsic-error-machine-v8.test.js",
+            "test/semantic-issue51-collections-source-v8.test.js",
+            "test/semantic-issue51-source-v8.test.js",
+            "test/semantic-known-bootstrap-builder-v8.test.js",
+            "test/semantic-known-bootstrap-history-v8.test.js",
+            "test/semantic-known-close-builder-v8.test.js",
+            "test/semantic-known-close-history-v8.test.js",
+            "test/semantic-known-commit-builder-v8.test.js",
+            "test/semantic-known-commit-history-v8.test.js",
+            "test/semantic-known-service-close-history-v8.test.js",
+            "test/semantic-lifecycle-v8.test.js",
+            "test/semantic-local-state-compaction.test.js",
+            "test/semantic-module-namespace-compile-only-v8.test.js",
+            "test/semantic-module-namespace-machine-v8.test.js",
+            "test/semantic-module-namespace-runtime-capture-v8.test.js",
+            "test/semantic-module-namespace-source-boundary-v8.test.js",
+            "test/semantic-module-namespace-source-owners-v8.test.js",
+            "test/semantic-module-namespace-source-projection-v8.test.js",
+            "test/semantic-module-namespace-source-sites-v8.test.js",
+            "test/semantic-module-namespace-source-sync-gate-v8.test.js",
+            "test/semantic-module-namespace-state-v8.test.js",
+            "test/semantic-module-namespace-typeof-v8.test.js",
+            "test/semantic-module-scheduler-admission-v8.test.js",
+            "test/semantic-module-scheduler-source-v8.test.js",
+            "test/semantic-module-scheduler-state-v8.test.js",
+            "test/semantic-module-v8.test.js",
+            "test/semantic-native-durable-bootstrap-v8.test.js",
+            "test/semantic-native-durable-close-v8.test.js",
+            "test/semantic-native-durable-commit-v8.test.js",
+            "test/semantic-native-module-namespace-state-v8.test.js",
+            "test/semantic-native-module-scheduler-state-v8.test.js",
+            "test/semantic-native-orchestration-recovery-v8.test.js",
+            "test/semantic-native-orchestration-transport-v8.test.js",
+            "test/semantic-native-process-v8.test.js",
+            "test/semantic-native-promise-slots-v8.test.js",
+            "test/semantic-native-source-reader-v8.test.js",
+            "test/semantic-native-v8.test.js",
+            "test/semantic-notation-experiment.test.js",
+            "test/semantic-orchestration-training-v8.test.js",
+            "test/semantic-primitive-conversion-machine-v8.test.js",
+            "test/semantic-primitive-conversion-observations-v8.test.js",
+            "test/semantic-primitive-conversion-source-v8.test.js",
+            "test/semantic-promise-adoption-getter-source-v8.test.js",
+            "test/semantic-promise-mutation-profile-source-v8.test.js",
+            "test/semantic-promise-object-observations-v8.test.js",
+            "test/semantic-promise-object-profile-source-v8.test.js",
+            "test/semantic-promise-object-review-source-v8.test.js",
+            "test/semantic-promise-object-review-v8.test.js",
+            "test/semantic-promise-object-source-v8.test.js",
+            "test/semantic-promise-object-v8.test.js",
+            "test/semantic-promise-source-observations-v8.test.js",
+            "test/semantic-protocol-array-spread-v8.test.js",
+            "test/semantic-protocol-capture-v8.test.js",
+            "test/semantic-protocol-collection-iterator-v8.test.js",
+            "test/semantic-protocol-collection-v8.test.js",
+            "test/semantic-protocol-completion-source-v8.test.js",
+            "test/semantic-protocol-composition-v8.test.js",
+            "test/semantic-protocol-custom-iterator-source-v8.test.js",
+            "test/semantic-protocol-enumeration-source-v8.test.js",
+            "test/semantic-protocol-enumeration-v8.test.js",
+            "test/semantic-protocol-extensions-v8.test.js",
+            "test/semantic-protocol-generator-source-v8.test.js",
+            "test/semantic-protocol-generator-v8.test.js",
+            "test/semantic-protocol-host-v8.test.js",
+            "test/semantic-protocol-iterable-binding-source-v8.test.js",
+            "test/semantic-protocol-iterator-source-v8.test.js",
+            "test/semantic-protocol-iterator-v8.test.js",
+            "test/semantic-protocol-memory-source-v8.test.js",
+            "test/semantic-protocol-memory-v8.test.js",
+            "test/semantic-protocol-nested-array-binding-v8.test.js",
+            "test/semantic-protocol-number-source-v8.test.js",
+            "test/semantic-protocol-promise-adoption-getter-v8.test.js",
+            "test/semantic-protocol-promise-adoption-source-v8.test.js",
+            "test/semantic-protocol-promise-adoption-v8.test.js",
+            "test/semantic-protocol-promise-executor-source-v8.test.js",
+            "test/semantic-protocol-promise-executor-v8.test.js",
+            "test/semantic-protocol-promise-join-source-v8.test.js",
+            "test/semantic-protocol-promise-join-v8.test.js",
+            "test/semantic-protocol-proxy-has-delete-v8.test.js",
+            "test/semantic-protocol-proxy-reflection-source-v8.test.js",
+            "test/semantic-protocol-proxy-reflection-v8.test.js",
+            "test/semantic-protocol-proxy-source-v8.test.js",
+            "test/semantic-protocol-proxy-v8.test.js",
+            "test/semantic-protocol-realm-ready-v8.test.js",
+            "test/semantic-protocol-reference-failure-v8.test.js",
+            "test/semantic-protocol-routing-v8.test.js",
+            "test/semantic-protocol-scheduler-receiver-v8.test.js",
+            "test/semantic-protocol-source-ownership-v8.test.js",
+            "test/semantic-protocol-source-transactions-v8.test.js",
+            "test/semantic-protocol-source-v8.test.js",
+            "test/semantic-protocol-v8.test.js",
+            "test/semantic-public-entry-v8.test.js",
+            "test/semantic-pure-region-v8.test.js",
+            "test/semantic-qualification-population-v8.test.js",
+            "test/semantic-reconciliation-authority-v8.test.js",
+            "test/semantic-region-composition.test.js",
+            "test/semantic-region-host-receipt-v8.test.js",
+            "test/semantic-region-interface.test.js",
+            "test/semantic-region-support-cohort.test.js",
+            "test/semantic-regions.test.js",
+            "test/semantic-scheduler-boundaries-v8.test.js",
+            "test/semantic-scheduler-resolution-v8.test.js",
+            "test/semantic-selected-execution-v8.test.js",
+            "test/semantic-selected-history-automatic-v8.test.js",
+            "test/semantic-selected-history-storage-v8.test.js",
+            "test/semantic-selected-history-tail-v8.test.js",
+            "test/semantic-selected-history-v8.test.js",
+            "test/semantic-selected-orchestration-checkpoint-v8.test.js",
+            "test/semantic-selected-orchestration-v8.test.js",
+            "test/semantic-selected-recovery-v8.test.js",
+            "test/semantic-service-coordinator-v8.test.js",
+            "test/semantic-service-fence-v8.test.js",
+            "test/semantic-service-history-v8.test.js",
+            "test/semantic-serving-costs.test.js",
+            "test/semantic-session-campaign.test.js",
+            "test/semantic-shared-generator-source-v8.test.js",
+            "test/semantic-shared-intrinsic-boundaries-v8.test.js",
+            "test/semantic-shared-protocol-source-v8.test.js",
+            "test/semantic-source-certification-v8.test.js",
+            "test/semantic-source-claim-coordinator-v8.test.js",
+            "test/semantic-source-composition-v8.test.js",
+            "test/semantic-source-context-staging-v8.test.js",
+            "test/semantic-source-return-callback-v8.test.js",
+            "test/semantic-source-session-v8.test.js",
+            "test/semantic-summary-experiment.test.js",
+            "test/semantic-symbol-composition-source-v8.test.js",
+            "test/semantic-trace-gallery.test.js",
+            "test/semantic-v6-emission-validator.test.js",
+            "test/semantic-v7-admission.test.js",
+            "test/semantic-v7-training.test.js",
+            "test/semantic-v8-dataset.test.js",
+            "test/semantic-v8-position-coverage.test.js",
+            "test/semantic-v8-source-projection.test.js",
+            "test/serving-cost-comparison.test.js",
+            "test/source-clusters.test.js",
+            "test/source-registry.test.js",
+            "test/source-split-stress.test.js",
+            "test/stateful-corpus.test.js",
+            "test/stateful-differential.test.js",
+            "test/static-module-dependencies.test.js",
+            "test/static-modules.test.js",
+            "test/strict-accessor-assignment.test.js",
+            "test/structured-contracts.test.js",
+            "test/test262-acquisition.test.js",
+            "test/test262-aggregate.test.js",
+            "test/test262-async-reference.test.js",
+            "test/test262-baseline.test.js",
+            "test/test262-campaign.test.js",
+            "test/test262-capabilities.test.js",
+            "test/test262-catalog.test.js",
+            "test/test262-edition.test.js",
+            "test/test262-module-evaluation.test.js",
+            "test/test262-module-reference.test.js",
+            "test/test262-module-resolution.test.js",
+            "test/test262-namespace-original.test.js",
+            "test/test262-original-runner.test.js",
+            "test/test262-reference-execution.test.js",
+            "test/test262-runtime.test.js",
+            "test/test262-scalar-reference.test.js",
+            "test/test262-scope-annotations.test.js",
+            "test/test262-specification.test.js",
+            "test/trace-quality.test.js",
+            "test/training-admission-identity.test.js",
+            "test/training-array-bindings.test.js",
+            "test/training-array-callback-extensions.test.js",
+            "test/training-array-defaults.test.js",
+            "test/training-array-search.test.js",
+            "test/training-array-spread.test.js",
+            "test/training-array-write-boundaries.test.js",
+            "test/training-async-function-expressions.test.js",
+            "test/training-async-helper-replay.test.js",
+            "test/training-async-iteration.test.js",
+            "test/training-benchmark-recipe.test.js",
+            "test/training-binary-memory.test.js",
+            "test/training-bitwise-typeof.test.js",
+            "test/training-bounded-for-of.test.js",
+            "test/training-branch-reference.test.js",
+            "test/training-capture-binding-grammar.test.js",
+            "test/training-causal-lm-bridge.test.js",
+            "test/training-class-function-metadata.test.js",
+            "test/training-classes.test.js",
+            "test/training-common-syntax.test.js",
+            "test/training-completion-reference.test.js",
+            "test/training-constructors.test.js",
+            "test/training-contract-v6.test.js",
+            "test/training-corpus-gap-regressions.test.js",
+            "test/training-corpus-string-array.test.js",
+            "test/training-data-boundary.test.js",
+            "test/training-declared-errors.test.js",
+            "test/training-default-parameters.test.js",
+            "test/training-derived-construction.test.js",
+            "test/training-descriptor-boundaries.test.js",
+            "test/training-effectful-rejections.test.js",
+            "test/training-effectful-session.test.js",
+            "test/training-effectful-v4.test.js",
+            "test/training-exploratory-holdout.test.js",
+            "test/training-failure-evidence.test.js",
+            "test/training-failure-minimization.test.js",
+            "test/training-for-in.test.js",
+            "test/training-frontier-exposure.test.js",
+            "test/training-function-expressions.test.js",
+            "test/training-generator-prototypes.test.js",
+            "test/training-generator.test.js",
+            "test/training-generators.test.js",
+            "test/training-harness-v4-continuity.test.js",
+            "test/training-harness-v4.test.js",
+            "test/training-implicit-errors.test.js",
+            "test/training-instanceof.test.js",
+            "test/training-iterable-bindings.test.js",
+            "test/training-iterator-protocol.test.js",
+            "test/training-learning-experiment.test.js",
+            "test/training-logical-assignment.test.js",
+            "test/training-logical-source-audit.test.js",
+            "test/training-megatoken-process.test.js",
+            "test/training-model-context-v4.test.js",
+            "test/training-model-driver.test.js",
+            "test/training-new-target.test.js",
+            "test/training-null-prototype.test.js",
+            "test/training-number-conversion.test.js",
+            "test/training-number-formatting-corpus.test.js",
+            "test/training-number-object-conversion.test.js",
+            "test/training-numeric-conversion.test.js",
+            "test/training-object-bindings.test.js",
+            "test/training-object-literals.test.js",
+            "test/training-operation-reference.test.js",
+            "test/training-optimization-cases.test.js",
+            "test/training-optional-chains.test.js",
+            "test/training-orchestration-evaluation.test.js",
+            "test/training-owned-replacement-corpus.test.js",
+            "test/training-owned-sort-corpus.test.js",
+            "test/training-parameter-environments.test.js",
+            "test/training-parameter-patterns.test.js",
+            "test/training-parameter-projection.test.js",
+            "test/training-pattern-expansion.test.js",
+            "test/training-promise-job-projection.test.js",
+            "test/training-pure-output-transfer.test.js",
+            "test/training-regressions.test.js",
+            "test/training-rest-spread-corpus.test.js",
+            "test/training-seeded-admission.test.js",
+            "test/training-selected-intent-journal.test.js",
+            "test/training-semantic-projection.test.js",
+            "test/training-semantic-source.test.js",
+            "test/training-set-corpus.test.js",
+            "test/training-source-recipe.test.js",
+            "test/training-super-properties.test.js",
+            "test/training-switch-labels.test.js",
+            "test/training-symbol-coercion.test.js",
+            "test/training-symbols.test.js",
+            "test/training-synchronous-throws.test.js",
+            "test/training-tagged-templates.test.js",
+            "test/training-template-literals.test.js",
+            "test/training-trace-v6.test.js",
+            "test/training-try-completions.test.js",
+            "test/training-v6-decoder-grammar.test.js",
+            "test/training-var.test.js",
+            "test/training-yield-delegation.test.js",
+            "test/trusted-source-candidates.test.js",
+            "test/typescript-identity.test.js",
+            "test/unsupported-completion-validation.test.js",
+            "test/v8-release-campaign.test.js",
+            "test/v8-release-population.test.js",
+            "test/v8-release-request-fields.test.js",
+            "test/v8-release-task-binding.test.js",
+            "test/v8-release-task-normalization.test.js"
+          ],
+          "log": "finish-producer-all.log",
+          "exitCode": 0,
+          "seconds": 1457.546
+        },
+        {
+          "command": [
+            "node",
+            "fixtures/reference/reference-fixture.mjs"
+          ],
+          "log": "finish-reference.log",
+          "exitCode": 0,
+          "seconds": 0.044
+        }
+      ],
+      "current": null
+    },
+    "native": {
+      "passed": 550,
+      "skipped": 0
+    },
+    "nativeRun": {
+      "consumerRevision": "053e9c78cad1dbb5313012421ab2987526fe6dab",
+      "producerRevision": "a72267e26ab7b7fc5f22134abee315fd7ed6e64b",
+      "command": [
+        "/tmp/issue51-resume.Ws1foQ/.venv/bin/python",
+        "-m",
+        "pytest",
+        "-q",
+        "tests/test_proxy_v8.py",
+        "tests/test_proxy_reflection_v8.py",
+        "tests/test_intrinsic_error_v8.py",
+        "tests/test_collection_v8.py",
+        "tests/test_iterator_collections_v8.py",
+        "tests/test_iterator_spread_v8.py",
+        "tests/test_primitive_conversion_v8.py",
+        "tests/test_primitive_conversion_source_v8.py",
+        "tests/test_construction_v8.py",
+        "tests/test_protocol_v8.py",
+        "tests/test_protocol_properties.py",
+        "tests/test_promise_scheduler_v8.py",
+        "tests/test_promise_executor_v8.py",
+        "tests/test_promise_executor_boundaries_v8.py",
+        "tests/test_promise_join_v8.py",
+        "tests/test_async_call_v8.py",
+        "tests/test_semantic_observation_unicode.py",
+        "tests/test_prepare_semantic_v8.py",
+        "tests/test_native_v8.py",
+        "tests/test_native_generator_close_v8.py",
+        "tests/test_prediction_prefix_v8.py",
+        "tests/test_enumeration_v8.py",
+        "tests/test_lifecycle_recovery_v8.py",
+        "tests/test_native_v8_without_legacy.py",
+        "tests/test_protocol_host_composition_v8.py",
+        "tests/test_protocol_host_v8.py"
+      ],
+      "exitCode": 0,
+      "seconds": 3214.658
+    },
+    "nativeModuleCount": 26,
+    "pairedNative": {
+      "status": {
+        "command": [
+          "/tmp/issue51-resume.Ws1foQ/node24/node_modules/.bin/node",
+          "--experimental-vm-modules",
+          "--test",
+          "--test-reporter=tap",
+          "--test-concurrency=2",
+          "test/semantic-promise-adoption-getter-source-v8.test.js",
+          "test/semantic-promise-mutation-profile-source-v8.test.js",
+          "test/semantic-promise-object-profile-source-v8.test.js",
+          "test/semantic-promise-object-review-source-v8.test.js",
+          "test/semantic-promise-object-review-v8.test.js",
+          "test/semantic-promise-object-source-v8.test.js",
+          "test/semantic-promise-object-v8.test.js",
+          "test/semantic-protocol-promise-adoption-source-v8.test.js",
+          "test/semantic-shared-generator-source-v8.test.js"
+        ],
+        "consumerCleanAfter": true,
+        "consumerCleanBefore": true,
+        "consumerRevision": "053e9c78cad1dbb5313012421ab2987526fe6dab",
+        "consumerRevisionAfter": "053e9c78cad1dbb5313012421ab2987526fe6dab",
+        "durationSeconds": 173.671,
+        "error": null,
+        "exitCode": 0,
+        "expectedTestCount": 9,
+        "fileTestCounts": {
+          "cancel": 0,
+          "fail": 0,
+          "pass": 130,
+          "skip": 0
+        },
+        "files": [
+          "test/semantic-promise-adoption-getter-source-v8.test.js",
+          "test/semantic-promise-mutation-profile-source-v8.test.js",
+          "test/semantic-promise-object-profile-source-v8.test.js",
+          "test/semantic-promise-object-review-source-v8.test.js",
+          "test/semantic-promise-object-review-v8.test.js",
+          "test/semantic-promise-object-source-v8.test.js",
+          "test/semantic-promise-object-v8.test.js",
+          "test/semantic-protocol-promise-adoption-source-v8.test.js",
+          "test/semantic-shared-generator-source-v8.test.js"
+        ],
+        "logPath": "/tmp/issue51-resume.Ws1foQ/finish-paired-native.log",
+        "nodeVersion": "v24.22.3",
+        "observedSelectedTests": {
+          "actual native adoption consumer independently replays every source context and restored cut": 1,
+          "actual native independently replays every eligible mutation-boundary control": 1,
+          "actual native shared replay checks every generated context and continuation": 1,
+          "independent native checker replays every new source and retained shared state": 1,
+          "independent native transitions reproduce all Promise object cases and reject altered records": 1,
+          "native independently checks adoption constructor jobs, retained scopes and selected completions": 1,
+          "native independently checks every Promise review source and retained continuation": 1,
+          "native independently replays every eligible Promise object control": 1,
+          "native independently replays retained invocations and captured adoption selection": 1
+        },
+        "producerCleanAfter": true,
+        "producerCleanBefore": true,
+        "producerRevision": "a72267e26ab7b7fc5f22134abee315fd7ed6e64b",
+        "producerRevisionAfter": "a72267e26ab7b7fc5f22134abee315fd7ed6e64b",
+        "pythonVersion": "Python 3.12.7",
+        "schema": "issue51-paired-native-run/1",
+        "selectionMode": "full-files",
+        "tapSummary": {
+          "cancelled": 0,
+          "fail": 0,
+          "pass": 130,
+          "skipped": 0,
+          "tests": 130
+        },
+        "testCounts": {
+          "cancel": 0,
+          "fail": 0,
+          "pass": 9,
+          "skip": 0
+        },
+        "testTitles": [
+          "native independently checks adoption constructor jobs, retained scopes and selected completions",
+          "actual native independently replays every eligible mutation-boundary control",
+          "native independently replays every eligible Promise object control",
+          "native independently checks every Promise review source and retained continuation",
+          "native independently replays retained invocations and captured adoption selection",
+          "independent native checker replays every new source and retained shared state",
+          "independent native transitions reproduce all Promise object cases and reject altered records",
+          "actual native adoption consumer independently replays every source context and restored cut",
+          "actual native shared replay checks every generated context and continuation"
+        ]
+      },
+      "log": "finish-paired-native.log",
+      "logSha256": "25ac14babb155bf44283d6fdf9b58eeabf327b66d2daebe1bd07510a590c99cb",
+      "runner": "run-finish-paired-native.py",
+      "runnerSha256": "090da74073709c9016e76400f36b5a18f95f07b5759cc93f1a7ee35c43e1a074"
+    },
+    "cohort": {
+      "passed": 134,
+      "skipped": 0
+    },
+    "cohortRun": {
+      "producerRevision": "a72267e26ab7b7fc5f22134abee315fd7ed6e64b",
+      "consumerRevision": "053e9c78cad1dbb5313012421ab2987526fe6dab",
+      "command": [
+        "/tmp/issue51-resume.Ws1foQ/.venv/bin/python",
+        "-m",
+        "pytest",
+        "-q",
+        "tests/test_issue51_object_source_v8.py"
+      ],
+      "exitCode": 0,
+      "seconds": 238.491
+    }
+  },
+  "canonicalRun": {
+    "producerRevision": "5553de1a10761626c5604a57453291039d73683d",
+    "steps": [
+      {
+        "command": [
+          "node",
+          "tools/generate-semantic-region-contract.mjs",
+          "--definition-only"
+        ],
+        "log": "/tmp/issue51-resume.Ws1foQ/finish-canonical-00.log",
+        "exitCode": 0,
+        "seconds": 0.325
+      },
+      {
+        "command": [
+          "node",
+          "tools/generate-protocol-machine-fixtures.mjs"
+        ],
+        "log": "/tmp/issue51-resume.Ws1foQ/finish-canonical-01.log",
+        "exitCode": 0,
+        "seconds": 0.088
+      },
+      {
+        "command": [
+          "node",
+          "tools/generate-protocol-iterator-fixtures.mjs"
+        ],
+        "log": "/tmp/issue51-resume.Ws1foQ/finish-canonical-02.log",
+        "exitCode": 0,
+        "seconds": 0.086
+      },
+      {
+        "command": [
+          "node",
+          "tools/generate-protocol-generator-fixtures.mjs"
+        ],
+        "log": "/tmp/issue51-resume.Ws1foQ/finish-canonical-03.log",
+        "exitCode": 0,
+        "seconds": 0.089
+      },
+      {
+        "command": [
+          "node",
+          "tools/generate-protocol-iterator-source-fixtures.mjs"
+        ],
+        "log": "/tmp/issue51-resume.Ws1foQ/finish-canonical-04.log",
+        "exitCode": 0,
+        "seconds": 1.628
+      },
+      {
+        "command": [
+          "node",
+          "tools/generate-protocol-host-fixtures.mjs"
+        ],
+        "log": "/tmp/issue51-resume.Ws1foQ/finish-canonical-05.log",
+        "exitCode": 0,
+        "seconds": 10.155
+      },
+      {
+        "command": [
+          "node",
+          "tools/generate-primitive-conversion-fixtures.mjs"
+        ],
+        "log": "/tmp/issue51-resume.Ws1foQ/finish-canonical-06.log",
+        "exitCode": 0,
+        "seconds": 16.932
+      },
+      {
+        "command": [
+          "node",
+          "tools/generate-protocol-source-fixtures.mjs"
+        ],
+        "log": "/tmp/issue51-resume.Ws1foQ/finish-canonical-07.log",
+        "exitCode": 0,
+        "seconds": 269.937
+      },
+      {
+        "command": [
+          "node",
+          "tools/generate-semantic-region-contract.mjs"
+        ],
+        "log": "/tmp/issue51-resume.Ws1foQ/finish-canonical-08.log",
+        "exitCode": 0,
+        "seconds": 170.708
+      },
+      {
+        "command": [
+          "npm",
+          "run",
+          "contracts:check"
+        ],
+        "log": "/tmp/issue51-resume.Ws1foQ/finish-canonical-09.log",
+        "exitCode": 0,
+        "seconds": 205.143
+      }
+    ],
+    "current": null,
+    "implementationRevision": "76fd24a91ad7e535aac33af542b481e1337838df"
+  },
+  "canonicalRecheckRun": {
+    "producerRevision": "a72267e26ab7b7fc5f22134abee315fd7ed6e64b",
+    "generationSourceRevision": "76fd24a91ad7e535aac33af542b481e1337838df",
+    "generatedArtifactRevision": "5553de1a10761626c5604a57453291039d73683d",
+    "generatedDataUnchanged": true,
+    "changesSinceGeneration": [
+      "src/runtime.js",
+      "src/semantic/protocol-completion-source-v8.js",
+      "src/semantic/protocol-proxy-source-v8.js",
+      "test/protocol-construction-source.test.js",
+      "test/semantic-module-scheduler-admission-v8.test.js",
+      "test/semantic-module-v8.test.js",
+      "test/semantic-native-promise-slots-v8.test.js",
+      "test/semantic-primitive-conversion-machine-v8.test.js",
+      "test/semantic-protocol-custom-iterator-source-v8.test.js",
+      "test/semantic-protocol-v8.test.js",
+      "test/test262-original-runner.test.js",
+      "test/training-for-in.test.js"
+    ],
+    "steps": [
+      {
+        "command": [
+          "node",
+          "tools/generate-protocol-source-fixtures.mjs",
+          "--check"
+        ],
+        "log": "finish-canonical-recheck-00.log",
+        "exitCode": 0,
+        "producerTreeUnchanged": true,
+        "seconds": 531.434
+      },
+      {
+        "command": [
+          "npm",
+          "run",
+          "contracts:check"
+        ],
+        "log": "finish-canonical-recheck-01.log",
+        "exitCode": 0,
+        "producerTreeUnchanged": true,
+        "seconds": 295.422
+      }
+    ],
+    "mode": "fresh-recheck",
+    "current": null
+  },
+  "cohortExportRun": {
+    "producerRevision": "a72267e26ab7b7fc5f22134abee315fd7ed6e64b",
+    "producerTreeUnchanged": true,
+    "command": [
+      "node",
+      "tools/export-issue51-evidence.mjs",
+      "--out",
+      "../cohort-finish.json"
+    ],
+    "exitCode": 0,
+    "seconds": 435.391,
+    "logSha256": "092644c868723865f0fddca0aa622473fb7b189a56cb8c6fd85ab7b218ba8d2a",
+    "reportSha256": "d5a4c403515f377294dcc2b33b76b8924c5e39cafaf11601fdfe039e99b30db3"
+  },
+  "preparationRun": {
+    "producerRevision": "a72267e26ab7b7fc5f22134abee315fd7ed6e64b",
+    "consumerRevision": "053e9c78cad1dbb5313012421ab2987526fe6dab",
+    "command": [
+      "/tmp/issue51-resume.Ws1foQ/.venv/bin/python",
+      "scripts/prepare_semantic_v8.py",
+      "--input",
+      "/tmp/issue51-resume.Ws1foQ/artifacts-finish.jsonl",
+      "--output",
+      "/tmp/issue51-resume.Ws1foQ/prepared-finish",
+      "--producer-root",
+      "/tmp/issue51-resume.Ws1foQ/producer-dev",
+      "--producer-revision",
+      "a72267e26ab7b7fc5f22134abee315fd7ed6e64b",
+      "--consumer-revision",
+      "053e9c78cad1dbb5313012421ab2987526fe6dab",
+      "--tokenizer-json",
+      "/tmp/issue51-resume.Ws1foQ/tokenizer.json",
+      "--max-positions",
+      "8192",
+      "--max-history",
+      "1024",
+      "--source-recheck-timeout-seconds",
+      "90"
+    ],
+    "exitCode": 0,
+    "seconds": 1153.175
+  },
+  "preparation": {
+    "manifestFingerprint": "82042270808558a4e78df0a9015ae2c3a5db5f58c39bde47917a5864a8b8463f",
+    "report": {
+      "schema": "semantic-preparation/8",
+      "representation": "mixed",
+      "producerRevision": "a72267e26ab7b7fc5f22134abee315fd7ed6e64b",
+      "consumerRevision": "053e9c78cad1dbb5313012421ab2987526fe6dab",
+      "contractDigest": "ef501aa5c4e5a41b77a7c7c58e0f38dc2ee6d0ae3ef1aa6b6c91e304ddbf6c2f",
+      "fixtureDigest": "56f7f36d3b25b3b11a208be3de337e637b9782e6759faea1e1ec107b0a90f0ce",
+      "tokenizerIdentity": "7f52faca2fe82273a889023defd2f1a6fd6080a21096ec77e97f4798a0a370b2",
+      "tokenizerSha256": "40fb9d7d7795b8bd305aeff39ce9963f3f450915b9553f2938e009be9a1fed60",
+      "registryDigest": "14348b06d4d128fc94ce7056fb20f52e87b237b5e6da17b00479ee940b64eb2f",
+      "maxPositions": 8192,
+      "maxHistory": 1024,
+      "optimizerSteps": 0,
+      "learningClaim": null,
+      "counts": {
+        "attempted": 121,
+        "admitted": 121
+      },
+      "refusals": []
+    }
+  },
+  "evidenceSha256": {
+    "finish-contracts.log": "bbe903778426e18594f1eb27c9cd2e5465d7ee580da23518fc18bf976caaf404",
+    "finish-canonical-source-evidence.log": "e873ca60aaf871f3e518dd80e7300e8447810dc72d809b2b4e342df226698304",
+    "finish-cohort-export.log": "092644c868723865f0fddca0aa622473fb7b189a56cb8c6fd85ab7b218ba8d2a",
+    "finish-cohort-export-status.json": "16f3e64d0c2ee11a0bc1b96059d81962214e3886d390ba38e487555a9fd2ae16",
+    "finish-producer-tests.log": "179a8380aa9e19f602b6797bb74d752b05c4c481ba0371daceafbdd5e91436c4",
+    "finish-reference.log": "fc53ef9d327aa46a3968f073e1c35d1ca05af8710d42c3cfc903c8db54d9e560",
+    "finish-native-tests.log": "d4c71f78b13ad82b89b531945cc1585aa7f43bac557991ab48a10c8d36d20d39",
+    "finish-paired-native.log": "25ac14babb155bf44283d6fdf9b58eeabf327b66d2daebe1bd07510a590c99cb",
+    "finish-paired-native-status.json": "36ff64d81e4ee3fde5fbe58bab353e129551d29893336b9968af87e25a474bcb",
+    "finish-cohort-tests.log": "1f27e44bce4b17974c26da189256d026726eb5e9274491d052715e1c117ed41e",
+    "finish-support-fixtures.log": "925cbf2decf0566ade2b8cd952bdb689528bd1cecf064c0a4af26ca6295f5910",
+    "finish-support-status.json": "4a40498162ab58997c72afe4db3a175b6beb99fe8557de1af77180dc7194f4af",
+    "finish-python-style.log": "911d453cc09c1140b290c76ba096a6eebd644733099642d9a78e34e52eed4d3d",
+    "finish-python-style-status.json": "fc30839bfa7bbd4864063bea8cba9a61848bac8ff22fa5f68c38c67cdcf4d863",
+    "finish-preparation.log": "b125bb6ed54d669fb2e4a20f387a65d25c6ff309cc8b627cf3176489f5baa39a",
+    "tools/regenerate-finish-canonical.py": "5223c380378e55f4ab3cfa52d52dd3ba2b983b03a41c49957a0112a48e7c48c1",
+    "tools/recheck-finish-canonical.py": "2a62b4615368169f68ea62517c3d4ef6ddc500a6614a6e58b10a96d58c1a21d9",
+    "tools/sync-object-canonical.py": "1940542f505d6ac67be24b77799f2f0ea9057e71d840b0fa2c7eef23855832c0",
+    "tools/run-finish-support-fixtures.py": "cc9efee11deeb11a7ee7010be2019f5022a007108d7e6fcd76fb9bf3d24ee15a",
+    "tools/run-finish-producer-checks.py": "90e97cb603b2ece79b644b89fe5409c15d3787ad6d85d526502d876313008cba",
+    "tools/run-finish-cohort-export.py": "afa911acbb598d44af706c8150b1794bc256b998413a5d29dbf3c94a56068e87",
+    "tools/sync-finish-cohort.py": "e81f11658989a32380db819f9ab2813c1c2d6811bb3425a5b7f968fc343e95f1",
+    "tools/run-finish-native-checks.py": "70e1297c9b5d48b0eff01126ef50519ca9213bd5b0b81818268851596700e689",
+    "tools/run-finish-paired-native.py": "090da74073709c9016e76400f36b5a18f95f07b5759cc93f1a7ee35c43e1a074",
+    "tools/run-finish-cohort-checks.py": "88b1c0f4967098e6b97c68ca1b339b8b404ba78457e29f938296caf530c3dc85",
+    "tools/run-finish-preparation.py": "b9708dd331306f1dc38092f6ae3ddba06e82a729ed608e895edb8264686df07c",
+    "tools/check-finish-python-style.py": "30d467004ffcf89b8b89c3ead958f6e329c696a2bcc0b0c6fb04561e9ae11c57",
+    "tools/record-finish-verification.py": "3bb02068c481e341ef0694bc8828f9cd8ec7c2d7ca608123af8538ac6f3992ea"
+  },
+  "scope": "Completed bounded issue51 follow-up. Issue51 remains open; no full language-completeness, combined CI matrix, optimizer or learning claim."
+}

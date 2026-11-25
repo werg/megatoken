@@ -1,0 +1,43 @@
+{
+  "producerRevision": "5553de1a10761626c5604a57453291039d73683d",
+  "generationSourceRevision": "76fd24a91ad7e535aac33af542b481e1337838df",
+  "generatedArtifactRevision": "5553de1a10761626c5604a57453291039d73683d",
+  "generatedDataUnchanged": true,
+  "changesSinceGeneration": [],
+  "steps": [],
+  "mode": "verified-generation-artifact",
+  "generatedPaths": [
+    "contracts/semantic-execution-v8.json",
+    "contracts/semantic-native-policy-v8.json",
+    "test/fixtures/semantic-protocol-region-v8.json.gz.b64",
+    "test/fixtures/semantic-protocol-source-v8.json",
+    "test/fixtures/semantic-regions-v8.json"
+  ],
+  "evidenceLogs": [
+    {
+      "stepIndex": 7,
+      "purpose": "protocol-source-fixture-generation",
+      "command": [
+        "node",
+        "tools/generate-protocol-source-fixtures.mjs"
+      ],
+      "log": "/tmp/issue51-resume.Ws1foQ/finish-canonical-07.log",
+      "sha256": "e66a06feee5428eb8ea68d267ee5f7374d43f973b8fceb87c219f88e9e564ab1",
+      "valid": true,
+      "mode": "generated"
+    },
+    {
+      "stepIndex": 9,
+      "purpose": "standard-contract-gate",
+      "command": [
+        "npm",
+        "run",
+        "contracts:check"
+      ],
+      "log": "/tmp/issue51-resume.Ws1foQ/finish-canonical-09.log",
+      "sha256": "bbe903778426e18594f1eb27c9cd2e5465d7ee580da23518fc18bf976caaf404",
+      "valid": true,
+      "mode": "checked"
+    }
+  ]
+}

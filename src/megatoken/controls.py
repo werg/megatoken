@@ -35,10 +35,10 @@ def semantic_execution_metadata_v8() -> dict[str, object]:
 
 
 def canonical_semantic_observation(value: object) -> bytes:
-    """Sorted, compact UTF-8 JSON for observed semantic execution records."""
+    """Sorted compact UTF-8 JSON; lone surrogates stay escaped as JS code units."""
     return json.dumps(
         value, sort_keys=True, ensure_ascii=False, separators=(",", ":"), allow_nan=False
-    ).encode("utf-8")
+    ).encode("utf-8", errors="backslashreplace")
 
 
 def semantic_context_window_observation(

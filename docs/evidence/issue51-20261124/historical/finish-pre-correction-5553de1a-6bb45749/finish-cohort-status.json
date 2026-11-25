@@ -1,0 +1,13 @@
+{
+  "producerRevision": "5553de1a10761626c5604a57453291039d73683d",
+  "consumerRevision": "6bb4574931c4fdf19588a86aef96577b22ff6541",
+  "command": [
+    "/tmp/issue51-resume.Ws1foQ/.venv/bin/python",
+    "-m",
+    "pytest",
+    "-q",
+    "tests/test_issue51_object_source_v8.py"
+  ],
+  "exitCode": 1,
+  "seconds": 276.614
+}

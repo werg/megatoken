@@ -1,0 +1,263 @@
+{
+  "schema": "issue51-historical-correction-run/1",
+  "producerRevision": "5553de1a10761626c5604a57453291039d73683d",
+  "consumerRevision": "6bb4574931c4fdf19588a86aef96577b22ff6541",
+  "recordedAtUtc": "2026-11-24T21:18:33.210857+00:00",
+  "classification": "Historical failed and interrupted verification before additional corrections; not final passing evidence.",
+  "producer": {
+    "tests": 3558,
+    "pass": 3429,
+    "fail": 31,
+    "cancelled": 0,
+    "skipped": 98,
+    "complete": true,
+    "referenceFixtureRun": false
+  },
+  "nativeConsumer": {
+    "collected": 546,
+    "completed": 481,
+    "pass": 465,
+    "fail": 16,
+    "complete": false,
+    "exitCode": 2,
+    "interruption": "SIGINT after identified failures"
+  },
+  "cohortConsumer": {
+    "tests": 134,
+    "pass": 125,
+    "fail": 9,
+    "complete": true
+  },
+  "preparation": {
+    "exitCode": 0,
+    "counts": {
+      "admitted": 111,
+      "attempted": 121,
+      "refused": 10
+    },
+    "refusals": [
+      {
+        "candidate": 6,
+        "reason": "Public continuation differs from independently replayed shared state at 34 fields ['lastReturn']"
+      },
+      {
+        "candidate": 7,
+        "reason": "Public continuation differs from independently replayed shared state at 39 fields ['lastReturn']"
+      },
+      {
+        "candidate": 12,
+        "reason": "'utf-8' codec can't encode character '\\ud800' in position 24759: surrogates not allowed"
+      },
+      {
+        "candidate": 40,
+        "reason": "Public continuation differs from independently replayed shared state at 7 fields ['heap']"
+      },
+      {
+        "candidate": 41,
+        "reason": "Public continuation differs from independently replayed shared state at 7 fields ['heap']"
+      },
+      {
+        "candidate": 42,
+        "reason": "Public continuation differs from independently replayed shared state at 7 fields ['heap']"
+      },
+      {
+        "candidate": 43,
+        "reason": "Public continuation differs from independently replayed shared state at 7 fields ['heap']"
+      },
+      {
+        "candidate": 46,
+        "reason": "Public continuation differs from independently replayed shared state at 12 fields ['heap']"
+      },
+      {
+        "candidate": 47,
+        "reason": "Public continuation differs from independently replayed shared state at 12 fields ['heap']"
+      },
+      {
+        "candidate": 49,
+        "reason": "Public continuation differs from independently replayed shared state at 7 fields ['heap']"
+      }
+    ],
+    "successfulAdmission": false
+  },
+  "canonicalGeneration": {
+    "implementationRevision": "76fd24a91ad7e535aac33af542b481e1337838df",
+    "artifactRevision": "5553de1a10761626c5604a57453291039d73683d",
+    "completedSteps": 10,
+    "allExitCodesZero": true
+  },
+  "files": {
+    "finish-producer-all.log": {
+      "sha256": "5fe8fdaf51a30ebce3c1fa0c40e65165c06ee57316dec0e978c22fef65e08f3b",
+      "bytes": 396215
+    },
+    "finish-producer-status.json": {
+      "sha256": "a1151f806034b28289ea78317d79f7aa5e10b1477c5d6f0a1bc063b152fbb3b9",
+      "bytes": 24061
+    },
+    "finish-native-final.log": {
+      "sha256": "b75a4c8b84a3bd94e0936b9cb1eca42b8f62947f6f774cf93fd594311e555631",
+      "bytes": 101399
+    },
+    "finish-native-status.json": {
+      "sha256": "484afc338ecd7a919f59dfe79745b94fb1a303317cbba4dce16fc1d4cb9738ee",
+      "bytes": 1258
+    },
+    "finish-native-interruption.json": {
+      "sha256": "29937873db808057da5d232946b773c9b61a2ae535ec9c8f3e161b970cf1548f",
+      "bytes": 4052
+    },
+    "native-final-collect.txt": {
+      "sha256": "c3fdee6f9b636c0db26dfa3e89229c5751d6cf2e0a28466ae52e40757598d152",
+      "bytes": 77679
+    },
+    "finish-cohort-tests.log": {
+      "sha256": "db1358b56f1991bff04eb15908c374c565bac82cb68f9bf35cc68581a6da1bab",
+      "bytes": 15166
+    },
+    "finish-cohort-status.json": {
+      "sha256": "9f5134af38dc01ec50ff5051815426246c6f129f49a7c3d644b21f4c79eea9b4",
+      "bytes": 324
+    },
+    "finish-preparation.log": {
+      "sha256": "b163c724d4f1dfdf9929e8a06c99d526cc43a1ad786f1a94df11ce21db046c1d",
+      "bytes": 2047
+    },
+    "finish-preparation-status.json": {
+      "sha256": "7db9a6d4eb9240e8c4f62a48fd0fee16caf1bd88eab6a43fb17939c17192d5c1",
+      "bytes": 832
+    },
+    "finish-python-style.log": {
+      "sha256": "9207e628258b09b051683f67f8e045655bbdae8e30835632f2dac31e7f5aa296",
+      "bytes": 46
+    },
+    "finish-python-style-status.json": {
+      "sha256": "888c0424bc7311bb50bce4450d64f042b26f939e242c2793e457cef5e20f2d78",
+      "bytes": 4344
+    },
+    "finish-canonical-sync.json": {
+      "sha256": "716f5780009158077beaefdb319ed8b4e1e286dbd89c32b2c09c4ae5eae1065c",
+      "bytes": 679
+    },
+    "finish-support-status.json": {
+      "sha256": "70c16ea357e510e99bc411825757ff1b34312951f92ddbe9a1d8ced5ee3f783c",
+      "bytes": 1847
+    },
+    "finish-support-fixtures.log": {
+      "sha256": "8ae8b6869f2bb8bb08e5b5bbca963f08e36c0aa76cc08cdf40dd407fe4434c8a",
+      "bytes": 284
+    },
+    "finish-cohort-sync.json": {
+      "sha256": "3e59b339974eb17b6efd99ba1ece26ca2739f614bee229a780d7173434ac9906",
+      "bytes": 6380
+    },
+    "finish-cohort-export-status.json": {
+      "sha256": "65976bef65152606e1a54cff62df9944902b11b9cab1431c8d22f51e4381390c",
+      "bytes": 424
+    },
+    "finish-cohort-export.log": {
+      "sha256": "bee08195dab6380724f131f4bd6ac2593d11dc184c85ba61221611fa5162321d",
+      "bytes": 199
+    },
+    "finish-canonical-status.json": {
+      "sha256": "636bed2979fe1bc56594eccf9e9efbece65ba9a66751aa9148a036e868b887ce",
+      "bytes": 2438
+    },
+    "finish-canonical-recheck-status.json": {
+      "sha256": "a3938d00bdc7bc467ce7e5afa60b5cc35daf32dcaf7d887e2676c550a9d55d0f",
+      "bytes": 1388
+    },
+    "finish-pipeline-status.json": {
+      "sha256": "84ea4fceef2abcd481f33e5864405369bb520878cdb38c22c4deb430d7d67c25",
+      "bytes": 5227
+    },
+    "finish-pipeline-interruption-status.json": {
+      "sha256": "2f4d1c50e8d0e23c7033e180a8263a61c913ee760f2b210ebd3f263c756eceed",
+      "bytes": 1766
+    },
+    "finish-pipeline-pack-interruption-status.json": {
+      "sha256": "1211fe19d980b718456a4b2c9f8ef966d85cbc8b02a1bad2a04a1b2fe1d01952",
+      "bytes": 2264
+    },
+    "finish-pipeline-driver.log": {
+      "sha256": "ce3c3b06947a1cd5bbc30d97223dc101422a10db629725bb8aa913b78bf61f11",
+      "bytes": 4191
+    },
+    "run-finish-pipeline-first.py": {
+      "sha256": "96d55f2d4c19583215e06e23a2722d227dadc937c345f05421965e45e79f8017",
+      "bytes": 7101
+    },
+    "run-finish-pipeline-second.py": {
+      "sha256": "8da5cacb9cb241e216def03ae5dad3e16647deff3095e1f4fb4e5f628d8398fa",
+      "bytes": 9939
+    },
+    "sync-finish-cohort-first.py": {
+      "sha256": "dc3ec10cb1b715f99556c59441d63d6e1a88f4d86932f8681a98a39423de0d01",
+      "bytes": 4054
+    },
+    "finish-consumer-publish-retry.log": {
+      "sha256": "5aaac84c8ecfa48cae65e5396cb188614e19bda2a03dc828f8e563e199c0fe85",
+      "bytes": 101
+    },
+    "finish-preparation-report.json": {
+      "sha256": "35f13df585761b38db24879fa7fb0b019ae90c2f613e02b765aa163f578c4765",
+      "bytes": 2292
+    },
+    "finish-canonical-00.log": {
+      "sha256": "9631c178ce6d28c7f6c602939a2390a60b182c963a133c1fa7fab6c3eb878741",
+      "bytes": 72
+    },
+    "finish-canonical-01.log": {
+      "sha256": "52a172b1d83e7e5b3eff5732b3edafc48d07f65e3ca01ebfcb53b45dfc442ac5",
+      "bytes": 44
+    },
+    "finish-canonical-02.log": {
+      "sha256": "750ac476bb66a68d6757dc930210b6165df50bbc1e7e6c8a146d820b3614009a",
+      "bytes": 48
+    },
+    "finish-canonical-03.log": {
+      "sha256": "1536e81379de3ee8d7df347a1af35d4785cfcba6a312b70d87e96c7687e25923",
+      "bytes": 44
+    },
+    "finish-canonical-04.log": {
+      "sha256": "536e7717070ec908dd4d5c1abd02835f0ac1a4bb86318beccdc0c5a628aad280",
+      "bytes": 449
+    },
+    "finish-canonical-05.log": {
+      "sha256": "1d10c201b16550fad60c7f81893cfc021034c69248fbc6b472cc5e370aaa71c1",
+      "bytes": 826
+    },
+    "finish-canonical-06.log": {
+      "sha256": "2a8389c0ab8f66c1a59cd28640f2d098f1bc1921ca9abb5011e1ed16b967a87f",
+      "bytes": 5083
+    },
+    "finish-canonical-07.log": {
+      "sha256": "e66a06feee5428eb8ea68d267ee5f7374d43f973b8fceb87c219f88e9e564ab1",
+      "bytes": 37392
+    },
+    "finish-canonical-08.log": {
+      "sha256": "39040f551589b78a08f187e4d0ecec6b80f2d05c9e842d4b7f726340618c6f7e",
+      "bytes": 9103
+    },
+    "finish-canonical-09.log": {
+      "sha256": "bbe903778426e18594f1eb27c9cd2e5465d7ee580da23518fc18bf976caaf404",
+      "bytes": 10209
+    },
+    "finish-canonical-generation-prefix.json": {
+      "sha256": "5073305626eb3f2df018cad9b291ac9575f8ad8063c3c39a10f120c7940f8494",
+      "bytes": 2156
+    }
+  },
+  "largeArtifactsRetainedOutsideRepositoryEvidence": {
+    "cohort-finish.json": {
+      "sha256": "862300311c2205d0f29a2e0323c250a1b0d6933ca76e013025c69badbaaeff4f",
+      "bytes": 273364317,
+      "copyIntoRepositoryEvidence": false
+    },
+    "artifacts-finish.jsonl": {
+      "sha256": "8e6b981bb2fc3d0b45589dae72a748ef3a05bd01159201e66d4dda740eeb8918",
+      "bytes": 103000642,
+      "copyIntoRepositoryEvidence": false
+    }
+  },
+  "preparedOutputDirectory": "prepared-finish"
+}

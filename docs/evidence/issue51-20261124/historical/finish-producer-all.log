@@ -1,0 +1,2619 @@
+✔ audit finds historical strict getter-only writes even when final values conceal them (103.745874ms)
+✔ fixed failed assignments remain on the affected-path requalification inventory (21.984663ms)
+✔ audit uses pre-state descriptors rather than source spellings or the final heap (28.432858ms)
+✔ own data shadowing, working setters and unexecuted writes are not affected paths (48.991008ms)
+✔ audit derives strictness from lexical source scopes, including sloppy callers (56.202857ms)
+✔ missing or invalid private archives are not reported as clean or certified (3.80511ms)
+✔ campaign audit retains every positive attempt and original denominator (324.344677ms)
+✔ CLI creates a new receipt and refuses to overwrite any existing evidence (308.797559ms)
+✔ literal definitions and private initialization are classified separately from ordinary Set (74.600845ms)
+✔ Symbol and escaped string keys retain exact descriptor identity in the audit (74.461652ms)
+✔ two virtual agents increment shared Int32 cells in round-robin order (3.39665ms)
+✔ wait and notify wake a blocked agent in FIFO order (0.980371ms)
+✔ virtual timer releases a suspended wait on quiescence (1.910645ms)
+✔ indefinite virtual wait remains explicitly blocked (0.58329ms)
+✔ Int32 overflow and compareExchange retain old atomic values (0.699807ms)
+✔ bad location, blocked forced turn and forged transcript fail closed (0.975391ms)
+✔ aggregate runner requires every hard budget and builds cgroup-wide limits (1.996978ms)
+✔ mount parsing retains read-only boundaries and escaped mount paths (0.432762ms)
+✔ unqualified storage fails closed before launch and leaves a durable campaign prefix untouched (119.305881ms)
+✔ generated validator requires owned V8/operation/branch/replay evidence (294.924699ms)
+✔ native Ajv output disagreement never becomes owned verification (2.341535ms)
+✔ captured Ajv scope and mismatched generated function names refuse (51.3574ms)
+✔ malformed or multi-definition generated code is rejected before execution (1.535943ms)
+✔ Ajv omitted optional context is lowered only with audited pure defaults (243.324926ms)
+✔ mocked bounded validator reference distinguishes agreement, disagreement, and unsupported (3.778537ms)
+✔ baseline identity refuses a different commit even when code tree is unchanged (1.804111ms)
+✔ release baseline cannot pass with a different runtime or locale (0.583833ms)
+✔ benchmark sidecar binds selected known families and role lineage without changing declaration (4.828305ms)
+✔ benchmark sidecar refuses duplicate, unknown, or malformed ancestry (1.299857ms)
+✔ browser options never invoke getters (1.460395ms)
+✔ browser options refuse inherited configuration and unknown keys (0.259083ms)
+✔ browser options accept plain and null-prototype own data records (0.47085ms)
+✔ browser condition provides a no-Node-import bounded runtime and rejects host objects (132.490997ms)
+✔ receipt cache identity binds Python verifier code, operation catalog, locks and isolation policy (27.178008ms)
+✔ admitted selection retains refusals and never promotes local or forged admitted flags (384.697659ms)
+✔ exact-public representatives are deterministic and retain distinct streams unchanged (1.778618ms)
+✔ exact-public aliases across components, splits, registries or native contracts fail closed (1.554962ms)
+✔ same-component public aliases cannot erase native family, ancestry or parent metadata (0.778676ms)
+✔ native metadata projection ignores only private task identity and unused source annotations (0.787287ms)
+✔ legacy graph commitments require explicit pinned routing and remain byte-identical (267.260339ms)
+✔ historical routing rejects changed manifest and result bindings without rewriting evidence (293.763943ms)
+✔ resumes completed receipts and preserves rejected attempts without private learner data (385.457209ms)
+✔ recovers a torn final log append but refuses committed corruption (206.246056ms)
+✔ log order is authenticated and candidate identity preserves special numbers and aliases (224.380123ms)
+✔ excludes concurrent writers and releases the OS lock when a process crashes (191.532152ms)
+✔ plain resume retries cancelled work and validates referenced source/input/fixture bytes (315.13897ms)
+✔ release readers share a nonmutating lock and reject unrecovered log tails (145.361875ms)
+✔ binds content-addressed filenames and rejects forged status or cost measurements (196.243982ms)
+✔ shared registries are stored once and materialize byte-identical evidence including sessions (524.290286ms)
+✔ rehydration refuses changed or missing registry bytes and mismatched logical evidence (221.469866ms)
+✔ canonical integer loss checks exact value rather than the safe-integer threshold (8.929836ms)
+✔ precision inspection follows canonical input paths without treating expectations or data objects as cases (1.459409ms)
+✔ the two pinned Armstrong big-integer cases retain exact lexemes and fail before execution (879.581413ms)
+✔ capability ladder preserves untested stages and exact attempted denominators (860.192648ms)
+✔ capability ladder executes a configured native gate and retains its failure separately (697.8843ms)
+✔ primitive numeric conversions and caught BigInt errors have independent positive probes (2697.054485ms)
+✔ v7 ladder measures compact and detailed separately without native or model claims (1525.899978ms)
+✔ v8 coverage cannot be manufactured by relabeling a v7 artifact (593.580898ms)
+✔ v8 ledger uses real shared-region projection and retains source agreement across local refusal (675.055603ms)
+✔ v8 protocol detail contributes to the same byte denominator as the actual serving path (750.21546ms)
+✔ progress includes frontend refusals exactly once in declared population order (2.222536ms)
+✔ selection never changes the frozen population or drops unselected failures (2.150432ms)
+✔ selection is validated before execution and is canonical in population order (2.66153ms)
+✔ capability CLI --cases retains the complete declared denominator (976.736358ms)
+✔ explicit primitive throw is caught without terminating; catch binding stays lexical (69.110245ms)
+✔ unwind through a synchronous call and retain identity of thrown guest object (27.493378ms)
+✔ normal, exceptional and return completions execute finally exactly once (120.574011ms)
+✔ finally completion overrides pending return; outer handler catches throws (59.244086ms)
+✔ rethrow from catch executes finally before the outer catch (71.970266ms)
+✔ break and continue restore lexical scopes and respect nested finally boundaries (498.586599ms)
+✔ owned arithmetic TypeError/RangeError are catchable guest data errors (47.477844ms)
+✔ synchronous host failures become catchable only on input delivery (25.506815ms)
+✔ unhandled throws and unsupported coercions keep distinct terminal outcomes (26.393245ms)
+✔ failed binding and property updates remain reconstructible and replayable (40.587677ms)
+✔ structural checks and same-interpreter replay reject forged caught completions (15.127318ms)
+✔ bounded synchronous control completions agree with independent V8 final scalars (1891.956109ms)
+✔ pinned TypeScript const enum is lowered to only verified compile-time constants (5245.478042ms)
+✔ changed or unmodeled enum dependencies fail closed (16.173806ms)
+✔ full corpus merge rejects missing indices, duplicate partitions and fabricated counts (1427.733747ms)
+✔ owned verifier refuses incomplete indexed partitions (548.754033ms)
+✔ stateful auditor refuses an incomplete pinned scenario inventory (62.058754ms)
+✔ stateful auditor checks pinned observations, observable effects and vendor hashes (828.120312ms)
+✔ pinned source bundles and family split match original corpus extraction (18.934684ms)
+✔ owned corpus bridge emits only independently rechecked, provenance-tagged local traces (723.890495ms)
+✔ owned corpus bridge refuses tampered pinned source bytes and split (1841.257772ms)
+✔ real-source catalog has pinned distinct production functions and inputs (905.734426ms)
+✔ only independently rechecked owned execution can contribute novelty (538.171464ms)
+✔ novel branch paths and operation types beat repeated seed counts (623.507466ms)
+✔ offline selected subset contains no fabricated admission and refuses forged rows (817.582412ms)
+✔ checkout and packaged execution bind identical dependency bytes and refuse missing or divergent evidence (18.106698ms)
+✔ the publishable lock is the exact current npm-ci input (1.264287ms)
+✔ durable retained checkpoint replays module cells in a fresh session (2906.56053ms)
+✔ checkpoint replays committed module history in a separate Node process (2128.727354ms)
+✔ corrupt or symlink checkpoint is rejected without guest execution (249.702402ms)
+✔ checkpoint admission is replay-checked and limited to owned sessions (262.816135ms)
+✔ archive survives store re-instantiation with digest and full replay verification (180.8953ms)
+✔ concurrent duplicate writes publish one complete immutable object (367.165346ms)
+✔ stored bytes are authenticated before parsing or running a guest replay (96.91539ms)
+✔ an unreplayable archive cannot be admitted or published (53.571876ms)
+✔ IDs are strict, byte limits are enforced, and staged files are never listed (33.798889ms)
+✔ refuse an attacker-substituted symlink for the final archive file (17.36089ms)
+✔ compiled external JS replays dispatch order and materialized snapshots (150.760429ms)
+✔ missing handler fails before any external replay (37.317635ms)
+✔ live generated effect JavaScript resolves an async native result into owned VM (18.51739ms)
+✔ live generated effect JavaScript sends rejection back through owned input (12.106839ms)
+✔ inventory records exact source objects, overloads, proposals and intrinsic occurrences (17.525419ms)
+✔ source audit rejects altered bytes, files, revision pins and omitted discoveries (7.67822ms)
+✔ new or changed discovery candidates require explicit reclassification (5.927775ms)
+✔ partial ownership needs an explicit bounded mapping and cannot manufacture test passes (2.960629ms)
+✔ classification audit rejects duplicate entries and unknown extractor rules (4.514307ms)
+✔ checked-in inventory is classified against the authoritative engine pin (46.366824ms)
+✔ parameters, blocks, catches, named functions and classes shadow imported and namespace bindings (11024.159031ms)
+✔ parameter defaults see imports before body var declarations and retain lexical TDZ (406.364689ms)
+✔ loop, switch and destructuring scopes retain reads and writes to their own local cells (1090.575132ms)
+✔ shadowed namespace receivers remain ordinary method calls (149.011371ms)
+✔ import writes fail at link time and namespace writes keep their strict TypeError (206.027664ms)
+✔ captured shadow cells survive JSON restoration without rebinding the module import (193.12725ms)
+✔ module-scoped vars in blocks and loops do not leak across flattened module environments (9582.502875ms)
+✔ module var exports are initialized before cyclic dependency evaluation (54.382469ms)
+✔ imported constructors retain new-expression grouping around scheduled binding getters (9094.041412ms)
+✔ module class declarations retain names, imported heritage, private fields and inner class identity (15064.343391ms)
+✔ class declarations remain in TDZ during cyclic module evaluation and initialize once (11813.001724ms)
+✔ generator declarations are instantiated before cyclic evaluation and keep live mutable bindings (15135.145332ms)
+✔ anonymous default function and generator declarations are hoisted with the default name (24724.986018ms)
+✔ named and anonymous default class declarations preserve static names and lexical bindings (18555.322266ms)
+✔ destructured module declarations retain source keys, inferred names, live cells and module var isolation (32727.737547ms)
+✔ shorthand destructuring assignment defaults read their original property before using a default (9060.900443ms)
+✔ class and generator environments restore from JSON while a module is suspended (34963.928653ms)
+✔ nested callbacks, class fields and generator defaults retain their original live module cells (20057.480793ms)
+✔ async generator module declarations remain an explicit owned frontend boundary (3.88554ms)
+✔ host JS facade calls real owned exports with shared replay-backed module cells (935.17705ms)
+✔ facade refuses unowned argument callbacks and hostile export-name metadata (5.299847ms)
+✔ modules without import.meta do not receive synthetic metadata allocations (28.158096ms)
+✔ import.meta is stable, module-local and mutable in both evaluation strategies (8583.703462ms)
+✔ import.meta mutations survive retained calls and JSON history restoration (3616.798672ms)
+✔ renamed module bindings retain anonymous class and generator names during initialization (10129.610582ms)
+✔ anonymous assignment names use original module names and preserve outer lexical reads (8808.626448ms)
+✔ name inference does not manufacture an inner binding for an anonymous class (11642.731749ms)
+✔ module assignment defaults keep source names when creating anonymous definitions (11114.818348ms)
+✔ namespace exports named __proto__, constructor and toString keep live own accessors (911.253949ms)
+✔ namespace descriptor reflection ignores inherited implementation dictionary names (995.710962ms)
+✔ namespace descriptor conversion validates callable and mixed fields before definition (4249.788374ms)
+✔ namespace descriptor conversion errors precede cyclic live-cell TDZ reads (1699.905898ms)
+✔ namespace definitions preserve SameValue and omitted descriptor fields (1763.160162ms)
+✔ namespace descriptor conversion supports inherited Object data and retains explicit profile refusals (2738.42115ms)
+✔ observed namespace identities use live, sorted, null-prototype exotics (9109.730813ms)
+✔ namespace source paths remain explicitly unqualified and namespace output refuses (148.138193ms)
+✔ quoted numeric namespace keys record the Node 24 ordering discrepancy (724.343975ms)
+✔ cyclic descriptor reads preserve the original namespace TDZ error (640.877714ms)
+✔ namespace live getters work after async module environments are primed (15117.031078ms)
+✔ namespace getter continuation restores through JSON and exact replay (96.418707ms)
+✔ namespace identities and live values survive retained JSON history restore (1247.381787ms)
+✔ namespace hasOwn keys and integrity checks propagate cyclic export TDZ (1586.465635ms)
+✔ namespace freeze and frozen checks stop after the first initialized export (1095.303015ms)
+✖ uncaught namespace inspection TDZ propagates through module evaluation (279.727876ms)
+✖ uncaught namespace freeze TypeError propagates through module evaluation (207.038355ms)
+✔ namespace freeze define continuation restores through JSON and replay (218.71834ms)
+✔ typeof source-owned namespace bindings and pure static namespace paths is object (14400.473325ms)
+✔ typeof namespace folding respects parameter, block, catch and inner class-name shadows (12093.904888ms)
+✔ namespace typeof is available during a cycle without bypassing exported-cell temporal dead zones (15979.189361ms)
+✔ namespace typeof preserves surrounding effects and ordinary export reads (13940.754246ms)
+✔ effectful namespace operands keep their evaluation and object identity (41564.565214ms)
+✔ missing namespace properties are undefined even with a shadowed undefined name (11220.604479ms)
+✔ direct namespace ambiguity is absent while same-origin stars preserve live cells (26661.58871ms)
+✔ namespace forwards and local namespace exports compose through named and star imports (25533.084875ms)
+✔ specification control: nested ambiguity cannot be supplied by a later star path (95.619938ms)
+ℹ {"authority":"ECMA-262 17.0 ResolveExport/GetModuleNamespace","node":"v24.22.3","v8":"13.6.233.17-node.63","owned":"passed","nativeDifferential":"failed","expected":{"type":"undefined"},"reference":{"status":"returned","value":1}}
+✔ specification control: same-origin namespace reexports survive a star diamond (74.146011ms)
+ℹ {"authority":"ECMA-262 17.0 ResolveExport/GetModuleNamespace","node":"v24.22.3","v8":"13.6.233.17-node.63","owned":"passed","nativeDifferential":"failed","expected":23,"reference":{"status":"threw","name":"SyntaxError","message":"The requested module './barrel.js' contains conflicting star exports for name 'cells'"}}
+✔ specification control: imported namespace aliases keep their target identity through star diamonds (51427.426785ms)
+ℹ {"authority":"ECMA-262 17.0 ResolveExport/GetModuleNamespace","node":"v24.22.3","v8":"13.6.233.17-node.63","owned":"passed","nativeDifferential":"failed","expected":[23,27],"reference":{"status":"threw","name":"SyntaxError","message":"The requested module './barrel.js' contains conflicting star exports for name 'cells'"}}
+ℹ {"authority":"ECMA-262 17.0 ResolveExport/GetModuleNamespace","node":"v24.22.3","v8":"13.6.233.17-node.63","owned":"passed","nativeDifferential":"failed","expected":[23,27],"reference":{"status":"threw","name":"SyntaxError","message":"The requested module './barrel.js' contains conflicting star exports for name 'cells'"}}
+ℹ {"authority":"ECMA-262 17.0 ResolveExport/GetModuleNamespace","node":"v24.22.3","v8":"13.6.233.17-node.63","owned":"passed","nativeDifferential":"failed","expected":[23,27],"reference":{"status":"threw","name":"SyntaxError","message":"The requested module './barrel.js' contains conflicting star exports for name 'cells'"}}
+ℹ {"authority":"ECMA-262 17.0 ResolveExport/GetModuleNamespace","node":"v24.22.3","v8":"13.6.233.17-node.63","owned":"passed","nativeDifferential":"failed","expected":[23,27],"reference":{"status":"threw","name":"SyntaxError","message":"The requested module './barrel.js' contains conflicting star exports for name 'cells'"}}
+✔ imported namespaces from different modules remain distinct export origins (8.68446ms)
+✔ missing and ambiguous named imports and unused indirect exports still fail linking (8.98548ms)
+✔ namespace aliases preserve identity receivers and strict mutation failures (1066.535758ms)
+✔ namespace lexical shadows retain their local bindings without rewriting unrelated imported cells (504.65393ms)
+✔ property keys sharing a namespace name are not namespace reads (105.487913ms)
+✔ destructuring and loop assignments cannot mutate imported live cells (10.439221ms)
+✔ independent TLA siblings start before either await resumes, including a sync sibling (21490.427268ms)
+✔ a shared async dependency evaluates once and releases both async parents (28717.823585ms)
+✔ ready synchronous ancestors run in DFS async order without per-edge jobs (46937.708885ms)
+✔ syntactic TLA gets a completion job even when no await executes (7569.184062ms)
+✔ single-chain and synchronous graphs retain their qualified path with native completion-job timing (530.569695ms)
+✔ then getters, assimilation and competing microtasks retain native module job order (11917.166663ms)
+✔ nested await operands, caught rejection and finally keep their generator continuations (12459.586596ms)
+✔ module getters retain live imported cells, namespaces, closures and strict call receivers (12603.61728ms)
+✔ module environments keep lexical TDZ and hoisted functions while another module is suspended (9256.136736ms)
+✔ async throws before and after await reject parents while already-started siblings finish (12072.763711ms)
+✔ a synchronous initial throw prevents later siblings starting without cancelling earlier async work (5663.003455ms)
+✔ a throwing ready parent skips its ancestors but not unrelated ready siblings (21922.197533ms)
+✔ module instantiation, await suspension and ready-parent work restore exactly from JSON (25599.263793ms)
+✔ parallel module execution journals each external read once and replay does not redispatch it (10326.707328ms)
+✔ pending sibling host reads restore retained module state without executing initializers or dispatch twice (12746.305089ms)
+✔ self-import and cyclic graphs retain separate DFS and body completion state (25370.013583ms)
+✔ an outside import of an already-executed non-root cycle member waits for the cycle root (12064.814666ms)
+✔ cyclic synchronous bodies retain hoisted functions, live cells and lexical TDZ with TLA (8206.45878ms)
+✔ untaken awaits in an SCC retain async completion jobs and sibling order (30291.129633ms)
+✖ async SCC errors before and after await retain one rejection and allow started siblings to finish (8913.897874ms)
+✔ a failed cycle root prevents waiting members starting without suppressing unrelated ready work (20438.584803ms)
+✔ a synchronous DFS failure in an open SCC preserves its error while started async members finish (8727.322269ms)
+✔ an unresolved cyclic evaluation stays pending across JSON restore without inventing an error (6200.469658ms)
+✔ open DFS components, closed cycles and ancestor release restore exact retained execution (55118.606873ms)
+✔ two pending host reads inside one SCC restore in both result orders without redispatch (200509.224873ms)
+✔ for-await iteration and generated scheduler identifiers remain explicit boundaries (34.861831ms)
+✔ replay-backed retained module session carries mutable exports across JS invocations (876.356356ms)
+✔ retained returned objects keep host identity and reflect subsequent module writes (300.927201ms)
+✔ retained module sessions serialize concurrent calls and retain independent state (706.363247ms)
+✔ retained module session rejects native effects and rolls back unsuccessful calls (261.642359ms)
+✔ retained module sessions reject callbacks and data getters in invocation arguments (0.656881ms)
+✔ closed retained realm rejects future calls and does not publish partial history (36.519834ms)
+✔ retained module history can cross JSON/process boundaries by replaying committed invocations (910.710392ms)
+✔ session snapshots preserve the complete primitive scalar wire format (872.056262ms)
+✔ retained snapshot restore rejects accessor metadata and noncanonical tokens (37.874306ms)
+✔ effect-free ESM exports run synchronously entirely through owned trace (241.563338ms)
+✔ synchronous retained ESM cells and host result identities preserve invocation order (392.414052ms)
+✔ synchronous retained API refuses concurrent async replay and rolls back errors (252.547629ms)
+✔ owned ESM linker invokes const arrow/function-expression exports (276.072038ms)
+✔ evaluated modules run dependency initialization once and share mutable live bindings (332.609417ms)
+✔ evaluate-only mode has a private entry name while exported calls preserve their entry name (2.825419ms)
+✔ module side effects use dependency ordering even with import elision (185.168378ms)
+✔ explicit reexports and aliased live reads retain original lexical cell (198.764269ms)
+✔ top-level await settles an owned guest Promise prior to dependent evaluation (157.911425ms)
+✔ top-level native host service is journaled and replay does not invoke it (197.266802ms)
+✔ result of pure JS ESM graph agrees with independent native module loader (169.035219ms)
+✔ expression default exports and value exports evaluate once (95.575806ms)
+✔ anonymous default class and generator expressions receive the source-level name (358.466028ms)
+✔ module linker rejects cycles, unknown dependencies, and native packages (3.677615ms)
+✔ imports are read-only and unknown named exports fail at link time (2.570746ms)
+✔ exported classes and synchronous generators execute owned declarations with original ESM semantics (352.162377ms)
+✔ module async-generator declarations retain their explicit owned frontend boundary (1.879075ms)
+✔ diamond dependencies initialize once, with two distinct module side effects (126.779963ms)
+✔ native input arrival can be out of await order during ESM evaluation (215.576196ms)
+✔ linker preflights unsupported guest syntax even when its function is never invoked (1.632253ms)
+✔ unreferenced invalid forwarding exports still fail module instantiation (1.536677ms)
+✔ module graph excludes unreachable private code and requires all runtime imports (1.886006ms)
+✔ module source collection never invokes host getters or proxy traps (0.453254ms)
+✔ star re-exports resolve live bindings through same-origin diamonds (122.175515ms)
+✔ ambiguous distinct star binding origins fail without executing module effects (3.089511ms)
+✔ top-level module throw rejects the owned entry and prevents dependent initialization (26.960428ms)
+✔ top-level block await and synchronous native service preserve module completion (271.133493ms)
+✔ TypeScript mutable imports update through owned lexical cells (94.250621ms)
+✔ one evaluated module episode retains mutable binding state across exported calls (225.046006ms)
+✔ module batch keeps exported object aliases and awaited call order (305.720603ms)
+✔ invalid module batch entries fail closed at link time (2.219523ms)
+✔ module batch arguments never execute host getters or Proxy traps (0.593142ms)
+✔ synchronous cyclic functions and mutable live bindings follow ESM dependency order (158.683735ms)
+✖ cycles that observe an uninitialized lexical binding throw like native ESM (17.186164ms)
+✔ cycles with top-level await use the owned SCC scheduler (4357.459942ms)
+✔ same-origin cyclic ESM function behavior agrees with independent native Node ESM (574.593218ms)
+✔ statically named namespace property reads use the original live export cell (99.550445ms)
+✔ namespace reads agree with independent Node ESM loader for mutable exports (80.920172ms)
+✔ namespace operations retain guest TypeErrors and dynamic reads while namespace outputs refuse (258.416299ms)
+✔ ESM production-style initialization creates one owned shared closure with live state (277.61678ms)
+✔ ESM owned top-level Promise reaction runs after initialization and before import read (126.392276ms)
+✔ difficulty measures executed loops, nested calls, aliases and mutations across distinct inputs (2315.473099ms)
+✔ difficulty records actual pending concurrency and thrown outcomes (1044.410928ms)
+✔ native callback goes back into owned closure before external Promise resolves (157.462774ms)
+✔ multiple callbacks preserve FIFO and never execute guest function natively (217.853408ms)
+✔ native callback objects are refused rather than crossing owned data boundary (68.048898ms)
+✔ manual generated effect bridge routes callback and promise result through owned state (15.498358ms)
+✔ invalid or stale callback capability cannot forge an owned invocation (8.832136ms)
+✔ Test262 metadata, strict variants and negative tests preserve source hashes (65.900365ms)
+✔ Exercism nested canonical records are not confused with executable solutions (4.429342ms)
+✔ JSON Schema contracts preserve data vs expected labels (3.642093ms)
+✔ CommonMark JSON examples remain contracts pending real parser execution (2.802903ms)
+✔ Jest/Vitest .each importer extracts only literal rows without evaluation (13.312024ms)
+✔ Hardness prioritizes difficult cases without claiming verification (2.983562ms)
+✔ Snapshot CLI refuses modified bytes, accepts pinned acquisition-only catalog (851.798961ms)
+✔ Adversarial suite uses pinned vendor module IDs and distinct identities (0.92653ms)
+✔ Offline test catalog inventories JS/TS declarations but never executes them (14.654489ms)
+✔ Dynamic test tables and empty tables are recorded without fabricating rows (5.808101ms)
+✔ Deno, Mocha and QUnit test naming conventions are mined without executing source (8.457132ms)
+✔ three pinned upstream snapshots import without executing third-party source (2142.124585ms)
+✔ full-corpus classifier refuses unsupported language and metadata rather than inventing traces (6.081757ms)
+✔ claimed owned conversions require exact canonical SHA/revision and independent evidence (2.082551ms)
+✔ generated input oracle is valid but never asserted to be official canonical data (1.023251ms)
+✔ Test262 training joins only exact source-hash matched and rechecked modes (1.451264ms)
+✔ bounded grammar uses separate seeds and keeps input/literal expansion in stable families (30.376512ms)
+✔ cross-stream registry joins a renamed authored source with a generated variant (120.242649ms)
+✔ generated boundary, alias and planned exception programs pass independent v5 gates (3472.568374ms)
+✔ case selection preserves original registered objects and catalog order (2.184037ms)
+✔ invalid selections cannot invent, repeat, truncate, or relabel registered tasks (0.821852ms)
+✔ malformed, duplicate and unknown CLI IDs fail before output or registry writes (9042.471541ms)
+✔ filtered collection retains complete registry and identical normal-gate candidate receipts (14558.559713ms)
+✔ explicit refusal collection retains failed and locally verified candidates without relabeling them (3679.274474ms)
+✔ allowing refusals never removes an explicit native-consumer requirement (556.541406ms)
+✔ a fatal campaign write aborts and drains detached workers before closing evidence (2309.640387ms)
+✔ bounded generation process keeps the source gate and reports measured RSS (1477.383336ms)
+✔ bounded workers use the requested versioned producer without relabeling source evidence (2828.632956ms)
+✔ times out or cancels workers and refuses oversized evidence with explicit statuses (1117.535493ms)
+✔ worker transport preserves null prototypes and shared input identities (1662.598744ms)
+✔ V8 source-session wrappers recursively preserve graph arguments and canonical host fixtures (4.301041ms)
+✔ V8 source worker attaches only the authored orchestration teacher and rejects incompatible flags (3008.155895ms)
+✔ V8 generation worker processes data-only sessionCases through ordinary source verification (2982.722537ms)
+✔ encoded fixtures separate structural metadata aliases from exact guest graphs (3.203675ms)
+✔ durable fixture references use the same canonical host and input graphs (217.957997ms)
+✔ verified registry trees are reused across candidates and distinct within each stored session (5.205893ms)
+✔ all five recipe fixture inventories survive frozen-registry campaign storage (159941.338467ms)
+ℹ {"recipeFixtureCounts":{"engineering":25,"training-v4":48,"benchmark-v1":126,"real-source":210,"generated-v1":64},"total":473}
+✔ collector resumes exact successful receipts without launching new attempts (13416.925831ms)
+✔ global-registry shard plan is independent of enumeration order and preserves splits (21.781223ms)
+✔ actual single and sharded generation have equivalent final public/certification identities (9392.09783ms)
+✔ cancellation preserves the durable prefix and plain resume completes without repeating receipts (5949.126381ms)
+✔ per-run candidate budgets preserve the complete inventory and resume only unfinished work (704.30865ms)
+✔ rehashing a complete flag cannot turn cancelled attempts into a completed shard (785.680591ms)
+✔ plans retain more than 10000 candidates and allow more than 64 shards (735.145558ms)
+✔ an ordinary V8 generation worker runs with legacy effect clients blocked (4155.088321ms)
+✔ host request is JSON materialized before dispatch, immutable, and never re-executed in replay (90.79882ms)
+✔ independent host journal verifier detects altered materialization despite valid effect metadata (8.003432ms)
+✔ unregistered external argument forms fail before creating or dispatching any effect (23.196166ms)
+✔ external method contracts prevent extra or mistyped arguments (7.48782ms)
+✔ unknown global NaN is a guest ReferenceError without dispatch (11.604554ms)
+✔ effect request is bound to its actual JS call operands and activation (9.985947ms)
+✔ owned graph preserves aliases, cycles, sparse arrays and special scalars (2.878847ms)
+✔ graph snapshot is immutable and has checked owned version provenance (0.950396ms)
+✔ graph codecs refuse getters, proxies, forged identities and quota violations (0.958045ms)
+✔ callback slots stay opaque and cannot become graph data functions (1.246717ms)
+✔ nested declared callbacks are branded and ordinary lookalike data cannot forge them (0.596229ms)
+✔ external JSON materializer preserves data, property order and frozen version provenance (39.381612ms)
+✔ external JSON materializer rejects all unimplemented coercions and unsupported graphs (20.319072ms)
+✔ external JSON materializer enforces byte and graph-size bounds (12.207096ms)
+✔ outbound host codec refuses malformed scalar tagged values (2.048778ms)
+✔ valid scalar host requests retain canonical byte accounting and independent verification (1.810673ms)
+✔ legitimate host histories reconstruct and replay with generated and transport input IDs (113.23196ms)
+✔ runtime rejects multiple input arrivals for one single-outcome effect without changing the journal (13.665757ms)
+✔ runtime rejects non-boolean abrupt flags before recording host input (15.992912ms)
+✔ host inputs are canonical scalar tuples, including NaN across JSON replay (26.729434ms)
+✔ archived host payloads must use canonical scalar tags (10.982627ms)
+✔ transport input IDs cannot shadow object prototypes or use non-string identifiers (2.907123ms)
+✔ non-reserved inherited object names are valid transport IDs and stay reconstructible (15.881033ms)
+✔ generated input IDs skip earlier transport-supplied IDs in the same namespace (23.380138ms)
+✔ initial checkpoint and exported host-table copies are authenticated against reconstruction (31.832348ms)
+✔ host dispatch, arrival and delivery causes must match their mutations (63.611791ms)
+✔ host delivery results and lifecycle transitions are checked independently of replay (52.245026ms)
+✔ chunk identities, cause indexes and pending summaries cannot be forged (58.749941ms)
+✔ synchronous host throw lifecycle remains structurally valid and replayable (22.724721ms)
+✔ reserved mutation entity IDs are rejected before object property assignment (16.055034ms)
+✔ declared benchmark has semantic breadth and independent executable near misses (2296.077609ms)
+✔ real-source strata retain refusal candidates and original TS provenance (4025.754071ms)
+✔ interaction admission materializes mutable guest inputs from frozen declarations (5.879091ms)
+✔ run population retains exact source, input and module denominators before results (2061.794462ms)
+✔ v8 reference reports check current /2 cores and preserve all executed distinguishing pairs (2168.4546ms)
+✔ source variants, negative relatives and transpiled source lineages cannot split (731.137595ms)
+✔ expansion declares more than 200 source-free tasks without fabricated model results (109.889952ms)
+✔ study freezes pins and counterbalances renderings without showing a task twice (291.812645ms)
+✔ next-step and full execution scoring checks external candidates without correction (23.356878ms)
+✔ original ESM namespace worker observes real link identity, cells, keys, reads and descriptors in order (114.449542ms)
+✔ original ESM namespace worker refuses a planned alias mapped to another module object (107.050783ms)
+✔ original ESM namespace worker refuses a reexport plan mapped to the wrong source cell (107.437642ms)
+✔ original ESM namespace worker rejects source digest substitution (113.345287ms)
+✔ original ESM namespace worker refuses namespace escapes and non-scalar cells (338.381029ms)
+✔ real-source CI selects exact public representatives and packages the complete original audit (187.149163ms)
+✔ other CI recipes preserve their original corpus and strict generated training caps (461.585941ms)
+✔ a refused representative selection stops CI before packaging (53.563445ms)
+✔ current native resolution observes the matching branch and retains the exact per-run revision (8.55641ms)
+✔ only an absent implicit branch falls back to the current default, never a network failure (14.737332ms)
+✔ historical observations and explicit refs stay exact and unsafe branch names are rejected (12.388457ms)
+✔ native async service B arrives before A; the guest awaits its own order (259.14911ms)
+✔ native synchronous return stays blocked until journaled input delivery (95.215295ms)
+✔ native rejection reaches guest async catch and is not replayed natively (108.511829ms)
+✔ native service driver refuses unknown operations and orphaned waits (4.080183ms)
+✔ aborting a native wait does not fabricate a guest input (3.349825ms)
+✔ abort before a queued native service starts prevents the side effect (2.857983ms)
+✔ native service registry rejects getters and proxies before running guest code (0.437705ms)
+✔ native driver records every completed detached effect or refuses an incomplete run (40.032734ms)
+✔ native settings reject modified tracked consumers and an interpreter importing another checkout (326.994978ms)
+✔ current native policy observes each clean checkout and refuses drift within a run (293.772988ms)
+✔ host settlement competes with callback-owned Promise jobs in native microtask order (2250.99564ms)
+✔ queued callbacks stay ahead of descendant microtasks and retain FIFO source completions (1811.226623ms)
+✔ yielding before a job preserves its queue and an exact resumable open archive (93.702095ms)
+✔ native yields preserve a cumulative work limit and abort unbounded owned microtasks (84.190073ms)
+✔ coverage selection retains a rare exception lost by identity-ordered capping (18.492886ms)
+✔ token/share caps remain hard when they conflict with coverage and can empty the selection (1.637881ms)
+✔ prepared selection preserves exact evaluation IDs and reports stage/coverage losses separately (12.242185ms)
+✔ native/source transitive split leaks and invented component labels refuse before selection (4.301187ms)
+✔ executed feature inventory distinguishes known absence from missing data (0.765605ms)
+✔ real reduced D receipt reports 541 prepared, 211 selected and unavailable semantic/consumed coverage (7.572566ms)
+✔ consumed windows retain repeated scored exposure without equating it to whole-row coverage (1.22349ms)
+✔ CLI authenticates original manifest bytes before producing a materializable sampler (200.202221ms)
+✔ only pinned acquired source identities can be assigned to native shards (3.943187ms)
+✔ native reference aggregator refuses gaps, duplicates and forged evidence (3.507693ms)
+✔ two exact-source native shards and offline aggregate provide complete evidence (1315.700262ms)
+✔ producer journal preserves original request bytes and whole precommit state across reopening (361.829916ms)
+✔ producer snapshots caller-owned bytes before the first storage await (273.200248ms)
+✔ producer refuses duplicate dispatch and newer intents fence stale recovery (539.128162ms)
+✔ two appenders cannot both own the same immutable request ordinal (229.550377ms)
+✔ producer refuses replaced request bytes, forged receipt, mismatched model and pending selection (294.521233ms)
+✔ producer rejects missing ordinal slots, byte limits and unsafe filesystem objects (385.336825ms)
+✔ commit bytes reject malformed UTF-8, multiple frames, duplicate fields and selection reuse (1.749762ms)
+✔ only a live original kernel lease can authorize a native transport (13.65442ms)
+✔ declared native result graphs enter only at delivery and preserve cycles and mutable aliases (222.560812ms)
+✔ native graph rejection retains its reason identity through synchronous guest catch (63.70727ms)
+✔ graph snapshots refuse accessors and undeclared result codecs before native data enters owned state (53.914674ms)
+✔ graph-result teacher survives independent source admission and serialized evidence checks (1913.455483ms)
+✔ source-certified checkpoint recovery changes observations without changing semantic selections (1782.308179ms)
+✔ native callback returns await original owned sync, async, and throwing closures (446.398432ms)
+✔ native return callback snapshots receiver, arguments, aliases and cycles before yielding (175.673071ms)
+✔ concurrent callback arrivals use FIFO capture cells and distinct return waiters (138.895211ms)
+✔ repeated owned callback handles retain one native trampoline identity (103.736529ms)
+✔ callback child may await another host request and callback before returning to its parent (372.467893ms)
+✔ return callback authority, stable identity and graph validation refuse without committing (22.111085ms)
+✔ read-only validation refuses a changed callback graph and receiver mapping (107.875183ms)
+✔ callback rest parameters cannot alias a same-shaped imported argument array (84.183839ms)
+✔ source-certified persistent callbacks occur after registration and close through actual selected serving (3180.662992ms)
+✔ root return preserves a native listener until a later owned callback closes its registration (201.439215ms)
+✔ one closure reused by two subscriptions retains the exact registration and close ownership (466.165584ms)
+✔ unsubscribe cancels queued arrivals, refuses stale callbacks and independently checks exact ownership (113.443556ms)
+✔ rejected unsubscribe retains the callback lifetime and rejected registration never opens it (114.281741ms)
+✔ cancellation and abnormal collection failure release the native subscription owner (64.271323ms)
+✔ real worker threads share the same Int32 memory (85.701718ms)
+✔ native Atomics.wait/notify wake an independent worker (68.821483ms)
+✔ native shared buffers work with BigInt64 atomics (67.438448ms)
+✔ native worker API refuses malformed agent inputs (1.350749ms)
+✔ real independent workers can rendezvous without serial scheduling (90.917729ms)
+✔ atomic publication exposes ordinary byte writes to a second worker (91.062407ms)
+✔ actual workers notify native Atomics.waitAsync without serializing agents (51.818379ms)
+✔ native concurrent agents observe grown shared byte storage after atomic publication (54.712188ms)
+✔ native growable-worker arguments reject malformed maximum lengths (1.892923ms)
+✔ natlang-shaped bounded scalar expression returns an independently replayable trace (155.400193ms)
+✔ natlang body and portable nested scope execute through owned guest code (67.903477ms)
+✔ object result is materialized from owned heap without returning guest handles (49.245333ms)
+✔ natlang executeAsync fulfills for supported synchronous guest code (44.098777ms)
+✔ TypeScript annotations and assertions lower to replayed owned JS with a source map (63.905279ms)
+✔ natlang EvalFailure identity is retained for unsupported TS-emitted JavaScript (9.041479ms)
+✔ live functions/capture cells cannot silently execute or serialize (4.824558ms)
+✔ fresh module seam and native timeouts fail closed (0.718808ms)
+✔ close and fork preserve independent environment lifecycle (21.210232ms)
+✔ step budget fails closed and never publishes a training trace (15.197885ms)
+✔ source imports reject unsafe prototype/host identities, without fallback (2.994867ms)
+✔ retained natlang module seam installs pure CJS export functions with owned execution (966.750296ms)
+✔ retained CJS seam refuses require/native guest execution with no successful trace (11.657062ms)
+✔ rejected trace sink rolls back callable module invocation history (129.889329ms)
+✔ pinned TypeScript-emitted CommonJS module retains real lexical cells (1300.887693ms)
+✔ failed trace hook leaves retained TypeScript CommonJS lexical state unchanged (380.832934ms)
+✔ pinned TypeScript const-function exports with chained initialization markers (2072.890294ms)
+✔ CommonJS empty markers and unowned exports fail closed (1.139312ms)
+✔ module admission rejects host accessors and proxies without invoking them (36.551904ms)
+✔ conservative CommonJS-to-owned-ESM lowering retains exported pure functions (530.365981ms)
+✔ CJS bridge rejects source-time arbitrary host calls and suspicious exports (7.107532ms)
+✔ failing retained trace hook does not commit module invocation (53.167862ms)
+✔ natlang async strict guest awaits out-of-order native inputs with replay (382.260385ms)
+✔ native async guest mutation is committed only after replay-verified completion (109.766666ms)
+✔ failed native service completion can be caught entirely inside the owned guest (60.773471ms)
+✔ unregistered native helper calls fail closed and do not emit success (15.336666ms)
+✔ closing the evaluator aborts outstanding native waits without a success archive (12.608109ms)
+✔ nested owned async lexical block keeps its await capability and replay (91.345879ms)
+✔ owned native async deadline aborts the native signal and does not publish a trace (34.316032ms)
+✔ bounded native deadline allows success and refuses malformed deadlines (71.790426ms)
+✔ natlang V8 differential: simple scalar expression (226.935795ms)
+✔ natlang V8 differential: typed shorthand and compound assignments (215.48303ms)
+✔ natlang V8 differential: owned typed arrow closures (120.552161ms)
+✔ natlang V8 differential: template substitutions (77.40235ms)
+✔ natlang V8 differential: bitwise number operators (172.144569ms)
+✔ natlang V8 differential: captured for-let iteration values (283.867634ms)
+✔ natlang V8 differential: owned object update and returned alias (161.49512ms)
+✔ natlang V8 differential: strict while loop (554.296335ms)
+✔ natlang V8 differential: caught TS guest exception (94.329875ms)
+✔ natlang V8 differential: unbound typeof and lexical unary (77.143098ms)
+✔ natlang V8 differential: TS optional property chains and nullish fallback (233.757957ms)
+✔ natlang V8 differential: TS optional computed property skips unneeded key evaluation (144.34294ms)
+✔ unsupported generated TypeScript cannot be accepted via the differential reference (14.783688ms)
+✔ an async natlang entry awaits owned fulfilled promises and replays exactly (383.687538ms)
+✔ owned async rejection reaches natlang EvalFailure, never a successful trace (32.230493ms)
+✔ live data mutations retain host aliases and the identity of returned values (146.618116ms)
+✔ mutating live data is rolled back on failed execution and invalid callbacks (56.139788ms)
+✔ retained data-only CommonJS module commits exports without losing aliases (246.677494ms)
+✔ retained module boundary refuses host callables and preserves state (4.507599ms)
+✔ null-prototype data objects retain their prototype at guest and host boundaries (146.615618ms)
+✔ synchronous onTrace closure blocks live-data commit and success (365.974929ms)
+✔ asynchronous native onTrace closure blocks live-data commit and success (183.428274ms)
+✔ synchronous callback cannot reenter owned execution, outer run still commits (180.145266ms)
+✔ pending native service blocks another call and releases on completion (50.886573ms)
+✔ retained CommonJS export callbacks cannot reenter the same module realm (489.704753ms)
+✔ failing synchronous trace callback rolls back a live mutation (47.739012ms)
+✔ direct CommonJS installation is retained-only and cannot reenter a trace callback (47.443936ms)
+✔ Natlang uses selected execution for real compiled JS and TypeScript expressions (107.766882ms)
+✔ selected module initializer exports an owned function trampoline with retained calls (229.22322ms)
+✔ declared native callable receives the actual selected graph once through the shared broker (86.859659ms)
+✔ a native asynchronous binding calls an owned guest closure through selected reentry (141.224385ms)
+✔ live cell publication invokes no getter and only a committed request reads its value (80.240469ms)
+✔ timeouts and close abort selection without subsequent native dispatch (24.152779ms)
+✔ retained native callbacks run in their source realm after the registering invocation completes (280.796667ms)
+✔ native callback resource inputs use declared envelopes and selected wrapper reentry (197.830553ms)
+✔ exported functions retain one live captured cell and one owned namespace across repeated calls (143.40264ms)
+✔ TS generated-site anchors refer to exact source bytes and remain private (501.285013ms)
+✔ mapping refuses forged source text instead of claiming original site provenance (17.429923ms)
+✔ native instrumentation preserves delete target and records actual mutation (242.821559ms)
+✔ delete through Proxy executes the guest trap once and is nonperturbing (54.64563ms)
+✔ native observation captures executed expressions, branch and return (120.201177ms)
+✔ TypeScript exports can be traced with unchanged source (42.625403ms)
+✔ array mutations and returned aliases survive the observed state diff (18.909088ms)
+✔ class methods, constructor and lexical iteration report effective operations (35.936054ms)
+✔ Map, Set, Date, RegExp content participates in real-world end-state comparison (27.540495ms)
+✔ getters, setters and proxy traps are executed without a snapshot-induced getter call (31.702053ms)
+✔ await and resume follow the actual async computation (12.54113ms)
+✔ guest callbacks have exact visible source spans and stable object identity (22.367917ms)
+✔ native console output is an independently compared side-effect record (13.801942ms)
+✔ arithmetic is an owned phase continuation with typed commands and source identities (126.324505ms)
+✔ primitive conversions preserve special numeric/string results and ordering (580.01287ms)
+✔ primitive abrupt completions are journaled, replayed and stop later effects (108.931066ms)
+✔ owned valueOf is an observable guest call with this and arithmetic continuation (244.403545ms)
+✔ unmodeled function object coercion stays unsupported and calls no host code (30.657776ms)
+✔ terminal guest throw or arithmetic failure cannot drain already queued jobs (188.140051ms)
+✔ JSON round trips at every phase preserve the continuation without native generator state (393.605059ms)
+✔ typed spec commands reject missing writes, wrong versions, malformed phases and provenance (48.19192ms)
+✔ a structurally coherent arithmetic lie is rejected by deterministic replay (52.511274ms)
+✔ noncanonical external scalar tags are refused before arrival commits (46.439414ms)
+✔ update expressions and unparenthesized unary or await exponentiation fail before execution (81.93467ms)
+✔ private host arrival cannot change arithmetic-visible prefixes before delivery (10.247907ms)
+✔ host abruptness stays private until delivery then differs from the same normal payload (33.597168ms)
+✔ dense array reverse/fill/copyWithin and immutable copy variants match V8 (213.554456ms)
+✔ copyWithin overlapping and negative-relative indexes preserve native semantics (94.864131ms)
+✔ fill preserves identical owned object aliases without host object coercion (72.600912ms)
+✔ Array.with validates out-of-bounds indices as owned guest RangeError (29.949588ms)
+✔ Array.copyWithin and fill reject unsupported index coercion without native fallback (13.462151ms)
+✔ async Promise constructor executor resumes after await without adoption (185.436342ms)
+✔ async executor throw rejects its ignored returned promise, not constructed Promise (58.635616ms)
+✔ async executor return alone does not settle the constructed promise (29.289013ms)
+✔ call and apply retain strict receivers, lexical arrows and original closure identities (993.542078ms)
+✔ apply reads array-like length then indexed values without consulting iteration (816.292887ms)
+✔ call adapters keep source argument evaluation order and user overrides (501.937667ms)
+✔ noncallable targets fail before array-like access and invalid scalar lists are guest errors (391.48551ms)
+✔ unmodeled apply accessors, coercions and builtin targets remain profile refusals (41.297587ms)
+✔ read-only archive validation rejects changed adapter arguments, receiver and read observations (151.670352ms)
+✔ pinned callback executes in an owned guest closure, with independently verified data (893.070218ms)
+✔ pinned comparator fixture extension preserves data arguments (0.828165ms)
+✔ unrecognized fixture scripts fail closed (1.140906ms)
+✔ ordinary data definitions apply false defaults and preserve omitted descriptor fields (619.634028ms)
+✔ nonconfigurable data definitions preserve SameValue and reject incompatible changes (527.224064ms)
+✔ prototype-named data descriptor flags survive subsequent steps and archive serialization (232.78828ms)
+✔ configurable accessors and data definitions change kind without calling the old getter (493.981048ms)
+✔ distinct Symbol data descriptors pass source, metadata and public checkpoint rechecks (3428.723327ms)
+✔ prototype-named data descriptors retain independent flags through source and public checkpoint rechecks (2249.777859ms)
+✔ Object.keys, values and entries agree with V8 for owned ordinary data (580.423735ms)
+✔ Array.at relative indexing agrees with V8, including NaN and bounds (439.84511ms)
+✔ unmodeled exotic enumeration fails without invoking native functions (174.310077ms)
+✔ 20 independently pinned real JS proof implementations pair with canonical inputs (187.692126ms)
+✔ function-only ESM lowerer preserves computation and rejects top-level effects (99.447413ms)
+✔ original leap proof and canonical input pass owned independent recheck (961.811779ms)
+✔ canonical identity and split are stable by exercise, not input (46.265322ms)
+✔ explicit JavaScript canonical bindings preserve original inputs and exact BigInt integer tokens (48.065825ms)
+✔ active canonical replacements retain the superseded identity without replaying obsolete inputs (43.000978ms)
+✔ the two-fer JavaScript binding records omission while retaining the neutral null input (35.593731ms)
+✔ grains expectations retain exact pinned decimal bytes and require actual BigInt results (34.884019ms)
+✔ exact grains expectations work without JSON.parse reviver source context (39.292958ms)
+✔ deterministic generated variants stay distinct from canonical provenance (30.516974ms)
+✔ source-site audit maps original function bodies without guessing synthetic keywords (280.050823ms)
+✔ ordinary own vs inherited data respects a linked prototype (425.899897ms)
+✔ Object.setPrototypeOf changes subsequent inherited reads (93.575923ms)
+✔ Object.create(null) does not inherit Object.prototype methods (65.032325ms)
+✔ cyclic prototype assignment is a guest TypeError, not an interpreter error (145.972306ms)
+✔ owned getter and setter observe receiver and trace their nested calls (344.420073ms)
+✔ inherited getter executes with child receiver instead of prototype (179.10737ms)
+✔ getters that return methods preserve the receiver during calls (153.422233ms)
+✔ throw from an owned getter reaches a guest catch block (125.28399ms)
+✔ non-configurable accessor cannot be redefined (184.390356ms)
+✔ Proxy get trap receives target, key and receiver with guest identity (175.027945ms)
+✔ Proxy set trap mutates the target and assignment returns its RHS (245.893071ms)
+✔ a transparent Proxy forwards data gets and sets to the owned target (153.431368ms)
+✔ Proxy method interception retains proxy as this receiver (131.906134ms)
+✔ Proxy get trap exception propagates as an owned guest completion (87.473554ms)
+✔ invalid Proxy constructor arguments are catchable guest TypeErrors (93.962186ms)
+✔ accessor-based numeric coercion fails closed with a reconstructible unsupported trace (75.888922ms)
+✔ growable SAB expands zero-filled byte heap and tracking Int16 views (4.794302ms)
+✔ guest grow and length-tracking view agree with independent V8 (596.625514ms)
+✔ unbounded view subarray tracks subsequent growth and fixed view does not (322.528066ms)
+✔ SAB growable, maxByteLength and invalid growth are observable (332.346509ms)
+✔ ordinary fixed SAB refuses grow with catchable TypeError (97.245561ms)
+✔ separate Date.now requests are journaled and replay never reads clock (452.628596ms)
+✔ typed natlang guest clock uses only explicit native service (293.132137ms)
+✔ ungranted Date.now cannot read ambient V8 time (13.149252ms)
+✔ journaled console effects preserve call order and never replay native writers (316.743798ms)
+✔ natlang console text reaches its logs and stays traceable (238.801115ms)
+✔ Reflect.has observes ordinary own and inherited properties like the native runtime (310.263055ms)
+✔ Reflect.has rejects a primitive target before property-key conversion (71.141649ms)
+✔ delete and Reflect.deleteProperty honor configurable own descriptors (280.575265ms)
+✔ Reflect.deleteProperty supports omitted and extra property-key arguments (189.418479ms)
+✔ delete converts null and undefined keys to ordinary property names (148.356318ms)
+✔ Reflect.deleteProperty rejects primitive targets as catchable TypeErrors (52.880908ms)
+✔ Reflect operations validate targets before an object key and deletion authenticates error identity (473.930601ms)
+✔ deletion keeps escaped string keys separate from Symbol identities (99.312516ms)
+✔ no-op deletion rejects unrelated mutation and a forged non-strict throw (66.980198ms)
+✔ virtual function name and length deletion stops before reporting a false result (36.808545ms)
+✔ delete retains strict failures and boxed-string exotic indices (70.599936ms)
+✔ Reflect retained object keys run after all arguments and preserve the actual target (534.845327ms)
+✔ Reflect object-key coercion retains thrown identity and does not mutate target (197.450221ms)
+✔ bounded literal matching uses ordered nonoverlapping UTF-16 matches (13.91836ms)
+✔ global callback replacement resets lastIndex before all callbacks and preserves their writes (1949.76874ms)
+✔ replacement checkpoints retain callback progress without repeating completed effects (191.167969ms)
+✔ frozen RegExp interaction passes the common source and public replay gates (3880.481965ms)
+✔ owned queueMicrotask shares FIFO jobs with Promise reactions (481.404754ms)
+✔ nested guest microtask preserves end-of-turn order and exact replay (188.849103ms)
+✔ non-callable microtask callback is an owned guest TypeError (37.920936ms)
+✔ forged microtask queue order fails independent reconstruction (34.355362ms)
+✔ owned Object.assign merges only own data and preserves nested reference aliases (352.179839ms)
+✔ Object.assign copies owned dense array enumerable indices but not length (47.472093ms)
+✔ Object.assign skips non-enumerable class and template data properties (603.474808ms)
+✔ Object.assign retains enumerable symbol values and ordinary own-key order (406.10251ms)
+✔ Object.assign writes the same target object identity and avoids native fallback (141.396106ms)
+✔ Object.assign admits simple scalar-free candidate traces through independent V8 gate (233.125344ms)
+✔ Object.assign rejects unsafe exotic sources without returning successful guest values (22.025125ms)
+✔ ordinary object and dense primitive-array default conversion agree with Node scalar values (512.995885ms)
+✔ guest valueOf, fallback to toString, and this are observable and ordered (168.170066ms)
+✔ non-callable own conversion properties are skipped, then throw TypeError (92.921507ms)
+✔ a guest method throw propagates through the pending coercion operation (60.845109ms)
+✔ complex arrays fail closed rather than invoking host coercion (32.507907ms)
+✔ forged own-property [[Get]] value and producer are rejected by validator (42.086202ms)
+✔ prototype-dangerous own keys still have deterministic property history (53.418907ms)
+✔ async conversion methods are refused before starting an unowned continuation (34.604549ms)
+✔ structural validator rejects conversion child with a forged this receiver (54.373899ms)
+✔ Number retains getter-selected methods with the original receiver and number hint (1502.625238ms)
+✔ Number getter fallback selects each live property once and preserves thrown identities (1238.767512ms)
+✔ every Number getter and method boundary restores from plain JSON without duplicated lookup (1015.680992ms)
+✔ independent Number archive checks reject wrong lookup, fallback, hint and return decisions (293.387386ms)
+✔ Promise executor is synchronous and first resolution wins (273.242076ms)
+✔ executor throw causes owned rejection (96.095658ms)
+✔ executor throw consumes its resolving pair before retained resolver calls (152.50003ms)
+✔ executor throw after resolve does not supersede earlier completion (117.431313ms)
+✔ constructor bad executor is catchable TypeError (60.070775ms)
+✔ Promise aliases share data, accessor descriptors and the actual getter/setter receiver (1231.445494ms)
+✔ Promise prototype is shared, live, and has ordinary descriptor identity (817.88287ms)
+✔ PromiseResolve constructor lookup is synchronous, exactly once and reentrant (379.948853ms)
+✔ await constructor getters preserve microtasks, cleanup and thrown getter identity (969.990094ms)
+✔ nondefault constructor and live then getter retain PromiseResolve adoption order (619.092163ms)
+✔ throwing constructor getters during assimilation reject only their adopting promise (932.865186ms)
+✔ finally cleanup PromiseResolve and SpeciesConstructor preserve getter and competing-job order (2472.494914ms)
+✔ then and finally perform ordered constructor/species lookups and reject invalid descriptors (826.982609ms)
+✔ finally selects then between its own species lookup and the selected intrinsic then constructor lookup (2536.327317ms)
+✔ finally refuses a then override installed by constructor or species before it can become a caught success (351.260237ms)
+✔ data constructor species getters validate own and inherited identity, reentry, throws, adoption and finally cleanup (3473.655494ms)
+✔ direct species getter restoration retains its selected data constructor and rejects substituted source authority (636.071315ms)
+✔ Promise prototype changes and nonextensibility use the same ordinary storage (554.899313ms)
+✔ own reflection never invokes inherited or own getters, and call/apply retain the actual receiver (565.532874ms)
+✔ unsupported Promise species allocation cannot become a caught-error success (73.565553ms)
+✔ Promise static and prototype methods reject altered receivers before their callbacks run (520.015678ms)
+✔ constructor getter checkpoints restore without repeating effects and reject altered receivers and source inputs (350.950859ms)
+✔ standalone original scripts reflect live global var and function cells but exclude lexical cells (1078.87053ms)
+✔ separate original scripts retain the same global object-backed cells across later declarations (406.734327ms)
+✔ own function name and length presence agrees across static and adapted reflection (861.594725ms)
+✔ Promise prototype lookup follows owned function data and inherited accessors with the Promise receiver (507.512141ms)
+✔ unmodeled function prototype metadata remains an explicit refusal outside guest catch (21.950873ms)
+✔ Promise in-operator checks retain pristine and live shared prototype properties without invoking getters (485.864805ms)
+✔ ordinary property lookup does not enumerate unrelated Promise storage or materialize its prototype (1.121855ms)
+✔ adapted own-property reflection converts numeric special values to their actual string keys (662.105649ms)
+✔ array hasOwnProperty inherits the Object builtin after own and explicit prototype overrides (457.493677ms)
+✔ descriptor conversion rejects invalid get before reading a later set accessor (2363.617956ms)
+✔ descriptor accessor fields that are actually reached retain their outside-guest refusal (136.9214ms)
+✔ pending Promise adoption preserves both assimilation and reaction jobs (779.939867ms)
+✔ already settled and rejected Promise adoption cannot overtake queued work (1098.603706ms)
+✔ repeated thenable identity is allowed and stale resolving pairs stay consumed (390.597338ms)
+✔ a finite thenable chain can exceed the former identity/length heuristic (38238.657437ms)
+✔ mutually adopting distinct Promises remain pending; only direct self-resolution rejects (361.370781ms)
+✔ an unending thenable exhausts execution resources without a fabricated guest rejection (870.41572ms)
+✔ callable finally retains primitive/Promise/thenable cleanup job ordering (6000.375769ms)
+✔ finally throws and rejected cleanup replace the original outcome at the correct job (1737.526178ms)
+✔ async callbacks publish their promise after synchronous work and their first suspension (4652.154387ms)
+✔ pending adoption, assimilation, finally and async callback boundaries restore from JSON (7787.370096ms)
+✔ forged adoption target or resolving owner is rejected independently (491.405779ms)
+✔ generator constructor and species getters refuse before entry and cannot become a caught success (2187.584007ms)
+✔ async finally suspension and throw retain cleanup getter ownership and exact restoration (9193.531439ms)
+✔ an async finally cleanup getter throw rejects the matching result while the callback resumes (1897.985428ms)
+✔ await retains the selected wrapper and synchronous then getter invocation before suspension (2718.496795ms)
+✔ thenable entry authenticates the invocation cause, active frame and exact captured environment (1246.383288ms)
+✔ constructor getter throws require the current pending destination and exact opaque rejection token (1185.281219ms)
+✔ nested helper and reentrant constructor throws retain their actual unwind chain and destination (5536.884214ms)
+✔ arrow constructor getters retain lexical this independently of the Promise property receiver (1044.094667ms)
+✔ then getter runs synchronously once and the captured method runs as a job with its receiver (1233.173473ms)
+✔ throwing then getter rejects the Promise without escaping resolve or violating first-call ownership (726.397678ms)
+✔ noncallable then getter fulfills with the original identity (404.63998ms)
+✔ nested synchronous then getters preserve both caller continuations (1131.173828ms)
+✔ thenable resolution reads a nested then getter before returning to the old then method (823.779269ms)
+✔ then getters during async return and await execute before the caller resumes (1874.967639ms)
+✔ then and finally result getters retain reaction completion and competing microtask order (6001.196482ms)
+✔ Promise combinators complete each then lookup before beginning the next one (3997.932348ms)
+✔ Promise combinator array iteration observes mutations and holes after each getter (1454.011823ms)
+✔ inherited and callable-object then getters are owned, with the original receiver (944.059432ms)
+✔ Proxy then lookup uses the trap receiver and rechecks the live target invariant (1294.116681ms)
+✔ async then getter returns its Promise as a noncallable method without awaiting it (464.005355ms)
+✔ then lookup JSON restoration does not repeat already executed getter work (681.341011ms)
+✔ Promise executor and thenable adoption preserve guest microtask FIFO (979.087833ms)
+✔ thenable throw rejects only once and can be caught in owned handlers (543.575641ms)
+✔ nested thenable and Promise adoption also works for Promise.all (382.365571ms)
+✔ allSettled returns per-input outcomes and does not short circuit (310.030313ms)
+✔ Promise.any takes first fulfillment and aggregates all rejected reasons (668.387686ms)
+✔ allSettled empty and any empty settle with expected shape (428.004997ms)
+✔ attempt to forge queued thenable function identity is rejected (110.147721ms)
+✔ Promise.withResolvers first settlement wins after synchronous code (450.917657ms)
+✔ Promise.withResolvers assimilates thenables on FIFO jobs (346.416029ms)
+✔ Promise.withResolvers resolution can be deferred to virtual timer (163.854743ms)
+✔ Promise.withResolvers returns own callable resolve and reject properties (235.336918ms)
+✔ computed reads and method calls use string hint and preserve receiver/key/argument order (3510.483824ms)
+✔ ordinary key fallback gets toString then valueOf lazily and skips noncallable values (4122.68963ms)
+✔ ToPropertyKey preserves Symbol identity and the disjoint escaped string namespace (1616.815586ms)
+✔ simple assignment converts after RHS and retains the originally evaluated base and key (1972.054343ms)
+✔ computed literal/class keys convert before values and destructuring caches rest exclusions (2852.907821ms)
+✔ ES2026 cached reference key is used once by compound/logical/update reads and writes (6536.896401ms)
+ℹ v24.22.3 differs from pinned ES2026 cached-reference semantics for o[key]+=(log+="r",2)
+ℹ v24.22.3 differs from pinned ES2026 cached-reference semantics for o[key]&&=(log+="r",2)
+ℹ v24.22.3 differs from pinned ES2026 cached-reference semantics for o[key]||=(log+="r",2)
+ℹ v24.22.3 differs from pinned ES2026 cached-reference semantics for o[key]??=(log+="r",2)
+ℹ v24.22.3 differs from pinned ES2026 cached-reference semantics for o[key]++
+ℹ v24.22.3 differs from pinned ES2026 cached-reference semantics for ++o[key]
+ℹ v24.22.3 differs from pinned ES2026 cached-reference semantics for o[key]--
+ℹ v24.22.3 differs from pinned ES2026 cached-reference semantics for --o[key]
+✔ cached compound/logical keys survive target getters/setters and RHS method mutation (1910.011673ms)
+✔ nullish base fails before conversion, after RHS only for simple assignment (2821.48181ms)
+✔ key faults preserve original exceptions, partial effects, finally and nested conversion state (3984.794167ms)
+✔ every key lookup/call/return boundary and cached reference restores without reevaluation (8269.669616ms)
+✔ host blocking inside nested key/Number hooks retains both continuations through JSON restore (1432.703325ms)
+✔ independent reference checks reject wrong pc, operands, cache, receiver, phase, hint and result (509.074295ms)
+✔ unowned key conversion profiles refuse while registered ordinary conversions receive source/public admission (8336.691607ms)
+✔ own descriptor reflection never fabricates descriptors from metadata prototypes (5236.012412ms)
+✔ literal accessor metadata uses own names and preserves insertion order through conversion and restore (3553.04152ms)
+✔ literal __proto__ data and accessors retain own metadata without mutating metadata prototypes (1502.358597ms)
+✔ Object.create walks inherited data and preserves own shadowing (401.628392ms)
+✔ inherited methods receive child receiver and are replayed as guest calls (271.502912ms)
+✔ Object.setPrototypeOf and getPrototypeOf operate on owned identities (257.025913ms)
+✔ null prototype has no default Object methods (119.915928ms)
+✔ inherited valueOf executes owned coercion with the original this receiver (217.325853ms)
+✔ cyclic prototype mutation throws a catchable guest TypeError (185.422434ms)
+✔ a forged inherited method producer/version is rejected (178.033109ms)
+✔ Proxy has calls preserve selected trap identity and reflect callback target mutations (1431.995069ms)
+✔ Proxy has invariants inspect the target after the trap returns and thrown trap values preserve identity (943.189421ms)
+✔ Proxy delete forwards to the target and enforces non-configurable and non-extensible invariants (1021.582715ms)
+✔ Proxy delete false results become strict delete TypeErrors while missing own properties may be reported deleted (353.223781ms)
+✔ Proxy has/delete convert an object key before selecting the retained trap exactly once (1920.89338ms)
+✔ strict Proxy delete reports V8 trap-false message using the converted property key (510.6889ms)
+✔ strict direct Proxy delete faults preserve native TypeError message (260.151656ms)
+✔ Proxy delete retains a selected trap through handler mutation and checks target state after return (393.13908ms)
+✔ a pre-existing caught object is not mistaken for a new Proxy invariant fault (310.413031ms)
+✔ Proxy has retains an arrow trap constructor lexical receiver (337.711368ms)
+✔ null and undefined Proxy get/set traps both forward through the live target (2000.770057ms)
+✔ Proxy routing rereads live trap values and preserves genuine guest trap calls (1008.897189ms)
+✔ Proxy set trap false results throw in strict callers after the callback completes (4707.123678ms)
+✔ strict false Proxy set preserves the native caller message and loose assignment value (981.402579ms)
+✔ Proxy get and set invariants preserve frozen target data and actual reference identities (4969.741299ms)
+✔ Proxy invariants inspect live target descriptors after callback finally completion (2681.47603ms)
+✔ Object.is has SameValue signed-zero, NaN and reference identity semantics (1909.467511ms)
+✔ dense Array.includes uses SameValueZero, fromIndex and owned identity (5507.089328ms)
+✔ Array.isArray sees nested Proxy array targets without invoking get traps (813.853442ms)
+✔ original assert.throws observes declared owned error constructor identity (6602.324114ms)
+✔ ordinary in checks owned descriptor presence, prototype ancestry and symbols without invoking accessors (6863.049235ms)
+✔ original async harness records owned print after Promise reaction jobs and rejects forged output (3010.672874ms)
+✔ owned global scripts retain original source bytes and share declarations only when entered (678.201413ms)
+✔ a strict test does not change the strictness of prior separately parsed harness functions (219.610025ms)
+✔ official pinned assert and sta execute unchanged, including a real failing assertion (4664.205783ms)
+✔ script entry rejects forged state, source, invocation and unrelated sequence mutation (256.97564ms)
+✔ a failed earlier script never executes later source and declaration collisions fail closed (56.83596ms)
+✔ ordinary scripts do not receive the linked module namespace constructor (48.256809ms)
+✔ an ordinary script cannot call the generated module namespace constructor (581.873679ms)
+✔ DataView aliases shared bytes in both endian modes (17.256703ms)
+✔ DataView BigInt, float and byte-range checks (3.649417ms)
+✔ DataView growable byte length tracking (2.751425ms)
+✔ DataView mixed endian accesses alias native typed array bytes (1209.607262ms)
+✔ DataView float and signed view reads match native V8 (414.676304ms)
+✔ DataView signed and unsigned BigInt reads preserve byte identity (143.809307ms)
+✔ length-tracking DataView follows shared buffer growth (483.046776ms)
+✔ DataView out-of-bounds read is a catchable owned RangeError (161.709833ms)
+✔ two owned Int32Array views alias one shared buffer (865.348268ms)
+✔ Int32 wrap and compare-exchange agree with independent V8 (460.483888ms)
+✔ single-agent wait with timeout zero and notify (315.74534ms)
+✔ direct shared typed array stores alias indexed and atomic reads (98.572037ms)
+✔ different owned typed array widths alias the same SAB byte storage (325.585422ms)
+✔ offset subarrays and shared buffer slice preserve byte-level semantics (429.763571ms)
+✔ owned bytes alias across integer, unsigned, floating and BigInt views (21.164632ms)
+✔ owned byte offsets and subarray bounds (3.240653ms)
+✔ atomic coercion, return values and mixed aliases (3.743923ms)
+✔ typed-array semantics reject noninteger atomics and invalid element widths (1.911289ms)
+✔ Atomics.store returns untruncated integer, unlike the stored lane (12.019534ms)
+✔ thenable runs after synchronous code with original receiver (1128.55493ms)
+✔ executor resolver assimilates thenable adopting another promise (533.938613ms)
+✔ thenable callback throw rejects promise (508.793796ms)
+✔ forged queued thenable fails independent reconstruction (151.072845ms)
+✔ bounded timers run after microtasks in deadline order (817.603906ms)
+✔ interval callback can cancel itself (1126.310997ms)
+✔ clearTimeout removes a pending task (96.793594ms)
+✔ Promise.all awaits values and preserves input positions (497.571928ms)
+✔ Promise.race and Promise.all(empty) settle on owned jobs (913.13806ms)
+✔ forged task clock fails independent reconstruction (98.489468ms)
+✔ pinned original Axios helper body has unchanged exact-source span (279.028723ms)
+✔ actual pinned production functions produce independently checked owned candidates or refusals (17098.906571ms)
+✔ tampered real vendor source refuses execution before any V8/owned check (6.509082ms)
+✔ pinned production arrow-body projection preserves original expression bytes (59.936781ms)
+✔ pinned Axios closure factory runs as a real owned nested closure or refuses (10882.364922ms)
+✔ modified vendor bytes refuse original factory extraction (7.012626ms)
+✔ then reactions and await resume in FIFO subscription order (1212.293726ms)
+✔ a thrown then handler rejects and finally preserves the original reason (573.119556ms)
+✔ non-callable handlers pass through and callable catch recovers (387.405732ms)
+✔ async then callback resolves through its owned inner guest promise (527.831348ms)
+✔ finally defers fulfillment until returned host-backed guest promise settles (341.334131ms)
+✔ returned self-reference rejects the derived promise with guest TypeError (226.293777ms)
+✔ pending host promise queues callback only after public delivery (387.553103ms)
+✔ forged reaction job order fails structural validation (161.660751ms)
+✔ generator delegation runs Array.push cleanup exactly once before returning (22646.789894ms)
+✔ push and pop preserve live length, sparse prefixes and shared element identity (11908.019353ms)
+✔ array mutation preserves Symbol values without erasing their identity (8696.502566ms)
+✔ unsupported method replacement cannot be silently treated as builtin array mutation (424.155491ms)
+✔ construction records have exact fields and no opaque bytecode or whole-state payload (33.975739ms)
+✔ empty registered construction state cannot hide rich callable or private heap metadata (30.387671ms)
+✔ class linking installs real descriptor and prototype distinctions (7.943928ms)
+✔ method home and initializer ownership remain immutable (19.425638ms)
+✔ private fields preserve separate class identities and writes agree with native private state (39.373308ms)
+✔ private brand, readonly method and duplicate identity failures leave staged state unchanged (12.263059ms)
+✔ restoration rejects forged capability, home, brand and private version metadata (7.97926ms)
+✔ base construction selects newTarget prototype and substitutes primitive returns (34.770936ms)
+✔ base fields run before body with an independently retained receiver and argument list (23.299968ms)
+✔ derived super binding runs fields before completing the call and retains the actual newTarget (40.54338ms)
+✔ a throwing base initializer completes construction without entering its body (38.556275ms)
+✔ a throwing derived initializer retains initialized this before body propagation or recovery (106.615296ms)
+✔ constructor continuations reject false receivers results order and duplicate super bindings atomically (36.173628ms)
+✔ independent class metadata observes actual descriptors prototypes and private fields (1032.690616ms)
+✔ unused declared classes still root static private and function metadata after evaluation (150.275392ms)
+✔ same-spelled private brands and private methods preserve distinct lexical owners (673.624116ms)
+✔ anonymous inferred class names and repeated source class evaluation retain observed identities (1026.831863ms)
+✔ private values descriptor flags and hidden home links cannot disappear behind a scalar result (414.034021ms)
+✔ metadata readers do not call ordinary getters and reject private accessors or Proxies (40.840256ms)
+✔ ordinary getter capabilities remain visible without inventing function descriptors (664.459859ms)
+✔ independent construction capability probes neither invoke functions nor read their prototypes (8.211683ms)
+✔ ordinary constructor observations retain lazy prototype descriptors backlinks and receiver identities (135.910401ms)
+✔ construction metadata defers actual Promise brands and preserves resolving-function capabilities (15.454564ms)
+✖ synthetic constructor and initializer identities require exact source definitions (81.795349ms)
+✖ private accessors cannot masquerade as supported private initializer definitions (8.267676ms)
+✔ ordinary object methods and accessors have exact source callable membership (9.855939ms)
+✔ ordinary constructors have exact source membership separate from methods and intrinsic construction (29.613516ms)
+✔ issue51 retained constructor arrows source-qualify after super substitution and conversion (41972.358964ms)
+✔ derived this reads before super allocate a native ReferenceError directly and through a captured arrow (13392.363305ms)
+✔ constructor-captured arrows dispatch as Promise reactions with their retained receiver and newTarget (29948.236786ms)
+✔ caught guest throws in Promise reactions restore the caller completion after dispatch (6223.282717ms)
+
+Interrupted while running:
+
+⚠ test/protocol-construction-source.test.js (test/protocol-construction-source.test.js:1:1)
+⚠ test/protocol-literal-definition.test.js (test/protocol-literal-definition.test.js:1:1)
+⚠ test/protocol-memory-observation.test.js (test/protocol-memory-observation.test.js:1:1)
+⚠ test/protocol-number-component.test.js (test/protocol-number-component.test.js:1:1)
+⚠ test/protocol-property-update-source.test.js (test/protocol-property-update-source.test.js:1:1)
+⚠ test/protocol-source-capture-and-descriptor.test.js (test/protocol-source-capture-and-descriptor.test.js:1:1)
+✖ test/protocol-construction-source.test.js (107097.477021ms)
+✔ object literal methods define own data properties without reading inherited intrinsic function values (3039.814396ms)
+✔ object literal definitions do not call an inherited setter (2736.544566ms)
+✔ ordinary assignment can shadow writable inherited Object methods (1732.03758ms)
+✔ shadowing preserves readonly own data and accessor refusal boundaries (27.29413ms)
+✔ binary metadata remains independently checked without the detached intrinsic getter (447.129149ms)
+✔ Number protocol has exact semantic records and explicitly converts BigInt or scalar input (47.352006ms)
+✔ Number captures a live Symbol.toPrimitive method and calls it once with number hint and receiver (29.61878ms)
+✔ ordinary fallback skips noncallable valueOf and validates the live toString callback (23.48192ms)
+✔ ordinary intrinsic fallback checks Object.valueOf then Object.toString and toStringTag data (22.137347ms)
+✔ false method result ordering and forged retained state fail without committing a partial conversion (39.750702ms)
+✔ rejected direct Number entries never initialize conversion state (10.67085ms)
+✔ Number scalar work bounds apply before retaining inputs and callback results (20.880987ms)
+✔ ordinary Number conversion skips noncallable Promise values but rejects exotic toPrimitive (26.944327ms)
+✔ Number restore requires a live parent until conversion completes (5.219214ms)
+✔ Number abrupt callback completion is exact, terminal and cannot fall through to toString (14.441327ms)
+✔ class public-field updates preserve numeric conversion and prefix/postfix values (61667.158558ms)
+✔ Symbol-keyed updates keep the committed value and original Symbol identity (11576.988231ms)
+✖ test/protocol-source-capture-and-descriptor.test.js (1901.617495ms)
+✖ test/public-api.test.js
+✖ test/qualification-costs-v8.test.js
+✖ test/qualification-progress.test.js
+✖ test/qualify-support-lifecycle.test.js
+✖ test/real-corpus-quality.test.js
+✖ test/reference-isolation.test.js
+✖ test/reference-shrinker.test.js
+✖ test/rejection-propagation.test.js
+✖ test/release-campaign.test.js
+✖ test/release-training-selection.test.js
+✖ test/replay.test.js
+✖ test/restore-release-campaign.test.js
+✖ test/retained-serving-costs.test.js
+✖ test/retained-session-integrity.test.js
+✖ test/runtime.test.js
+✖ test/selected-browser-capabilities.test.js
+✖ test/selected-capability-lifecycle.test.js
+✖ test/selected-node-capabilities.test.js
+✖ test/selected-orchestration-clock.test.js
+✖ test/selected-orchestration-execution-lock.test.js
+✖ test/selected-test262.test.js
+✖ test/semantic-algorithm-codec.test.js
+✖ test/semantic-algorithm-compiler.test.js
+✖ test/semantic-algorithm-comprehension.test.js
+✖ test/semantic-algorithm-core.test.js
+✖ test/semantic-algorithm-evaluation.test.js
+✖ test/semantic-algorithm-execution.test.js
+✖ test/semantic-algorithm-lowering.test.js
+✖ test/semantic-algorithm-reduce.test.js
+✖ test/semantic-algorithm-tokenizer.test.js
+✖ test/semantic-algorithm-v8-core.test.js
+✖ test/semantic-algorithm-v8-lowering.test.js
+✖ test/semantic-algorithm-v8-render.test.js
+✖ test/semantic-array-map-live-source-v8.test.js
+✖ test/semantic-async-call-source-v8.test.js
+✖ test/semantic-async-iteration-bindings-v8.test.js
+✖ test/semantic-async-iteration-source-v8.test.js
+✖ test/semantic-async-return-adoption-composition-source-v8.test.js
+✖ test/semantic-binding-order.test.js
+✖ test/semantic-bound-module-scheduler-v8.test.js
+✖ test/semantic-call-adapters-source-v8.test.js
+✖ test/semantic-callback-boundaries-v8.test.js
+✖ test/semantic-callback-entry-identity-v8.test.js
+✖ test/semantic-causal-lm-v8.test.js
+✖ test/semantic-checkpoint-authority-v8.test.js
+✖ test/semantic-checkpoint-canonical-v8.test.js
+✖ test/semantic-detail-v8.test.js
+✖ test/semantic-diagnostics.test.js
+✖ test/semantic-durable-action-recovery-v8.test.js
+✖ test/semantic-durable-ingress-v8.test.js
+✖ test/semantic-durable-return-callback-v8.test.js
+✖ test/semantic-durable-service-v8.test.js
+✖ test/semantic-effectful-teacher-v8.test.js
+✖ test/semantic-enumeration-source-v8.test.js
+✖ test/semantic-error-object-source-v8.test.js
+✖ test/semantic-event-authority-v8.test.js
+✖ test/semantic-execution-core.test.js
+✖ test/semantic-execution-study-v8.test.js
+✖ test/semantic-host-ingress-journal-v8.test.js
+✖ test/semantic-host-recovery-v8.test.js
+✖ test/semantic-installed-qualification-v8.test.js
+✖ test/semantic-intrinsic-error-machine-v8.test.js
+✖ test/semantic-issue51-collections-source-v8.test.js
+✖ test/semantic-issue51-source-v8.test.js
+✖ test/semantic-known-bootstrap-builder-v8.test.js
+✖ test/semantic-known-bootstrap-history-v8.test.js
+✖ test/semantic-known-close-builder-v8.test.js
+✖ test/semantic-known-close-history-v8.test.js
+✖ test/semantic-known-commit-builder-v8.test.js
+✖ test/semantic-known-commit-history-v8.test.js
+✖ test/semantic-known-service-close-history-v8.test.js
+✖ test/semantic-lifecycle-v8.test.js
+✖ test/semantic-local-state-compaction.test.js
+✖ test/semantic-module-namespace-compile-only-v8.test.js
+✖ test/semantic-module-namespace-machine-v8.test.js
+✖ test/semantic-module-namespace-runtime-capture-v8.test.js
+✖ test/semantic-module-namespace-source-boundary-v8.test.js
+✖ test/semantic-module-namespace-source-owners-v8.test.js
+✖ test/semantic-module-namespace-source-projection-v8.test.js
+✖ test/semantic-module-namespace-source-sites-v8.test.js
+✖ test/semantic-module-namespace-source-sync-gate-v8.test.js
+✖ test/semantic-module-namespace-state-v8.test.js
+✖ test/semantic-module-namespace-typeof-v8.test.js
+✖ test/semantic-module-scheduler-admission-v8.test.js
+✖ test/semantic-module-scheduler-source-v8.test.js
+✖ test/semantic-module-scheduler-state-v8.test.js
+✖ test/semantic-module-v8.test.js
+✖ test/semantic-native-durable-bootstrap-v8.test.js
+✖ test/semantic-native-durable-close-v8.test.js
+✖ test/semantic-native-durable-commit-v8.test.js
+✖ test/semantic-native-module-namespace-state-v8.test.js
+✖ test/semantic-native-module-scheduler-state-v8.test.js
+✖ test/semantic-native-orchestration-recovery-v8.test.js
+✖ test/semantic-native-orchestration-transport-v8.test.js
+✖ test/semantic-native-process-v8.test.js
+✖ test/semantic-native-promise-slots-v8.test.js
+✖ test/semantic-native-source-reader-v8.test.js
+✖ test/semantic-native-v8.test.js
+✖ test/semantic-notation-experiment.test.js
+✖ test/semantic-orchestration-training-v8.test.js
+✖ test/semantic-primitive-conversion-machine-v8.test.js
+✖ test/semantic-primitive-conversion-observations-v8.test.js
+✖ test/semantic-primitive-conversion-source-v8.test.js
+✖ test/semantic-promise-adoption-getter-source-v8.test.js
+✖ test/semantic-promise-mutation-profile-source-v8.test.js
+✖ test/semantic-promise-object-observations-v8.test.js
+✖ test/semantic-promise-object-profile-source-v8.test.js
+✖ test/semantic-promise-object-review-source-v8.test.js
+✖ test/semantic-promise-object-review-v8.test.js
+✖ test/semantic-promise-object-source-v8.test.js
+✖ test/semantic-promise-object-v8.test.js
+✖ test/semantic-promise-source-observations-v8.test.js
+✖ test/semantic-protocol-array-spread-v8.test.js
+✖ test/semantic-protocol-capture-v8.test.js
+✖ test/semantic-protocol-collection-iterator-v8.test.js
+✖ test/semantic-protocol-collection-v8.test.js
+✖ test/semantic-protocol-completion-source-v8.test.js
+✖ test/semantic-protocol-composition-v8.test.js
+✖ test/semantic-protocol-custom-iterator-source-v8.test.js
+✖ test/semantic-protocol-enumeration-source-v8.test.js
+✖ test/semantic-protocol-enumeration-v8.test.js
+✖ test/semantic-protocol-extensions-v8.test.js
+✖ test/semantic-protocol-generator-source-v8.test.js
+✖ test/semantic-protocol-generator-v8.test.js
+✖ test/semantic-protocol-host-v8.test.js
+✖ test/semantic-protocol-iterable-binding-source-v8.test.js
+✖ test/semantic-protocol-iterator-source-v8.test.js
+✖ test/semantic-protocol-iterator-v8.test.js
+✖ test/semantic-protocol-memory-source-v8.test.js
+✖ test/semantic-protocol-memory-v8.test.js
+✖ test/semantic-protocol-nested-array-binding-v8.test.js
+✖ test/semantic-protocol-number-source-v8.test.js
+✖ test/semantic-protocol-promise-adoption-getter-v8.test.js
+✖ test/semantic-protocol-promise-adoption-source-v8.test.js
+✖ test/semantic-protocol-promise-adoption-v8.test.js
+✖ test/semantic-protocol-promise-executor-source-v8.test.js
+✖ test/semantic-protocol-promise-executor-v8.test.js
+✖ test/semantic-protocol-promise-join-source-v8.test.js
+✖ test/semantic-protocol-promise-join-v8.test.js
+✖ test/semantic-protocol-proxy-has-delete-v8.test.js
+✖ test/semantic-protocol-proxy-reflection-source-v8.test.js
+✖ test/semantic-protocol-proxy-reflection-v8.test.js
+✖ test/semantic-protocol-proxy-source-v8.test.js
+✖ test/semantic-protocol-proxy-v8.test.js
+✖ test/semantic-protocol-realm-ready-v8.test.js
+✖ test/semantic-protocol-reference-failure-v8.test.js
+✖ test/semantic-protocol-routing-v8.test.js
+✖ test/semantic-protocol-scheduler-receiver-v8.test.js
+✖ test/semantic-protocol-source-ownership-v8.test.js
+✖ test/semantic-protocol-source-transactions-v8.test.js
+✖ test/semantic-protocol-source-v8.test.js
+✖ test/semantic-protocol-v8.test.js
+✖ test/semantic-public-entry-v8.test.js
+✖ test/semantic-pure-region-v8.test.js
+✖ test/semantic-qualification-population-v8.test.js
+✖ test/semantic-reconciliation-authority-v8.test.js
+✖ test/semantic-region-composition.test.js
+✖ test/semantic-region-host-receipt-v8.test.js
+✖ test/semantic-region-interface.test.js
+✖ test/semantic-region-support-cohort.test.js
+✖ test/semantic-regions.test.js
+✖ test/semantic-scheduler-boundaries-v8.test.js
+✖ test/semantic-scheduler-resolution-v8.test.js
+✖ test/semantic-selected-execution-v8.test.js
+✖ test/semantic-selected-history-automatic-v8.test.js
+✖ test/semantic-selected-history-storage-v8.test.js
+✖ test/semantic-selected-history-tail-v8.test.js
+✖ test/semantic-selected-history-v8.test.js
+✖ test/semantic-selected-orchestration-checkpoint-v8.test.js
+✖ test/semantic-selected-orchestration-v8.test.js
+✖ test/semantic-selected-recovery-v8.test.js
+✖ test/semantic-service-coordinator-v8.test.js
+✖ test/semantic-service-fence-v8.test.js
+✖ test/semantic-service-history-v8.test.js
+✖ test/semantic-serving-costs.test.js
+✖ test/semantic-session-campaign.test.js
+✖ test/semantic-shared-generator-source-v8.test.js
+✖ test/semantic-shared-intrinsic-boundaries-v8.test.js
+✖ test/semantic-shared-protocol-source-v8.test.js
+✖ test/semantic-source-certification-v8.test.js
+✖ test/semantic-source-claim-coordinator-v8.test.js
+✖ test/semantic-source-composition-v8.test.js
+✖ test/semantic-source-context-staging-v8.test.js
+✖ test/semantic-source-return-callback-v8.test.js
+✖ test/semantic-source-session-v8.test.js
+✖ test/semantic-summary-experiment.test.js
+✖ test/semantic-symbol-composition-source-v8.test.js
+✖ test/semantic-trace-gallery.test.js
+✖ test/semantic-v6-emission-validator.test.js
+✖ test/semantic-v7-admission.test.js
+✖ test/semantic-v7-training.test.js
+✖ test/semantic-v8-dataset.test.js
+✖ test/semantic-v8-position-coverage.test.js
+✖ test/semantic-v8-source-projection.test.js
+✖ test/serving-cost-comparison.test.js
+✖ test/source-clusters.test.js
+✖ test/source-registry.test.js
+✖ test/source-split-stress.test.js
+✖ test/stateful-corpus.test.js
+✖ test/stateful-differential.test.js
+✖ test/static-module-dependencies.test.js
+✖ test/static-modules.test.js
+✖ test/strict-accessor-assignment.test.js
+✖ test/structured-contracts.test.js
+✖ test/test262-acquisition.test.js
+✖ test/test262-aggregate.test.js
+✖ test/test262-async-reference.test.js
+✖ test/test262-baseline.test.js
+✖ test/test262-campaign.test.js
+✖ test/test262-capabilities.test.js
+✖ test/test262-catalog.test.js
+✖ test/test262-edition.test.js
+✖ test/test262-module-evaluation.test.js
+✖ test/test262-module-reference.test.js
+✖ test/test262-module-resolution.test.js
+✖ test/test262-namespace-original.test.js
+✖ test/test262-original-runner.test.js
+✖ test/test262-reference-execution.test.js
+✖ test/test262-runtime.test.js
+✖ test/test262-scalar-reference.test.js
+✖ test/test262-scope-annotations.test.js
+✖ test/test262-specification.test.js
+✖ test/trace-quality.test.js
+✖ test/training-admission-identity.test.js
+✖ test/training-array-bindings.test.js
+✖ test/training-array-callback-extensions.test.js
+✖ test/training-array-defaults.test.js
+✖ test/training-array-search.test.js
+✖ test/training-array-spread.test.js
+✖ test/training-array-write-boundaries.test.js
+✖ test/training-async-function-expressions.test.js
+✖ test/training-async-helper-replay.test.js
+✖ test/training-async-iteration.test.js
+✖ test/training-benchmark-recipe.test.js
+✖ test/training-binary-memory.test.js
+✖ test/training-bitwise-typeof.test.js
+✖ test/training-bounded-for-of.test.js
+✖ test/training-branch-reference.test.js
+✖ test/training-capture-binding-grammar.test.js
+✖ test/training-causal-lm-bridge.test.js
+✖ test/training-class-function-metadata.test.js
+✖ test/training-classes.test.js
+✖ test/training-common-syntax.test.js
+✖ test/training-completion-reference.test.js
+✖ test/training-constructors.test.js
+✖ test/training-contract-v6.test.js
+✖ test/training-corpus-gap-regressions.test.js
+✖ test/training-corpus-string-array.test.js
+✖ test/training-data-boundary.test.js
+✖ test/training-declared-errors.test.js
+✖ test/training-default-parameters.test.js
+✖ test/training-derived-construction.test.js
+✖ test/training-descriptor-boundaries.test.js
+✖ test/training-effectful-rejections.test.js
+✖ test/training-effectful-session.test.js
+✖ test/training-effectful-v4.test.js
+✖ test/training-exploratory-holdout.test.js
+✖ test/training-failure-evidence.test.js
+✖ test/training-failure-minimization.test.js
+✖ test/training-for-in.test.js
+✖ test/training-frontier-exposure.test.js
+✖ test/training-function-expressions.test.js
+✖ test/training-generator-prototypes.test.js
+✖ test/training-generator.test.js
+✖ test/training-generators.test.js
+✖ test/training-harness-v4-continuity.test.js
+✖ test/training-harness-v4.test.js
+✖ test/training-implicit-errors.test.js
+✖ test/training-instanceof.test.js
+✖ test/training-iterable-bindings.test.js
+✖ test/training-iterator-protocol.test.js
+✖ test/training-learning-experiment.test.js
+✖ test/training-logical-assignment.test.js
+✖ test/training-logical-source-audit.test.js
+✖ test/training-megatoken-process.test.js
+✖ test/training-model-context-v4.test.js
+✖ test/training-model-driver.test.js
+✖ test/training-new-target.test.js
+✖ test/training-null-prototype.test.js
+✖ test/training-number-conversion.test.js
+✖ test/training-number-formatting-corpus.test.js
+✖ test/training-number-object-conversion.test.js
+✖ test/training-numeric-conversion.test.js
+✖ test/training-object-bindings.test.js
+✖ test/training-object-literals.test.js
+✖ test/training-operation-reference.test.js
+✖ test/training-optimization-cases.test.js
+✖ test/training-optional-chains.test.js
+✖ test/training-orchestration-evaluation.test.js
+✖ test/training-owned-replacement-corpus.test.js
+✖ test/training-owned-sort-corpus.test.js
+✖ test/training-parameter-environments.test.js
+✖ test/training-parameter-patterns.test.js
+✖ test/training-parameter-projection.test.js
+✖ test/training-pattern-expansion.test.js
+✖ test/training-promise-job-projection.test.js
+✖ test/training-pure-output-transfer.test.js
+✖ test/training-regressions.test.js
+✖ test/training-rest-spread-corpus.test.js
+✖ test/training-seeded-admission.test.js
+✖ test/training-selected-intent-journal.test.js
+✖ test/training-semantic-projection.test.js
+✖ test/training-semantic-source.test.js
+✖ test/training-set-corpus.test.js
+✖ test/training-source-recipe.test.js
+✖ test/training-super-properties.test.js
+✖ test/training-switch-labels.test.js
+✖ test/training-symbol-coercion.test.js
+✖ test/training-symbols.test.js
+✖ test/training-synchronous-throws.test.js
+✖ test/training-tagged-templates.test.js
+✖ test/training-template-literals.test.js
+✖ test/training-trace-v6.test.js
+✖ test/training-try-completions.test.js
+✖ test/training-v6-decoder-grammar.test.js
+✖ test/training-var.test.js
+✖ test/training-yield-delegation.test.js
+✖ test/trusted-source-candidates.test.js
+✖ test/typescript-identity.test.js
+✖ test/unsupported-completion-validation.test.js
+✖ test/v8-release-campaign.test.js
+✖ test/v8-release-population.test.js
+✖ test/v8-release-request-fields.test.js
+✖ test/v8-release-task-binding.test.js
+✖ test/v8-release-task-normalization.test.js
+ℹ tests 1159
+ℹ suites 0
+ℹ pass 826
+ℹ fail 6
+ℹ cancelled 327
+ℹ skipped 0
+ℹ todo 0
+ℹ duration_ms 1072036.65806
+
+✖ failing tests:
+
+test at test/evaluated-module-namespace-exotics.test.js:485:1
+✖ uncaught namespace inspection TDZ propagates through module evaluation (279.727876ms)
+  AssertionError [ERR_ASSERTION]: The input did not match the regular expression /Owned module evaluation rejected/. Input:
+  
+  'TypeError: Unsupported observable boundary: object prototype'
+  
+      at async TestContext.<anonymous> (file:///tmp/issue51-resume.Ws1foQ/producer-dev/test/evaluated-module-namespace-exotics.test.js:492:3)
+      at async Test.run (node:internal/test_runner/test:1409:7)
+      at async Test.processPendingSubtests (node:internal/test_runner/test:974:7) {
+    generatedMessage: true,
+    code: 'ERR_ASSERTION',
+    actual: TypeError: Unsupported observable boundary: object prototype
+        at inspectOwnedDataEntity (file:///tmp/issue51-resume.Ws1foQ/producer-dev/src/training/data-graph-contract.js:66:11)
+        at visit (file:///tmp/issue51-resume.Ws1foQ/producer-dev/src/training/graph.js:53:5)
+        at Array.map (<anonymous>)
+        at realizeGraph (file:///tmp/issue51-resume.Ws1foQ/producer-dev/src/training/graph.js:64:16)
+        at executeEvaluatedModules (file:///tmp/issue51-resume.Ws1foQ/producer-dev/src/evaluated-modules.js:1158:17)
+        at file:///tmp/issue51-resume.Ws1foQ/producer-dev/test/evaluated-module-namespace-exotics.test.js:492:28
+        at waitForActual (node:assert:632:21)
+        at strict.rejects (node:assert:769:31)
+        at TestContext.<anonymous> (file:///tmp/issue51-resume.Ws1foQ/producer-dev/test/evaluated-module-namespace-exotics.test.js:492:16)
+        at async Test.run (node:internal/test_runner/test:1409:7),
+    expected: /Owned module evaluation rejected/,
+    operator: 'rejects',
+    diff: 'simple'
+  }
+
+test at test/evaluated-module-namespace-exotics.test.js:496:1
+✖ uncaught namespace freeze TypeError propagates through module evaluation (207.038355ms)
+  TypeError [Error]: Unsupported observable boundary: object prototype
+      at inspectOwnedDataEntity (file:///tmp/issue51-resume.Ws1foQ/producer-dev/src/training/data-graph-contract.js:66:11)
+      at visit (file:///tmp/issue51-resume.Ws1foQ/producer-dev/src/training/graph.js:53:5)
+      at Array.map (<anonymous>)
+      at realizeGraph (file:///tmp/issue51-resume.Ws1foQ/producer-dev/src/training/graph.js:64:16)
+      at TestContext.<anonymous> (file:///tmp/issue51-resume.Ws1foQ/producer-dev/test/evaluated-module-namespace-exotics.test.js:518:16)
+      at async Test.run (node:internal/test_runner/test:1409:7)
+      at async Test.processPendingSubtests (node:internal/test_runner/test:974:7)
+
+test at test/evaluated-module-scheduler.test.js:401:1
+✖ async SCC errors before and after await retain one rejection and allow started siblings to finish (8913.897874ms)
+  TypeError [Error]: Unsupported observable boundary: object prototype
+      at inspectOwnedDataEntity (file:///tmp/issue51-resume.Ws1foQ/producer-dev/src/training/data-graph-contract.js:66:11)
+      at visit (file:///tmp/issue51-resume.Ws1foQ/producer-dev/src/training/graph.js:53:5)
+      at Array.map (<anonymous>)
+      at realizeGraph (file:///tmp/issue51-resume.Ws1foQ/producer-dev/src/training/graph.js:64:16)
+      at finishOwned (file:///tmp/issue51-resume.Ws1foQ/producer-dev/test/evaluated-module-scheduler.test.js:36:15)
+      at differential (file:///tmp/issue51-resume.Ws1foQ/producer-dev/test/evaluated-module-scheduler.test.js:70:15)
+      at async TestContext.<anonymous> (file:///tmp/issue51-resume.Ws1foQ/producer-dev/test/evaluated-module-scheduler.test.js:403:15)
+      at async Test.run (node:internal/test_runner/test:1409:7)
+      at async Test.processPendingSubtests (node:internal/test_runner/test:974:7)
+
+test at test/evaluated-modules.test.js:423:1
+✖ cycles that observe an uninitialized lexical binding throw like native ESM (17.186164ms)
+  AssertionError [ERR_ASSERTION]: The input did not match the regular expression /Owned module evaluation rejected:|not defined|before initialization/. Input:
+  
+  'TypeError: Unsupported observable boundary: object prototype'
+  
+      at async TestContext.<anonymous> (file:///tmp/issue51-resume.Ws1foQ/producer-dev/test/evaluated-modules.test.js:430:3)
+      at async Test.run (node:internal/test_runner/test:1409:7)
+      at async Test.processPendingSubtests (node:internal/test_runner/test:974:7) {
+    generatedMessage: true,
+    code: 'ERR_ASSERTION',
+    actual: TypeError: Unsupported observable boundary: object prototype
+        at inspectOwnedDataEntity (file:///tmp/issue51-resume.Ws1foQ/producer-dev/src/training/data-graph-contract.js:66:11)
+        at visit (file:///tmp/issue51-resume.Ws1foQ/producer-dev/src/training/graph.js:53:5)
+        at Array.map (<anonymous>)
+        at realizeGraph (file:///tmp/issue51-resume.Ws1foQ/producer-dev/src/training/graph.js:64:16)
+        at executeEvaluatedModules (file:///tmp/issue51-resume.Ws1foQ/producer-dev/src/evaluated-modules.js:1158:17)
+        at TestContext.<anonymous> (file:///tmp/issue51-resume.Ws1foQ/producer-dev/test/evaluated-modules.test.js:430:24)
+        at Test.runInAsyncScope (node:async_hooks:227:14)
+        at Test.run (node:internal/test_runner/test:1402:25)
+        at Test.processPendingSubtests (node:internal/test_runner/test:974:18)
+        at Test.postRun (node:internal/test_runner/test:1542:19),
+    expected: /Owned module evaluation rejected:|not defined|before initialization/,
+    operator: 'rejects',
+    diff: 'simple'
+  }
+
+test at test/protocol-construction-source-inventory.test.js:6:1
+✖ synthetic constructor and initializer identities require exact source definitions (81.795349ms)
+  AssertionError [ERR_ASSERTION]: class:80:constructor
+  
+  true !== false
+  
+      at TestContext.<anonymous> (file:///tmp/issue51-resume.Ws1foQ/producer-dev/test/protocol-construction-source-inventory.test.js:13:12)
+      at Test.runInAsyncScope (node:async_hooks:227:14)
+      at Test.run (node:internal/test_runner/test:1402:25)
+      at Test.start (node:internal/test_runner/test:1262:17)
+      at startSubtestAfterBootstrap (node:internal/test_runner/harness:387:17) {
+    generatedMessage: false,
+    code: 'ERR_ASSERTION',
+    actual: true,
+    expected: false,
+    operator: 'strictEqual',
+    diff: 'simple'
+  }
+
+test at test/protocol-construction-source-inventory.test.js:17:1
+✖ private accessors cannot masquerade as supported private initializer definitions (8.267676ms)
+  AssertionError [ERR_ASSERTION]: Expected values to be strictly equal:
+  
+  true !== false
+  
+      at TestContext.<anonymous> (file:///tmp/issue51-resume.Ws1foQ/producer-dev/test/protocol-construction-source-inventory.test.js:20:10)
+      at Test.runInAsyncScope (node:async_hooks:227:14)
+      at Test.run (node:internal/test_runner/test:1402:25)
+      at Test.processPendingSubtests (node:internal/test_runner/test:974:18)
+      at Test.postRun (node:internal/test_runner/test:1542:19)
+      at Test.run (node:internal/test_runner/test:1467:12)
+      at async startSubtestAfterBootstrap (node:internal/test_runner/harness:387:3) {
+    generatedMessage: true,
+    code: 'ERR_ASSERTION',
+    actual: true,
+    expected: false,
+    operator: 'strictEqual',
+    diff: 'simple'
+  }
+
+test at test/protocol-construction-source.test.js:1:1
+✖ test/protocol-construction-source.test.js (107097.477021ms)
+  'Promise resolution is still pending but the event loop has already resolved'
+
+test at test/protocol-source-capture-and-descriptor.test.js:1:1
+✖ test/protocol-source-capture-and-descriptor.test.js (1901.617495ms)
+  'Promise resolution is still pending but the event loop has already resolved'
+
+test at test/public-api.test.js:1:1
+✖ test/public-api.test.js
+  'Promise resolution is still pending but the event loop has already resolved'
+
+test at test/qualification-costs-v8.test.js:1:1
+✖ test/qualification-costs-v8.test.js
+  'Promise resolution is still pending but the event loop has already resolved'
+
+test at test/qualification-progress.test.js:1:1
+✖ test/qualification-progress.test.js
+  'Promise resolution is still pending but the event loop has already resolved'
+
+test at test/qualify-support-lifecycle.test.js:1:1
+✖ test/qualify-support-lifecycle.test.js
+  'Promise resolution is still pending but the event loop has already resolved'
+
+test at test/real-corpus-quality.test.js:1:1
+✖ test/real-corpus-quality.test.js
+  'Promise resolution is still pending but the event loop has already resolved'
+
+test at test/reference-isolation.test.js:1:1
+✖ test/reference-isolation.test.js
+  'Promise resolution is still pending but the event loop has already resolved'
+
+test at test/reference-shrinker.test.js:1:1
+✖ test/reference-shrinker.test.js
+  'Promise resolution is still pending but the event loop has already resolved'
+
+test at test/rejection-propagation.test.js:1:1
+✖ test/rejection-propagation.test.js
+  'Promise resolution is still pending but the event loop has already resolved'
+
+test at test/release-campaign.test.js:1:1
+✖ test/release-campaign.test.js
+  'Promise resolution is still pending but the event loop has already resolved'
+
+test at test/release-training-selection.test.js:1:1
+✖ test/release-training-selection.test.js
+  'Promise resolution is still pending but the event loop has already resolved'
+
+test at test/replay.test.js:1:1
+✖ test/replay.test.js
+  'Promise resolution is still pending but the event loop has already resolved'
+
+test at test/restore-release-campaign.test.js:1:1
+✖ test/restore-release-campaign.test.js
+  'Promise resolution is still pending but the event loop has already resolved'
+
+test at test/retained-serving-costs.test.js:1:1
+✖ test/retained-serving-costs.test.js
+  'Promise resolution is still pending but the event loop has already resolved'
+
+test at test/retained-session-integrity.test.js:1:1
+✖ test/retained-session-integrity.test.js
+  'Promise resolution is still pending but the event loop has already resolved'
+
+test at test/runtime.test.js:1:1
+✖ test/runtime.test.js
+  'Promise resolution is still pending but the event loop has already resolved'
+
+test at test/selected-browser-capabilities.test.js:1:1
+✖ test/selected-browser-capabilities.test.js
+  'Promise resolution is still pending but the event loop has already resolved'
+
+test at test/selected-capability-lifecycle.test.js:1:1
+✖ test/selected-capability-lifecycle.test.js
+  'Promise resolution is still pending but the event loop has already resolved'
+
+test at test/selected-node-capabilities.test.js:1:1
+✖ test/selected-node-capabilities.test.js
+  'Promise resolution is still pending but the event loop has already resolved'
+
+test at test/selected-orchestration-clock.test.js:1:1
+✖ test/selected-orchestration-clock.test.js
+  'Promise resolution is still pending but the event loop has already resolved'
+
+test at test/selected-orchestration-execution-lock.test.js:1:1
+✖ test/selected-orchestration-execution-lock.test.js
+  'Promise resolution is still pending but the event loop has already resolved'
+
+test at test/selected-test262.test.js:1:1
+✖ test/selected-test262.test.js
+  'Promise resolution is still pending but the event loop has already resolved'
+
+test at test/semantic-algorithm-codec.test.js:1:1
+✖ test/semantic-algorithm-codec.test.js
+  'Promise resolution is still pending but the event loop has already resolved'
+
+test at test/semantic-algorithm-compiler.test.js:1:1
+✖ test/semantic-algorithm-compiler.test.js
+  'Promise resolution is still pending but the event loop has already resolved'
+
+test at test/semantic-algorithm-comprehension.test.js:1:1
+✖ test/semantic-algorithm-comprehension.test.js
+  'Promise resolution is still pending but the event loop has already resolved'
+
+test at test/semantic-algorithm-core.test.js:1:1
+✖ test/semantic-algorithm-core.test.js
+  'Promise resolution is still pending but the event loop has already resolved'
+
+test at test/semantic-algorithm-evaluation.test.js:1:1
+✖ test/semantic-algorithm-evaluation.test.js
+  'Promise resolution is still pending but the event loop has already resolved'
+
+test at test/semantic-algorithm-execution.test.js:1:1
+✖ test/semantic-algorithm-execution.test.js
+  'Promise resolution is still pending but the event loop has already resolved'
+
+test at test/semantic-algorithm-lowering.test.js:1:1
+✖ test/semantic-algorithm-lowering.test.js
+  'Promise resolution is still pending but the event loop has already resolved'
+
+test at test/semantic-algorithm-reduce.test.js:1:1
+✖ test/semantic-algorithm-reduce.test.js
+  'Promise resolution is still pending but the event loop has already resolved'
+
+test at test/semantic-algorithm-tokenizer.test.js:1:1
+✖ test/semantic-algorithm-tokenizer.test.js
+  'Promise resolution is still pending but the event loop has already resolved'
+
+test at test/semantic-algorithm-v8-core.test.js:1:1
+✖ test/semantic-algorithm-v8-core.test.js
+  'Promise resolution is still pending but the event loop has already resolved'
+
+test at test/semantic-algorithm-v8-lowering.test.js:1:1
+✖ test/semantic-algorithm-v8-lowering.test.js
+  'Promise resolution is still pending but the event loop has already resolved'
+
+test at test/semantic-algorithm-v8-render.test.js:1:1
+✖ test/semantic-algorithm-v8-render.test.js
+  'Promise resolution is still pending but the event loop has already resolved'
+
+test at test/semantic-array-map-live-source-v8.test.js:1:1
+✖ test/semantic-array-map-live-source-v8.test.js
+  'Promise resolution is still pending but the event loop has already resolved'
+
+test at test/semantic-async-call-source-v8.test.js:1:1
+✖ test/semantic-async-call-source-v8.test.js
+  'Promise resolution is still pending but the event loop has already resolved'
+
+test at test/semantic-async-iteration-bindings-v8.test.js:1:1
+✖ test/semantic-async-iteration-bindings-v8.test.js
+  'Promise resolution is still pending but the event loop has already resolved'
+
+test at test/semantic-async-iteration-source-v8.test.js:1:1
+✖ test/semantic-async-iteration-source-v8.test.js
+  'Promise resolution is still pending but the event loop has already resolved'
+
+test at test/semantic-async-return-adoption-composition-source-v8.test.js:1:1
+✖ test/semantic-async-return-adoption-composition-source-v8.test.js
+  'Promise resolution is still pending but the event loop has already resolved'
+
+test at test/semantic-binding-order.test.js:1:1
+✖ test/semantic-binding-order.test.js
+  'Promise resolution is still pending but the event loop has already resolved'
+
+test at test/semantic-bound-module-scheduler-v8.test.js:1:1
+✖ test/semantic-bound-module-scheduler-v8.test.js
+  'Promise resolution is still pending but the event loop has already resolved'
+
+test at test/semantic-call-adapters-source-v8.test.js:1:1
+✖ test/semantic-call-adapters-source-v8.test.js
+  'Promise resolution is still pending but the event loop has already resolved'
+
+test at test/semantic-callback-boundaries-v8.test.js:1:1
+✖ test/semantic-callback-boundaries-v8.test.js
+  'Promise resolution is still pending but the event loop has already resolved'
+
+test at test/semantic-callback-entry-identity-v8.test.js:1:1
+✖ test/semantic-callback-entry-identity-v8.test.js
+  'Promise resolution is still pending but the event loop has already resolved'
+
+test at test/semantic-causal-lm-v8.test.js:1:1
+✖ test/semantic-causal-lm-v8.test.js
+  'Promise resolution is still pending but the event loop has already resolved'
+
+test at test/semantic-checkpoint-authority-v8.test.js:1:1
+✖ test/semantic-checkpoint-authority-v8.test.js
+  'Promise resolution is still pending but the event loop has already resolved'
+
+test at test/semantic-checkpoint-canonical-v8.test.js:1:1
+✖ test/semantic-checkpoint-canonical-v8.test.js
+  'Promise resolution is still pending but the event loop has already resolved'
+
+test at test/semantic-detail-v8.test.js:1:1
+✖ test/semantic-detail-v8.test.js
+  'Promise resolution is still pending but the event loop has already resolved'
+
+test at test/semantic-diagnostics.test.js:1:1
+✖ test/semantic-diagnostics.test.js
+  'Promise resolution is still pending but the event loop has already resolved'
+
+test at test/semantic-durable-action-recovery-v8.test.js:1:1
+✖ test/semantic-durable-action-recovery-v8.test.js
+  'Promise resolution is still pending but the event loop has already resolved'
+
+test at test/semantic-durable-ingress-v8.test.js:1:1
+✖ test/semantic-durable-ingress-v8.test.js
+  'Promise resolution is still pending but the event loop has already resolved'
+
+test at test/semantic-durable-return-callback-v8.test.js:1:1
+✖ test/semantic-durable-return-callback-v8.test.js
+  'Promise resolution is still pending but the event loop has already resolved'
+
+test at test/semantic-durable-service-v8.test.js:1:1
+✖ test/semantic-durable-service-v8.test.js
+  'Promise resolution is still pending but the event loop has already resolved'
+
+test at test/semantic-effectful-teacher-v8.test.js:1:1
+✖ test/semantic-effectful-teacher-v8.test.js
+  'Promise resolution is still pending but the event loop has already resolved'
+
+test at test/semantic-enumeration-source-v8.test.js:1:1
+✖ test/semantic-enumeration-source-v8.test.js
+  'Promise resolution is still pending but the event loop has already resolved'
+
+test at test/semantic-error-object-source-v8.test.js:1:1
+✖ test/semantic-error-object-source-v8.test.js
+  'Promise resolution is still pending but the event loop has already resolved'
+
+test at test/semantic-event-authority-v8.test.js:1:1
+✖ test/semantic-event-authority-v8.test.js
+  'Promise resolution is still pending but the event loop has already resolved'
+
+test at test/semantic-execution-core.test.js:1:1
+✖ test/semantic-execution-core.test.js
+  'Promise resolution is still pending but the event loop has already resolved'
+
+test at test/semantic-execution-study-v8.test.js:1:1
+✖ test/semantic-execution-study-v8.test.js
+  'Promise resolution is still pending but the event loop has already resolved'
+
+test at test/semantic-host-ingress-journal-v8.test.js:1:1
+✖ test/semantic-host-ingress-journal-v8.test.js
+  'Promise resolution is still pending but the event loop has already resolved'
+
+test at test/semantic-host-recovery-v8.test.js:1:1
+✖ test/semantic-host-recovery-v8.test.js
+  'Promise resolution is still pending but the event loop has already resolved'
+
+test at test/semantic-installed-qualification-v8.test.js:1:1
+✖ test/semantic-installed-qualification-v8.test.js
+  'Promise resolution is still pending but the event loop has already resolved'
+
+test at test/semantic-intrinsic-error-machine-v8.test.js:1:1
+✖ test/semantic-intrinsic-error-machine-v8.test.js
+  'Promise resolution is still pending but the event loop has already resolved'
+
+test at test/semantic-issue51-collections-source-v8.test.js:1:1
+✖ test/semantic-issue51-collections-source-v8.test.js
+  'Promise resolution is still pending but the event loop has already resolved'
+
+test at test/semantic-issue51-source-v8.test.js:1:1
+✖ test/semantic-issue51-source-v8.test.js
+  'Promise resolution is still pending but the event loop has already resolved'
+
+test at test/semantic-known-bootstrap-builder-v8.test.js:1:1
+✖ test/semantic-known-bootstrap-builder-v8.test.js
+  'Promise resolution is still pending but the event loop has already resolved'
+
+test at test/semantic-known-bootstrap-history-v8.test.js:1:1
+✖ test/semantic-known-bootstrap-history-v8.test.js
+  'Promise resolution is still pending but the event loop has already resolved'
+
+test at test/semantic-known-close-builder-v8.test.js:1:1
+✖ test/semantic-known-close-builder-v8.test.js
+  'Promise resolution is still pending but the event loop has already resolved'
+
+test at test/semantic-known-close-history-v8.test.js:1:1
+✖ test/semantic-known-close-history-v8.test.js
+  'Promise resolution is still pending but the event loop has already resolved'
+
+test at test/semantic-known-commit-builder-v8.test.js:1:1
+✖ test/semantic-known-commit-builder-v8.test.js
+  'Promise resolution is still pending but the event loop has already resolved'
+
+test at test/semantic-known-commit-history-v8.test.js:1:1
+✖ test/semantic-known-commit-history-v8.test.js
+  'Promise resolution is still pending but the event loop has already resolved'
+
+test at test/semantic-known-service-close-history-v8.test.js:1:1
+✖ test/semantic-known-service-close-history-v8.test.js
+  'Promise resolution is still pending but the event loop has already resolved'
+
+test at test/semantic-lifecycle-v8.test.js:1:1
+✖ test/semantic-lifecycle-v8.test.js
+  'Promise resolution is still pending but the event loop has already resolved'
+
+test at test/semantic-local-state-compaction.test.js:1:1
+✖ test/semantic-local-state-compaction.test.js
+  'Promise resolution is still pending but the event loop has already resolved'
+
+test at test/semantic-module-namespace-compile-only-v8.test.js:1:1
+✖ test/semantic-module-namespace-compile-only-v8.test.js
+  'Promise resolution is still pending but the event loop has already resolved'
+
+test at test/semantic-module-namespace-machine-v8.test.js:1:1
+✖ test/semantic-module-namespace-machine-v8.test.js
+  'Promise resolution is still pending but the event loop has already resolved'
+
+test at test/semantic-module-namespace-runtime-capture-v8.test.js:1:1
+✖ test/semantic-module-namespace-runtime-capture-v8.test.js
+  'Promise resolution is still pending but the event loop has already resolved'
+
+test at test/semantic-module-namespace-source-boundary-v8.test.js:1:1
+✖ test/semantic-module-namespace-source-boundary-v8.test.js
+  'Promise resolution is still pending but the event loop has already resolved'
+
+test at test/semantic-module-namespace-source-owners-v8.test.js:1:1
+✖ test/semantic-module-namespace-source-owners-v8.test.js
+  'Promise resolution is still pending but the event loop has already resolved'
+
+test at test/semantic-module-namespace-source-projection-v8.test.js:1:1
+✖ test/semantic-module-namespace-source-projection-v8.test.js
+  'Promise resolution is still pending but the event loop has already resolved'
+
+test at test/semantic-module-namespace-source-sites-v8.test.js:1:1
+✖ test/semantic-module-namespace-source-sites-v8.test.js
+  'Promise resolution is still pending but the event loop has already resolved'
+
+test at test/semantic-module-namespace-source-sync-gate-v8.test.js:1:1
+✖ test/semantic-module-namespace-source-sync-gate-v8.test.js
+  'Promise resolution is still pending but the event loop has already resolved'
+
+test at test/semantic-module-namespace-state-v8.test.js:1:1
+✖ test/semantic-module-namespace-state-v8.test.js
+  'Promise resolution is still pending but the event loop has already resolved'
+
+test at test/semantic-module-namespace-typeof-v8.test.js:1:1
+✖ test/semantic-module-namespace-typeof-v8.test.js
+  'Promise resolution is still pending but the event loop has already resolved'
+
+test at test/semantic-module-scheduler-admission-v8.test.js:1:1
+✖ test/semantic-module-scheduler-admission-v8.test.js
+  'Promise resolution is still pending but the event loop has already resolved'
+
+test at test/semantic-module-scheduler-source-v8.test.js:1:1
+✖ test/semantic-module-scheduler-source-v8.test.js
+  'Promise resolution is still pending but the event loop has already resolved'
+
+test at test/semantic-module-scheduler-state-v8.test.js:1:1
+✖ test/semantic-module-scheduler-state-v8.test.js
+  'Promise resolution is still pending but the event loop has already resolved'
+
+test at test/semantic-module-v8.test.js:1:1
+✖ test/semantic-module-v8.test.js
+  'Promise resolution is still pending but the event loop has already resolved'
+
+test at test/semantic-native-durable-bootstrap-v8.test.js:1:1
+✖ test/semantic-native-durable-bootstrap-v8.test.js
+  'Promise resolution is still pending but the event loop has already resolved'
+
+test at test/semantic-native-durable-close-v8.test.js:1:1
+✖ test/semantic-native-durable-close-v8.test.js
+  'Promise resolution is still pending but the event loop has already resolved'
+
+test at test/semantic-native-durable-commit-v8.test.js:1:1
+✖ test/semantic-native-durable-commit-v8.test.js
+  'Promise resolution is still pending but the event loop has already resolved'
+
+test at test/semantic-native-module-namespace-state-v8.test.js:1:1
+✖ test/semantic-native-module-namespace-state-v8.test.js
+  'Promise resolution is still pending but the event loop has already resolved'
+
+test at test/semantic-native-module-scheduler-state-v8.test.js:1:1
+✖ test/semantic-native-module-scheduler-state-v8.test.js
+  'Promise resolution is still pending but the event loop has already resolved'
+
+test at test/semantic-native-orchestration-recovery-v8.test.js:1:1
+✖ test/semantic-native-orchestration-recovery-v8.test.js
+  'Promise resolution is still pending but the event loop has already resolved'
+
+test at test/semantic-native-orchestration-transport-v8.test.js:1:1
+✖ test/semantic-native-orchestration-transport-v8.test.js
+  'Promise resolution is still pending but the event loop has already resolved'
+
+test at test/semantic-native-process-v8.test.js:1:1
+✖ test/semantic-native-process-v8.test.js
+  'Promise resolution is still pending but the event loop has already resolved'
+
+test at test/semantic-native-promise-slots-v8.test.js:1:1
+✖ test/semantic-native-promise-slots-v8.test.js
+  'Promise resolution is still pending but the event loop has already resolved'
+
+test at test/semantic-native-source-reader-v8.test.js:1:1
+✖ test/semantic-native-source-reader-v8.test.js
+  'Promise resolution is still pending but the event loop has already resolved'
+
+test at test/semantic-native-v8.test.js:1:1
+✖ test/semantic-native-v8.test.js
+  'Promise resolution is still pending but the event loop has already resolved'
+
+test at test/semantic-notation-experiment.test.js:1:1
+✖ test/semantic-notation-experiment.test.js
+  'Promise resolution is still pending but the event loop has already resolved'
+
+test at test/semantic-orchestration-training-v8.test.js:1:1
+✖ test/semantic-orchestration-training-v8.test.js
+  'Promise resolution is still pending but the event loop has already resolved'
+
+test at test/semantic-primitive-conversion-machine-v8.test.js:1:1
+✖ test/semantic-primitive-conversion-machine-v8.test.js
+  'Promise resolution is still pending but the event loop has already resolved'
+
+test at test/semantic-primitive-conversion-observations-v8.test.js:1:1
+✖ test/semantic-primitive-conversion-observations-v8.test.js
+  'Promise resolution is still pending but the event loop has already resolved'
+
+test at test/semantic-primitive-conversion-source-v8.test.js:1:1
+✖ test/semantic-primitive-conversion-source-v8.test.js
+  'Promise resolution is still pending but the event loop has already resolved'
+
+test at test/semantic-promise-adoption-getter-source-v8.test.js:1:1
+✖ test/semantic-promise-adoption-getter-source-v8.test.js
+  'Promise resolution is still pending but the event loop has already resolved'
+
+test at test/semantic-promise-mutation-profile-source-v8.test.js:1:1
+✖ test/semantic-promise-mutation-profile-source-v8.test.js
+  'Promise resolution is still pending but the event loop has already resolved'
+
+test at test/semantic-promise-object-observations-v8.test.js:1:1
+✖ test/semantic-promise-object-observations-v8.test.js
+  'Promise resolution is still pending but the event loop has already resolved'
+
+test at test/semantic-promise-object-profile-source-v8.test.js:1:1
+✖ test/semantic-promise-object-profile-source-v8.test.js
+  'Promise resolution is still pending but the event loop has already resolved'
+
+test at test/semantic-promise-object-review-source-v8.test.js:1:1
+✖ test/semantic-promise-object-review-source-v8.test.js
+  'Promise resolution is still pending but the event loop has already resolved'
+
+test at test/semantic-promise-object-review-v8.test.js:1:1
+✖ test/semantic-promise-object-review-v8.test.js
+  'Promise resolution is still pending but the event loop has already resolved'
+
+test at test/semantic-promise-object-source-v8.test.js:1:1
+✖ test/semantic-promise-object-source-v8.test.js
+  'Promise resolution is still pending but the event loop has already resolved'
+
+test at test/semantic-promise-object-v8.test.js:1:1
+✖ test/semantic-promise-object-v8.test.js
+  'Promise resolution is still pending but the event loop has already resolved'
+
+test at test/semantic-promise-source-observations-v8.test.js:1:1
+✖ test/semantic-promise-source-observations-v8.test.js
+  'Promise resolution is still pending but the event loop has already resolved'
+
+test at test/semantic-protocol-array-spread-v8.test.js:1:1
+✖ test/semantic-protocol-array-spread-v8.test.js
+  'Promise resolution is still pending but the event loop has already resolved'
+
+test at test/semantic-protocol-capture-v8.test.js:1:1
+✖ test/semantic-protocol-capture-v8.test.js
+  'Promise resolution is still pending but the event loop has already resolved'
+
+test at test/semantic-protocol-collection-iterator-v8.test.js:1:1
+✖ test/semantic-protocol-collection-iterator-v8.test.js
+  'Promise resolution is still pending but the event loop has already resolved'
+
+test at test/semantic-protocol-collection-v8.test.js:1:1
+✖ test/semantic-protocol-collection-v8.test.js
+  'Promise resolution is still pending but the event loop has already resolved'
+
+test at test/semantic-protocol-completion-source-v8.test.js:1:1
+✖ test/semantic-protocol-completion-source-v8.test.js
+  'Promise resolution is still pending but the event loop has already resolved'
+
+test at test/semantic-protocol-composition-v8.test.js:1:1
+✖ test/semantic-protocol-composition-v8.test.js
+  'Promise resolution is still pending but the event loop has already resolved'
+
+test at test/semantic-protocol-custom-iterator-source-v8.test.js:1:1
+✖ test/semantic-protocol-custom-iterator-source-v8.test.js
+  'Promise resolution is still pending but the event loop has already resolved'
+
+test at test/semantic-protocol-enumeration-source-v8.test.js:1:1
+✖ test/semantic-protocol-enumeration-source-v8.test.js
+  'Promise resolution is still pending but the event loop has already resolved'
+
+test at test/semantic-protocol-enumeration-v8.test.js:1:1
+✖ test/semantic-protocol-enumeration-v8.test.js
+  'Promise resolution is still pending but the event loop has already resolved'
+
+test at test/semantic-protocol-extensions-v8.test.js:1:1
+✖ test/semantic-protocol-extensions-v8.test.js
+  'Promise resolution is still pending but the event loop has already resolved'
+
+test at test/semantic-protocol-generator-source-v8.test.js:1:1
+✖ test/semantic-protocol-generator-source-v8.test.js
+  'Promise resolution is still pending but the event loop has already resolved'
+
+test at test/semantic-protocol-generator-v8.test.js:1:1
+✖ test/semantic-protocol-generator-v8.test.js
+  'Promise resolution is still pending but the event loop has already resolved'
+
+test at test/semantic-protocol-host-v8.test.js:1:1
+✖ test/semantic-protocol-host-v8.test.js
+  'Promise resolution is still pending but the event loop has already resolved'
+
+test at test/semantic-protocol-iterable-binding-source-v8.test.js:1:1
+✖ test/semantic-protocol-iterable-binding-source-v8.test.js
+  'Promise resolution is still pending but the event loop has already resolved'
+
+test at test/semantic-protocol-iterator-source-v8.test.js:1:1
+✖ test/semantic-protocol-iterator-source-v8.test.js
+  'Promise resolution is still pending but the event loop has already resolved'
+
+test at test/semantic-protocol-iterator-v8.test.js:1:1
+✖ test/semantic-protocol-iterator-v8.test.js
+  'Promise resolution is still pending but the event loop has already resolved'
+
+test at test/semantic-protocol-memory-source-v8.test.js:1:1
+✖ test/semantic-protocol-memory-source-v8.test.js
+  'Promise resolution is still pending but the event loop has already resolved'
+
+test at test/semantic-protocol-memory-v8.test.js:1:1
+✖ test/semantic-protocol-memory-v8.test.js
+  'Promise resolution is still pending but the event loop has already resolved'
+
+test at test/semantic-protocol-nested-array-binding-v8.test.js:1:1
+✖ test/semantic-protocol-nested-array-binding-v8.test.js
+  'Promise resolution is still pending but the event loop has already resolved'
+
+test at test/semantic-protocol-number-source-v8.test.js:1:1
+✖ test/semantic-protocol-number-source-v8.test.js
+  'Promise resolution is still pending but the event loop has already resolved'
+
+test at test/semantic-protocol-promise-adoption-getter-v8.test.js:1:1
+✖ test/semantic-protocol-promise-adoption-getter-v8.test.js
+  'Promise resolution is still pending but the event loop has already resolved'
+
+test at test/semantic-protocol-promise-adoption-source-v8.test.js:1:1
+✖ test/semantic-protocol-promise-adoption-source-v8.test.js
+  'Promise resolution is still pending but the event loop has already resolved'
+
+test at test/semantic-protocol-promise-adoption-v8.test.js:1:1
+✖ test/semantic-protocol-promise-adoption-v8.test.js
+  'Promise resolution is still pending but the event loop has already resolved'
+
+test at test/semantic-protocol-promise-executor-source-v8.test.js:1:1
+✖ test/semantic-protocol-promise-executor-source-v8.test.js
+  'Promise resolution is still pending but the event loop has already resolved'
+
+test at test/semantic-protocol-promise-executor-v8.test.js:1:1
+✖ test/semantic-protocol-promise-executor-v8.test.js
+  'Promise resolution is still pending but the event loop has already resolved'
+
+test at test/semantic-protocol-promise-join-source-v8.test.js:1:1
+✖ test/semantic-protocol-promise-join-source-v8.test.js
+  'Promise resolution is still pending but the event loop has already resolved'
+
+test at test/semantic-protocol-promise-join-v8.test.js:1:1
+✖ test/semantic-protocol-promise-join-v8.test.js
+  'Promise resolution is still pending but the event loop has already resolved'
+
+test at test/semantic-protocol-proxy-has-delete-v8.test.js:1:1
+✖ test/semantic-protocol-proxy-has-delete-v8.test.js
+  'Promise resolution is still pending but the event loop has already resolved'
+
+test at test/semantic-protocol-proxy-reflection-source-v8.test.js:1:1
+✖ test/semantic-protocol-proxy-reflection-source-v8.test.js
+  'Promise resolution is still pending but the event loop has already resolved'
+
+test at test/semantic-protocol-proxy-reflection-v8.test.js:1:1
+✖ test/semantic-protocol-proxy-reflection-v8.test.js
+  'Promise resolution is still pending but the event loop has already resolved'
+
+test at test/semantic-protocol-proxy-source-v8.test.js:1:1
+✖ test/semantic-protocol-proxy-source-v8.test.js
+  'Promise resolution is still pending but the event loop has already resolved'
+
+test at test/semantic-protocol-proxy-v8.test.js:1:1
+✖ test/semantic-protocol-proxy-v8.test.js
+  'Promise resolution is still pending but the event loop has already resolved'
+
+test at test/semantic-protocol-realm-ready-v8.test.js:1:1
+✖ test/semantic-protocol-realm-ready-v8.test.js
+  'Promise resolution is still pending but the event loop has already resolved'
+
+test at test/semantic-protocol-reference-failure-v8.test.js:1:1
+✖ test/semantic-protocol-reference-failure-v8.test.js
+  'Promise resolution is still pending but the event loop has already resolved'
+
+test at test/semantic-protocol-routing-v8.test.js:1:1
+✖ test/semantic-protocol-routing-v8.test.js
+  'Promise resolution is still pending but the event loop has already resolved'
+
+test at test/semantic-protocol-scheduler-receiver-v8.test.js:1:1
+✖ test/semantic-protocol-scheduler-receiver-v8.test.js
+  'Promise resolution is still pending but the event loop has already resolved'
+
+test at test/semantic-protocol-source-ownership-v8.test.js:1:1
+✖ test/semantic-protocol-source-ownership-v8.test.js
+  'Promise resolution is still pending but the event loop has already resolved'
+
+test at test/semantic-protocol-source-transactions-v8.test.js:1:1
+✖ test/semantic-protocol-source-transactions-v8.test.js
+  'Promise resolution is still pending but the event loop has already resolved'
+
+test at test/semantic-protocol-source-v8.test.js:1:1
+✖ test/semantic-protocol-source-v8.test.js
+  'Promise resolution is still pending but the event loop has already resolved'
+
+test at test/semantic-protocol-v8.test.js:1:1
+✖ test/semantic-protocol-v8.test.js
+  'Promise resolution is still pending but the event loop has already resolved'
+
+test at test/semantic-public-entry-v8.test.js:1:1
+✖ test/semantic-public-entry-v8.test.js
+  'Promise resolution is still pending but the event loop has already resolved'
+
+test at test/semantic-pure-region-v8.test.js:1:1
+✖ test/semantic-pure-region-v8.test.js
+  'Promise resolution is still pending but the event loop has already resolved'
+
+test at test/semantic-qualification-population-v8.test.js:1:1
+✖ test/semantic-qualification-population-v8.test.js
+  'Promise resolution is still pending but the event loop has already resolved'
+
+test at test/semantic-reconciliation-authority-v8.test.js:1:1
+✖ test/semantic-reconciliation-authority-v8.test.js
+  'Promise resolution is still pending but the event loop has already resolved'
+
+test at test/semantic-region-composition.test.js:1:1
+✖ test/semantic-region-composition.test.js
+  'Promise resolution is still pending but the event loop has already resolved'
+
+test at test/semantic-region-host-receipt-v8.test.js:1:1
+✖ test/semantic-region-host-receipt-v8.test.js
+  'Promise resolution is still pending but the event loop has already resolved'
+
+test at test/semantic-region-interface.test.js:1:1
+✖ test/semantic-region-interface.test.js
+  'Promise resolution is still pending but the event loop has already resolved'
+
+test at test/semantic-region-support-cohort.test.js:1:1
+✖ test/semantic-region-support-cohort.test.js
+  'Promise resolution is still pending but the event loop has already resolved'
+
+test at test/semantic-regions.test.js:1:1
+✖ test/semantic-regions.test.js
+  'Promise resolution is still pending but the event loop has already resolved'
+
+test at test/semantic-scheduler-boundaries-v8.test.js:1:1
+✖ test/semantic-scheduler-boundaries-v8.test.js
+  'Promise resolution is still pending but the event loop has already resolved'
+
+test at test/semantic-scheduler-resolution-v8.test.js:1:1
+✖ test/semantic-scheduler-resolution-v8.test.js
+  'Promise resolution is still pending but the event loop has already resolved'
+
+test at test/semantic-selected-execution-v8.test.js:1:1
+✖ test/semantic-selected-execution-v8.test.js
+  'Promise resolution is still pending but the event loop has already resolved'
+
+test at test/semantic-selected-history-automatic-v8.test.js:1:1
+✖ test/semantic-selected-history-automatic-v8.test.js
+  'Promise resolution is still pending but the event loop has already resolved'
+
+test at test/semantic-selected-history-storage-v8.test.js:1:1
+✖ test/semantic-selected-history-storage-v8.test.js
+  'Promise resolution is still pending but the event loop has already resolved'
+
+test at test/semantic-selected-history-tail-v8.test.js:1:1
+✖ test/semantic-selected-history-tail-v8.test.js
+  'Promise resolution is still pending but the event loop has already resolved'
+
+test at test/semantic-selected-history-v8.test.js:1:1
+✖ test/semantic-selected-history-v8.test.js
+  'Promise resolution is still pending but the event loop has already resolved'
+
+test at test/semantic-selected-orchestration-checkpoint-v8.test.js:1:1
+✖ test/semantic-selected-orchestration-checkpoint-v8.test.js
+  'Promise resolution is still pending but the event loop has already resolved'
+
+test at test/semantic-selected-orchestration-v8.test.js:1:1
+✖ test/semantic-selected-orchestration-v8.test.js
+  'Promise resolution is still pending but the event loop has already resolved'
+
+test at test/semantic-selected-recovery-v8.test.js:1:1
+✖ test/semantic-selected-recovery-v8.test.js
+  'Promise resolution is still pending but the event loop has already resolved'
+
+test at test/semantic-service-coordinator-v8.test.js:1:1
+✖ test/semantic-service-coordinator-v8.test.js
+  'Promise resolution is still pending but the event loop has already resolved'
+
+test at test/semantic-service-fence-v8.test.js:1:1
+✖ test/semantic-service-fence-v8.test.js
+  'Promise resolution is still pending but the event loop has already resolved'
+
+test at test/semantic-service-history-v8.test.js:1:1
+✖ test/semantic-service-history-v8.test.js
+  'Promise resolution is still pending but the event loop has already resolved'
+
+test at test/semantic-serving-costs.test.js:1:1
+✖ test/semantic-serving-costs.test.js
+  'Promise resolution is still pending but the event loop has already resolved'
+
+test at test/semantic-session-campaign.test.js:1:1
+✖ test/semantic-session-campaign.test.js
+  'Promise resolution is still pending but the event loop has already resolved'
+
+test at test/semantic-shared-generator-source-v8.test.js:1:1
+✖ test/semantic-shared-generator-source-v8.test.js
+  'Promise resolution is still pending but the event loop has already resolved'
+
+test at test/semantic-shared-intrinsic-boundaries-v8.test.js:1:1
+✖ test/semantic-shared-intrinsic-boundaries-v8.test.js
+  'Promise resolution is still pending but the event loop has already resolved'
+
+test at test/semantic-shared-protocol-source-v8.test.js:1:1
+✖ test/semantic-shared-protocol-source-v8.test.js
+  'Promise resolution is still pending but the event loop has already resolved'
+
+test at test/semantic-source-certification-v8.test.js:1:1
+✖ test/semantic-source-certification-v8.test.js
+  'Promise resolution is still pending but the event loop has already resolved'
+
+test at test/semantic-source-claim-coordinator-v8.test.js:1:1
+✖ test/semantic-source-claim-coordinator-v8.test.js
+  'Promise resolution is still pending but the event loop has already resolved'
+
+test at test/semantic-source-composition-v8.test.js:1:1
+✖ test/semantic-source-composition-v8.test.js
+  'Promise resolution is still pending but the event loop has already resolved'
+
+test at test/semantic-source-context-staging-v8.test.js:1:1
+✖ test/semantic-source-context-staging-v8.test.js
+  'Promise resolution is still pending but the event loop has already resolved'
+
+test at test/semantic-source-return-callback-v8.test.js:1:1
+✖ test/semantic-source-return-callback-v8.test.js
+  'Promise resolution is still pending but the event loop has already resolved'
+
+test at test/semantic-source-session-v8.test.js:1:1
+✖ test/semantic-source-session-v8.test.js
+  'Promise resolution is still pending but the event loop has already resolved'
+
+test at test/semantic-summary-experiment.test.js:1:1
+✖ test/semantic-summary-experiment.test.js
+  'Promise resolution is still pending but the event loop has already resolved'
+
+test at test/semantic-symbol-composition-source-v8.test.js:1:1
+✖ test/semantic-symbol-composition-source-v8.test.js
+  'Promise resolution is still pending but the event loop has already resolved'
+
+test at test/semantic-trace-gallery.test.js:1:1
+✖ test/semantic-trace-gallery.test.js
+  'Promise resolution is still pending but the event loop has already resolved'
+
+test at test/semantic-v6-emission-validator.test.js:1:1
+✖ test/semantic-v6-emission-validator.test.js
+  'Promise resolution is still pending but the event loop has already resolved'
+
+test at test/semantic-v7-admission.test.js:1:1
+✖ test/semantic-v7-admission.test.js
+  'Promise resolution is still pending but the event loop has already resolved'
+
+test at test/semantic-v7-training.test.js:1:1
+✖ test/semantic-v7-training.test.js
+  'Promise resolution is still pending but the event loop has already resolved'
+
+test at test/semantic-v8-dataset.test.js:1:1
+✖ test/semantic-v8-dataset.test.js
+  'Promise resolution is still pending but the event loop has already resolved'
+
+test at test/semantic-v8-position-coverage.test.js:1:1
+✖ test/semantic-v8-position-coverage.test.js
+  'Promise resolution is still pending but the event loop has already resolved'
+
+test at test/semantic-v8-source-projection.test.js:1:1
+✖ test/semantic-v8-source-projection.test.js
+  'Promise resolution is still pending but the event loop has already resolved'
+
+test at test/serving-cost-comparison.test.js:1:1
+✖ test/serving-cost-comparison.test.js
+  'Promise resolution is still pending but the event loop has already resolved'
+
+test at test/source-clusters.test.js:1:1
+✖ test/source-clusters.test.js
+  'Promise resolution is still pending but the event loop has already resolved'
+
+test at test/source-registry.test.js:1:1
+✖ test/source-registry.test.js
+  'Promise resolution is still pending but the event loop has already resolved'
+
+test at test/source-split-stress.test.js:1:1
+✖ test/source-split-stress.test.js
+  'Promise resolution is still pending but the event loop has already resolved'
+
+test at test/stateful-corpus.test.js:1:1
+✖ test/stateful-corpus.test.js
+  'Promise resolution is still pending but the event loop has already resolved'
+
+test at test/stateful-differential.test.js:1:1
+✖ test/stateful-differential.test.js
+  'Promise resolution is still pending but the event loop has already resolved'
+
+test at test/static-module-dependencies.test.js:1:1
+✖ test/static-module-dependencies.test.js
+  'Promise resolution is still pending but the event loop has already resolved'
+
+test at test/static-modules.test.js:1:1
+✖ test/static-modules.test.js
+  'Promise resolution is still pending but the event loop has already resolved'
+
+test at test/strict-accessor-assignment.test.js:1:1
+✖ test/strict-accessor-assignment.test.js
+  'Promise resolution is still pending but the event loop has already resolved'
+
+test at test/structured-contracts.test.js:1:1
+✖ test/structured-contracts.test.js
+  'Promise resolution is still pending but the event loop has already resolved'
+
+test at test/test262-acquisition.test.js:1:1
+✖ test/test262-acquisition.test.js
+  'Promise resolution is still pending but the event loop has already resolved'
+
+test at test/test262-aggregate.test.js:1:1
+✖ test/test262-aggregate.test.js
+  'Promise resolution is still pending but the event loop has already resolved'
+
+test at test/test262-async-reference.test.js:1:1
+✖ test/test262-async-reference.test.js
+  'Promise resolution is still pending but the event loop has already resolved'
+
+test at test/test262-baseline.test.js:1:1
+✖ test/test262-baseline.test.js
+  'Promise resolution is still pending but the event loop has already resolved'
+
+test at test/test262-campaign.test.js:1:1
+✖ test/test262-campaign.test.js
+  'Promise resolution is still pending but the event loop has already resolved'
+
+test at test/test262-capabilities.test.js:1:1
+✖ test/test262-capabilities.test.js
+  'Promise resolution is still pending but the event loop has already resolved'
+
+test at test/test262-catalog.test.js:1:1
+✖ test/test262-catalog.test.js
+  'Promise resolution is still pending but the event loop has already resolved'
+
+test at test/test262-edition.test.js:1:1
+✖ test/test262-edition.test.js
+  'Promise resolution is still pending but the event loop has already resolved'
+
+test at test/test262-module-evaluation.test.js:1:1
+✖ test/test262-module-evaluation.test.js
+  'Promise resolution is still pending but the event loop has already resolved'
+
+test at test/test262-module-reference.test.js:1:1
+✖ test/test262-module-reference.test.js
+  'Promise resolution is still pending but the event loop has already resolved'
+
+test at test/test262-module-resolution.test.js:1:1
+✖ test/test262-module-resolution.test.js
+  'Promise resolution is still pending but the event loop has already resolved'
+
+test at test/test262-namespace-original.test.js:1:1
+✖ test/test262-namespace-original.test.js
+  'Promise resolution is still pending but the event loop has already resolved'
+
+test at test/test262-original-runner.test.js:1:1
+✖ test/test262-original-runner.test.js
+  'Promise resolution is still pending but the event loop has already resolved'
+
+test at test/test262-reference-execution.test.js:1:1
+✖ test/test262-reference-execution.test.js
+  'Promise resolution is still pending but the event loop has already resolved'
+
+test at test/test262-runtime.test.js:1:1
+✖ test/test262-runtime.test.js
+  'Promise resolution is still pending but the event loop has already resolved'
+
+test at test/test262-scalar-reference.test.js:1:1
+✖ test/test262-scalar-reference.test.js
+  'Promise resolution is still pending but the event loop has already resolved'
+
+test at test/test262-scope-annotations.test.js:1:1
+✖ test/test262-scope-annotations.test.js
+  'Promise resolution is still pending but the event loop has already resolved'
+
+test at test/test262-specification.test.js:1:1
+✖ test/test262-specification.test.js
+  'Promise resolution is still pending but the event loop has already resolved'
+
+test at test/trace-quality.test.js:1:1
+✖ test/trace-quality.test.js
+  'Promise resolution is still pending but the event loop has already resolved'
+
+test at test/training-admission-identity.test.js:1:1
+✖ test/training-admission-identity.test.js
+  'Promise resolution is still pending but the event loop has already resolved'
+
+test at test/training-array-bindings.test.js:1:1
+✖ test/training-array-bindings.test.js
+  'Promise resolution is still pending but the event loop has already resolved'
+
+test at test/training-array-callback-extensions.test.js:1:1
+✖ test/training-array-callback-extensions.test.js
+  'Promise resolution is still pending but the event loop has already resolved'
+
+test at test/training-array-defaults.test.js:1:1
+✖ test/training-array-defaults.test.js
+  'Promise resolution is still pending but the event loop has already resolved'
+
+test at test/training-array-search.test.js:1:1
+✖ test/training-array-search.test.js
+  'Promise resolution is still pending but the event loop has already resolved'
+
+test at test/training-array-spread.test.js:1:1
+✖ test/training-array-spread.test.js
+  'Promise resolution is still pending but the event loop has already resolved'
+
+test at test/training-array-write-boundaries.test.js:1:1
+✖ test/training-array-write-boundaries.test.js
+  'Promise resolution is still pending but the event loop has already resolved'
+
+test at test/training-async-function-expressions.test.js:1:1
+✖ test/training-async-function-expressions.test.js
+  'Promise resolution is still pending but the event loop has already resolved'
+
+test at test/training-async-helper-replay.test.js:1:1
+✖ test/training-async-helper-replay.test.js
+  'Promise resolution is still pending but the event loop has already resolved'
+
+test at test/training-async-iteration.test.js:1:1
+✖ test/training-async-iteration.test.js
+  'Promise resolution is still pending but the event loop has already resolved'
+
+test at test/training-benchmark-recipe.test.js:1:1
+✖ test/training-benchmark-recipe.test.js
+  'Promise resolution is still pending but the event loop has already resolved'
+
+test at test/training-binary-memory.test.js:1:1
+✖ test/training-binary-memory.test.js
+  'Promise resolution is still pending but the event loop has already resolved'
+
+test at test/training-bitwise-typeof.test.js:1:1
+✖ test/training-bitwise-typeof.test.js
+  'Promise resolution is still pending but the event loop has already resolved'
+
+test at test/training-bounded-for-of.test.js:1:1
+✖ test/training-bounded-for-of.test.js
+  'Promise resolution is still pending but the event loop has already resolved'
+
+test at test/training-branch-reference.test.js:1:1
+✖ test/training-branch-reference.test.js
+  'Promise resolution is still pending but the event loop has already resolved'
+
+test at test/training-capture-binding-grammar.test.js:1:1
+✖ test/training-capture-binding-grammar.test.js
+  'Promise resolution is still pending but the event loop has already resolved'
+
+test at test/training-causal-lm-bridge.test.js:1:1
+✖ test/training-causal-lm-bridge.test.js
+  'Promise resolution is still pending but the event loop has already resolved'
+
+test at test/training-class-function-metadata.test.js:1:1
+✖ test/training-class-function-metadata.test.js
+  'Promise resolution is still pending but the event loop has already resolved'
+
+test at test/training-classes.test.js:1:1
+✖ test/training-classes.test.js
+  'Promise resolution is still pending but the event loop has already resolved'
+
+test at test/training-common-syntax.test.js:1:1
+✖ test/training-common-syntax.test.js
+  'Promise resolution is still pending but the event loop has already resolved'
+
+test at test/training-completion-reference.test.js:1:1
+✖ test/training-completion-reference.test.js
+  'Promise resolution is still pending but the event loop has already resolved'
+
+test at test/training-constructors.test.js:1:1
+✖ test/training-constructors.test.js
+  'Promise resolution is still pending but the event loop has already resolved'
+
+test at test/training-contract-v6.test.js:1:1
+✖ test/training-contract-v6.test.js
+  'Promise resolution is still pending but the event loop has already resolved'
+
+test at test/training-corpus-gap-regressions.test.js:1:1
+✖ test/training-corpus-gap-regressions.test.js
+  'Promise resolution is still pending but the event loop has already resolved'
+
+test at test/training-corpus-string-array.test.js:1:1
+✖ test/training-corpus-string-array.test.js
+  'Promise resolution is still pending but the event loop has already resolved'
+
+test at test/training-data-boundary.test.js:1:1
+✖ test/training-data-boundary.test.js
+  'Promise resolution is still pending but the event loop has already resolved'
+
+test at test/training-declared-errors.test.js:1:1
+✖ test/training-declared-errors.test.js
+  'Promise resolution is still pending but the event loop has already resolved'
+
+test at test/training-default-parameters.test.js:1:1
+✖ test/training-default-parameters.test.js
+  'Promise resolution is still pending but the event loop has already resolved'
+
+test at test/training-derived-construction.test.js:1:1
+✖ test/training-derived-construction.test.js
+  'Promise resolution is still pending but the event loop has already resolved'
+
+test at test/training-descriptor-boundaries.test.js:1:1
+✖ test/training-descriptor-boundaries.test.js
+  'Promise resolution is still pending but the event loop has already resolved'
+
+test at test/training-effectful-rejections.test.js:1:1
+✖ test/training-effectful-rejections.test.js
+  'Promise resolution is still pending but the event loop has already resolved'
+
+test at test/training-effectful-session.test.js:1:1
+✖ test/training-effectful-session.test.js
+  'Promise resolution is still pending but the event loop has already resolved'
+
+test at test/training-effectful-v4.test.js:1:1
+✖ test/training-effectful-v4.test.js
+  'Promise resolution is still pending but the event loop has already resolved'
+
+test at test/training-exploratory-holdout.test.js:1:1
+✖ test/training-exploratory-holdout.test.js
+  'Promise resolution is still pending but the event loop has already resolved'
+
+test at test/training-failure-evidence.test.js:1:1
+✖ test/training-failure-evidence.test.js
+  'Promise resolution is still pending but the event loop has already resolved'
+
+test at test/training-failure-minimization.test.js:1:1
+✖ test/training-failure-minimization.test.js
+  'Promise resolution is still pending but the event loop has already resolved'
+
+test at test/training-for-in.test.js:1:1
+✖ test/training-for-in.test.js
+  'Promise resolution is still pending but the event loop has already resolved'
+
+test at test/training-frontier-exposure.test.js:1:1
+✖ test/training-frontier-exposure.test.js
+  'Promise resolution is still pending but the event loop has already resolved'
+
+test at test/training-function-expressions.test.js:1:1
+✖ test/training-function-expressions.test.js
+  'Promise resolution is still pending but the event loop has already resolved'
+
+test at test/training-generator-prototypes.test.js:1:1
+✖ test/training-generator-prototypes.test.js
+  'Promise resolution is still pending but the event loop has already resolved'
+
+test at test/training-generator.test.js:1:1
+✖ test/training-generator.test.js
+  'Promise resolution is still pending but the event loop has already resolved'
+
+test at test/training-generators.test.js:1:1
+✖ test/training-generators.test.js
+  'Promise resolution is still pending but the event loop has already resolved'
+
+test at test/training-harness-v4-continuity.test.js:1:1
+✖ test/training-harness-v4-continuity.test.js
+  'Promise resolution is still pending but the event loop has already resolved'
+
+test at test/training-harness-v4.test.js:1:1
+✖ test/training-harness-v4.test.js
+  'Promise resolution is still pending but the event loop has already resolved'
+
+test at test/training-implicit-errors.test.js:1:1
+✖ test/training-implicit-errors.test.js
+  'Promise resolution is still pending but the event loop has already resolved'
+
+test at test/training-instanceof.test.js:1:1
+✖ test/training-instanceof.test.js
+  'Promise resolution is still pending but the event loop has already resolved'
+
+test at test/training-iterable-bindings.test.js:1:1
+✖ test/training-iterable-bindings.test.js
+  'Promise resolution is still pending but the event loop has already resolved'
+
+test at test/training-iterator-protocol.test.js:1:1
+✖ test/training-iterator-protocol.test.js
+  'Promise resolution is still pending but the event loop has already resolved'
+
+test at test/training-learning-experiment.test.js:1:1
+✖ test/training-learning-experiment.test.js
+  'Promise resolution is still pending but the event loop has already resolved'
+
+test at test/training-logical-assignment.test.js:1:1
+✖ test/training-logical-assignment.test.js
+  'Promise resolution is still pending but the event loop has already resolved'
+
+test at test/training-logical-source-audit.test.js:1:1
+✖ test/training-logical-source-audit.test.js
+  'Promise resolution is still pending but the event loop has already resolved'
+
+test at test/training-megatoken-process.test.js:1:1
+✖ test/training-megatoken-process.test.js
+  'Promise resolution is still pending but the event loop has already resolved'
+
+test at test/training-model-context-v4.test.js:1:1
+✖ test/training-model-context-v4.test.js
+  'Promise resolution is still pending but the event loop has already resolved'
+
+test at test/training-model-driver.test.js:1:1
+✖ test/training-model-driver.test.js
+  'Promise resolution is still pending but the event loop has already resolved'
+
+test at test/training-new-target.test.js:1:1
+✖ test/training-new-target.test.js
+  'Promise resolution is still pending but the event loop has already resolved'
+
+test at test/training-null-prototype.test.js:1:1
+✖ test/training-null-prototype.test.js
+  'Promise resolution is still pending but the event loop has already resolved'
+
+test at test/training-number-conversion.test.js:1:1
+✖ test/training-number-conversion.test.js
+  'Promise resolution is still pending but the event loop has already resolved'
+
+test at test/training-number-formatting-corpus.test.js:1:1
+✖ test/training-number-formatting-corpus.test.js
+  'Promise resolution is still pending but the event loop has already resolved'
+
+test at test/training-number-object-conversion.test.js:1:1
+✖ test/training-number-object-conversion.test.js
+  'Promise resolution is still pending but the event loop has already resolved'
+
+test at test/training-numeric-conversion.test.js:1:1
+✖ test/training-numeric-conversion.test.js
+  'Promise resolution is still pending but the event loop has already resolved'
+
+test at test/training-object-bindings.test.js:1:1
+✖ test/training-object-bindings.test.js
+  'Promise resolution is still pending but the event loop has already resolved'
+
+test at test/training-object-literals.test.js:1:1
+✖ test/training-object-literals.test.js
+  'Promise resolution is still pending but the event loop has already resolved'
+
+test at test/training-operation-reference.test.js:1:1
+✖ test/training-operation-reference.test.js
+  'Promise resolution is still pending but the event loop has already resolved'
+
+test at test/training-optimization-cases.test.js:1:1
+✖ test/training-optimization-cases.test.js
+  'Promise resolution is still pending but the event loop has already resolved'
+
+test at test/training-optional-chains.test.js:1:1
+✖ test/training-optional-chains.test.js
+  'Promise resolution is still pending but the event loop has already resolved'
+
+test at test/training-orchestration-evaluation.test.js:1:1
+✖ test/training-orchestration-evaluation.test.js
+  'Promise resolution is still pending but the event loop has already resolved'
+
+test at test/training-owned-replacement-corpus.test.js:1:1
+✖ test/training-owned-replacement-corpus.test.js
+  'Promise resolution is still pending but the event loop has already resolved'
+
+test at test/training-owned-sort-corpus.test.js:1:1
+✖ test/training-owned-sort-corpus.test.js
+  'Promise resolution is still pending but the event loop has already resolved'
+
+test at test/training-parameter-environments.test.js:1:1
+✖ test/training-parameter-environments.test.js
+  'Promise resolution is still pending but the event loop has already resolved'
+
+test at test/training-parameter-patterns.test.js:1:1
+✖ test/training-parameter-patterns.test.js
+  'Promise resolution is still pending but the event loop has already resolved'
+
+test at test/training-parameter-projection.test.js:1:1
+✖ test/training-parameter-projection.test.js
+  'Promise resolution is still pending but the event loop has already resolved'
+
+test at test/training-pattern-expansion.test.js:1:1
+✖ test/training-pattern-expansion.test.js
+  'Promise resolution is still pending but the event loop has already resolved'
+
+test at test/training-promise-job-projection.test.js:1:1
+✖ test/training-promise-job-projection.test.js
+  'Promise resolution is still pending but the event loop has already resolved'
+
+test at test/training-pure-output-transfer.test.js:1:1
+✖ test/training-pure-output-transfer.test.js
+  'Promise resolution is still pending but the event loop has already resolved'
+
+test at test/training-regressions.test.js:1:1
+✖ test/training-regressions.test.js
+  'Promise resolution is still pending but the event loop has already resolved'
+
+test at test/training-rest-spread-corpus.test.js:1:1
+✖ test/training-rest-spread-corpus.test.js
+  'Promise resolution is still pending but the event loop has already resolved'
+
+test at test/training-seeded-admission.test.js:1:1
+✖ test/training-seeded-admission.test.js
+  'Promise resolution is still pending but the event loop has already resolved'
+
+test at test/training-selected-intent-journal.test.js:1:1
+✖ test/training-selected-intent-journal.test.js
+  'Promise resolution is still pending but the event loop has already resolved'
+
+test at test/training-semantic-projection.test.js:1:1
+✖ test/training-semantic-projection.test.js
+  'Promise resolution is still pending but the event loop has already resolved'
+
+test at test/training-semantic-source.test.js:1:1
+✖ test/training-semantic-source.test.js
+  'Promise resolution is still pending but the event loop has already resolved'
+
+test at test/training-set-corpus.test.js:1:1
+✖ test/training-set-corpus.test.js
+  'Promise resolution is still pending but the event loop has already resolved'
+
+test at test/training-source-recipe.test.js:1:1
+✖ test/training-source-recipe.test.js
+  'Promise resolution is still pending but the event loop has already resolved'
+
+test at test/training-super-properties.test.js:1:1
+✖ test/training-super-properties.test.js
+  'Promise resolution is still pending but the event loop has already resolved'
+
+test at test/training-switch-labels.test.js:1:1
+✖ test/training-switch-labels.test.js
+  'Promise resolution is still pending but the event loop has already resolved'
+
+test at test/training-symbol-coercion.test.js:1:1
+✖ test/training-symbol-coercion.test.js
+  'Promise resolution is still pending but the event loop has already resolved'
+
+test at test/training-symbols.test.js:1:1
+✖ test/training-symbols.test.js
+  'Promise resolution is still pending but the event loop has already resolved'
+
+test at test/training-synchronous-throws.test.js:1:1
+✖ test/training-synchronous-throws.test.js
+  'Promise resolution is still pending but the event loop has already resolved'
+
+test at test/training-tagged-templates.test.js:1:1
+✖ test/training-tagged-templates.test.js
+  'Promise resolution is still pending but the event loop has already resolved'
+
+test at test/training-template-literals.test.js:1:1
+✖ test/training-template-literals.test.js
+  'Promise resolution is still pending but the event loop has already resolved'
+
+test at test/training-trace-v6.test.js:1:1
+✖ test/training-trace-v6.test.js
+  'Promise resolution is still pending but the event loop has already resolved'
+
+test at test/training-try-completions.test.js:1:1
+✖ test/training-try-completions.test.js
+  'Promise resolution is still pending but the event loop has already resolved'
+
+test at test/training-v6-decoder-grammar.test.js:1:1
+✖ test/training-v6-decoder-grammar.test.js
+  'Promise resolution is still pending but the event loop has already resolved'
+
+test at test/training-var.test.js:1:1
+✖ test/training-var.test.js
+  'Promise resolution is still pending but the event loop has already resolved'
+
+test at test/training-yield-delegation.test.js:1:1
+✖ test/training-yield-delegation.test.js
+  'Promise resolution is still pending but the event loop has already resolved'
+
+test at test/trusted-source-candidates.test.js:1:1
+✖ test/trusted-source-candidates.test.js
+  'Promise resolution is still pending but the event loop has already resolved'
+
+test at test/typescript-identity.test.js:1:1
+✖ test/typescript-identity.test.js
+  'Promise resolution is still pending but the event loop has already resolved'
+
+test at test/unsupported-completion-validation.test.js:1:1
+✖ test/unsupported-completion-validation.test.js
+  'Promise resolution is still pending but the event loop has already resolved'
+
+test at test/v8-release-campaign.test.js:1:1
+✖ test/v8-release-campaign.test.js
+  'Promise resolution is still pending but the event loop has already resolved'
+
+test at test/v8-release-population.test.js:1:1
+✖ test/v8-release-population.test.js
+  'Promise resolution is still pending but the event loop has already resolved'
+
+test at test/v8-release-request-fields.test.js:1:1
+✖ test/v8-release-request-fields.test.js
+  'Promise resolution is still pending but the event loop has already resolved'
+
+test at test/v8-release-task-binding.test.js:1:1
+✖ test/v8-release-task-binding.test.js
+  'Promise resolution is still pending but the event loop has already resolved'
+
+test at test/v8-release-task-normalization.test.js:1:1
+✖ test/v8-release-task-normalization.test.js
+  'Promise resolution is still pending but the event loop has already resolved'

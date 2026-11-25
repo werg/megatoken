@@ -100,11 +100,14 @@
           "callFrames": [],
           "sequence": 0,
           "promiseObjects": null,
+          "intrinsicErrors": null,
           "construction": null,
           "primitiveConversions": null,
           "numberConversions": null,
+          "proxyReflection": null,
           "proxyCalls": null,
-          "promiseExecutors": null
+          "promiseExecutors": null,
+          "collections": null
         }
       },
       "lines": [
@@ -334,11 +337,14 @@
           "callFrames": [],
           "sequence": 11,
           "promiseObjects": null,
+          "intrinsicErrors": null,
           "construction": null,
           "primitiveConversions": null,
           "numberConversions": null,
+          "proxyReflection": null,
           "proxyCalls": null,
-          "promiseExecutors": null
+          "promiseExecutors": null,
+          "collections": null
         }
       }
     },
@@ -440,11 +446,14 @@
           "callFrames": [],
           "sequence": 0,
           "promiseObjects": null,
+          "intrinsicErrors": null,
           "construction": null,
           "primitiveConversions": null,
           "numberConversions": null,
+          "proxyReflection": null,
           "proxyCalls": null,
-          "promiseExecutors": null
+          "promiseExecutors": null,
+          "collections": null
         }
       },
       "lines": [
@@ -691,11 +700,14 @@
           "callFrames": [],
           "sequence": 15,
           "promiseObjects": null,
+          "intrinsicErrors": null,
           "construction": null,
           "primitiveConversions": null,
           "numberConversions": null,
+          "proxyReflection": null,
           "proxyCalls": null,
-          "promiseExecutors": null
+          "promiseExecutors": null,
+          "collections": null
         }
       }
     },
@@ -797,11 +809,14 @@
           "callFrames": [],
           "sequence": 0,
           "promiseObjects": null,
+          "intrinsicErrors": null,
           "construction": null,
           "primitiveConversions": null,
           "numberConversions": null,
+          "proxyReflection": null,
           "proxyCalls": null,
-          "promiseExecutors": null
+          "promiseExecutors": null,
+          "collections": null
         }
       },
       "lines": [
@@ -988,11 +1003,14 @@
           "callFrames": [],
           "sequence": 8,
           "promiseObjects": null,
+          "intrinsicErrors": null,
           "construction": null,
           "primitiveConversions": null,
           "numberConversions": null,
+          "proxyReflection": null,
           "proxyCalls": null,
-          "promiseExecutors": null
+          "promiseExecutors": null,
+          "collections": null
         }
       }
     }

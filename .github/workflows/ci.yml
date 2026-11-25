@@ -30,9 +30,9 @@ concurrency:
 jobs:
   cpu:
     runs-on: ubuntu-24.04
-    # The complete 3.11/3.12 suites reached 87%/83% at the former 45-minute limit.
-    # Keep the full test selection and individual subprocess limits unchanged.
-    timeout-minutes: 60
+    # Run 45548931991 passed all 4630 Python 3.12 CPU tests in 1:58:31
+    # but hit the 120-minute job limit before CLI inspection. Retain every step.
+    timeout-minutes: 180
     strategy:
       fail-fast: false
       matrix:
@@ -64,7 +64,7 @@ jobs:
       - name: Verify installed V8 imports without legacy wire modules
         run: MEGATOKEN_REQUIRE_INSTALLED_WHEEL=1 python -m pytest -q tests/test_v8_entrypoints_without_legacy.py
       - name: Run the complete CPU suite
-        run: python -m pytest -q --junitxml=validation/cpu-tests.xml
+        run: python -u -m pytest -q --junitxml=validation/cpu-tests.xml
       - name: Inspect the installed CLI
         run: |
           megatoken --help

@@ -321,6 +321,7 @@ def _resume_call(machine, node, method, argument):
         {
             "child": invocation,
             "parent": machine["stack"][-1],
+            "callee": copy.deepcopy(node["callee"]),
             "priorReceiver": copy.deepcopy(machine.get("receiver", ["undefined"])),
             "priorAliases": [
                 [key, value] for key, value in machine.get("captureAliases", {}).items()

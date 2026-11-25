@@ -9,6 +9,7 @@ from megatoken.data.protocol_v8 import (
     _internal_machine,
     apply_protocol_record,
     assert_detailed_record_compatible,
+    create_protocol_state,
     decode_protocol_record,
     encode_protocol_record,
     validate_protocol_state,
@@ -17,15 +18,68 @@ from tests.test_number_v8 import allocate, machine
 
 
 def executor_machine(active_job=False):
+    if active_job:
+        from megatoken.data.native_v8 import _apply_detail, _initial_state
+
+        state = _initial_state(
+            {},
+            {
+                "inputGraph": {"roots": [], "objects": []},
+                "invocationId": "root",
+                "entry": "run",
+            },
+        )
+        state["protocol"] = create_protocol_state()
+
+        def detail(record_kind, **fields):
+            _apply_detail(
+                state,
+                record_kind,
+                fields,
+                {},
+                root="root",
+                functions=[
+                    {"name": "callback", "params": ["value"]},
+                    {"name": "executor", "params": ["resolve", "reject"]},
+                ],
+            )
+
+        detail("promise", action="create", promise="promise")
+        detail(
+            "allocate",
+            name="executor",
+            kind="closure",
+            properties=[],
+            captures=[],
+            code="executor",
+        )
+        detail(
+            "allocate",
+            name="callback",
+            kind="closure",
+            properties=[],
+            captures=[],
+            code="callback",
+        )
+        detail("promise", action="create", promise="source")
+        detail("promise", action="resolve", promise="source", value=["num", 1])
+        detail(
+            "promise",
+            action="react",
+            promise="source",
+            job="reaction",
+            reaction="then",
+            closure="callback",
+            target="result",
+        )
+        detail("await", promise="result", continuation="outer", invocation="root")
+        detail("job", action="dispatch", job="reaction", owner="root")
+        return _internal_machine(state)
+
     state = machine()
     state.update(jobs=[], continuations=[], ready=[], scheduler={"registration": 0, "ready": 0})
     create_promise(state, "promise")
     allocate(state, "executor", "closure")
-    if active_job:
-        state["activeJob"] = "reaction"
-        state["stack"] = ["job:reaction"]
-        state["frameFunctions"]["job:reaction"] = "callback"
-        state["jobs"] = [["reaction", {"status": "running"}]]
     return state
 
 
@@ -255,7 +309,7 @@ class PromiseExecutorTests(unittest.TestCase):
         finish(state)
         state = restore(state)
         self.assertEqual(state["activeJob"], "reaction")
-        self.assertEqual(state["stack"], ["job:reaction"])
+        self.assertEqual(state["stack"], ["root", "job:reaction"])
         self.assertEqual(state["heap"]["promise"]["result"], ["num", 4])
 
     def test_unscoped_completion_settlement_and_resolver_calls_are_rejected(self):

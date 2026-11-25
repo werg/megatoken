@@ -1,0 +1,55 @@
+{
+  "implementationRevision": "76fd24a91ad7e535aac33af542b481e1337838df",
+  "phase": "stopped-for-review",
+  "steps": [
+    {
+      "name": "canonical-sync",
+      "command": [
+        "/tmp/issue51-resume.Ws1foQ/.venv/bin/python",
+        "/tmp/issue51-resume.Ws1foQ/sync-object-canonical.py"
+      ],
+      "log": "finish-canonical-sync.json",
+      "exitCode": 0,
+      "seconds": 17.524
+    },
+    {
+      "name": "support",
+      "command": [
+        "/tmp/issue51-resume.Ws1foQ/.venv/bin/python",
+        "/tmp/issue51-resume.Ws1foQ/run-finish-support-fixtures.py"
+      ],
+      "log": "finish-pipeline-support.log",
+      "exitCode": 0,
+      "seconds": 9.703
+    },
+    {
+      "name": "format-canonical-test",
+      "command": [
+        "/tmp/issue51-resume.Ws1foQ/.venv/bin/ruff",
+        "format",
+        "/tmp/issue51-resume.Ws1foQ/consumer/tests/test_protocol_v8.py"
+      ],
+      "log": "finish-pipeline-format-canonical-test.log",
+      "exitCode": 0,
+      "seconds": 0.056
+    }
+  ],
+  "jobs": {
+    "producer": {
+      "pid": 2995095,
+      "driver": "run-finish-producer-checks.py",
+      "log": "finish-pipeline-producer.log"
+    },
+    "export": {
+      "pid": 2995096,
+      "driver": "run-finish-cohort-export.py",
+      "log": "finish-pipeline-export.log"
+    }
+  },
+  "producerRevision": "5553de1a10761626c5604a57453291039d73683d",
+  "error": "['src/megatoken/data/contracts/semantic-execution-v8.json', 'tests/fixtures/semantic-generator-close-v8.json.gz.b64', 'tests/fixtures/semantic-host-recovery-v8.json.gz.b64', 'tests/fixtures/semantic-protocol-region-v8.json.gz.b64', 'tests/fixtures/semantic-protocol-source-v8.json', 'tests/fixtures/semantic-regions-v8.json.gz.b64']",
+  "jobsStillRunning": [
+    "producer",
+    "export"
+  ]
+}

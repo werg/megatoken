@@ -16,6 +16,15 @@ from megatoken.data.semantic_json import stable_algorithm_hash
 from megatoken.generation.codec import LING_TOKENIZER_SHA256, ByteCodec
 
 
+def _write_source_recheck_artifact(path: Path, document: dict) -> None:
+    """Preserve JS property order and lone UTF-16 code units in source evidence."""
+    path.write_bytes(
+        json.dumps(document, separators=(",", ":"), ensure_ascii=True, allow_nan=False).encode(
+            "utf-8"
+        )
+    )
+
+
 def _documents(paths):
     for path in paths:
         if path.suffix == ".jsonl":
@@ -48,7 +57,7 @@ def main():
     def verify(document):
         with tempfile.TemporaryDirectory(prefix="semantic-source-v8-") as directory:
             artifact = Path(directory) / "artifact.json"
-            artifact.write_text(json.dumps(document, ensure_ascii=False, separators=(",", ":")))
+            _write_source_recheck_artifact(artifact, document)
             receipt = recheck_source_binding(
                 document,
                 artifact,

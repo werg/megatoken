@@ -5,6 +5,7 @@ import subprocess
 import unittest
 
 from megatoken.data import primitive_conversion_v8 as conversion
+from megatoken.data.promise_object_v8 import intrinsic_id
 from megatoken.data.protocol_v8 import (
     ProtocolV8Error,
     _external_machine,
@@ -205,6 +206,163 @@ class PrimitiveConversionTests(unittest.TestCase):
             returned(state, "convert", "child", ["str", "7"])
             apply(state, finish("convert", ["num", 7] if goal == "Number" else ["str", "7"]))
 
+    def test_constructor_arrow_conversion_callback_keeps_live_receiver_target_and_private_brand(
+        self,
+    ):
+        state = machine()
+        apply(
+            state,
+            allocate("Base", kind="closure"),
+            allocate("Base-prototype"),
+            {
+                "kind": "callable.define",
+                "object": "Base",
+                "constructorKind": "base",
+                "classConstructor": True,
+            },
+            {
+                "kind": "class.link",
+                "object": "Base",
+                "prototype": ["ref", "Base-prototype"],
+                "heritage": ["undefined"],
+            },
+            allocate("Derived", kind="closure"),
+            allocate("Derived-prototype"),
+            {
+                "kind": "callable.define",
+                "object": "Derived",
+                "constructorKind": "derived",
+                "classConstructor": True,
+            },
+            {
+                "kind": "class.link",
+                "object": "Derived",
+                "prototype": ["ref", "Derived-prototype"],
+                "heritage": ["ref", "Base"],
+            },
+            {"kind": "private.declare", "id": "private-x", "owner": "Derived", "name": "x"},
+            allocate("arrow-one", kind="closure", functionKind="arrow", lexicalReceiver=UNDEFINED),
+            {
+                "kind": "callable.define",
+                "object": "arrow-one",
+                "constructorKind": None,
+                "classConstructor": False,
+            },
+            allocate("arrow-two", kind="closure", functionKind="arrow", lexicalReceiver=UNDEFINED),
+            {
+                "kind": "callable.define",
+                "object": "arrow-two",
+                "constructorKind": None,
+                "classConstructor": False,
+            },
+            {
+                "kind": "construct.enter",
+                "id": "construction",
+                "child": "derived-body",
+                "callee": ["ref", "Derived"],
+                "newTarget": ["ref", "Derived"],
+                "arguments": [],
+                "receiver": UNDEFINED,
+                "mode": "ordinary",
+                "owner": None,
+            },
+            {
+                "kind": "callable.capture",
+                "object": "arrow-one",
+                "frame": "construction",
+                "thisCell": "derived-body:this",
+            },
+            {
+                "kind": "callable.capture",
+                "object": "arrow-two",
+                "frame": "construction",
+                "thisCell": "derived-body:this",
+            },
+            {"kind": "super.select", "owner": "construction", "callee": ["ref", "Base"]},
+            {
+                "kind": "construct.enter",
+                "id": "base-construction",
+                "child": "base-body",
+                "callee": ["ref", "Base"],
+                "newTarget": ["ref", "Derived"],
+                "arguments": [],
+                "receiver": ["ref", "instance"],
+                "mode": "super",
+                "owner": "construction",
+            },
+            {"kind": "return", "invocation": "base-body", "value": UNDEFINED},
+            {
+                "kind": "construct.finish",
+                "id": "base-construction",
+                "completion": {"kind": "normal", "value": ["ref", "instance"]},
+            },
+            {
+                "kind": "super.bind",
+                "owner": "construction",
+                "receiver": ["ref", "instance"],
+                "child": None,
+            },
+            {
+                "kind": "private.define",
+                "object": "instance",
+                "privateId": "private-x",
+                "elementKind": "field",
+                "value": ["num", 8],
+            },
+            {"kind": "construct.this", "invocation": "derived-body", "result": ["ref", "instance"]},
+            allocate("replacement"),
+            {"kind": "return", "invocation": "derived-body", "value": ["ref", "replacement"]},
+            {
+                "kind": "construct.finish",
+                "id": "construction",
+                "completion": {"kind": "normal", "value": ["ref", "replacement"]},
+            },
+            allocate("input"),
+            define("input", ["str", "valueOf"], ["ref", "arrow-one"]),
+            begin("conversion", "Number", ["ref", "input"]),
+            lookup("conversion", EXOTIC),
+            lookup("conversion", ["str", "valueOf"], "data", ["ref", "arrow-one"]),
+            {"kind": "conversion.call", "id": "conversion", "child": "arrow-body"},
+        )
+        self.assertEqual(state["receiver"], ["ref", "instance"])
+        self.assertEqual(state["protocol"]["callFrames"][-1]["callee"], ["ref", "arrow-one"])
+        apply(
+            state,
+            {"kind": "construct.this", "invocation": "arrow-body", "result": ["ref", "instance"]},
+            {"kind": "construct.target", "invocation": "arrow-body", "result": ["ref", "Derived"]},
+            {
+                "kind": "private.get",
+                "object": "instance",
+                "privateId": "private-x",
+                "result": ["num", 8],
+            },
+        )
+        pending = copy.deepcopy(state)
+        pending["protocol"]["callFrames"][-1]["callee"] = ["ref", "arrow-two"]
+        with self.assertRaisesRegex(ProtocolV8Error, "callee, receiver|callee identity"):
+            validate_protocol_state(
+                pending["protocol"], pending["heap"], _external_machine(pending)
+            )
+        for field, value in (("frame", "base-construction"), ("thisCell", "base-body:this")):
+            forged = copy.deepcopy(state)
+            forged["heap"]["arrow-one"]["callable"]["lexicalConstruction"][field] = value
+            with (
+                self.subTest(field=field),
+                self.assertRaisesRegex(
+                    ProtocolV8Error,
+                    "captured constructor frame|captured constructor receiver cell|lexical constructor frame",
+                ),
+            ):
+                validate_protocol_state(
+                    forged["protocol"], forged["heap"], _external_machine(forged)
+                )
+        returned(state, "conversion", "arrow-body", ["num", 8])
+        apply(state, finish("conversion", ["num", 8]))
+        self.assertEqual(state["protocol"]["construction"]["frames"][0]["phase"], "complete")
+        self.assertEqual(
+            state["protocol"]["construction"]["frames"][0]["receiver"], ["ref", "instance"]
+        )
+
     def test_getter_is_captured_once_and_method_uses_original_receiver(self):
         state = machine()
         apply(
@@ -390,9 +548,21 @@ class PrimitiveConversionTests(unittest.TestCase):
             with self.assertRaises(ProtocolV8Error):
                 conversion.validate_state(malformed)
             apply(state, {"kind": "conversion.fault", "id": "convert", "error": "error"})
+            error = state["heap"]["error"]
             self.assertEqual(
-                state["heap"]["error"]["properties"],
-                {"name": ["str", "TypeError"], "message": ["str", conversion.FAULTS[cause]]},
+                error["properties"],
+                {"message": ["str", conversion.FAULTS[cause]]},
+            )
+            self.assertEqual(error["prototype"], ["ref", intrinsic_id("TypeError.prototype")])
+            apply(
+                state,
+                {
+                    "kind": "property.get",
+                    "object": "error",
+                    "key": ["str", "name"],
+                    "receiver": ["ref", "error"],
+                    "result": ["str", "TypeError"],
+                },
             )
             apply(state, define("error", ["str", "message"], ["str", "changed by catch"]))
             self.assertTrue(conversion.validate_state(state))

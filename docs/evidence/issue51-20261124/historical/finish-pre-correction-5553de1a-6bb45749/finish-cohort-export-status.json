@@ -1,0 +1,14 @@
+{
+  "producerRevision": "5553de1a10761626c5604a57453291039d73683d",
+  "producerTreeUnchanged": true,
+  "command": [
+    "node",
+    "tools/export-issue51-evidence.mjs",
+    "--out",
+    "../cohort-finish.json"
+  ],
+  "exitCode": 0,
+  "seconds": 436.113,
+  "logSha256": "bee08195dab6380724f131f4bd6ac2593d11dc184c85ba61221611fa5162321d",
+  "reportSha256": "862300311c2205d0f29a2e0323c250a1b0d6933ca76e013025c69badbaaeff4f"
+}

@@ -1,0 +1,248 @@
+.......FF................................FFFF..FF.F..................... [ 53%]
+..............................................................           [100%]
+=================================== FAILURES ===================================
+_ test_native_replay_every_original_context_and_continuation[issue51-derived-this-before-super-reference-error] _
+
+case = {'artifact': {'contexts': [{'input': {'graph': {'objects': [], 'roots': []}}, 'invocationId': 'invocation1', 'obligati...error', 'protocolMethodCounts': {'allocate': 4, 'callable.define': 2, 'class.link': 2, 'construct.enter': 1, ...}, ...}
+
+    @pytest.mark.parametrize("case", ACCEPTED, ids=lambda row: row["id"])
+    def test_native_replay_every_original_context_and_continuation(case):
+        artifact = case["artifact"]
+>       checked = validate_v8_artifact(artifact)
+                  ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+tests/test_issue51_object_source_v8.py:73: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+src/megatoken/data/native_v8.py:354: in validate_v8_artifact
+    final_restored = _replay_shared_state(timeline, contexts, programs, roundtrip=True)
+                     ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+src/megatoken/data/native_v8.py:1312: in _replay_shared_state
+    _fail(
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+
+msg = "Public continuation differs from independently replayed shared state at 34 fields ['lastReturn']"
+
+    def _fail(msg):
+>       raise NativeV8Error(msg)
+E       megatoken.data.native_v8.NativeV8Error: Public continuation differs from independently replayed shared state at 34 fields ['lastReturn']
+
+src/megatoken/data/native_v8.py:91: NativeV8Error
+_ test_native_replay_every_original_context_and_continuation[issue51-derived-this-captured-arrow-before-super-reference-error] _
+
+case = {'artifact': {'contexts': [{'input': {'graph': {'objects': [], 'roots': []}}, 'invocationId': 'invocation1', 'obligati...ence-error', 'protocolMethodCounts': {'allocate': 5, 'call': 1, 'callable.capture': 1, 'callable.define': 3, ...}, ...}
+
+    @pytest.mark.parametrize("case", ACCEPTED, ids=lambda row: row["id"])
+    def test_native_replay_every_original_context_and_continuation(case):
+        artifact = case["artifact"]
+>       checked = validate_v8_artifact(artifact)
+                  ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+tests/test_issue51_object_source_v8.py:73: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+src/megatoken/data/native_v8.py:354: in validate_v8_artifact
+    final_restored = _replay_shared_state(timeline, contexts, programs, roundtrip=True)
+                     ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+src/megatoken/data/native_v8.py:1312: in _replay_shared_state
+    _fail(
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+
+msg = "Public continuation differs from independently replayed shared state at 39 fields ['lastReturn']"
+
+    def _fail(msg):
+>       raise NativeV8Error(msg)
+E       megatoken.data.native_v8.NativeV8Error: Public continuation differs from independently replayed shared state at 39 fields ['lastReturn']
+
+src/megatoken/data/native_v8.py:91: NativeV8Error
+_ test_native_replay_every_original_context_and_continuation[issue51-proxy-revoked-get] _
+
+case = {'artifact': {'contexts': [{'input': {'graph': {'objects': [], 'roots': []}}, 'invocationId': 'invocation1', 'obligati...ed-get', 'protocolMethodCounts': {'allocate': 3, 'end': 1, 'promise.intrinsic.get': 1, 'property.define': 1, ...}, ...}
+
+    @pytest.mark.parametrize("case", ACCEPTED, ids=lambda row: row["id"])
+    def test_native_replay_every_original_context_and_continuation(case):
+        artifact = case["artifact"]
+>       checked = validate_v8_artifact(artifact)
+                  ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+tests/test_issue51_object_source_v8.py:73: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+src/megatoken/data/native_v8.py:354: in validate_v8_artifact
+    final_restored = _replay_shared_state(timeline, contexts, programs, roundtrip=True)
+                     ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+src/megatoken/data/native_v8.py:1312: in _replay_shared_state
+    _fail(
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+
+msg = "Public continuation differs from independently replayed shared state at 7 fields ['heap']"
+
+    def _fail(msg):
+>       raise NativeV8Error(msg)
+E       megatoken.data.native_v8.NativeV8Error: Public continuation differs from independently replayed shared state at 7 fields ['heap']
+
+src/megatoken/data/native_v8.py:91: NativeV8Error
+_ test_native_replay_every_original_context_and_continuation[issue51-proxy-revoked-set] _
+
+case = {'artifact': {'contexts': [{'input': {'graph': {'objects': [], 'roots': []}}, 'invocationId': 'invocation1', 'obligati...ed-set', 'protocolMethodCounts': {'allocate': 3, 'end': 1, 'promise.intrinsic.get': 1, 'property.define': 1, ...}, ...}
+
+    @pytest.mark.parametrize("case", ACCEPTED, ids=lambda row: row["id"])
+    def test_native_replay_every_original_context_and_continuation(case):
+        artifact = case["artifact"]
+>       checked = validate_v8_artifact(artifact)
+                  ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+tests/test_issue51_object_source_v8.py:73: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+src/megatoken/data/native_v8.py:354: in validate_v8_artifact
+    final_restored = _replay_shared_state(timeline, contexts, programs, roundtrip=True)
+                     ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+src/megatoken/data/native_v8.py:1312: in _replay_shared_state
+    _fail(
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+
+msg = "Public continuation differs from independently replayed shared state at 7 fields ['heap']"
+
+    def _fail(msg):
+>       raise NativeV8Error(msg)
+E       megatoken.data.native_v8.NativeV8Error: Public continuation differs from independently replayed shared state at 7 fields ['heap']
+
+src/megatoken/data/native_v8.py:91: NativeV8Error
+_ test_native_replay_every_original_context_and_continuation[issue51-proxy-revoked-has] _
+
+case = {'artifact': {'contexts': [{'input': {'graph': {'objects': [], 'roots': []}}, 'invocationId': 'invocation1', 'obligati...ed-has', 'protocolMethodCounts': {'allocate': 3, 'end': 1, 'promise.intrinsic.get': 1, 'property.define': 1, ...}, ...}
+
+    @pytest.mark.parametrize("case", ACCEPTED, ids=lambda row: row["id"])
+    def test_native_replay_every_original_context_and_continuation(case):
+        artifact = case["artifact"]
+>       checked = validate_v8_artifact(artifact)
+                  ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+tests/test_issue51_object_source_v8.py:73: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+src/megatoken/data/native_v8.py:354: in validate_v8_artifact
+    final_restored = _replay_shared_state(timeline, contexts, programs, roundtrip=True)
+                     ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+src/megatoken/data/native_v8.py:1312: in _replay_shared_state
+    _fail(
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+
+msg = "Public continuation differs from independently replayed shared state at 7 fields ['heap']"
+
+    def _fail(msg):
+>       raise NativeV8Error(msg)
+E       megatoken.data.native_v8.NativeV8Error: Public continuation differs from independently replayed shared state at 7 fields ['heap']
+
+src/megatoken/data/native_v8.py:91: NativeV8Error
+_ test_native_replay_every_original_context_and_continuation[issue51-proxy-revoked-deleteProperty] _
+
+case = {'artifact': {'contexts': [{'input': {'graph': {'objects': [], 'roots': []}}, 'invocationId': 'invocation1', 'obligati...operty', 'protocolMethodCounts': {'allocate': 3, 'end': 1, 'promise.intrinsic.get': 1, 'property.define': 1, ...}, ...}
+
+    @pytest.mark.parametrize("case", ACCEPTED, ids=lambda row: row["id"])
+    def test_native_replay_every_original_context_and_continuation(case):
+        artifact = case["artifact"]
+>       checked = validate_v8_artifact(artifact)
+                  ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+tests/test_issue51_object_source_v8.py:73: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+src/megatoken/data/native_v8.py:354: in validate_v8_artifact
+    final_restored = _replay_shared_state(timeline, contexts, programs, roundtrip=True)
+                     ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+src/megatoken/data/native_v8.py:1312: in _replay_shared_state
+    _fail(
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+
+msg = "Public continuation differs from independently replayed shared state at 7 fields ['heap']"
+
+    def _fail(msg):
+>       raise NativeV8Error(msg)
+E       megatoken.data.native_v8.NativeV8Error: Public continuation differs from independently replayed shared state at 7 fields ['heap']
+
+src/megatoken/data/native_v8.py:91: NativeV8Error
+_ test_native_replay_every_original_context_and_continuation[issue51-proxy-getmethod-revocation] _
+
+case = {'artifact': {'contexts': [{'input': {'graph': {'objects': [], 'roots': []}}, 'invocationId': 'invocation1', 'obligati...-getmethod-revocation', 'protocolMethodCounts': {'allocate': 4, 'callable.define': 2, 'choose': 1, 'end': 1, ...}, ...}
+
+    @pytest.mark.parametrize("case", ACCEPTED, ids=lambda row: row["id"])
+    def test_native_replay_every_original_context_and_continuation(case):
+        artifact = case["artifact"]
+>       checked = validate_v8_artifact(artifact)
+                  ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+tests/test_issue51_object_source_v8.py:73: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+src/megatoken/data/native_v8.py:354: in validate_v8_artifact
+    final_restored = _replay_shared_state(timeline, contexts, programs, roundtrip=True)
+                     ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+src/megatoken/data/native_v8.py:1312: in _replay_shared_state
+    _fail(
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+
+msg = "Public continuation differs from independently replayed shared state at 12 fields ['heap']"
+
+    def _fail(msg):
+>       raise NativeV8Error(msg)
+E       megatoken.data.native_v8.NativeV8Error: Public continuation differs from independently replayed shared state at 12 fields ['heap']
+
+src/megatoken/data/native_v8.py:91: NativeV8Error
+_ test_native_replay_every_original_context_and_continuation[issue51-proxy-getmethod-nullish-after-revocation] _
+
+case = {'artifact': {'contexts': [{'input': {'graph': {'objects': [], 'roots': []}}, 'invocationId': 'invocation1', 'obligati...r-revocation', 'protocolMethodCounts': {'allocate': 4, 'callable.define': 1, 'end': 1, 'property.define': 2, ...}, ...}
+
+    @pytest.mark.parametrize("case", ACCEPTED, ids=lambda row: row["id"])
+    def test_native_replay_every_original_context_and_continuation(case):
+        artifact = case["artifact"]
+>       checked = validate_v8_artifact(artifact)
+                  ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+tests/test_issue51_object_source_v8.py:73: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+src/megatoken/data/native_v8.py:354: in validate_v8_artifact
+    final_restored = _replay_shared_state(timeline, contexts, programs, roundtrip=True)
+                     ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+src/megatoken/data/native_v8.py:1312: in _replay_shared_state
+    _fail(
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+
+msg = "Public continuation differs from independently replayed shared state at 12 fields ['heap']"
+
+    def _fail(msg):
+>       raise NativeV8Error(msg)
+E       megatoken.data.native_v8.NativeV8Error: Public continuation differs from independently replayed shared state at 12 fields ['heap']
+
+src/megatoken/data/native_v8.py:91: NativeV8Error
+_ test_native_replay_every_original_context_and_continuation[issue51-proxy-revocable-revoke-idempotent] _
+
+case = {'artifact': {'contexts': [{'input': {'graph': {'objects': [], 'roots': []}}, 'invocationId': 'invocation1', 'obligati...voke-idempotent', 'protocolMethodCounts': {'allocate': 3, 'end': 1, 'property.define': 1, 'property.get': 7, ...}, ...}
+
+    @pytest.mark.parametrize("case", ACCEPTED, ids=lambda row: row["id"])
+    def test_native_replay_every_original_context_and_continuation(case):
+        artifact = case["artifact"]
+>       checked = validate_v8_artifact(artifact)
+                  ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+tests/test_issue51_object_source_v8.py:73: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+src/megatoken/data/native_v8.py:354: in validate_v8_artifact
+    final_restored = _replay_shared_state(timeline, contexts, programs, roundtrip=True)
+                     ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+src/megatoken/data/native_v8.py:1312: in _replay_shared_state
+    _fail(
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+
+msg = "Public continuation differs from independently replayed shared state at 7 fields ['heap']"
+
+    def _fail(msg):
+>       raise NativeV8Error(msg)
+E       megatoken.data.native_v8.NativeV8Error: Public continuation differs from independently replayed shared state at 7 fields ['heap']
+
+src/megatoken/data/native_v8.py:91: NativeV8Error
+=========================== short test summary info ============================
+FAILED tests/test_issue51_object_source_v8.py::test_native_replay_every_original_context_and_continuation[issue51-derived-this-before-super-reference-error]
+FAILED tests/test_issue51_object_source_v8.py::test_native_replay_every_original_context_and_continuation[issue51-derived-this-captured-arrow-before-super-reference-error]
+FAILED tests/test_issue51_object_source_v8.py::test_native_replay_every_original_context_and_continuation[issue51-proxy-revoked-get]
+FAILED tests/test_issue51_object_source_v8.py::test_native_replay_every_original_context_and_continuation[issue51-proxy-revoked-set]
+FAILED tests/test_issue51_object_source_v8.py::test_native_replay_every_original_context_and_continuation[issue51-proxy-revoked-has]
+FAILED tests/test_issue51_object_source_v8.py::test_native_replay_every_original_context_and_continuation[issue51-proxy-revoked-deleteProperty]
+FAILED tests/test_issue51_object_source_v8.py::test_native_replay_every_original_context_and_continuation[issue51-proxy-getmethod-revocation]
+FAILED tests/test_issue51_object_source_v8.py::test_native_replay_every_original_context_and_continuation[issue51-proxy-getmethod-nullish-after-revocation]
+FAILED tests/test_issue51_object_source_v8.py::test_native_replay_every_original_context_and_continuation[issue51-proxy-revocable-revoke-idempotent]
+9 failed, 125 passed in 270.77s (0:04:30)

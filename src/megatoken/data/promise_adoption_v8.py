@@ -203,7 +203,7 @@ def _adoption_get(machine, record, row, job):
         or closure.get("promiseResolver")
         or closure.get("callable", {}).get("classConstructor")
     ):
-        _fail("adoption constructor requires its selected synchronous owned getter")
+        _fail("adoption getter requires its selected synchronous owned getter")
     if any(capture["cell"] not in machine["locals"] for capture in closure["captures"]):
         _fail("adoption constructor getter capture is not initialized")
     protocol = machine["protocol"]
@@ -215,11 +215,9 @@ def _adoption_get(machine, record, row, job):
         _fail("adoption getter invocation identity is not fresh")
     prior_aliases = [[key, value] for key, value in machine.get("captureAliases", {}).items()]
     prior_receiver = copy.deepcopy(machine.get("receiver", ["undefined"]))
-    receiver = (
-        copy.deepcopy(closure.get("lexicalReceiver"))
-        if closure.get("functionKind") == "arrow"
-        else ["ref", record["target"]]
-    )
+    from .construction_v8 import _lexical_receiver
+
+    receiver = _lexical_receiver(machine, closure, ["ref", record["target"]])
     machine["frameFunctions"][child] = closure["code"]
     machine["locals"][child + ":this"] = copy.deepcopy(receiver)
     machine["captureAliases"] = {item["binding"]: item["cell"] for item in closure["captures"]}
@@ -586,16 +584,11 @@ def apply_record(machine, record):
             _fail("self rejection lacks exact resolution intent")
         _check_cause(machine, adopter, row, adopter)
         _fresh_job(machine, error)
-        machine["heap"][error] = {
-            "kind": "object",
-            "code": None,
-            "captures": [],
-            "prototype": "ordinary",
-            "properties": {
-                "name": ["str", "TypeError"],
-                "message": ["str", "Chaining cycle detected for promise"],
-            },
-        }
+        from .intrinsic_error_v8 import allocate_intrinsic_error_v8
+
+        allocate_intrinsic_error_v8(
+            machine, error, "TypeError", "Chaining cycle detected for promise"
+        )
         error_value = ["ref", error]
         settle_promise(machine, adopter, "rejected", error_value)
         row.update(phase="self", error=error)
@@ -730,6 +723,14 @@ def validate_state(machine):
 
     rows = _rows(machine.get("jobs", []))
     ready = machine.get("ready", [])
+    for job in rows.values():
+        for callback_id in (job.get("closure"), job.get("rejectionClosure")):
+            closure = machine["heap"].get(callback_id) if callback_id is not None else None
+            capture = closure.get("callable", {}).get("lexicalConstruction") if closure else None
+            if capture is not None:
+                from .construction_v8 import _construction_capture
+
+                _construction_capture(machine, capture)
     owned_jobs = set()
     for identity, node in machine["heap"].items():
         if node.get("kind") != "promise":
@@ -837,11 +838,12 @@ def validate_state(machine):
                 if callee[0] != "ref":
                     _fail("adoption getter identity is not a closure reference")
                 closure = machine["heap"].get(callee[1])
-                receiver = (
-                    closure.get("lexicalReceiver")
-                    if closure and closure.get("functionKind") == "arrow"
-                    else ["ref", row["target"]]
-                )
+                if closure:
+                    from .construction_v8 import _lexical_receiver
+
+                    receiver = _lexical_receiver(machine, closure, ["ref", row["target"]])
+                else:
+                    receiver = ["ref", row["target"]]
                 if (
                     not closure
                     or closure.get("kind") != "closure"
@@ -849,7 +851,7 @@ def validate_state(machine):
                     or closure.get("generatorFunction")
                     or closure.get("promiseResolver")
                 ):
-                    _fail("retained adoption getter identity")
+                    _fail("retained adoption getter uses an unauthenticated constructor capture")
                 if local_owner and (
                     machine.get("frameFunctions", {}).get(child) != closure.get("code")
                     or machine.get("locals", {}).get(child + ":this") != receiver

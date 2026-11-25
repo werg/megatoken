@@ -1,0 +1,18 @@
+{
+  "passed": [
+    "getterReadOnce",
+    "bufferCoherenceAcrossCallback",
+    "synchronousThrowPreserved",
+    "reverseCompletionOrder",
+    "internalAwaitSuspends",
+    "permittedBatchingEquivalent",
+    "transcriptStoreDoesNotRepeatMockEffect",
+    "duplicateConversionDetected"
+  ],
+  "result": {
+    "answer": 47,
+    "optionReads": 1,
+    "memory": 7,
+    "caught": "fixture boom"
+  }
+}

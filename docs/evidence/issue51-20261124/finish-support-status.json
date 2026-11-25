@@ -1,0 +1,44 @@
+{
+  "schema": "issue51-support-fixture-run/1",
+  "producerRevision": "a72267e26ab7b7fc5f22134abee315fd7ed6e64b",
+  "producerRevisionAfter": "a72267e26ab7b7fc5f22134abee315fd7ed6e64b",
+  "producerTreeClean": true,
+  "consumerRevision": "b5364734da232e7ac21dda8ebeeac8121f084667",
+  "consumerRevisionAfter": "b5364734da232e7ac21dda8ebeeac8121f084667",
+  "runnerScriptSha256": "cc9efee11deeb11a7ee7010be2019f5022a007108d7e6fcd76fb9bf3d24ee15a",
+  "generatorScriptSha256": "de2d8e2a3249bf33464b99d404de522721799ceda7d76b59833b4a9376707340",
+  "command": [
+    "node",
+    "scripts/generate_protocol_support_v8.mjs",
+    "../producer-dev"
+  ],
+  "log": "finish-support-fixtures.log",
+  "logSha256": "925cbf2decf0566ade2b8cd952bdb689528bd1cecf064c0a4af26ca6295f5910",
+  "generatorExitCode": 0,
+  "exitCode": 0,
+  "seconds": 9.945,
+  "allowedGeneratedFiles": [
+    "semantic-generator-close-v8.json.gz.b64",
+    "semantic-enumeration-v8.json.gz.b64",
+    "semantic-host-recovery-v8.json.gz.b64"
+  ],
+  "changedFiles": [
+    "tests/fixtures/semantic-generator-close-v8.json.gz.b64",
+    "tests/fixtures/semantic-host-recovery-v8.json.gz.b64"
+  ],
+  "changedTrackedFiles": [
+    "tests/fixtures/semantic-generator-close-v8.json.gz.b64",
+    "tests/fixtures/semantic-host-recovery-v8.json.gz.b64"
+  ],
+  "changedUntrackedFiles": [],
+  "unexpectedChanges": [],
+  "unexpectedUntrackedPathChanges": [],
+  "untrackedBefore": [],
+  "untrackedAfter": [],
+  "generatedSupportFileSha256": {
+    "semantic-generator-close-v8.json.gz.b64": "fbe1de5f8cb3a64fc2279d3f1c278df1229faa0e21474efc7f02dee7d0d4de6d",
+    "semantic-enumeration-v8.json.gz.b64": "a8857c2b3933b4136db755b671b8e529928ee6136961eb31327771c88a48e0f1",
+    "semantic-host-recovery-v8.json.gz.b64": "1c50dd6d23c37e6c8e7aa93c9c95e1190439111f9c9b7a6ba7f0c52e324cbaa7"
+  },
+  "verificationPassed": true
+}
