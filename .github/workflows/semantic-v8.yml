@@ -22,9 +22,9 @@ concurrency:
 jobs:
   paired-v8:
     runs-on: ubuntu-24.04
-    # A slower hosted gallery run passed all 1,282 native tests at the former
-    # 45-minute cutoff. Retain every stage and individual subprocess deadline.
-    timeout-minutes: 60
+    # The 2026-11-24 paired run spent 52 minutes in the broad pytest stage
+    # before the 60-minute job limit; allow the full multi-stage gate to finish.
+    timeout-minutes: 120
     strategy:
       fail-fast: false
       matrix:
@@ -144,7 +144,7 @@ jobs:
       - name: Check independent replay and malformed restoration boundaries
         working-directory: megatoken
         run: |
-          python -m pytest -q tests/test_*v8*.py tests/test_algorithm_v7.py tests/test_protocol_properties.py tests/test_semantic_launch.py \
+          python -u -m pytest -q tests/test_*v8*.py tests/test_algorithm_v7.py tests/test_protocol_properties.py tests/test_semantic_launch.py \
             --junitxml="$RUNNER_TEMP/semantic-v8-tests.xml" 2>&1 | tee "$RUNNER_TEMP/semantic-v8-tests.log"
           python - <<'PY'
           import os, xml.etree.ElementTree as ET

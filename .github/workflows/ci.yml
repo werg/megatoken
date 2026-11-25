@@ -30,9 +30,9 @@ concurrency:
 jobs:
   cpu:
     runs-on: ubuntu-24.04
-    # The complete 3.11/3.12 suites reached 87%/83% at the former 45-minute limit.
-    # Keep the full test selection and individual subprocess limits unchanged.
-    timeout-minutes: 60
+    # The current 3.11 suite hit the 60-minute limit in the complete CPU suite.
+    # Allow the full matrix suite to finish; keep selections and subprocess limits.
+    timeout-minutes: 120
     strategy:
       fail-fast: false
       matrix:
@@ -64,7 +64,7 @@ jobs:
       - name: Verify installed V8 imports without legacy wire modules
         run: MEGATOKEN_REQUIRE_INSTALLED_WHEEL=1 python -m pytest -q tests/test_v8_entrypoints_without_legacy.py
       - name: Run the complete CPU suite
-        run: python -m pytest -q --junitxml=validation/cpu-tests.xml
+        run: python -u -m pytest -q --junitxml=validation/cpu-tests.xml
       - name: Inspect the installed CLI
         run: |
           megatoken --help

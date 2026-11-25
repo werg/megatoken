@@ -14,12 +14,15 @@ from admit_semantic_v8 import checked_revision, recheck_source_binding
 from megatoken.data.semantic_corpus_v8 import prepare_semantic_corpus_v8
 from megatoken.data.semantic_json import stable_algorithm_hash
 from megatoken.generation.codec import LING_TOKENIZER_SHA256, ByteCodec
-from megatoken.io import canonical_json
 
 
 def _write_source_recheck_artifact(path: Path, document: dict) -> None:
-    """Write JSON without converting lone JavaScript UTF-16 code units."""
-    path.write_bytes(canonical_json(document))
+    """Preserve JS property order and lone UTF-16 code units in source evidence."""
+    path.write_bytes(
+        json.dumps(document, separators=(",", ":"), ensure_ascii=True, allow_nan=False).encode(
+            "utf-8"
+        )
+    )
 
 
 def _documents(paths):
