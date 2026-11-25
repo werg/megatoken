@@ -30,9 +30,9 @@ concurrency:
 jobs:
   cpu:
     runs-on: ubuntu-24.04
-    # The current 3.11 suite hit the 60-minute limit in the complete CPU suite.
-    # Allow the full matrix suite to finish; keep selections and subprocess limits.
-    timeout-minutes: 120
+    # Run 45548931991 passed all 4630 Python 3.12 CPU tests in 1:58:31
+    # but hit the 120-minute job limit before CLI inspection. Retain every step.
+    timeout-minutes: 180
     strategy:
       fail-fast: false
       matrix:
