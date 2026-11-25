@@ -22,9 +22,9 @@ concurrency:
 jobs:
   paired-v8:
     runs-on: ubuntu-24.04
-    # The 2026-11-24 paired run spent 52 minutes in the broad pytest stage
-    # before the 60-minute job limit; allow the full multi-stage gate to finish.
-    timeout-minutes: 120
+    # Run 45532216199 reached 120 minutes before packing and lifecycle checks
+    # finished; retain every stage with room for the complete declared corpus.
+    timeout-minutes: 240
     strategy:
       fail-fast: false
       matrix:
